@@ -1,0 +1,573 @@
+    /* Switch Statement: switch (expr) { case V: ... break; default: ... } */
+    if (t == TK_SWITCH) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+        zero_cc_parse_expr(c); /* switch value in rax */
+        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+
+        /* push switch value to stack */
+        zero_cc_emit_u8(&c->text_section, 0x50); /* push rax */
+
+        if (c->tokens[c->token_pos].type == TK_LBRACE) c->token_pos++;
+
+        size_t break_patches[128];
+        size_t break_count = 0;
+        size_t next_case_patch = 0;
+        bool has_pending_case_patch = false;
+
+        while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
+            if (c->tokens[c->token_pos].type == TK_CASE) {
+                c->token_pos++;
+                int64_t case_val = 0;
+                if (c->tokens[c->token_pos].type == TK_NUM) {
+                    case_val = c->tokens[c->token_pos].num_val;
+                    c->token_pos++;
+                } else if (c->tokens[c->token_pos].type == TK_IDENT) {
+                    ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[c->token_pos].str_val);
+                    if (ec) case_val = ec->value;
+                    c->token_pos++;
+                }
+                if (c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
+
+                /* If there was a previous case check jump, patch it here */
+                if (has_pending_case_patch) {
+                    int32_t rel = (int32_t)(c->text_section.length - (next_case_patch + 4));
+                    memcpy(c->text_section.data + next_case_patch, &rel, 4);
+                }
+
+                /* cmp qword ptr [rsp], case_val */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x81);
+                zero_cc_emit_u8(&c->text_section, 0x3C);
+                zero_cc_emit_u8(&c->text_section, 0x24);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)case_val);
+
+                /* jne next_case */
+                zero_cc_emit_u8(&c->text_section, 0x0F);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                next_case_patch = c->text_section.length;
+                zero_cc_emit_u32(&c->text_section, 0);
+                has_pending_case_patch = true;
+                continue;
+            }
+
+            if (c->tokens[c->token_pos].type == TK_DEFAULT) {
+                c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
+                if (has_pending_case_patch) {
+                    int32_t rel = (int32_t)(c->text_section.length - (next_case_patch + 4));
+                    memcpy(c->text_section.data + next_case_patch, &rel, 4);
+                    has_pending_case_patch = false;
+                }
+                continue;
+            }
+
+            if (c->tokens[c->token_pos].type == TK_BREAK) {
+                c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                /* jmp switch_exit */
+                zero_cc_emit_u8(&c->text_section, 0xE9);
+                if (break_count < 128) {
+                    break_patches[break_count++] = c->text_section.length;
+                }
+                zero_cc_emit_u32(&c->text_section, 0);
+                continue;
+            }
+
+            size_t ppos = c->token_pos;
+            zero_cc_parse_stmt(c);
+            if (c->token_pos == ppos) c->token_pos++;
+        }
+
+        if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+
+        if (has_pending_case_patch) {
+            int32_t rel = (int32_t)(c->text_section.length - (next_case_patch + 4));
+            memcpy(c->text_section.data + next_case_patch, &rel, 4);
+        }
+
+        /* Back-patch break jumps */
+        for (size_t b = 0; b < break_count; b++) {
+            int32_t rel = (int32_t)(c->text_section.length - (break_patches[b] + 4));
+            memcpy(c->text_section.data + break_patches[b], &rel, 4);
+        }
+
+        /* pop switch value from stack */
+        zero_cc_emit_u8(&c->text_section, 0x58); /* pop rax */
+        return;
+    }
+
+    /* While Loop */
+    if (t == TK_WHILE) {
+        c->token_pos++;
+        size_t loop_start = c->text_section.length;
+        if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+        zero_cc_parse_expr(c);
+        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+
+        zero_cc_emit_u8(&c->text_section, 0x48);
+        zero_cc_emit_u8(&c->text_section, 0x85);
+        zero_cc_emit_u8(&c->text_section, 0xC0);
+        zero_cc_emit_u8(&c->text_section, 0x0F);
+        zero_cc_emit_u8(&c->text_section, 0x84);
+        size_t jz_pos = c->text_section.length;
+        zero_cc_emit_u32(&c->text_section, 0);
+
+        zero_cc_parse_stmt(c);
+
+        zero_cc_emit_u8(&c->text_section, 0xE9);
+        int32_t back_rel = (int32_t)(loop_start - (c->text_section.length + 4));
+        zero_cc_emit_u32(&c->text_section, (uint32_t)back_rel);
+
+        int32_t exit_rel = (int32_t)(c->text_section.length - (jz_pos + 4));
+        memcpy(c->text_section.data + jz_pos, &exit_rel, 4);
+        return;
+    }
+
+    /* Do-While Loop: do { body } while (cond); */
+    if (t == TK_DO) {
+        c->token_pos++;
+        size_t loop_start = c->text_section.length;
+        zero_cc_parse_stmt(c);
+
+        if (c->tokens[c->token_pos].type == TK_WHILE) {
+            c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+            zero_cc_parse_expr(c);
+            if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0x85); /* jnz */
+            int32_t back_rel = (int32_t)(loop_start - (c->text_section.length + 4));
+            zero_cc_emit_u32(&c->text_section, (uint32_t)back_rel);
+        }
+        return;
+    }
+
+    /* For Loop: for (init; cond; step) body */
+    if (t == TK_FOR) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+
+        /* 1. Init clause */
+        if (c->tokens[c->token_pos].type != TK_SEMI) {
+            zero_cc_parse_stmt(c);
+        } else {
+            c->token_pos++;
+        }
+
+        /* 2. Condition clause */
+        size_t cond_start = c->text_section.length;
+        bool has_cond = (c->tokens[c->token_pos].type != TK_SEMI);
+        size_t jz_pos = 0;
+        if (has_cond) {
+            zero_cc_parse_expr(c);
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0x84);
+            jz_pos = c->text_section.length;
+            zero_cc_emit_u32(&c->text_section, 0);
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+
+        /* 3. Step clause tokens */
+        size_t step_tok_start = c->token_pos;
+        int paren_depth = 1;
+        while (c->tokens[c->token_pos].type != TK_EOF && paren_depth > 0) {
+            if (c->tokens[c->token_pos].type == TK_LPAREN) paren_depth++;
+            else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                paren_depth--;
+                if (paren_depth == 0) break;
+            }
+            c->token_pos++;
+        }
+        size_t step_tok_end = c->token_pos;
+        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+
+        /* 4. Body statement */
+        zero_cc_parse_stmt(c);
+
+        /* 5. Emit Step clause */
+        if (step_tok_end > step_tok_start) {
+            size_t saved_pos = c->token_pos;
+            c->token_pos = step_tok_start;
+            zero_cc_parse_stmt(c);
+            if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            c->token_pos = saved_pos;
+        }
+
+        /* 6. Jump back to cond */
+        zero_cc_emit_u8(&c->text_section, 0xE9);
+        int32_t back_rel = (int32_t)(cond_start - (c->text_section.length + 4));
+        zero_cc_emit_u32(&c->text_section, (uint32_t)back_rel);
+
+        /* 7. Back-patch exit */
+        if (has_cond) {
+            int32_t exit_rel = (int32_t)(c->text_section.length - (jz_pos + 4));
+            memcpy(c->text_section.data + jz_pos, &exit_rel, 4);
+        }
+        return;
+    }
+
+    /* Struct Member Post-Increment / Post-Decrement: ptr->member++; or ptr->member--; */
+    if (t == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_ARROW &&
+        c->tokens[c->token_pos + 2].type == TK_IDENT &&
+        (c->tokens[c->token_pos + 3].type == TK_INC || c->tokens[c->token_pos + 3].type == TK_DEC)) {
+        char ptr_name[128];
+        snprintf(ptr_name, sizeof(ptr_name), "%s", c->tokens[c->token_pos].str_val);
+        char mem_name[128];
+        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
+        bool is_inc = (c->tokens[c->token_pos + 3].type == TK_INC);
+        c->token_pos += 4;
+
+        ZeroCCSym *sym = zero_cc_find_local(c, ptr_name);
+        if (sym) {
+            ZeroCCType *st = sym->type.base ? sym->type.base : zero_cc_find_struct(c, sym->type.struct_name);
+            if (!st) st = zero_cc_find_typedef(c, sym->type.struct_name);
+            size_t offset = 0;
+            if (st) {
+                for (size_t m = 0; m < st->member_count; m++) {
+                    if (strcmp(st->members[m].name, mem_name) == 0) {
+                        offset = st->members[m].offset;
+                        break;
+                    }
+                }
+            }
+            /* mov rcx, [rbp - sym_offset] */
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x8B);
+            zero_cc_emit_u8(&c->text_section, 0x8D);
+            zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+
+            if (is_inc) {
+                /* add qword ptr [rcx + offset], 1 */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x83);
+                zero_cc_emit_u8(&c->text_section, 0x81);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+                zero_cc_emit_u8(&c->text_section, 0x01);
+            } else {
+                /* sub qword ptr [rcx + offset], 1 */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x83);
+                zero_cc_emit_u8(&c->text_section, 0xA9);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+                zero_cc_emit_u8(&c->text_section, 0x01);
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* Variable Post-Increment / Post-Decrement: x++; or x--; */
+    if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_INC || c->tokens[c->token_pos + 1].type == TK_DEC)) {
+        char var_name[128];
+        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        bool is_inc = (c->tokens[c->token_pos + 1].type == TK_INC);
+        c->token_pos += 2;
+
+        ZeroCCSym *sym = zero_cc_find_local(c, var_name);
+        if (sym) {
+            if (is_inc) {
+                /* add qword ptr [rbp - offset], 1 */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x83);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                zero_cc_emit_u8(&c->text_section, 0x01);
+            } else {
+                /* sub qword ptr [rbp - offset], 1 */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x83);
+                zero_cc_emit_u8(&c->text_section, 0xAD);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                zero_cc_emit_u8(&c->text_section, 0x01);
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* Struct Member Array Assignment: sym.member[index] = expr; or ptr->member[index] = expr; */
+    if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_DOT || c->tokens[c->token_pos + 1].type == TK_ARROW) &&
+        c->tokens[c->token_pos + 2].type == TK_IDENT && c->tokens[c->token_pos + 3].type == TK_LBRACKET) {
+        char base_name[128];
+        snprintf(base_name, sizeof(base_name), "%s", c->tokens[c->token_pos].str_val);
+        bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
+        char mem_name[128];
+        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
+        c->token_pos += 4;
+
+        zero_cc_parse_expr(c); /* index in rax */
+        if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+
+        /* shl rax, 2 */
+        zero_cc_emit_u8(&c->text_section, 0x48);
+        zero_cc_emit_u8(&c->text_section, 0xC1);
+        zero_cc_emit_u8(&c->text_section, 0xE0);
+        zero_cc_emit_u8(&c->text_section, 0x02);
+
+        /* push scaled index */
+        zero_cc_emit_u8(&c->text_section, 0x50);
+
+        ZeroCCSym *sym = zero_cc_find_local(c, base_name);
+        size_t offset = 0;
+        if (sym) {
+            ZeroCCType *st = sym->type.base ? sym->type.base : zero_cc_find_struct(c, sym->type.struct_name);
+            if (!st) st = zero_cc_find_typedef(c, sym->type.struct_name);
+            if (st) {
+                for (size_t m = 0; m < st->member_count; m++) {
+                    if (strcmp(st->members[m].name, mem_name) == 0) {
+                        offset = st->members[m].offset;
+                        break;
+                    }
+                }
+            }
+            if (!is_arrow) {
+                /* Local struct instance: member pointer is at [rbp - (sym_offset - offset)] */
+                int32_t eff_offset = (int32_t)sym->stack_offset - (int32_t)offset;
+                /* mov rcx, [rbp - eff_offset] (loads pointer member into rcx) */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x8D);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-eff_offset));
+            } else {
+                /* Pointer to struct: arr->data[idx] */
+                /* mov rcx, [rbp - sym_offset] (base ptr) */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x8D);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+
+                /* mov rcx, [rcx + offset] (load data pointer member) */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+            }
+        }
+
+        /* pop scaled index to rax; add rax, rcx */
+        zero_cc_emit_u8(&c->text_section, 0x58);
+        zero_cc_emit_u8(&c->text_section, 0x48);
+        zero_cc_emit_u8(&c->text_section, 0x01);
+        zero_cc_emit_u8(&c->text_section, 0xC8);
+
+        /* push destination element address */
+        zero_cc_emit_u8(&c->text_section, 0x50);
+
+        if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+            c->token_pos++;
+            zero_cc_parse_expr(c); /* value in rax */
+            /* pop destination address to rcx */
+            zero_cc_emit_u8(&c->text_section, 0x59);
+            /* mov [rcx], eax */
+            zero_cc_emit_u8(&c->text_section, 0x89);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* Local Variable Array Assignment: sym[index] = expr; */
+    if (t == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LBRACKET) {
+        char var_name[128];
+        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        c->token_pos += 2;
+        zero_cc_parse_expr(c); /* index in rax */
+        if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+
+        /* shl rax, 2 */
+        zero_cc_emit_u8(&c->text_section, 0x48);
+        zero_cc_emit_u8(&c->text_section, 0xC1);
+        zero_cc_emit_u8(&c->text_section, 0xE0);
+        zero_cc_emit_u8(&c->text_section, 0x02);
+
+        ZeroCCSym *sym = zero_cc_find_local(c, var_name);
+        if (sym) {
+            /* mov rcx, [rbp - sym_offset]; add rax, rcx */
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x8B);
+            zero_cc_emit_u8(&c->text_section, 0x8D);
+            zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+            zero_cc_emit_u8(&c->text_section, 0xC8);
+        }
+
+        /* push destination address */
+        zero_cc_emit_u8(&c->text_section, 0x50);
+
+        if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+            c->token_pos++;
+            zero_cc_parse_expr(c); /* value in rax */
+            /* pop destination address to rcx */
+            zero_cc_emit_u8(&c->text_section, 0x59);
+            /* mov [rcx], eax */
+            zero_cc_emit_u8(&c->text_section, 0x89);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* Assignment to Struct Member: sym.member = expr; or ptr->member = expr; */
+    if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_ARROW || c->tokens[c->token_pos + 1].type == TK_DOT)) {
+        char ptr_name[128];
+        snprintf(ptr_name, sizeof(ptr_name), "%s", c->tokens[c->token_pos].str_val);
+        bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
+        c->token_pos += 2;
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            char mem_name[128];
+            snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+
+            size_t arr_index_expr = 0;
+            bool member_has_idx = false;
+            if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                member_has_idx = true;
+                c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_NUM) {
+                    arr_index_expr = (size_t)c->tokens[c->token_pos].num_val;
+                    c->token_pos++;
+                }
+                if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+            }
+
+            ZeroCCTokType assign_op = c->tokens[c->token_pos].type;
+            if (assign_op == TK_ASSIGN || assign_op == TK_ADD_ASSIGN || assign_op == TK_SUB_ASSIGN ||
+                assign_op == TK_MUL_ASSIGN || assign_op == TK_DIV_ASSIGN) {
+                c->token_pos++;
+                zero_cc_parse_expr(c); /* value in rax */
+
+                ZeroCCSym *sym = zero_cc_find_local(c, ptr_name);
+                if (sym) {
+                    ZeroCCType *st = NULL;
+                    if (sym->type.tag == TYPE_STRUCT) st = &sym->type;
+                    else if (sym->type.tag == TYPE_PTR && sym->type.base) st = sym->type.base;
+                    if (!st) st = zero_cc_find_struct(c, sym->type.struct_name);
+                    if (!st) st = zero_cc_find_typedef(c, sym->type.struct_name);
+                    size_t offset = 0;
+                    if (st) {
+                        for (size_t m = 0; m < st->member_count; m++) {
+                            if (strcmp(st->members[m].name, mem_name) == 0) {
+                                offset = st->members[m].offset;
+                                break;
+                            }
+                        }
+                    }
+                    if (member_has_idx) {
+                        offset += (arr_index_expr * 4); /* 4-byte scalar scaling */
+                    }
+
+                    if (!is_arrow) {
+                        /* Direct local struct offset: [rbp - (sym_offset - offset)] */
+                        int32_t eff_offset = (int32_t)sym->stack_offset - (int32_t)offset;
+                        if (assign_op == TK_ADD_ASSIGN) {
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x01);
+                            zero_cc_emit_u8(&c->text_section, 0x85);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)(-eff_offset));
+                        } else if (assign_op == TK_SUB_ASSIGN) {
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x29);
+                            zero_cc_emit_u8(&c->text_section, 0x85);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)(-eff_offset));
+                        } else {
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x89);
+                            zero_cc_emit_u8(&c->text_section, 0x85);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)(-eff_offset));
+                        }
+                    } else {
+                        /* mov rcx, [rbp - sym_offset] (base ptr in rcx) */
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x8B);
+                        zero_cc_emit_u8(&c->text_section, 0x8D);
+                        zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+
+                        if (assign_op == TK_ADD_ASSIGN) {
+                            /* add [rcx + offset], rax */
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x01);
+                            zero_cc_emit_u8(&c->text_section, 0x81);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+                        } else if (assign_op == TK_SUB_ASSIGN) {
+                            /* sub [rcx + offset], rax */
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x29);
+                            zero_cc_emit_u8(&c->text_section, 0x81);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+                        } else {
+                            /* mov [rcx + offset], rax */
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0x89);
+                            zero_cc_emit_u8(&c->text_section, 0x81);
+                            zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+                        }
+                    }
+                }
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* Variable Assignment: x = expr; or x += expr; or x -= expr; */
+    if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_ADD_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_SUB_ASSIGN)) {
+        char var_name[128];
+        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        ZeroCCTokType aop = c->tokens[c->token_pos + 1].type;
+        c->token_pos += 2;
+        zero_cc_parse_expr(c);
+
+        ZeroCCSym *sym = zero_cc_find_local(c, var_name);
+        if (sym) {
+            if (aop == TK_ADD_ASSIGN) {
+                /* add [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x01);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_SUB_ASSIGN) {
+                /* sub [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x29);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else {
+                /* mov [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                if (sym->type.tag == TYPE_STRUCT && sym->type.size > 8) {
+                    /* mov [rbp - (sym_offset - 8)], rdx */
+                    int32_t off2 = (int32_t)sym->stack_offset - 8;
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x89);
+                    zero_cc_emit_u8(&c->text_section, 0x95);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-off2));
+                }
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
+    /* General Expression Statement */
+    zero_cc_parse_expr(c);
+    if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+}
+
+#endif /* ZERO_CC_STATEMENTS_H */
+
