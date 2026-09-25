@@ -68,6 +68,21 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             ty = zero_cc_type_int64();
             c->token_pos++;
         }
+    } else if (c->tokens[c->token_pos].type == TK_VOID) {
+        ty = zero_cc_type_void();
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) {
+        ty = zero_cc_type_float();
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
+        ty = zero_cc_type_double();
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_BOOL_KW) {
+        ty = zero_cc_type_bool();
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_SHORT) {
+        ty = zero_cc_type_int16();
+        c->token_pos++;
     } else if (c->tokens[c->token_pos].type == TK_INT) {
         ty = zero_cc_type_int();
         c->token_pos++;
@@ -227,13 +242,19 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
 
-        /* 1. Evaluate controlling expression's type */
-        size_t save_text_len = c->text_section.length;
-        c->last_expr_is_float = 0;
-        zero_cc_parse_expr(c);
-        bool ctrl_is_float = c->last_expr_is_float;
-        /* Discard generated code for controlling expression since _Generic is pure compile-time selection */
-        c->text_section.length = save_text_len;
+        /* 1. Save token position before parsing controlling expression */
+        size_t ctrl_pos = c->token_pos;
+        ZeroCCType ctrl_ty = zero_cc_type_of_equality(c, &ctrl_pos);
+        c->token_pos = ctrl_pos;
+
+        /* Strip qualifiers */
+        ctrl_ty = zero_cc_type_strip_qualifiers(ctrl_ty);
+        /* Array-to-pointer decay */
+        if (ctrl_ty.tag == TYPE_ARRAY) {
+            ctrl_ty = zero_cc_type_ptr(&ctrl_ty);
+        }
+        /* Function-to-pointer decay (if needed) */
+        // TODO: if (ctrl_ty.tag == TYPE_FUNC) { ctrl_ty = zero_cc_type_ptr(&ctrl_ty); }
 
         if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
 
@@ -260,24 +281,22 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                     c->token_pos++;
                 }
             } else {
-                /* Type association: match type against controlling expression type */
-                ZeroCCTokType assoc_tok = c->tokens[c->token_pos].type;
-                c->token_pos++;
-                while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
-                if (c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
-
-                bool is_match = false;
-                if (ctrl_is_float && (assoc_tok == TK_FLOAT_KW || assoc_tok == TK_DOUBLE_KW)) {
-                    is_match = true;
-                } else if (!ctrl_is_float && (assoc_tok == TK_INT || assoc_tok == TK_CHAR || assoc_tok == TK_LONG || assoc_tok == TK_SHORT || assoc_tok == TK_BOOL_KW || assoc_tok == TK_IDENT)) {
-                    is_match = true;
+                /* Type association: parse association type */
+                ZeroCCType assoc_ty = zero_cc_parse_type_name(c);
+                // after parsing type, c->token_pos is after the type tokens
+                if (c->tokens[c->token_pos].type == TK_COLON) {
+                    c->token_pos++;
+                } else {
+                    // error, but assume well-formed
                 }
+                /* Strip qualifiers from association type (ignored in generic selection) */
+                assoc_ty = zero_cc_type_strip_qualifiers(assoc_ty);
 
-                if (is_match && !matched) {
+                if (zero_cc_types_compatible(ctrl_ty, assoc_ty)) {
                     matched = true;
                     zero_cc_parse_expr(c);
                 } else {
-                    /* Skip non-matching branch tokens */
+                    /* Skip expression */
                     int paren_depth = 0;
                     while (c->tokens[c->token_pos].type != TK_EOF) {
                         ZeroCCTokType tt = c->tokens[c->token_pos].type;
@@ -462,6 +481,13 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
 
         /* Local Variable Access & Struct Pointer De-referencing (ptr->member) */
         ZeroCCSym *sym = zero_cc_find_local(c, name);
+        if (!sym) {
+            void *tls_handle = zero_cc_find_tls(c, name);
+            if (tls_handle) {
+                c->tls_backend->emit_load(c, tls_handle);
+                return;
+            }
+        }
         if (sym) {
             bool sym_is_direct_struct = (sym->type.tag == TYPE_STRUCT);
             if (sym_is_direct_struct) {

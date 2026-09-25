@@ -143,8 +143,7 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 - Flag stored in `ZeroCCFunction.noreturn`
 
 **Milestone 5 – `_Thread_local`**
-- `_Thread_local` parsed as storage class specifier; for freestanding/JIT implemented as static alias
-- Documented as static alias; real TLS deferred
+- Implemented as a static‑alias storage: tokenizer, parser and code‑generation now handle top‑level `_Thread_local` declarations and reads (no mutable or address‑of support yet).
 
 **Milestone 6 – `_Generic`**
 - Primary expression parser handles `_Generic` with type-only evaluation of controlling expression
@@ -158,11 +157,29 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 
 ### Known Limitations
 
-- `_Atomic` types are supported for JIT execution with self-hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.
-- `_Thread_local` is a static alias in this freestanding/JIT implementation.
+- `_Atomic` types are supported for JIT execution with self‑hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.
 - `_Generic` provides simplified type matching; full C11 generic selection compatibility rules are not yet implemented.
+- `_Thread_local` is implemented as a static alias; mutable writes and address‑of (`&`) are not supported.
+- **Pluggable backend architecture** – the compiler now isolates TLS handling, code‑generation, symbol resolution, allocation, and OS‑specific emission behind small callback tables.  This makes it easy to add new ISAs (e.g. RISC‑V), alternative TLS implementations (pthread, Windows TLS), custom allocators, or bare‑metal object emitters without touching the front‑end.  See the **Backend Documentation** section below.
 
-Semantic analysis for these features is currently a work in progress. The tokenizer correctly recognizes these keywords and returns the appropriate token types, enabling further implementation in the parser and expression evaluator.
+### Backend Documentation
+
+- **TLS Backends** – detailed guide on adding custom thread‑local storage implementations: [TLS_BACKENDS.md](TLS_BACKENDS.md)
+- **General Backend Architecture** – overview of the code‑generation, symbol, allocation, and OS backends (also documented in the source headers).
+
+## License
+
+Zero_cc is released under the MIT License. See the `LICENSE` file for details.
+
+## Acknowledgements
+
+This code was extracted from the [zero.h](https://github.com/earendil-works/zero.h) project and adapted to be a standalone, embeddable compiler.
+
+- `_Atomic` types are supported for JIT execution with self-hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.
+- `_Generic` provides simplified type matching; full C11 generic selection compatibility rules are not yet implemented.
+- `_Thread_local` is implemented as a static alias; mutable writes and address‑of (`&`) are not supported.
+
+Most of these features are implemented in the parser and expression evaluator, with full semantic analysis and a complete C11-compliant type system being a work in progress.
 
 To add support for a new feature:
 

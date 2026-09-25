@@ -2,6 +2,7 @@
 #ifndef ZERO_CC_JIT_LINKER_H
 #define ZERO_CC_JIT_LINKER_H
 
+
 static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
@@ -188,6 +189,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     c->function_count = 0;
     c->reloc_count = 0;
     zero_cc_init_standard_types(c);
+    c->thread_local_count = 0;
+    /* Initialise default TLS backend */
+    zero_cc_set_tls_backend(c, NULL);
 
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
         if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
@@ -198,6 +202,37 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         if (c->tokens[c->token_pos].type == TK_STATIC_ASSERT) {
             zero_cc_parse_stmt(c);
             if (c->had_error) break;
+            continue;
+        }
+
+        /* Thread‑local variable handling via backend */
+        if (c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
+            // Skip the _Thread_local token
+            c->token_pos++;
+            // Parse the type (may include pointers, etc.)
+            ZeroCCType vtype = zero_cc_parse_type_name(c);
+            // Expect identifier
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                char var_name[128];
+                snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                int64_t init_val = 0;
+                // Optional initializer
+                if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                    c->token_pos++;
+                    init_val = zero_cc_eval_const_expr(c);
+                }
+                // Consume trailing semicolon
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                // Register via TLS backend
+                if (c->tls_backend) {
+                    c->tls_backend->declare(c, var_name, &vtype, init_val);
+                }
+            } else {
+                // Syntax error: skip until semicolon
+                while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            }
             continue;
         }
 

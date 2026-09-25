@@ -3,6 +3,7 @@
  *  -------------------------------------------------------------------------- */
 
 #include "core.h"
+#include "zero_cc_backends.h"
 #ifndef ZERO_CC_TYPES_LEXER_H
 #define ZERO_CC_TYPES_LEXER_H
 
@@ -86,6 +87,8 @@ typedef struct ZeroCCType {
     size_t array_len;                     /* For ARRAY */
     ZeroCCStructMember members[64];       /* For STRUCT */
     bool is_atomic;                       /* For _Atomic */
+    bool is_const;
+    bool is_volatile;
 
     size_t member_count;
 } ZeroCCType;
@@ -173,6 +176,15 @@ typedef struct {
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */
     ZeroCCBuffer data_section;            /* Initialized globals (.data) */
+    // Thread‑local (static alias) storage – per compiler instance
+    struct {
+        char name[128];
+        int64_t value;
+        ZeroCCType type;
+    } thread_locals[64];
+    size_t thread_local_count;
+    /* Backend pointers */
+    const ZeroCCTLSBackend *tls_backend;
     int had_error;
     char error_msg[256];
 } ZeroCCCompiler;
@@ -255,12 +267,25 @@ static inline ZeroCCType zero_cc_type_user(int user_idx, size_t size, size_t ali
 static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_PTR; t.size = 8; t.align = 8;
-    t.base = base;
+    if (base) {
+        ZeroCCType *heap_base = (ZeroCCType *)malloc(sizeof(ZeroCCType));
+        *heap_base = *base;
+        t.base = heap_base;
+    } else {
+        t.base = NULL;
+    }
     return t;
 }
 
 static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
     ZeroCCType t; memset(&t, 0, sizeof(t)); t.tag = TYPE_ARRAY; t.base = base; t.array_len = length; if (length > 0) { t.size = base->size * length; } else { t.size = 0; } t.align = base->align; return t;
+}
+
+static inline ZeroCCType zero_cc_type_strip_qualifiers(ZeroCCType ty) {
+    ty.is_const = false;
+    ty.is_volatile = false;
+    ty.is_atomic = false;
+    return ty;
 }
 
 /* Struct Registry */
@@ -714,6 +739,16 @@ static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name)
     return NULL;
 }
 
+/* Find a thread‑local variable by name. Returns the opaque handle used by the TLS backend, or NULL if not found. */
+static inline void *zero_cc_find_tls(ZeroCCCompiler *c, const char *name) {
+    for (size_t i = 0; i < c->thread_local_count; i++) {
+        if (strcmp(c->thread_locals[i].name, name) == 0) {
+            return &c->thread_locals[i];
+        }
+    }
+    return NULL;
+}
+
 static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
     if (c->local_count >= ZERO_CC_MAX_LOCALS) return NULL;
     ZeroCCSym *sym = &c->locals[c->local_count++];
@@ -756,6 +791,41 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
     (void)name;
     return NULL;
 #endif
+}
+
+static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
+    a = zero_cc_type_strip_qualifiers(a);
+    b = zero_cc_type_strip_qualifiers(b);
+    if (a.tag != b.tag) return 0;
+    switch (a.tag) {
+        case TYPE_VOID:
+        case TYPE_BOOL:
+        case TYPE_INT8:
+        case TYPE_UINT8:
+        case TYPE_INT16:
+        case TYPE_UINT16:
+        case TYPE_INT32:
+        case TYPE_UINT32:
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_NULLPTR:
+            return 1;
+        case TYPE_PTR:
+            /* If either base pointer is NULL or TYPE_VOID, treat as compatible with any object pointer */
+            if (!a.base || !b.base || a.base->tag == TYPE_VOID || b.base->tag == TYPE_VOID) {
+                return 1;
+            }
+            return zero_cc_types_compatible(*a.base, *b.base);
+        case TYPE_ARRAY:
+            if (!a.base || !b.base) return 1;
+            return zero_cc_types_compatible(*a.base, *b.base) && a.array_len == b.array_len;
+        case TYPE_STRUCT:
+            return strcmp(a.struct_name, b.struct_name) == 0;
+        default:
+            return 0;
+    }
 }
 
 #endif /* ZERO_CC_TYPES_LEXER_H */

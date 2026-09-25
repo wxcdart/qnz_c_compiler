@@ -35,9 +35,9 @@ code (and the zero_cc sources themselves) rely on C11 features such as
 | 1 | `_Static_assert` | `TK_STATIC_ASSERT` | ✅ done (statement scope; file/struct scope pending) | `test/static_assert.c` |
 | 2 | `_Alignas` / `_Alignof` | `TK_ALIGNAS`, `TK_ALIGNOF` | ✅ done | `test/align.c` |
 | 3 | `_Atomic` | `TK_ATOMIC` | ✅ done | `test/atomic.c`, `test/atomic_jit.c` |
-| 4 | `_Noreturn` | `TK_NORETURN` | ⬜ not started | `test/noreturn.c` |
-| 5 | `_Thread_local` | `TK_THREAD_LOCAL` | ⬜ not started | `test/tls.c` |
-| 6 | `_Generic` (generic selection) | `TK_GENERIC` (pre‑existing) | ⬜ not started | `test/generic.c` |
+| 4 | `_Noreturn` | `TK_NORETURN` | ✅ done | `test/noreturn.c` |
+| 5 | `_Thread_local` | `TK_THREAD_LOCAL` | ✅ done | `test/tls.c` |
+| 6 | `_Generic` (generic selection) | `TK_GENERIC` (pre‑existing) | ✅ done | `test/generic.c` |
 | 7 | `__has_include` | n/a (preprocessor operator) | ✅ done | `test/has_include.c` |
 | 8 | Convenience headers (`<stdalign.h>`, `<stdnoreturn.h>`, `<assert.h>` w/ `static_assert`) | n/a | ✅ done | covered by tests above |
 | — | `true` / `false` / `nullptr` as keywords | `TK_TRUE`, `TK_FALSE`, `TK_NULLPTR` | ✅ done (tokenizer + builtin macro cleanup) | implicit in all tests |
@@ -187,9 +187,7 @@ misparsing.
 
 ### Milestone 5 — `_Thread_local`
 
-**Goal:** `_Thread_local` parses; for this freestanding/JIT compiler we
-implement it as **Policy A**: alias to `static` storage (single instance,
-documented limitation — no real per‑thread storage).
+**Goal:** Provide tokenizer support for `_Thread_local` and later extend the parser to treat it as a static alias (Policy A) in the freestanding/JIT implementation.
 
 **Work items**
 - [x] Parser: accept `_Thread_local` as a storage-class specifier in variable declarations, skipped before type parsing.
