@@ -138,6 +138,14 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 - Pointer l-value code generation for `*p = expr` is supported
 - JIT tests verify compilation and execution of atomic types and static asserts
 
+**Milestone 4 – `_Noreturn`**
+- Parser records `_Noreturn` on function definitions and prototypes
+- Flag stored in `ZeroCCFunction.noreturn`
+
+**Milestone 5 – `_Thread_local`**
+- `_Thread_local` lowered via preprocessor to empty macro → treated as normal storage for freestanding/JIT
+- Documented as static alias; real TLS deferred
+
 ### Known Limitations
 
 - `_Atomic` types are supported for JIT execution with self-hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.

@@ -388,6 +388,7 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELEASE", "3");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQ_REL", "4");
+    zero_cc_cpp_define_obj(cpp, "_Thread_local", "");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
     zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");

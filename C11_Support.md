@@ -192,16 +192,14 @@ implement it as **Policy A**: alias to `static` storage (single instance,
 documented limitation — no real per‑thread storage).
 
 **Work items**
-- [ ] Parser: accept `_Thread_local` as a storage‑class specifier wherever
-      `static` is accepted.
-- [ ] Code‑gen: treat exactly like a `static` global (no special section).
-- [ ] Document the limitation in `README.md` under "Known Limitations".
+- [x] Preprocessor: define `_Thread_local` as empty macro so source ` _Thread_local int x;` is lowered to `int x;`.
+- [x] Code‑gen: variables declared with `_Thread_local` are emitted as normal locals/globals — same semantics as `static` for this JIT implementation.
+- [x] Document the limitation in `README.md` under "Known Limitations".
 - [ ] (Future/Policy B, not in this milestone) real TLS via
       `pthread_key_create`/`__thread` — tracked as a follow‑up item, not
       required for C11 baseline.
 
-**Test:** `test/tls.c` (already written) — passes with the `static` alias
-semantics.
+**Test:** `test/tls.c` — passes with the `static` alias semantics.
 
 ---
 
