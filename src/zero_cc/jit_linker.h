@@ -90,7 +90,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
 
     if (c->tokens[c->token_pos].type == TK_SEMI) {
-        /* Function prototype declaration: do not emit prologue */
+        /* Function prototype declaration: record prototype, no code emit */
+        if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+            ZeroCCFunction *fn = &c->functions[c->function_count++];
+            snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
+            fn->text_offset = 0;
+            fn->param_count = param_count;
+            fn->return_type = fn_ret_type;
+            fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT);
+            fn->ret_struct_sz = fn_ret_type.size;
+            fn->is_variadic = is_variadic_fn;
+            fn->noreturn = fn_noreturn;
+        }
         c->token_pos++;
         return;
     }
