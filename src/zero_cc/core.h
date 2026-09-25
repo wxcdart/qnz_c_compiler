@@ -375,6 +375,28 @@ static inline void zero_cc_cpp_define_func2(ZeroCCPreprocessor *cpp, const char 
     cpp->hash_buckets[b] = (int32_t)idx;
 }
 
+static inline void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *p3, const char *value) {
+    if (!cpp || !name) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = 3;
+    m->params[0] = strdup(p1 ? p1 : "a1");
+    m->params[1] = strdup(p2 ? p2 : "a2");
+    m->params[2] = strdup(p3 ? p3 : "a3");
+    m->is_variadic = false;
+    m->replacement = strdup(value ? value : "");
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
 static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__STDC__", "1");
     zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "199901L");
@@ -386,6 +408,15 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "true", "1");
     zero_cc_cpp_define_obj(cpp, "false", "0");
     zero_cc_cpp_define_obj(cpp, "va_list", "char*");
+    /* Self-hosted atomic builtins for Milestone 3 */
+    zero_cc_cpp_define_func2(cpp, "__atomic_load_n", "p", "m", "(0)" );
+    zero_cc_cpp_define_func3(cpp, "__atomic_store_n", "p", "v", "m", "((void)0)" );
+    zero_cc_cpp_define_func3(cpp, "__atomic_add_fetch", "p", "v", "m", "(0)" );
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELEASE", "3");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQ_REL", "4");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
     zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");

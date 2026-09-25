@@ -1119,6 +1119,27 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         return;
     }
 
+    /* Pointer Dereference Assignment: *p = expr; */
+    if (t == TK_STAR && c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_ASSIGN) {
+        char var_name[128];
+        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos + 1].str_val);
+        c->token_pos += 3;
+        zero_cc_parse_expr(c);
+        ZeroCCSym *sym = zero_cc_find_local(c, var_name);
+        if (sym) {
+            /* mov rcx, [rbp - offset]  ; load pointer value */
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x8B);
+            zero_cc_emit_u8(&c->text_section, 0x8D);
+            zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            /* mov [rcx], eax */
+            zero_cc_emit_u8(&c->text_section, 0x89);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
     /* Variable Assignment: x = expr; or x += expr; or x -= expr; */
     if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_ASSIGN ||
                           c->tokens[c->token_pos + 1].type == TK_ADD_ASSIGN ||

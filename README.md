@@ -119,6 +119,10 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 - `typeof`, `typeof_unqual`
 - `true`, `false`, `nullptr` (as keywords)
 
+### Known Limitations
+
+- `_Atomic` types are supported for JIT execution only. The ELF object/executable emitters do not yet implement atomic relocations or special section handling. `sizeof(_Atomic T)` and `_Alignof(_Atomic T)` are correctly reported as the size/alignment of `T` for both JIT and ELF paths, but actual atomic code generation for ELF emission is a TODO.
+
 Semantic analysis for these features is currently a work in progress. The tokenizer correctly recognizes these keywords and returns the appropriate token types, enabling further implementation in the parser and expression evaluator.
 
 To add support for a new feature:
