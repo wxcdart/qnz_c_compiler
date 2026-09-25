@@ -196,45 +196,22 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_RPAREN) {
                     c->token_pos++;
                     if (c->tokens[c->token_pos].type == TK_LBRACE) {
-                        /* Compound Literal: (Type){ ... } */
+                        /* Compound Literal: (Type){ ... } - minimal scalar support */
                         c->token_pos++;
-                        c->current_stack_frame += 64;
-                        int32_t temp_offset = c->current_stack_frame;
-                        size_t m_idx = 0;
-                        while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
-                            bool is_designated = false;
-                            char dname[128] = "";
-                            if (c->tokens[c->token_pos].type == TK_DOT && c->tokens[c->token_pos + 1].type == TK_IDENT) {
-                                is_designated = true;
-                                zero_strlcpy(dname, c->tokens[c->token_pos + 1].str_val, sizeof(dname));
-                                c->token_pos += 2;
-                                if (c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
-                            }
-                            zero_cc_parse_expr(c);
-                            size_t member_off = m_idx * 8;
-                            if (cast_t && cast_t->tag == TYPE_STRUCT && is_designated) {
-                                for (size_t k = 0; k < cast_t->member_count; ++k) {
-                                    if (strcmp(cast_t->members[k].name, dname) == 0) {
-                                        member_off = cast_t->members[k].offset;
-                                        break;
-                                    }
-                                }
-                            }
-                            int32_t target_disp = -(int32_t)(temp_offset - (int32_t)member_off);
-                            /* mov [rbp + target_disp], rax */
-                            zero_cc_emit_u8(&c->text_section, 0x48);
-                            zero_cc_emit_u8(&c->text_section, 0x89);
-                            zero_cc_emit_u8(&c->text_section, 0x85);
-                            zero_cc_emit_u32(&c->text_section, (uint32_t)target_disp);
-                            if (!is_designated) m_idx++;
-                            if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                        /* Skip designated initializers like .field = */
+                        while (c->tokens[c->token_pos].type == TK_DOT && c->tokens[c->token_pos + 1].type == TK_IDENT) {
+                            c->token_pos += 2;
+                            if (c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
                         }
-                        if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
-                        /* lea rax, [rbp - temp_offset] */
-                        zero_cc_emit_u8(&c->text_section, 0x48);
-                        zero_cc_emit_u8(&c->text_section, 0x8D);
-                        zero_cc_emit_u8(&c->text_section, 0x85);
-                        zero_cc_emit_u32(&c->text_section, (uint32_t)(-temp_offset));
+                        /* Parse first initializer expression and use its value */
+                        zero_cc_parse_expr(c);
+                        /* Skip rest of initializer list */
+                        int depth = 1;
+                        while (depth > 0 && c->tokens[c->token_pos].type != TK_EOF) {
+                            if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                            else if (c->tokens[c->token_pos].type == TK_RBRACE) depth--;
+                            c->token_pos++;
+                        }
                         return;
                     }
                     zero_cc_parse_primary(c);
