@@ -333,9 +333,9 @@ Zero_cc already ships several GNU C extensions used by existing tests. These are
 | G5 | `__builtin_va_start` / `__builtin_va_arg` / `__builtin_va_end` | ✅ done | Self-hosted macros |
 | G6 | `__attribute__` variadic forms | ✅ done | Macro defined as empty |
 | G7 | `__restrict` / `__restrict__` | ✅ done | Object macros |
-| G8 | Compound literals | ⬜ not started | |
-| G9 | `__asm__` / inline asm | ⬜ not started | |
-| G10 | `__builtin_memcpy` / other builtins | ⬜ not started | |
+| G8 | Compound literals | ✅ done | Basic scalar support via existing parser |
+| G9 | `__asm__` / inline asm | ✅ done | Statement parser skips `__asm__` constructs |
+| G10 | `__builtin_memcpy` / other builtins | ✅ done | Self-hosted macro mapping to libc |
 
 GNU extensions are maintained in `core.h` builtin macros and the parser; they are not part of the C11 baseline but are required for self-hosting the compiler.
 

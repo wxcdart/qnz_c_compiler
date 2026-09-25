@@ -431,6 +431,8 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__inline", "inline");
     zero_cc_cpp_define_obj(cpp, "__volatile__", "");
     zero_cc_cpp_define_obj(cpp, "volatile", "");
+    zero_cc_cpp_define_func3(cpp, "__builtin_memcpy", "dest", "src", "n", "memcpy(dest, src, n)");
+    zero_cc_cpp_define_func1(cpp, "__builtin_memset", "s", "memset(s, 0, 0)");
 #if defined(ZERO_CC_TARGET_X86_64)
     zero_cc_cpp_define_obj(cpp, "__x86_64__", "1");
     zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
