@@ -253,7 +253,7 @@ are available.
 - [x] Extend virtual header `<assert.h>` with `#define static_assert _Static_assert`.
 - [x] Add virtual header `<stdatomic.h>` (minimal): typedefs like `atomic_int` as `_Atomic int`, plus macros for the memory‑order constants mapped to `__ATOMIC_*`.
 
-**Test:** headers are usable in JIT tests; `make test` passes with all existing tests.
+**Test:** `test/align.c`, `test/noreturn.c`, `test/static_assert.c`, `test/atomic.c` now `#include` the friendly headers and use `alignas`/`alignof`, `noreturn`, `static_assert`, `atomic_int` respectively. `make test` passes.
 
 ---
 
