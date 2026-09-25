@@ -318,7 +318,26 @@ C11 support is considered "baseline complete" when:
 
 ---
 
-## 5. Out of Scope (tracked separately, not required for C11 baseline)
+## 5. GNU11 Extensions Track
+
+Zero_cc already ships several GNU C extensions used by existing tests. These are tracked separately from the C11 baseline to avoid scope creep:
+
+| # | GNU Feature | Status | Notes |
+|---|-------------|--------|-------|
+| G1 | Statement expressions `({ ... })` | ✅ done | Supported via parser and codegen |
+| G2 | `__attribute__((...))` / `__attribute__` | ✅ done | Parsed as no-op, builtin macro defined |
+| G3 | `__extension__` | ✅ done | Preprocessor no-op macro |
+| G4 | `__typeof__` / `typeof` | ✅ done | Tokenizer + type-only parser |
+| G5 | `__builtin_va_start` / `__builtin_va_arg` / `__builtin_va_end` | ✅ done | Self-hosted macros |
+| G6 | `__attribute__` variadic forms | ✅ done | Macro defined as empty |
+| G7 | `__restrict` / `__restrict__` | ✅ done | Object macros |
+| G8 | Compound literals | ⬜ not started | |
+| G9 | `__asm__` / inline asm | ⬜ not started | |
+| G10 | `__builtin_memcpy` / other builtins | ⬜ not started | |
+
+GNU extensions are maintained in `core.h` builtin macros and the parser; they are not part of the C11 baseline but are required for self-hosting the compiler.
+
+## 6. Out of Scope (tracked separately, not required for C11 baseline)
 
 - Full C23 feature set (`typeof`/`typeof_unqual` semantics, `#embed`,
   `__VA_OPT__`, UTF‑8 identifiers, `_BitInt(N)`).
