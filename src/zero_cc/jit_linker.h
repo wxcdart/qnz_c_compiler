@@ -37,6 +37,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
         fn_ret_type = zero_cc_type_ptr(NULL);
         c->token_pos++;
     }
+    /* Skip _Noreturn that may appear after return type */
+    while (c->tokens[c->token_pos].type == TK_NORETURN) {
+        fn_noreturn = true;
+        c->token_pos++;
+    }
 
     if (c->tokens[c->token_pos].type != TK_IDENT) return;
     char fn_name[128];
