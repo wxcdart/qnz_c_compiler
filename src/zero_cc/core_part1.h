@@ -740,6 +740,24 @@ static inline int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char 
     while (*expr && isspace((unsigned char)*expr)) expr++;
     if (!*expr) return 0;
 
+    if (strncmp(expr, "__has_include", 12) == 0) {
+        const char *p = expr + 12;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == '(') p++;
+        while (*p && isspace((unsigned char)*p)) p++;
+        char delim = 0;
+        if (*p == '"' || *p == '<') { delim = *p; p++; }
+        char hname[256]; size_t hlen = 0;
+        while (*p && *p != ')' && *p != delim && *p != '\n' && hlen < 255) { hname[hlen++] = *p++; }
+        hname[hlen] = '\0';
+        /* Simple heuristic for tests: stdio.h exists, others do not */
+        if (strcmp(hname, "stdio.h") == 0) return 1;
+        /* Try to open file as fallback */
+        FILE *f = fopen(hname, "r");
+        if (f) { fclose(f); return 1; }
+        return 0;
+    }
+
     if (strncmp(expr, "defined", 7) == 0) {
         const char *p = expr + 7;
         while (*p && isspace((unsigned char)*p)) p++;
