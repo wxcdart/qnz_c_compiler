@@ -247,14 +247,12 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
 
-        /* 1. Evaluate controlling expression's type */
-        size_t save_text_len = c->text_section.length;
-        c->last_expr_is_float = 0;
-        zero_cc_parse_expr(c);
-        bool ctrl_is_float = c->last_expr_is_float;
-        /* Discard generated code for controlling expression since _Generic is pure compile-time selection */
-        c->text_section.length = save_text_len;
-
+        /* 1. Get controlling expression's type via type-only parser */
+        size_t ctrl_pos = c->token_pos;
+        ZeroCCType ctrl_type = zero_cc_type_of_equality(c, &ctrl_pos);
+        bool ctrl_is_float = ctrl_type.tag == TYPE_DOUBLE || ctrl_type.tag == TYPE_FLOAT;
+        bool ctrl_is_ptr = ctrl_type.tag == TYPE_PTR;
+        c->token_pos = ctrl_pos;
         if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
 
         /* 2. Scan association list */
@@ -283,13 +281,16 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                 /* Type association: match type against controlling expression type */
                 ZeroCCTokType assoc_tok = c->tokens[c->token_pos].type;
                 c->token_pos++;
-                while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                bool assoc_is_ptr = false;
+                while (c->tokens[c->token_pos].type == TK_STAR) { assoc_is_ptr = true; c->token_pos++; }
                 if (c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
 
                 bool is_match = false;
                 if (ctrl_is_float && (assoc_tok == TK_FLOAT_KW || assoc_tok == TK_DOUBLE_KW)) {
                     is_match = true;
-                } else if (!ctrl_is_float && (assoc_tok == TK_INT || assoc_tok == TK_CHAR || assoc_tok == TK_LONG || assoc_tok == TK_SHORT || assoc_tok == TK_BOOL_KW || assoc_tok == TK_IDENT)) {
+                } else if (ctrl_is_ptr && assoc_is_ptr && assoc_tok == TK_VOID) {
+                    is_match = true;
+                } else if (!ctrl_is_float && !ctrl_is_ptr && (assoc_tok == TK_INT || assoc_tok == TK_CHAR || assoc_tok == TK_LONG || assoc_tok == TK_SHORT || assoc_tok == TK_BOOL_KW || assoc_tok == TK_IDENT)) {
                     is_match = true;
                 }
 
