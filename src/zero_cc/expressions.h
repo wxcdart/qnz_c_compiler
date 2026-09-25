@@ -1429,6 +1429,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_LONG) { (*pos)++; return zero_cc_type_int64(); }
     if (t == TK_SIGNED) { (*pos)++; return zero_cc_type_int(); }
     if (t == TK_UNSIGNED) { (*pos)++; return zero_cc_type_uint32(); }
+    if (t == TK_ATOMIC) { (*pos)++; if (c->tokens[*pos].type == TK_LPAREN) { (*pos)++; } ZeroCCType ty = zero_cc_type_of_primary(c, pos); if (c->tokens[*pos].type == TK_RPAREN) (*pos)++; ty.is_atomic = true; return ty; }
     if (t == TK_LPAREN) {
         (*pos)++;
         /* Could be cast or parenthesized expression */
@@ -1436,7 +1437,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         ZeroCCTokType next = c->tokens[*pos].type;
         if (next == TK_IDENT || next == TK_INT || next == TK_CHAR || next == TK_VOID ||
             next == TK_FLOAT_KW || next == TK_DOUBLE_KW || next == TK_BOOL_KW ||
-            next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG) {
+            next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC) {
             /* Cast: (type) expr */
             ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
             if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
@@ -1564,6 +1565,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         ty = zero_cc_type_int16(); (*pos)++;
     } else if (t == TK_LONG) {
         ty = zero_cc_type_int64(); (*pos)++;
+    } else if (t == TK_ATOMIC) {
+        ty = zero_cc_type_int(); (*pos)++;
     } else {
         ty = zero_cc_type_int();
     }

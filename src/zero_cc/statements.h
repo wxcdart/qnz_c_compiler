@@ -101,7 +101,39 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                     }
                     if (mt == TK_IDENT || mt == TK_INT || mt == TK_CHAR || mt == TK_VOID ||
                         mt == TK_FLOAT_KW || mt == TK_DOUBLE_KW || mt == TK_BOOL_KW ||
-                        mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG) {
+                        mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG || mt == TK_ATOMIC) {
+                        if (mt == TK_ATOMIC) {
+                            c->token_pos++;
+                            if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                                c->token_pos++;
+                                if (c->tokens[c->token_pos].type == TK_INT) { mt = TK_INT; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_CHAR) { mt = TK_CHAR; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_VOID) { mt = TK_VOID; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { mt = TK_FLOAT_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { mt = TK_DOUBLE_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_BOOL_KW) { mt = TK_BOOL_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_SHORT) { mt = TK_SHORT; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_LONG) { mt = TK_LONG; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_SIGNED) { mt = TK_SIGNED; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_UNSIGNED) { mt = TK_UNSIGNED; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_IDENT) { mt = TK_IDENT; c->token_pos++; }
+                                else { mt = TK_INT; }
+                                if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                            } else {
+                                if (c->tokens[c->token_pos].type == TK_INT) { mt = TK_INT; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_CHAR) { mt = TK_CHAR; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_VOID) { mt = TK_VOID; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { mt = TK_FLOAT_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { mt = TK_DOUBLE_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_BOOL_KW) { mt = TK_BOOL_KW; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_SHORT) { mt = TK_SHORT; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_LONG) { mt = TK_LONG; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_SIGNED) { mt = TK_SIGNED; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_UNSIGNED) { mt = TK_UNSIGNED; c->token_pos++; }
+                                else if (c->tokens[c->token_pos].type == TK_IDENT) { mt = TK_IDENT; c->token_pos++; }
+                                else { mt = TK_INT; }
+                            }
+                        }
                         const char *mem_type_name = c->tokens[c->token_pos].str_val;
                         (void)mem_type_name;
                         c->token_pos++;
@@ -271,14 +303,50 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     }
     if (t == TK_IDENT || t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
         t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
-        t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO) {
+        t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO || t == TK_ATOMIC) {
         const char *tname = c->tokens[c->token_pos].str_val;
         ZeroCCType *found_type = zero_cc_find_typedef(c, tname);
         if (found_type || t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
             t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
-            t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO) {
+            t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO || t == TK_ATOMIC) {
             bool is_auto = (t == TK_AUTO);
+            bool is_atomic_decl = (t == TK_ATOMIC);
             c->token_pos++;
+
+            /* Handle _Atomic for variable declarations */
+            if (is_atomic_decl) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                    c->token_pos++;
+                    if (c->tokens[c->token_pos].type == TK_INT) { t = TK_INT; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_CHAR) { t = TK_CHAR; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_VOID) { t = TK_VOID; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { t = TK_FLOAT_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { t = TK_DOUBLE_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_BOOL_KW) { t = TK_BOOL_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_SHORT) { t = TK_SHORT; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_LONG) { t = TK_LONG; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_SIGNED) { t = TK_SIGNED; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_UNSIGNED) { t = TK_UNSIGNED; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_IDENT) { t = TK_IDENT; c->token_pos++; }
+                    else { t = TK_INT; }
+                    if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                } else {
+                    if (c->tokens[c->token_pos].type == TK_INT) { t = TK_INT; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_CHAR) { t = TK_CHAR; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_VOID) { t = TK_VOID; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { t = TK_FLOAT_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { t = TK_DOUBLE_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_BOOL_KW) { t = TK_BOOL_KW; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_SHORT) { t = TK_SHORT; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_LONG) { t = TK_LONG; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_SIGNED) { t = TK_SIGNED; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_UNSIGNED) { t = TK_UNSIGNED; c->token_pos++; }
+                    else if (c->tokens[c->token_pos].type == TK_IDENT) { t = TK_IDENT; c->token_pos++; }
+                    else { t = TK_INT; }
+                }
+                tname = c->tokens[c->token_pos - 1].str_val;
+                found_type = zero_cc_find_typedef(c, tname);
+            }
 
             /* Function pointer variable declaration: type (*name)(params) = init; */
             if (c->tokens[c->token_pos].type == TK_LPAREN && c->tokens[c->token_pos + 1].type == TK_STAR &&
@@ -337,6 +405,9 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                     vtype = *found_type;
                 } else {
                     vtype = zero_cc_type_int64();
+                }
+                if (is_atomic_decl) {
+                    vtype.is_atomic = true;
                 }
                 if (found_type) {
                     snprintf(vtype.struct_name, sizeof(vtype.struct_name), "%s", tname);

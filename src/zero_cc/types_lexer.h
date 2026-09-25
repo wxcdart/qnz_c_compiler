@@ -85,6 +85,7 @@ typedef struct ZeroCCType {
     struct ZeroCCType *base;              /* For PTR and ARRAY */
     size_t array_len;                     /* For ARRAY */
     ZeroCCStructMember members[64];       /* For STRUCT */
+    bool is_atomic;                       /* For _Atomic */
 
     size_t member_count;
 } ZeroCCType;
