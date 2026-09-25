@@ -164,6 +164,27 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 
 ### Backend Documentation
 
+### Backend Architecture Overview
+
+Zero‑CC now uses a clean, layered backend architecture to avoid circular includes and make it easy to plug in target‑specific implementations.
+
+* **`zero_cc_backends.h`** – defines **only the abstract backend interfaces** (TLS, Emit, Link, Memory, ABI, Atomic, Generic, Stdlib, Diagnostics) and the setter function **prototypes**. It does **not** include the compiler definition. All backend structs use `struct ZeroCCCompiler *` / `struct ZeroCCType *` forward declarations.
+* **`src/zero_cc/types_lexer.h`** – owns the concrete `ZeroCCCompiler` struct (with tag `struct ZeroCCCompiler`) and **forward‑declares** each backend type before including `zero_cc_backends.h`. This allows the compiler to hold pointers to the backends without creating a dependency cycle.
+* **Setter implementations** live in `src/zero_cc/backends/setters.c` (which includes `types_lexer.h` after the full definition).
+* **Backend implementations** live in `src/zero_cc/backends/` (e.g. `minimal.c`). They include only `zero_cc_backends.h` and register themselves with `zero_cc_init_backends`.
+* **TPHT headers** (`zero_tpht.h`, `zero_chained_tpht.h`, `zero_tinyptr.h`, `zero_posix.h`) are vendored under `src/zero_cc/structures/` from the `qnz_gcc` project for high‑performance hash tables.
+
+This separation guarantees a one‑way include relationship:
+```
+front‑end -> backend interface -> concrete back‑ends
+```
+and prevents the “request for member … in something not a structure or union” errors that arise from circular includes.
+
+When adding a new backend, simply implement the appropriate struct in `src/zero_cc/backends/` and call its setter (or use `zero_cc_init_backends`) after allocating a `ZeroCCCompiler`.
+
+---
+
+
 - **TLS Backends** – detailed guide on adding custom thread‑local storage implementations: [TLS_BACKENDS.md](TLS_BACKENDS.md)
 - **General Backend Architecture** – overview of the code‑generation, symbol, allocation, and OS backends (also documented in the source headers).
 

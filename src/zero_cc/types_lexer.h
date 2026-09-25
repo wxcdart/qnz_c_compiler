@@ -3,6 +3,16 @@
  *  -------------------------------------------------------------------------- */
 
 #include "core.h"
+/* Forward declarations for backend structs – needed because zero_cc_backends.h
+   refers to them before they are defined. */
+typedef struct ZeroCCEmitBackend   ZeroCCEmitBackend;
+typedef struct ZeroCCLinkBackend   ZeroCCLinkBackend;
+typedef struct ZeroCCMemoryBackend ZeroCCMemoryBackend;
+typedef struct ZeroCCABICallBackend ZeroCCABICallBackend;
+typedef struct ZeroCCAtomicBackend ZeroCCAtomicBackend;
+typedef struct ZeroCCGenericBackend ZeroCCGenericBackend;
+typedef struct ZeroCCStdlibBackend ZeroCCStdlibBackend;
+typedef struct ZeroCCDiagBackend   ZeroCCDiagBackend;
 #include "zero_cc_backends.h"
 #ifndef ZERO_CC_TYPES_LEXER_H
 #define ZERO_CC_TYPES_LEXER_H
@@ -145,7 +155,7 @@ typedef struct {
 } ZeroCCStringReloc;
 
 /* Compiler & Emitter Context */
-typedef struct {
+typedef struct ZeroCCCompiler {
     ZeroCCTokenV2 *tokens;
     size_t token_count;
     size_t token_pos;
@@ -185,6 +195,14 @@ typedef struct {
     size_t thread_local_count;
     /* Backend pointers */
     const ZeroCCTLSBackend *tls_backend;
+    const ZeroCCEmitBackend   *emit_backend;
+    const ZeroCCLinkBackend   *link_backend;
+    const ZeroCCMemoryBackend *memory_backend;
+    const ZeroCCABICallBackend *abi_backend;
+    const ZeroCCAtomicBackend *atomic_backend;
+    const ZeroCCGenericBackend *generic_backend;
+    const ZeroCCStdlibBackend *stdlib_backend;
+    const ZeroCCDiagBackend   *diag_backend;
     int had_error;
     char error_msg[256];
 } ZeroCCCompiler;

@@ -7,6 +7,7 @@
 */
 
 #include "zero_cc_backends.h"
+#include "zero_cc/types_lexer.h"
 #include <string.h>
 
 static void *static_tls_declare(ZeroCCCompiler *c,
