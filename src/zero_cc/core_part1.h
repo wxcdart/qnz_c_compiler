@@ -695,6 +695,42 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif\n"
         );
     }
+    if (strcmp(name, "stdalign.h") == 0) {
+        return strdup(
+            "#ifndef _STDALIGN_H\n#define _STDALIGN_H 1\n"
+            "#define alignas _Alignas\n"
+            "#define alignof _Alignof\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "stdnoreturn.h") == 0) {
+        return strdup(
+            "#ifndef _STDNOReturn_H\n#define _STDNOReturn_H 1\n"
+            "#define noreturn _Noreturn\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "assert.h") == 0) {
+        return strdup(
+            "#ifndef _ASSERT_H\n#define _ASSERT_H 1\n"
+            "#define static_assert _Static_assert\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "stdatomic.h") == 0) {
+        return strdup(
+            "#ifndef _STDAOMIC_H\n#define _STDAOMIC_H 1\n"
+            "#define ATOMIC_VAR_INIT(v) (v)\n"
+            "#define memory_order_relaxed __ATOMIC_RELAXED\n"
+            "#define memory_order_consume __ATOMIC_CONSUME\n"
+            "#define memory_order_acquire __ATOMIC_ACQUIRE\n"
+            "#define memory_order_release __ATOMIC_RELEASE\n"
+            "#define memory_order_acq_rel __ATOMIC_ACQ_REL\n"
+            "#define memory_order_seq_cst __ATOMIC_SEQ_CST\n"
+            "typedef _Atomic int atomic_int;\n"
+            "#endif\n"
+        );
+    }
     return NULL;
 }
 
