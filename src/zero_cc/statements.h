@@ -56,6 +56,49 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                         }
                     }
                     ZeroCCTokType mt = c->tokens[c->token_pos].type;
+                    // Handle _Static_assert inside struct
+                    if (mt == TK_STATIC_ASSERT) {
+                        c->token_pos++; /* consume TK_STATIC_ASSERT */
+                        if (c->tokens[c->token_pos].type != TK_LPAREN) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "Expected '(' after _Static_assert");
+                            return;
+                        }
+                        c->token_pos++; /* skip '(' */
+                        int64_t val = zero_cc_eval_const_expr(c);
+                        // After expression: either ',' (message) or ')' (no message)
+                        if (c->tokens[c->token_pos].type == TK_COMMA) {
+                            c->token_pos++; /* skip ',' */
+                            if (c->tokens[c->token_pos].type == TK_STRING) {
+                                // We could use the message, but just skip it
+                                c->token_pos++;
+                            }
+                            if (c->tokens[c->token_pos].type != TK_RPAREN) {
+                                c->had_error = 1;
+                                snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' after message");
+                                return;
+                            }
+                            c->token_pos++; /* skip ')' */
+                        } else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                            c->token_pos++; /* skip ')' */
+                        } else {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' or ',' after constant expression");
+                            return;
+                        }
+                        if (c->tokens[c->token_pos].type != TK_SEMI) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "Expected ';' after _Static_assert");
+                            return;
+                        }
+                        c->token_pos++; /* consume ';' */
+                        if (val == 0) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "Static assertion failed");
+                            return;
+                        }
+                        continue;
+                    }
                     if (mt == TK_IDENT || mt == TK_INT || mt == TK_CHAR || mt == TK_VOID ||
                         mt == TK_FLOAT_KW || mt == TK_DOUBLE_KW || mt == TK_BOOL_KW ||
                         mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG) {
@@ -98,6 +141,13 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                                 m->offset = current_offset;
                                 m->size = base_size * elem_count;
                                 m->align = effective_align;
+                                if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
+                                else if (mt == TK_SHORT) m->tag = TYPE_INT16;
+                                else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
+                                else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                                else if (mt == TK_IDENT) m->tag = TYPE_STRUCT; /* typedef struct */
+                                else m->tag = TYPE_INT32;
+                                if (is_ptr) m->tag = TYPE_PTR;
                                 current_offset += m->size;
                             }
                         }
@@ -443,18 +493,24 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         c->token_pos++; // skip '('
         // parse constant expression
         int64_t val = zero_cc_eval_const_expr(c);
-        // expect ')'
-        if (c->tokens[c->token_pos].type != TK_RPAREN) {
+        // After expression: either ',' (message) or ')' (no message)
+        if (c->tokens[c->token_pos].type == TK_COMMA) {
+            c->token_pos++; // skip ','
+            if (c->tokens[c->token_pos].type == TK_STRING) {
+                c->token_pos++; // skip message
+            }
+            if (c->tokens[c->token_pos].type != TK_RPAREN) {
+                c->had_error = 1;
+                snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' after message");
+                return;
+            }
+            c->token_pos++; // skip ')'
+        } else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++; // skip ')'
+        } else {
             c->had_error = 1;
-            snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' after constant expression");
+            snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' or ',' after constant expression");
             return;
-        }
-        c->token_pos++; // skip ')'
-        // optional string literal
-        const char *msg = "";
-        if (c->tokens[c->token_pos].type == TK_STRING) {
-            msg = c->tokens[c->token_pos].str_val;
-            c->token_pos++; // consume string
         }
         // expect ';'
         if (c->tokens[c->token_pos].type != TK_SEMI) {
@@ -465,10 +521,7 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         c->token_pos++; // consume ';'
         if (val == 0) {
             c->had_error = 1;
-            if (msg[0] != '\0')
-                snprintf(c->error_msg, sizeof(c->error_msg), "%s", msg);
-            else
-                snprintf(c->error_msg, sizeof(c->error_msg), "Static assertion failed");
+            snprintf(c->error_msg, sizeof(c->error_msg), "Static assertion failed");
             return;
         }
         return;

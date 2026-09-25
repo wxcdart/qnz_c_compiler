@@ -33,7 +33,7 @@ code (and the zero_cc sources themselves) rely on C11 features such as
 | # | Feature | Token(s) already added | Status | Test file |
 |---|---------|-------------------------|--------|-----------|
 | 1 | `_Static_assert` | `TK_STATIC_ASSERT` | ✅ done (statement scope; file/struct scope pending) | `test/static_assert.c` |
-| 2 | `_Alignas` / `_Alignof` | `TK_ALIGNAS`, `TK_ALIGNOF` | ⬜ not started | `test/align.c` |
+| 2 | `_Alignas` / `_Alignof` | `TK_ALIGNAS`, `TK_ALIGNOF` | ✅ done | `test/align.c` |
 | 3 | `_Atomic` | `TK_ATOMIC` | ⬜ not started | `test/atomic.c` |
 | 4 | `_Noreturn` | `TK_NORETURN` | ⬜ not started | `test/noreturn.c` |
 | 5 | `_Thread_local` | `TK_THREAD_LOCAL` | ⬜ not started | `test/tls.c` |
@@ -59,7 +59,7 @@ at compile time.
 - [x] Tokenizer recognizes `_Static_assert` → `TK_STATIC_ASSERT`.
 - [x] Parser stub consumes `_Static_assert ( expr [, "msg"] ) ;` at
       statement scope (`statements.h`).
-- [ ] Parser also accepts `_Static_assert` at **file scope** (top level, in
+- [x] Parser also accepts `_Static_assert` at **file scope** (top level, in
       `zero_cc_compile_c99` in `jit_linker.h`) and inside `struct` bodies.
 - [x] Implement a **constant‑expression evaluator** (`zero_cc_eval_const_expr`)
       that can evaluate a subset of expressions at compile time:
@@ -69,13 +69,25 @@ at compile time.
       the message (or a default message for the C23 one‑arg form) and set
       an error flag on `ZeroCCCompiler` (add `bool had_error;` +
       `char error_msg[256];`).
-- [ ] `zero_cc_compile_c99` / callers check `c->had_error` and abort/return
+- [x] `zero_cc_compile_c99` / callers check `c->had_error` and abort/return
       non‑zero.
 
-**Test:** `test/static_assert.c`
-- [ ] Add a *negative* test (behind `#if 0` or a separate file
-      `test/static_assert_fail.c` invoked specially by the Makefile) that
-      verifies a failing assert is actually caught, not silently ignored.
+**Test:** `test/static_assert.c` — all assertions pass:
+- `_Static_assert(sizeof(int) == 4)` — basic constant expression
+- `_Static_assert(_Alignof(int) == 4)` — `_Alignof` in constant context
+- `_Static_assert` inside `typedef struct { ... }` — struct scope
+- `_Static_assert` at file scope — global scope
+- Optional message string: `_Static_assert(expr, "message")`
+- C23 one-argument form: `_Static_assert(expr)`
+- Error reporting: sets `c->had_error` and `c->error_msg` on failure
+
+**Test:** `test/static_assert.c` — all assertions pass.
+
+**Negative test:** `test/static_assert_fail.c` — verifies failing `_Static_assert` is caught:
+- Compiles code with `_Static_assert(0, "This should fail");` via zero_cc API
+- Verifies `c->had_error` is set
+- Verifies `c->error_msg` contains meaningful error
+- [x] Negative test implemented and passes
 
 ---
 
@@ -85,24 +97,38 @@ at compile time.
 for variables and struct members.
 
 **Work items**
-- [ ] `ZeroCCType.align` is correctly computed for all base types
+- [x] `ZeroCCType.align` is correctly computed for all base types
       (`char`=1, `short`=2, `int`/`float`=4, `long`/`double`/pointers=8).
-- [ ] Parser: recognize `_Alignas(type)` and `_Alignas(constant-expr)` in
+- [x] Parser: recognize `_Alignas(type)` and `_Alignas(constant-expr)` in
       the declaration‑specifier sequence; store the resulting alignment on
       the type/symbol being declared.
-- [ ] Parser: `_Alignof(type)` / `_Alignof(expr)` as a unary operator in
+- [x] Parser: `_Alignof(type)` / `_Alignof(expr)` as a unary operator in
       `expressions.h`, producing an integer constant (mirrors `sizeof`).
-- [ ] Struct layout (`typedef struct { ... }` handling in `statements.h`)
+- [x] Struct layout (`typedef struct { ... }` handling in `statements.h`)
       rounds each member's offset up to that member's alignment, and rounds
       the final struct size up to the struct's own alignment (max of
       members' alignments, or the `_Alignas` override).
-- [ ] Local variable allocation (`zero_cc_add_local` /
+- [x] Local variable allocation (`zero_cc_add_local` /
       `zero_cc_emit_prologue`) respects `_Alignas` overrides on the stack.
+- [x] **Type-only expression parser** for `_Alignof(expr)` / `sizeof(expr)`:
+      full recursive-descent parser returning `ZeroCCType` (mirrors value
+      parser) supporting member access (`.`, `->`), array indexing (`[]`),
+      pointer dereference (`*`), address-of (`&`), casts, parentheses,
+      and literals.
+- [x] Constant evaluator (`eval_alignof`, `eval_sizeof`) uses type-only parser.
+- [x] Code generator (`zero_cc_parse_unary`) uses type-only parser.
 
-**Test:** `test/align.c` (already written) — extend once semantics land:
-- [ ] Uncomment/add assertions that depend on real over‑alignment (e.g. a
-      local `_Alignas(32)` stack variable, checked via pointer arithmetic
-      at runtime since `_Static_assert` can't check runtime addresses).
+**Test:** `test/align.c` — all assertions pass:
+- `_Alignof(int)` = 4, `_Alignof(long long)` = 8
+- `_Alignof(S)` = 16 (struct with `_Alignas(16)` member)
+- `offsetof(S, x)` = 0, `sizeof(S)` = 16
+- `_Alignof(int[10])` = `_Alignof(int)`
+- `int _Alignas(32) y;` → `_Alignof(y)` = 32
+- `_Alignof(s.x)` = 16 (member access on variable)
+- `_Alignof(p->x)` = 16 (pointer member access)
+- `_Alignof(S.x)` = 16 (member access on type name)
+- `sizeof(s.x)` = 4, `sizeof(S.x)` = 4
+- `_Static_assert(_Alignof(s.x) == 16)` works in constant context
 
 ---
 
@@ -253,8 +279,8 @@ identically.
 
 | Week | Milestone |
 |------|-----------|
-| 1 | Milestone 1 – `_Static_assert` (incl. constant‑expr evaluator) |
-| 2 | Milestone 2 – `_Alignas` / `_Alignof` |
+| 1 | Milestone 1 – `_Static_assert` (incl. constant‑expr evaluator) ✅ |
+| 2 | Milestone 2 – `_Alignas` / `_Alignof` ✅ |
 | 3 | Milestone 3 – `_Atomic` |
 | 4 | Milestone 4 – `_Noreturn` |
 | 5 | Milestone 5 – `_Thread_local` |

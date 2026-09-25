@@ -175,6 +175,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             if (c->had_error) break;
             continue;
         }
+        if (c->tokens[c->token_pos].type == TK_STATIC_ASSERT) {
+            zero_cc_parse_stmt(c);
+            if (c->had_error) break;
+            continue;
+        }
 
         size_t prev_pos = c->token_pos;
         /* Top level functions */
