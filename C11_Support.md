@@ -192,7 +192,7 @@ implement it as **Policy A**: alias to `static` storage (single instance,
 documented limitation — no real per‑thread storage).
 
 **Work items**
-- [x] Preprocessor: define `_Thread_local` as empty macro so source ` _Thread_local int x;` is lowered to `int x;`.
+- [x] Parser: accept `_Thread_local` as a storage-class specifier in variable declarations, skipped before type parsing.
 - [x] Code‑gen: variables declared with `_Thread_local` are emitted as normal locals/globals — same semantics as `static` for this JIT implementation.
 - [x] Document the limitation in `README.md` under "Known Limitations".
 - [ ] (Future/Policy B, not in this milestone) real TLS via
