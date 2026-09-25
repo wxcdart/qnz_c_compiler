@@ -286,7 +286,7 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
 
     /* Variable Declaration: Type var = expr; or Type *ptr = expr; or auto var = expr; */
     /* Skip storage class specifiers */
-    while (t == TK_THREAD_LOCAL || t == TK_STATIC || t == TK_EXTERN) {
+    while (t == TK_THREAD_LOCAL || t == TK_STATIC) {
         c->token_pos++;
         t = c->tokens[c->token_pos].type;
     }
