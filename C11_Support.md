@@ -154,10 +154,10 @@ builtins (`__atomic_load_n`, `__atomic_add_fetch`, …) compile and run.
       ELF object/exe emission may leave a TODO note if the relocation isn't
       implemented yet.
 
-**Known limitation:** ELF object/executable emission does not yet handle
-atomic relocations/special section requirements. Atomic types are emitted
-with the same layout as their underlying type for JIT execution. ELF
-back-end is documented as TODO for full atomic support.
+**Current status:** 
+- `_Atomic` parsing, `sizeof`/`_Alignof`, and self-hosted builtin lowering for `__atomic_load_n`, `__atomic_store_n`, `__atomic_add_fetch` and memory-order constants are complete. The compiler is self-hostable for Milestone 3.
+- Pointer l-value code generation for `*p = expr` is implemented.
+- ELF object/executable emission emits atomic types with the same layout as the underlying type; true atomic instruction selection / relocations for ELF remains a future task.
 
 **Test:** `test/atomic.c` (already written) — extend with:
 - [x] A JIT‑run test (`test/atomic_jit.c`) that verifies compilation of

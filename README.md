@@ -119,9 +119,29 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 - `typeof`, `typeof_unqual`
 - `true`, `false`, `nullptr` (as keywords)
 
+### Implemented Features
+
+**Milestone 1 – `_Static_assert`**
+- File, struct and statement scope, optional message, C23 one-argument form
+- Compile-time constant evaluator with `sizeof`/`_Alignof`
+- Negative test for failing assertions
+
+**Milestone 2 – `_Alignas` / `_Alignof`**
+- Alignment queries and overrides for variables and struct members
+- Struct layout respects `_Alignas`
+- Type-only parser for constant contexts
+
+**Milestone 3 – `_Atomic`**
+- Parser for `_Atomic T` and `_Atomic(T)`, `is_atomic` flag in `ZeroCCType`
+- `sizeof/_Alignof` return underlying type size/alignment
+- Atomic builtins `__atomic_load_n`, `__atomic_store_n`, `__atomic_add_fetch` and memory-order constants are self-hosted via preprocessor macros, making the compiler self-hostable for Milestone 3
+- Pointer l-value code generation for `*p = expr` is supported
+- JIT tests verify compilation and execution of atomic types and static asserts
+
 ### Known Limitations
 
-- `_Atomic` types are supported for JIT execution only. The ELF object/executable emitters do not yet implement atomic relocations or special section handling. `sizeof(_Atomic T)` and `_Alignof(_Atomic T)` are correctly reported as the size/alignment of `T` for both JIT and ELF paths, but actual atomic code generation for ELF emission is a TODO.
+- `_Atomic` types are supported for JIT execution with self-hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.
+- `_Noreturn`, `_Thread_local`, `_Generic`, `__has_include` and convenience headers remain TODO.
 
 Semantic analysis for these features is currently a work in progress. The tokenizer correctly recognizes these keywords and returns the appropriate token types, enabling further implementation in the parser and expression evaluator.
 
