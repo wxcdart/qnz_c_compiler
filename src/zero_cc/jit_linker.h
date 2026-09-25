@@ -3,9 +3,12 @@
 #define ZERO_CC_JIT_LINKER_H
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
-    /* Skip static / inline / const */
+    /* Skip static / inline / const / _Noreturn */
+    bool fn_noreturn = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
+           c->tokens[c->token_pos].type == TK_NORETURN ||
            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0)) {
+        if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
         c->token_pos++;
     }
 
@@ -99,6 +102,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
         fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT);
         fn->ret_struct_sz = fn_ret_type.size;
         fn->is_variadic = is_variadic_fn;
+        fn->noreturn = fn_noreturn;
 
         c->local_count = 0;
         c->current_stack_frame = 16;

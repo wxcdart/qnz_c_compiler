@@ -126,6 +126,7 @@ typedef struct {
     bool returns_struct;
     size_t ret_struct_sz;
     bool is_variadic;
+    bool noreturn;
 } ZeroCCFunction;
 
 /* Relocation Record */

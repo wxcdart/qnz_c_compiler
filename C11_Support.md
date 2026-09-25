@@ -172,8 +172,8 @@ builtins (`__atomic_load_n`, `__atomic_add_fetch`, …) compile and run.
 recorded, enabling future optimizations/diagnostics.
 
 **Work items**
-- [ ] Add `bool noreturn;` to `ZeroCCFunction`.
-- [ ] Parser: accept `_Noreturn` before/after other function specifiers
+- [x] Add `bool noreturn;` to `ZeroCCFunction`.
+- [x] Parser: accept `_Noreturn` before/after other function specifiers
       (`static`, `inline`) in `zero_cc_compile_function` (`jit_linker.h`).
 - [ ] (Optional, stretch) warn if a `_Noreturn` function's body can fall off
       the end without calling a function itself marked `_Noreturn` or
