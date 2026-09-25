@@ -288,10 +288,20 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                 bool is_match = false;
                 if (ctrl_is_float && (assoc_tok == TK_FLOAT_KW || assoc_tok == TK_DOUBLE_KW)) {
                     is_match = true;
-                } else if (ctrl_is_ptr && assoc_is_ptr && assoc_tok == TK_VOID) {
+                } else if (ctrl_is_ptr && assoc_is_ptr) {
                     is_match = true;
-                } else if (!ctrl_is_float && !ctrl_is_ptr && (assoc_tok == TK_INT || assoc_tok == TK_CHAR || assoc_tok == TK_LONG || assoc_tok == TK_SHORT || assoc_tok == TK_BOOL_KW || assoc_tok == TK_IDENT)) {
-                    is_match = true;
+                } else if (!ctrl_is_float && !ctrl_is_ptr) {
+                    /* Compare base type tags */
+                    int ctrl_tag = ctrl_type.tag;
+                    int assoc_tag = -1;
+                    if (assoc_tok == TK_INT) assoc_tag = 6; /* TYPE_INT32 */
+                    else if (assoc_tok == TK_CHAR) assoc_tag = 2; /* TYPE_INT8 */
+                    else if (assoc_tok == TK_LONG) assoc_tag = 8; /* TYPE_INT64 */
+                    else if (assoc_tok == TK_SHORT) assoc_tag = 4; /* TYPE_INT16 */
+                    else if (assoc_tok == TK_BOOL_KW) assoc_tag = 1; /* TYPE_BOOL */
+                    else if (assoc_tok == TK_FLOAT_KW) assoc_tag = 10; /* TYPE_FLOAT */
+                    else if (assoc_tok == TK_DOUBLE_KW) assoc_tag = 11; /* TYPE_DOUBLE */
+                    if (ctrl_tag == assoc_tag) is_match = true;
                 }
 
                 if (is_match && !matched) {
