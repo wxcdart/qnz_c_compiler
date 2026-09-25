@@ -1,6 +1,3 @@
-/* Statement Parser */
-#ifndef ZERO_CC_STATEMENTS_H
-#define ZERO_CC_STATEMENTS_H
 
 static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     ZeroCCTokType t = c->tokens[c->token_pos].type;
@@ -898,3 +895,6 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         c->tokens[c->token_pos + 2].type == TK_IDENT && c->tokens[c->token_pos + 3].type == TK_LBRACKET) {
         char base_name[128];
         snprintf(base_name, sizeof(base_name), "%s", c->tokens[c->token_pos].str_val);
+        bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
+        char mem_name[128];
+        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);

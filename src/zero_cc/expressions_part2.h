@@ -1,6 +1,3 @@
-                    if (sub_op == TK_EQ) zero_cc_emit_u8(&c->text_section, 0x94);
-                    else if (sub_op == TK_NE) zero_cc_emit_u8(&c->text_section, 0x95);
-                    else if (sub_op == TK_LT) zero_cc_emit_u8(&c->text_section, 0x9C);
                     else if (sub_op == TK_LE) zero_cc_emit_u8(&c->text_section, 0x9E);
                     else if (sub_op == TK_GT) zero_cc_emit_u8(&c->text_section, 0x9F);
                     else if (sub_op == TK_GE) zero_cc_emit_u8(&c->text_section, 0x9D);
@@ -713,4 +710,3 @@ static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c)
     return result;
 }
 
-#endif /* ZERO_CC_EXPRESSIONS_H */

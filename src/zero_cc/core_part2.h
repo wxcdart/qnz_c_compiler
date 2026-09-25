@@ -1,32 +1,3 @@
-                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        const char *body_start = p;
-                        while (*p && *p != '\n') {
-                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
-                            p++;
-                        }
-                        size_t body_len = p - body_start;
-                        char *body = (char *)malloc(body_len + 1);
-                        memcpy(body, body_start, body_len);
-                        body[body_len] = '\0';
-
-                        if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
-                            size_t idx = cpp->macro_count++;
-                            ZeroCCMacro *m = &cpp->macros[idx];
-                            memset(m,0,sizeof(*m));
-                            snprintf(m->name, sizeof(m->name), "%s", macro_name);
-                            m->param_count = pcount;
-                            m->is_variadic = is_var;
-                            for (int k = 0; k < pcount; k++) m->params[k] = params[k];
-                            m->replacement = body;
-
-                            uint32_t b = (uint32_t)(zero_cc_hash64(macro_name) & 4095);
-                            cpp->hash_next[idx] = cpp->hash_buckets[b];
-                            cpp->hash_buckets[b] = (int32_t)idx;
-                        }
-                    } else {
-                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        const char *val_start = p;
-                        while (*p && *p != '\n') {
                             if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
                             p++;
                         }
@@ -289,7 +260,4 @@ static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs
 static inline char* zero_cc_preprocess(const char *source, ZeroCCIncludeDirs *inc_dirs) {
     return zero_cc_preprocess_ext(source, inc_dirs, NULL);
 }
-
-#endif /* ZERO_CC_CORE_H */
-
 

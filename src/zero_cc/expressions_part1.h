@@ -1,6 +1,3 @@
-/* Recursive Descent Parser Declarations */
-#ifndef ZERO_CC_EXPRESSIONS_H
-#define ZERO_CC_EXPRESSIONS_H
 
 static inline void zero_cc_parse_expr(ZeroCCCompiler *c);
 static inline void zero_cc_parse_stmt(ZeroCCCompiler *c);
@@ -898,3 +895,6 @@ static inline void zero_cc_parse_expr(ZeroCCCompiler *c) {
                     /* cmp rax, rcx */
                     zero_cc_emit_u8(&c->text_section, 0x48); zero_cc_emit_u8(&c->text_section, 0x39); zero_cc_emit_u8(&c->text_section, 0xC8);
                     zero_cc_emit_u8(&c->text_section, 0x0F);
+                    if (sub_op == TK_EQ) zero_cc_emit_u8(&c->text_section, 0x94);
+                    else if (sub_op == TK_NE) zero_cc_emit_u8(&c->text_section, 0x95);
+                    else if (sub_op == TK_LT) zero_cc_emit_u8(&c->text_section, 0x9C);

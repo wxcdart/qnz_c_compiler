@@ -1,32 +1,3 @@
-/* ==========================================================================
- *  zero_cc.h
- *  Single-Header C99 Freestanding Compiler, JIT Engine & ELF64 Linker.
- *  
- *  Pipeline:
- *    [Source C Code / zero.h Headers]
- *          │
- *          ▼
- *    1. Preprocessor (CPP): #include, #define (obj/func), #if/#ifdef/#ifndef, ##, #
- *          │
- *          ▼
- *    2. Type & Struct Registry: typedef, struct members, pointers (*), arrays ([])
- *          │
- *          ▼
- *    3. Parser & Multi-Function Compiler:
- *       - if/else, while, for, do/while, break, continue, return
- *       - GNU Statement Expressions ({ ... })
- *       - Struct member access (. and ->), Array indexing ([]), Pointer math
- *       - Multi-argument function calls & System V AMD64 ABI (rdi, rsi, rdx, rcx, r8, r9)
- *          │
- *          ▼
- *    4. Linker & Machine Code Emitters:
- *       - JIT Engine (mmap / dlsym host symbol resolution / execution)
- *       - ELF64 Object Emitter (.o with .text, .rodata, .data, .symtab, .rela)
- *       - ELF64 Executable Emitter (Standalone executable binary with _start)
- *  ========================================================================== */
-
-#ifndef ZERO_CC_CORE_H
-#define ZERO_CC_CORE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -898,3 +869,32 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             }
                         }
                         if (*p == ')') p++;
+                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                        const char *body_start = p;
+                        while (*p && *p != '\n') {
+                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+                            p++;
+                        }
+                        size_t body_len = p - body_start;
+                        char *body = (char *)malloc(body_len + 1);
+                        memcpy(body, body_start, body_len);
+                        body[body_len] = '\0';
+
+                        if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
+                            size_t idx = cpp->macro_count++;
+                            ZeroCCMacro *m = &cpp->macros[idx];
+                            memset(m,0,sizeof(*m));
+                            snprintf(m->name, sizeof(m->name), "%s", macro_name);
+                            m->param_count = pcount;
+                            m->is_variadic = is_var;
+                            for (int k = 0; k < pcount; k++) m->params[k] = params[k];
+                            m->replacement = body;
+
+                            uint32_t b = (uint32_t)(zero_cc_hash64(macro_name) & 4095);
+                            cpp->hash_next[idx] = cpp->hash_buckets[b];
+                            cpp->hash_buckets[b] = (int32_t)idx;
+                        }
+                    } else {
+                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                        const char *val_start = p;
+                        while (*p && *p != '\n') {

@@ -1,6 +1,3 @@
-        bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
-        char mem_name[128];
-        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
         c->token_pos += 4;
 
         zero_cc_parse_expr(c); /* index in rax */
@@ -288,6 +285,4 @@
     zero_cc_parse_expr(c);
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
 }
-
-#endif /* ZERO_CC_STATEMENTS_H */
 
