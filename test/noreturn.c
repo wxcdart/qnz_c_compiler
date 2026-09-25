@@ -1,8 +1,9 @@
 /* Test for _Noreturn */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdnoreturn.h>
 
-_Noreturn void fatal(void) {
+noreturn void fatal(void) {
     exit(1);
 }
 
