@@ -143,13 +143,24 @@ Zero_cc now includes tokenizer support for the following C11 and C23 keywords:
 - Flag stored in `ZeroCCFunction.noreturn`
 
 **Milestone 5 – `_Thread_local`**
-- `_Thread_local` lowered via preprocessor to empty macro → treated as normal storage for freestanding/JIT
+- `_Thread_local` parsed as storage class specifier; for freestanding/JIT implemented as static alias
 - Documented as static alias; real TLS deferred
+
+**Milestone 6 – `_Generic`**
+- Primary expression parser handles `_Generic` with type-only evaluation of controlling expression
+- Pointer and base type matching supported; default branch works
+
+**Milestone 7 – `__has_include`**
+- Preprocessor `#if __has_include(...)` evaluates to 1/0 via virtual headers / filesystem check
+
+**Milestone 8 – Convenience Headers**
+- `<stdalign.h>`, `<stdnoreturn.h>`, `<assert.h>`, `<stdatomic.h>` provided as virtual headers with C11 macros
 
 ### Known Limitations
 
 - `_Atomic` types are supported for JIT execution with self-hosted builtins. The ELF object/executable emitters currently emit the same layout as the underlying type; true atomic instruction selection / relocations for ELF is deferred.
-- `_Noreturn`, `_Thread_local`, `_Generic`, `__has_include` and convenience headers remain TODO.
+- `_Thread_local` is a static alias in this freestanding/JIT implementation.
+- `_Generic` provides simplified type matching; full C11 generic selection compatibility rules are not yet implemented.
 
 Semantic analysis for these features is currently a work in progress. The tokenizer correctly recognizes these keywords and returns the appropriate token types, enabling further implementation in the parser and expression evaluator.
 

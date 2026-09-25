@@ -38,8 +38,8 @@ code (and the zero_cc sources themselves) rely on C11 features such as
 | 4 | `_Noreturn` | `TK_NORETURN` | ⬜ not started | `test/noreturn.c` |
 | 5 | `_Thread_local` | `TK_THREAD_LOCAL` | ⬜ not started | `test/tls.c` |
 | 6 | `_Generic` (generic selection) | `TK_GENERIC` (pre‑existing) | ⬜ not started | `test/generic.c` |
-| 7 | `__has_include` | n/a (preprocessor operator) | ⬜ not started | `test/has_include.c` |
-| 8 | Convenience headers (`<stdalign.h>`, `<stdnoreturn.h>`, `<assert.h>` w/ `static_assert`) | n/a | ⬜ not started | covered by tests above once headers exist |
+| 7 | `__has_include` | n/a (preprocessor operator) | ✅ done | `test/has_include.c` |
+| 8 | Convenience headers (`<stdalign.h>`, `<stdnoreturn.h>`, `<assert.h>` w/ `static_assert`) | n/a | ✅ done | covered by tests above |
 | — | `true` / `false` / `nullptr` as keywords | `TK_TRUE`, `TK_FALSE`, `TK_NULLPTR` | ✅ done (tokenizer + builtin macro cleanup) | implicit in all tests |
 | — | `__STDC_VERSION__` | n/a | ✅ set to `202311L`; will add a way to target `201112L` for strict C11 mode if needed | n/a |
 
@@ -231,17 +231,29 @@ supports `_Generic` for basic int/float/pointer selections.
 works in the preprocessor.
 
 **Work items**
-- [ ] Extend `zero_cc_cpp_eval_expr` (in `core.h`) to special‑case the
+- [x] Extend `zero_cc_cpp_eval_expr` (in `core.h`) to special‑case the
       `__has_include ( ... )` token sequence before generic expression
       evaluation (similar to how `defined(...)` is special‑cased).
-- [ ] Resolve the header name using the existing include‑search logic
-      (`zero_cc_cpp_resolve_include`) plus the virtual‑header table
-      (`zero_cc_cpp_get_virtual_header`) — a header "exists" if either a
-      real file is found on the include path **or** a virtual header with
-      that name is registered.
-- [ ] Return `1`/`0` accordingly into the `#if` expression evaluator.
+- [x] Resolve the header name using the existing include‑search logic
+      plus the virtual‑header table — a header "exists" if either a
+      real file is found on the include path or a virtual header is
+      registered.
+- [x] Return `1`/`0` accordingly into the `#if` expression evaluator.
 
-**Test:** `test/has_include.c` (already written).
+**Test:** `test/has_include.c` — passes.
+
+### Milestone 8 — Convenience Headers
+
+**Goal:** the friendly, non‑underscore spellings from the standard headers
+are available.
+
+**Work items**
+- [x] Add virtual header `<stdalign.h>`: `#define alignas _Alignas` / `#define alignof _Alignof`.
+- [x] Add virtual header `<stdnoreturn.h>`: `#define noreturn _Noreturn`.
+- [x] Extend virtual header `<assert.h>` with `#define static_assert _Static_assert`.
+- [x] Add virtual header `<stdatomic.h>` (minimal): typedefs like `atomic_int` as `_Atomic int`, plus macros for the memory‑order constants mapped to `__ATOMIC_*`.
+
+**Test:** headers are usable in JIT tests; `make test` passes with all existing tests.
 
 ---
 
