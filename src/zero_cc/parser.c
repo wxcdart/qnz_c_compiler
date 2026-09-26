@@ -475,6 +475,471 @@ ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 }
 
 /* =========================================================================
+ *  Statement AST Builder
+ * ========================================================================= */
+
+static void skip_c23_attributes(ZeroCCCompiler *c) {
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LDBRACKET) {
+        c->token_pos++;
+        int depth = 1;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_EOF && depth > 0) {
+            if (c->tokens[c->token_pos].type == TK_LDBRACKET) depth++;
+            else if (c->tokens[c->token_pos].type == TK_RDBRACKET) depth--;
+            c->token_pos++;
+        }
+    }
+}
+
+static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t) {
+    if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
+        t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
+        t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG ||
+        t == TK_AUTO || t == TK_ATOMIC) {
+        return true;
+    }
+    if (t == TK_IDENT && c->token_pos < c->token_count) {
+        const char *tname = c->tokens[c->token_pos].allocated_str ? 
+                            c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+        if (zero_cc_find_typedef(c, tname) != NULL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
+    if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
+
+    skip_c23_attributes(c);
+    if (c->token_pos >= c->token_count) return AST_NULL;
+
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+    uint32_t line = (uint32_t)c->tokens[c->token_pos].line;
+    uint32_t col = (uint32_t)c->tokens[c->token_pos].col;
+
+    /* Empty statement */
+    if (t == TK_SEMI) {
+        c->token_pos++;
+        return AST_NULL;
+    }
+
+    /* Compound Block: { stmt* } */
+    if (t == TK_LBRACE) {
+        c->token_pos++;
+        ASTRef block_ref = zero_cc_ast_alloc_node(arena, NODE_BLOCK);
+        ZeroCCASTNode *bn = zero_cc_ast_get(arena, block_ref);
+        bn->line = line;
+        bn->col = col;
+
+        ASTRef head = AST_NULL;
+        ASTRef tail = AST_NULL;
+
+        while (c->token_pos < c->token_count &&
+               c->tokens[c->token_pos].type != TK_RBRACE &&
+               c->tokens[c->token_pos].type != TK_EOF) {
+            ASTRef s = zero_cc_parse_stmt_ast(c, arena);
+            if (s != AST_NULL) {
+                if (head == AST_NULL) {
+                    head = s;
+                    tail = s;
+                } else {
+                    ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, tail);
+                    if (tail_node) {
+                        tail_node->next = s;
+                    }
+                    tail = s;
+                }
+            }
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {
+            c->token_pos++;
+        }
+        bn = zero_cc_ast_get(arena, block_ref);
+        if (bn) bn->left = head;
+        return block_ref;
+    }
+
+    /* Return: return [expr]; */
+    if (t == TK_RETURN) {
+        c->token_pos++;
+        ASTRef ret_ref = zero_cc_ast_alloc_node(arena, NODE_RETURN);
+        ZeroCCASTNode *rn = zero_cc_ast_get(arena, ret_ref);
+        rn->line = line;
+        rn->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) {
+            rn->left = parse_expr_ast_internal(c, arena);
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        return ret_ref;
+    }
+
+    /* If statement: if (cond) then [else alt] */
+    if (t == TK_IF) {
+        c->token_pos++;
+        ASTRef if_ref = zero_cc_ast_alloc_node(arena, NODE_IF);
+        ZeroCCASTNode *in = zero_cc_ast_get(arena, if_ref);
+        in->line = line;
+        in->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+        }
+        ASTRef cond = parse_expr_ast_internal(c, arena);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
+
+        ASTRef then_stmt = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef else_stmt = AST_NULL;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELSE) {
+            c->token_pos++;
+            else_stmt = zero_cc_parse_stmt_ast(c, arena);
+        }
+
+        in = zero_cc_ast_get(arena, if_ref);
+        if (in) {
+            in->left = cond;
+            in->right = then_stmt;
+            in->aux.alt = else_stmt;
+        }
+        return if_ref;
+    }
+
+    /* While loop: while (cond) body */
+    if (t == TK_WHILE) {
+        c->token_pos++;
+        ASTRef while_ref = zero_cc_ast_alloc_node(arena, NODE_WHILE);
+        ZeroCCASTNode *wn = zero_cc_ast_get(arena, while_ref);
+        wn->line = line;
+        wn->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+        }
+        ASTRef cond = parse_expr_ast_internal(c, arena);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
+
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+        wn = zero_cc_ast_get(arena, while_ref);
+        if (wn) {
+            wn->left = cond;
+            wn->right = body;
+        }
+        return while_ref;
+    }
+
+    /* Do-While loop: do body while (cond); */
+    if (t == TK_DO) {
+        c->token_pos++;
+        ASTRef do_ref = zero_cc_ast_alloc_node(arena, NODE_DO_WHILE);
+        ZeroCCASTNode *dn = zero_cc_ast_get(arena, do_ref);
+        dn->line = line;
+        dn->col = col;
+
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef cond = AST_NULL;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_WHILE) {
+            c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+            }
+            cond = parse_expr_ast_internal(c, arena);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+                c->token_pos++;
+            }
+        }
+        dn = zero_cc_ast_get(arena, do_ref);
+        if (dn) {
+            dn->left = cond;
+            dn->right = body;
+        }
+        return do_ref;
+    }
+
+    /* For loop: for (init; cond; step) body */
+    if (t == TK_FOR) {
+        c->token_pos++;
+        ASTRef for_ref = zero_cc_ast_alloc_node(arena, NODE_FOR);
+        ZeroCCASTNode *fn = zero_cc_ast_get(arena, for_ref);
+        fn->line = line;
+        fn->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+        }
+
+        /* 1. Init */
+        ASTRef init_stmt = AST_NULL;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) {
+            init_stmt = zero_cc_parse_stmt_ast(c, arena);
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+
+        /* 2. Cond */
+        ASTRef cond_expr = AST_NULL;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) {
+            cond_expr = parse_expr_ast_internal(c, arena);
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+
+        /* 3. Step */
+        ASTRef step_expr = AST_NULL;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN) {
+            step_expr = parse_expr_ast_internal(c, arena);
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
+
+        /* 4. Body */
+        ASTRef body_stmt = zero_cc_parse_stmt_ast(c, arena);
+
+        fn = zero_cc_ast_get(arena, for_ref);
+        if (fn) {
+            fn->left = init_stmt;
+            fn->right = cond_expr;
+            fn->aux.step = step_expr;
+            fn->aux.alt = body_stmt;
+        }
+        return for_ref;
+    }
+
+    /* Switch statement: switch (expr) body */
+    if (t == TK_SWITCH) {
+        c->token_pos++;
+        ASTRef sw_ref = zero_cc_ast_alloc_node(arena, NODE_SWITCH);
+        ZeroCCASTNode *sn = zero_cc_ast_get(arena, sw_ref);
+        sn->line = line;
+        sn->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+        }
+        ASTRef expr = parse_expr_ast_internal(c, arena);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+
+        sn = zero_cc_ast_get(arena, sw_ref);
+        if (sn) {
+            sn->left = expr;
+            sn->right = body;
+        }
+        return sw_ref;
+    }
+
+    /* Case statement: case const_expr: stmt */
+    if (t == TK_CASE) {
+        c->token_pos++;
+        ASTRef case_ref = zero_cc_ast_alloc_node(arena, NODE_CASE);
+        ZeroCCASTNode *cn = zero_cc_ast_get(arena, case_ref);
+        cn->line = line;
+        cn->col = col;
+
+        ASTRef val = parse_expr_ast_internal(c, arena);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) {
+            c->token_pos++;
+        }
+        ASTRef stmt = AST_NULL;
+        if (c->token_pos < c->token_count &&
+            c->tokens[c->token_pos].type != TK_CASE &&
+            c->tokens[c->token_pos].type != TK_DEFAULT &&
+            c->tokens[c->token_pos].type != TK_RBRACE) {
+            stmt = zero_cc_parse_stmt_ast(c, arena);
+        }
+        cn = zero_cc_ast_get(arena, case_ref);
+        if (cn) {
+            cn->left = val;
+            cn->right = stmt;
+        }
+        return case_ref;
+    }
+
+    /* Default statement: default: stmt */
+    if (t == TK_DEFAULT) {
+        c->token_pos++;
+        ASTRef def_ref = zero_cc_ast_alloc_node(arena, NODE_DEFAULT);
+        ZeroCCASTNode *dn = zero_cc_ast_get(arena, def_ref);
+        dn->line = line;
+        dn->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) {
+            c->token_pos++;
+        }
+        ASTRef stmt = AST_NULL;
+        if (c->token_pos < c->token_count &&
+            c->tokens[c->token_pos].type != TK_CASE &&
+            c->tokens[c->token_pos].type != TK_DEFAULT &&
+            c->tokens[c->token_pos].type != TK_RBRACE) {
+            stmt = zero_cc_parse_stmt_ast(c, arena);
+        }
+        dn = zero_cc_ast_get(arena, def_ref);
+        if (dn) {
+            dn->left = stmt;
+        }
+        return def_ref;
+    }
+
+    /* Break */
+    if (t == TK_BREAK) {
+        c->token_pos++;
+        ASTRef brk_ref = zero_cc_ast_alloc_node(arena, NODE_BREAK);
+        ZeroCCASTNode *bn = zero_cc_ast_get(arena, brk_ref);
+        bn->line = line;
+        bn->col = col;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        return brk_ref;
+    }
+
+    /* Continue */
+    if (t == TK_CONTINUE) {
+        c->token_pos++;
+        ASTRef cont_ref = zero_cc_ast_alloc_node(arena, NODE_CONTINUE);
+        ZeroCCASTNode *cn = zero_cc_ast_get(arena, cont_ref);
+        cn->line = line;
+        cn->col = col;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        return cont_ref;
+    }
+
+    /* Static Assert: _Static_assert(cond, [msg]); */
+    if (t == TK_STATIC_ASSERT) {
+        c->token_pos++;
+        ASTRef sa_ref = zero_cc_ast_alloc_node(arena, NODE_STATIC_ASSERT);
+        ZeroCCASTNode *san = zero_cc_ast_get(arena, sa_ref);
+        san->line = line;
+        san->col = col;
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+        }
+        ASTRef cond = parse_expr_ast_internal(c, arena);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+            c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
+                c->token_pos++;
+            }
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        san = zero_cc_ast_get(arena, sa_ref);
+        if (san) san->left = cond;
+        return sa_ref;
+    }
+
+    /* Variable Declaration or Typedef Declaration */
+    /* Skip alignment & storage specifiers */
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_ALIGNAS ||
+            c->tokens[c->token_pos].type == TK_CONSTEXPR ||
+            c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_EXTERN ||
+            c->tokens[c->token_pos].type == TK_REGISTER)) {
+        if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
+            c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+                (void)parse_expr_ast_internal(c, arena);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++;
+                }
+            }
+        } else {
+            c->token_pos++;
+        }
+    }
+
+    if (c->token_pos < c->token_count) {
+        t = c->tokens[c->token_pos].type;
+    }
+
+    if (is_type_specifier(c, t)) {
+        c->token_pos++;
+        /* Check _Atomic(T) */
+        if (t == TK_ATOMIC && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+            if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++;
+            }
+        }
+
+        /* Pointer asterisks */
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+            c->token_pos++;
+        }
+
+        /* Check for identifier name */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+            ZeroCCToken *var_tok = &c->tokens[c->token_pos];
+            const char *vname = var_tok->allocated_str ? var_tok->allocated_str : var_tok->str_val;
+            c->token_pos++;
+
+            ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+            ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
+            dn->line = line;
+            dn->col = col;
+            dn->s.str = vname;
+            dn->s.len = strlen(vname);
+
+            /* Optional initializer: = expr */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                c->token_pos++;
+                ASTRef init_val = parse_expr_ast_internal(c, arena);
+                dn = zero_cc_ast_get(arena, decl_ref);
+                if (dn) dn->left = init_val;
+            }
+
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+                c->token_pos++;
+            }
+            return decl_ref;
+        }
+    }
+
+    /* General Expression Statement */
+    ASTRef expr = parse_expr_ast_internal(c, arena);
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+        c->token_pos++;
+    }
+    if (expr != AST_NULL) {
+        ASTRef es_ref = zero_cc_ast_alloc_node(arena, NODE_EXPR_STMT);
+        ZeroCCASTNode *esn = zero_cc_ast_get(arena, es_ref);
+        esn->line = line;
+        esn->col = col;
+        esn->left = expr;
+        return es_ref;
+    }
+
+    return AST_NULL;
+}
+
+/* =========================================================================
  *  AST Dumper / Pretty Printer
  * ========================================================================= */
 
@@ -581,6 +1046,120 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
                 ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                 arg = arg_node ? arg_node->next : AST_NULL;
             }
+            break;
+        case NODE_BLOCK:
+            printf("Block\n");
+            ASTRef stmt = n->left;
+            while (stmt != AST_NULL) {
+                zero_cc_ast_dump(arena, stmt, indent + 1);
+                ZeroCCASTNode *stmt_node = zero_cc_ast_get(arena, stmt);
+                stmt = stmt_node ? stmt_node->next : AST_NULL;
+            }
+            break;
+        case NODE_EXPR_STMT:
+            printf("ExprStmt\n");
+            zero_cc_ast_dump(arena, n->left, indent + 1);
+            break;
+        case NODE_IF:
+            printf("IfStmt\n");
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".cond:\n");
+            zero_cc_ast_dump(arena, n->left, indent + 2);
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".then:\n");
+            zero_cc_ast_dump(arena, n->right, indent + 2);
+            if (n->aux.alt != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".else:\n");
+                zero_cc_ast_dump(arena, n->aux.alt, indent + 2);
+            }
+            break;
+        case NODE_WHILE:
+            printf("WhileStmt\n");
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".cond:\n");
+            zero_cc_ast_dump(arena, n->left, indent + 2);
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".body:\n");
+            zero_cc_ast_dump(arena, n->right, indent + 2);
+            break;
+        case NODE_DO_WHILE:
+            printf("DoWhileStmt\n");
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".body:\n");
+            zero_cc_ast_dump(arena, n->right, indent + 2);
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".cond:\n");
+            zero_cc_ast_dump(arena, n->left, indent + 2);
+            break;
+        case NODE_FOR:
+            printf("ForStmt\n");
+            if (n->left != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".init:\n");
+                zero_cc_ast_dump(arena, n->left, indent + 2);
+            }
+            if (n->right != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".cond:\n");
+                zero_cc_ast_dump(arena, n->right, indent + 2);
+            }
+            if (n->aux.step != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".step:\n");
+                zero_cc_ast_dump(arena, n->aux.step, indent + 2);
+            }
+            if (n->aux.alt != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".body:\n");
+                zero_cc_ast_dump(arena, n->aux.alt, indent + 2);
+            }
+            break;
+        case NODE_SWITCH:
+            printf("SwitchStmt\n");
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".expr:\n");
+            zero_cc_ast_dump(arena, n->left, indent + 2);
+            for (int i = 0; i <= indent; i++) printf("  ");
+            printf(".body:\n");
+            zero_cc_ast_dump(arena, n->right, indent + 2);
+            break;
+        case NODE_CASE:
+            printf("CaseStmt\n");
+            zero_cc_ast_dump(arena, n->left, indent + 1);
+            if (n->right != AST_NULL) {
+                zero_cc_ast_dump(arena, n->right, indent + 1);
+            }
+            break;
+        case NODE_DEFAULT:
+            printf("DefaultStmt\n");
+            if (n->left != AST_NULL) {
+                zero_cc_ast_dump(arena, n->left, indent + 1);
+            }
+            break;
+        case NODE_BREAK:
+            printf("BreakStmt\n");
+            break;
+        case NODE_CONTINUE:
+            printf("ContinueStmt\n");
+            break;
+        case NODE_RETURN:
+            printf("ReturnStmt\n");
+            if (n->left != AST_NULL) {
+                zero_cc_ast_dump(arena, n->left, indent + 1);
+            }
+            break;
+        case NODE_DECL:
+            printf("Decl: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+            if (n->left != AST_NULL) {
+                for (int i = 0; i <= indent; i++) printf("  ");
+                printf(".init:\n");
+                zero_cc_ast_dump(arena, n->left, indent + 2);
+            }
+            break;
+        case NODE_STATIC_ASSERT:
+            printf("StaticAssert\n");
+            zero_cc_ast_dump(arena, n->left, indent + 1);
             break;
         default:
             printf("UnknownNode (tag=%d)\n", n->tag);
