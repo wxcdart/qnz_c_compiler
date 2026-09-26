@@ -92,7 +92,8 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         n->line = (uint32_t)tok->line;
         n->col = (uint32_t)tok->col;
         const char *s = tok->allocated_str ? tok->allocated_str : tok->str_val;
-        snprintf(n->str_val, sizeof(n->str_val), "%s", s);
+        n->s.str = s;
+        n->s.len = strlen(s);
         return ref;
     }
 
@@ -121,7 +122,8 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
         n->line = (uint32_t)tok->line;
         n->col = (uint32_t)tok->col;
-        snprintf(n->str_val, sizeof(n->str_val), "%s", tok->str_val);
+        n->s.str = tok->str_val;
+        n->s.len = strlen(tok->str_val);
         return ref;
     }
 
@@ -193,7 +195,8 @@ static ASTRef parse_postfix_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 ZeroCCASTNode *mn = zero_cc_ast_get(arena, mem_ref);
                 mn->left = expr;
                 mn->flags = is_arrow ? 1 : 0;
-                snprintf(mn->str_val, sizeof(mn->str_val), "%s", c->tokens[c->token_pos].str_val);
+                mn->s.str = c->tokens[c->token_pos].str_val;
+                mn->s.len = strlen(c->tokens[c->token_pos].str_val);
                 c->token_pos++;
                 expr = mem_ref;
                 continue;
@@ -529,10 +532,10 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             printf("FloatLiteral: %f\n", n->float_val);
             break;
         case NODE_STRING:
-            printf("StringLiteral: \"%s\"\n", n->str_val);
+            printf("StringLiteral: \"%.*s\"\n", (int)n->s.len, n->s.str ? n->s.str : "");
             break;
         case NODE_IDENT:
-            printf("Identifier: %s\n", n->str_val);
+            printf("Identifier: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
             break;
         case NODE_NULLPTR:
             printf("NullptrLiteral\n");
@@ -561,7 +564,7 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             zero_cc_ast_dump(arena, n->aux.alt, indent + 1);
             break;
         case NODE_MEMBER:
-            printf("MemberAccess: %s%s\n", n->flags ? "->" : ".", n->str_val);
+            printf("MemberAccess: %s%.*s\n", n->flags ? "->" : ".", (int)n->s.len, n->s.str ? n->s.str : "");
             zero_cc_ast_dump(arena, n->left, indent + 1);
             break;
         case NODE_INDEX:

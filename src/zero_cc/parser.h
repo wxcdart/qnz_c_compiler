@@ -67,7 +67,10 @@ typedef struct ZeroCCASTNode {
     union {
         int64_t  int_val;
         double   float_val;
-        char     str_val[128];
+        struct {
+            const char *str;  /* pointer into token/source, zero-copy, unlimited size */
+            size_t      len;
+        } s;
         struct {
             uint32_t op;      /* operator token type */
             uint32_t alt;     /* secondary branch (e.g. else_stmt in if) */
