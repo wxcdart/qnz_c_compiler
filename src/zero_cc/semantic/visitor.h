@@ -17,6 +17,8 @@ extern "C" {
  * Semantic Analysis Context (SemContext)
  * Encapsulates the compilation state during AST traversal and type checking.
  */
+#ifndef SEM_CONTEXT_DEFINED
+#define SEM_CONTEXT_DEFINED
 typedef struct SemContext {
     Arena        *perm_arena;           /* Long-lived arena for types, symbols, permanent AST metadata */
     Arena        *tmp_arena;            /* Scratch arena for formatting diagnostics, temporary structures */
@@ -27,6 +29,7 @@ typedef struct SemContext {
     bool          in_switch;            /* True if inside a switch statement (for break / case validation) */
     ZeroCCASTArena *ast_arena;          /* AST Arena owning the ZeroCCASTNode pool (optional, may be NULL) */
 } SemContext;
+#endif
 
 /**
  * Initialize a semantic analysis context.
