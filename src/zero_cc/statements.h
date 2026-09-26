@@ -3,6 +3,19 @@
 #define ZERO_CC_STATEMENTS_H
 
 static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
+    size_t decl_align_spec = 0;
+
+    /* Skip C23 attributes: [[ ... ]] */
+    while (c->tokens[c->token_pos].type == TK_LDBRACKET) {
+        c->token_pos++;
+        int depth = 1;
+        while (c->tokens[c->token_pos].type != TK_EOF && depth > 0) {
+            if (c->tokens[c->token_pos].type == TK_LDBRACKET) depth++;
+            else if (c->tokens[c->token_pos].type == TK_RDBRACKET) depth--;
+            c->token_pos++;
+        }
+    }
+
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
     /* Compound Block: { ... } */
@@ -294,11 +307,16 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         if (c->tokens[c->token_pos].type == TK_LPAREN) {
             c->token_pos++;
             int64_t align_val = zero_cc_eval_const_expr(c);
-            if (align_val > 0 && (decl_align_spec == 0 || align_val > decl_align_spec)) {
-                decl_align_spec = align_val;
+            if (align_val > 0 && (decl_align_spec == 0 || (size_t)align_val > decl_align_spec)) {
+                decl_align_spec = (size_t)align_val;
             }
             if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
         }
+        t = c->tokens[c->token_pos].type;
+    }
+    /* Skip storage/constness specifiers: constexpr, const, static, extern, register */
+    while (t == TK_CONSTEXPR || t == TK_CONST || t == TK_STATIC || t == TK_EXTERN || t == TK_REGISTER) {
+        c->token_pos++;
         t = c->tokens[c->token_pos].type;
     }
     if (t == TK_IDENT || t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
@@ -311,6 +329,7 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
             t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO || t == TK_ATOMIC) {
             bool is_auto = (t == TK_AUTO);
             bool is_atomic_decl = (t == TK_ATOMIC);
+            ZeroCCTokType decl_type_tok = t;
             c->token_pos++;
 
             /* Handle _Atomic for variable declarations */
@@ -387,8 +406,8 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_LPAREN) {
                     c->token_pos++;
                     int64_t align_val = zero_cc_eval_const_expr(c);
-                    if (align_val > 0 && (decl_align_spec == 0 || align_val > decl_align_spec)) {
-                        decl_align_spec = align_val;
+                    if (align_val > 0 && (decl_align_spec == 0 || (size_t)align_val > decl_align_spec)) {
+                        decl_align_spec = (size_t)align_val;
                     }
                     if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
                 }
@@ -399,12 +418,25 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                 c->token_pos++;
 
                 ZeroCCType vtype;
-                if (is_ptr) {
-                    vtype = zero_cc_type_ptr(found_type);
-                } else if (found_type) {
+                if (found_type) {
                     vtype = *found_type;
+                } else if (decl_type_tok == TK_CHAR || decl_type_tok == TK_BOOL_KW) {
+                    vtype = zero_cc_type_char();
+                } else if (decl_type_tok == TK_SHORT) {
+                    vtype = zero_cc_type_int16();
+                } else if (decl_type_tok == TK_INT) {
+                    vtype = zero_cc_type_int();
+                } else if (decl_type_tok == TK_FLOAT_KW) {
+                    vtype = zero_cc_type_float();
+                } else if (decl_type_tok == TK_DOUBLE_KW) {
+                    vtype = zero_cc_type_double();
+                } else if (decl_type_tok == TK_VOID) {
+                    vtype = zero_cc_type_void();
                 } else {
                     vtype = zero_cc_type_int64();
+                }
+                if (is_ptr) {
+                    vtype = zero_cc_type_ptr(&vtype);
                 }
                 if (is_atomic_decl) {
                     vtype.is_atomic = true;
@@ -615,6 +647,18 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         bool has_pending_case_patch = false;
 
         while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
+            /* Skip attributes inside switch (e.g. [[fallthrough]]) */
+            while (c->tokens[c->token_pos].type == TK_LDBRACKET) {
+                c->token_pos++;
+                int depth = 1;
+                while (c->tokens[c->token_pos].type != TK_EOF && depth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LDBRACKET) depth++;
+                    else if (c->tokens[c->token_pos].type == TK_RDBRACKET) depth--;
+                    c->token_pos++;
+                }
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            }
+
             if (c->tokens[c->token_pos].type == TK_CASE) {
                 c->token_pos++;
                 int64_t case_val = 0;
@@ -1140,10 +1184,18 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
         return;
     }
 
-    /* Variable Assignment: x = expr; or x += expr; or x -= expr; */
+    /* Variable Assignment: x = expr; or compound assign (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=) */
     if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_ASSIGN ||
                           c->tokens[c->token_pos + 1].type == TK_ADD_ASSIGN ||
-                          c->tokens[c->token_pos + 1].type == TK_SUB_ASSIGN)) {
+                          c->tokens[c->token_pos + 1].type == TK_SUB_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_MUL_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_DIV_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_MOD_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_AND_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_OR_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_XOR_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_SHL_ASSIGN ||
+                          c->tokens[c->token_pos + 1].type == TK_SHR_ASSIGN)) {
         char var_name[128];
         snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
         ZeroCCTokType aop = c->tokens[c->token_pos + 1].type;
@@ -1162,6 +1214,77 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
                 /* sub [rbp - offset], rax */
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0x29);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_AND_ASSIGN) {
+                /* and [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x21);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_OR_ASSIGN) {
+                /* or [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x09);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_XOR_ASSIGN) {
+                /* xor [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x31);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_MUL_ASSIGN) {
+                /* imul rax, [rbp - offset]; mov [rbp - offset], rax */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x0F);
+                zero_cc_emit_u8(&c->text_section, 0xAF);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else if (aop == TK_DIV_ASSIGN || aop == TK_MOD_ASSIGN) {
+                /* mov rcx, rax (divisor); mov rax, [rbp - offset]; cqo; idiv rcx */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u8(&c->text_section, 0xC1);
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x99); /* cqo */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0xF7);
+                zero_cc_emit_u8(&c->text_section, 0xF9); /* idiv rcx */
+                /* quotient in rax, remainder in rdx */
+                if (aop == TK_MOD_ASSIGN) {
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x89);
+                    zero_cc_emit_u8(&c->text_section, 0x95);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                } else {
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x89);
+                    zero_cc_emit_u8(&c->text_section, 0x85);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                }
+            } else if (aop == TK_SHL_ASSIGN || aop == TK_SHR_ASSIGN) {
+                /* mov rcx, rax (shift count); mov rax, [rbp - offset]; shl/shr rax, cl */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u8(&c->text_section, 0xC1);
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0xD3);
+                zero_cc_emit_u8(&c->text_section, (aop == TK_SHL_ASSIGN) ? 0xE0 : 0xE8);
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
                 zero_cc_emit_u8(&c->text_section, 0x85);
                 zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
             } else {

@@ -504,10 +504,18 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                 zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
             }
 
-            /* Handle in-expression assignment: sym = expr, sym += expr, sym -= expr */
+            /* Handle in-expression assignment: sym = expr, or compound assign */
             if (c->tokens[c->token_pos].type == TK_ASSIGN ||
                 c->tokens[c->token_pos].type == TK_ADD_ASSIGN ||
-                c->tokens[c->token_pos].type == TK_SUB_ASSIGN) {
+                c->tokens[c->token_pos].type == TK_SUB_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_MUL_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_DIV_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_MOD_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_AND_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_OR_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_XOR_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_SHL_ASSIGN ||
+                c->tokens[c->token_pos].type == TK_SHR_ASSIGN) {
                 ZeroCCTokType aop = c->tokens[c->token_pos].type;
                 c->token_pos++;
                 zero_cc_parse_expr(c); /* RHS in rax */
@@ -517,29 +525,74 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
                     zero_cc_emit_u8(&c->text_section, 0x01);
                     zero_cc_emit_u8(&c->text_section, 0x85);
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
-                    /* mov rax, [rbp - offset] */
-                    zero_cc_emit_u8(&c->text_section, 0x48);
-                    zero_cc_emit_u8(&c->text_section, 0x8B);
-                    zero_cc_emit_u8(&c->text_section, 0x85);
-                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
                 } else if (aop == TK_SUB_ASSIGN) {
                     /* sub [rbp - offset], rax */
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x29);
                     zero_cc_emit_u8(&c->text_section, 0x85);
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
-                    /* mov rax, [rbp - offset] */
+                } else if (aop == TK_AND_ASSIGN) {
+                    /* and [rbp - offset], rax */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x21);
+                    zero_cc_emit_u8(&c->text_section, 0x85);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                } else if (aop == TK_OR_ASSIGN) {
+                    /* or [rbp - offset], rax */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x09);
+                    zero_cc_emit_u8(&c->text_section, 0x85);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                } else if (aop == TK_XOR_ASSIGN) {
+                    /* xor [rbp - offset], rax */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x31);
+                    zero_cc_emit_u8(&c->text_section, 0x85);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                } else if (aop == TK_MUL_ASSIGN) {
+                    /* imul rax, [rbp - offset]; mov [rbp - offset], rax */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x0F);
+                    zero_cc_emit_u8(&c->text_section, 0xAF);
+                    zero_cc_emit_u8(&c->text_section, 0x85);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                } else if (aop == TK_DIV_ASSIGN || aop == TK_MOD_ASSIGN) {
+                    /* mov rcx, rax; mov rax, [rbp - offset]; cqo; idiv rcx */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x89);
+                    zero_cc_emit_u8(&c->text_section, 0xC1);
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x8B);
                     zero_cc_emit_u8(&c->text_section, 0x85);
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
-                } else {
-                    /* mov [rbp - offset], rax */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x99);
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0xF7);
+                    zero_cc_emit_u8(&c->text_section, 0xF9);
+                    if (aop == TK_MOD_ASSIGN) {
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x89);
+                        zero_cc_emit_u8(&c->text_section, 0xD0); /* mov rax, rdx */
+                    }
+                } else if (aop == TK_SHL_ASSIGN || aop == TK_SHR_ASSIGN) {
+                    /* mov rcx, rax; mov rax, [rbp - offset]; shl/shr rax, cl */
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x89);
+                    zero_cc_emit_u8(&c->text_section, 0xC1);
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x8B);
                     zero_cc_emit_u8(&c->text_section, 0x85);
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0xD3);
+                    zero_cc_emit_u8(&c->text_section, (aop == TK_SHL_ASSIGN) ? 0xE0 : 0xE8);
                 }
+                /* save rax back to [rbp - offset] */
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x89);
+                zero_cc_emit_u8(&c->text_section, 0x85);
+                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
                 return;
             }
 
