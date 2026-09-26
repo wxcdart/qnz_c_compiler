@@ -1,9 +1,10 @@
 #ifndef ZERO_CC_PARSER_H
 #define ZERO_CC_PARSER_H
 
-#include "types_lexer.h"
 #include <stdint.h>
 #include <stddef.h>
+
+typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 #ifdef __cplusplus
 extern "C" {
