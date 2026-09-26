@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+typedef struct ZeroCCCompiler ZeroCCCompiler;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
