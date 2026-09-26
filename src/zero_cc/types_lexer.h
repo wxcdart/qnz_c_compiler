@@ -21,7 +21,7 @@ typedef enum {
     TK_EOF = 0,
     TK_NUM, TK_STRING, TK_IDENT,
     /* Keywords */
-    TK_INT, TK_CHAR, TK_VOID, TK_STRUCT, TK_TYPEDEF, TK_RETURN,
+    TK_INT, TK_CHAR, TK_VOID, TK_STRUCT, TK_UNION, TK_TYPEDEF, TK_RETURN,
     TK_IF, TK_ELSE, TK_WHILE, TK_FOR, TK_DO, TK_BREAK, TK_CONTINUE,
     TK_SIZEOF, TK_STATIC, TK_INLINE,
     TK_ENUM, TK_SWITCH, TK_CASE, TK_DEFAULT,
@@ -30,6 +30,9 @@ typedef enum {
     TK_STATIC_ASSERT, TK_ALIGNAS, TK_ALIGNOF,
     TK_NORETURN, TK_THREAD_LOCAL, TK_ATOMIC,
     TK_TYPEOF, TK_TYPEOF_UNQUAL,
+    /* Missing C keywords */
+    TK_CONST, TK_EXTERN, TK_REGISTER, TK_RESTRICT, TK_VOLATILE, TK_GOTO,
+    TK_CONSTEXPR,
     /* Operators & Punctuation */
     TK_SEMI, TK_COLON, TK_QUESTION, TK_LBRACE, TK_RBRACE, TK_LPAREN, TK_RPAREN, TK_LBRACKET, TK_RBRACKET,
     TK_COMMA, TK_ASSIGN, TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PERCENT,
@@ -42,16 +45,23 @@ typedef enum {
     TK_FLOAT, TK_CHAR_LIT,
     TK_INC, TK_DEC,
     /* Compound assignment operators */
-    TK_ADD_ASSIGN, TK_SUB_ASSIGN, TK_MUL_ASSIGN, TK_DIV_ASSIGN
+    TK_ADD_ASSIGN, TK_SUB_ASSIGN, TK_MUL_ASSIGN, TK_DIV_ASSIGN,
+    TK_MOD_ASSIGN, TK_AND_ASSIGN, TK_OR_ASSIGN, TK_XOR_ASSIGN, TK_SHL_ASSIGN, TK_SHR_ASSIGN
 } ZeroCCTokType;
 
-typedef struct {
+typedef struct ZeroCCToken {
     ZeroCCTokType type;
     int64_t num_val;
     double float_val;
     uint8_t int_suffix; /* bitflags: 1=U,2=L,4=LL */
     char str_val[128];
-} ZeroCCTokenV2;
+    size_t line;      /* 1-based line number */
+    size_t col;       /* 1-based column number */
+    const char *src;   /* pointer into original source */
+    size_t len;        /* length of token in source */
+} ZeroCCToken;
+
+typedef ZeroCCToken ZeroCCTokenV2;
 
 /* Type System */
 typedef enum {
@@ -156,7 +166,7 @@ typedef struct {
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
-    ZeroCCTokenV2 *tokens;
+    ZeroCCToken *tokens;
     size_t token_count;
     size_t token_pos;
     int last_expr_is_float;
@@ -408,242 +418,9 @@ static inline void zero_cc_init_standard_types(ZeroCCCompiler *c) {
     zero_cc_register_typedef(c, "double", zero_cc_type_double());
 }
 
-/* Lexer implementation */
-static inline void zero_cc_tokenize_c99(const char *p, ZeroCCCompiler *c) {
-    size_t cap = 1024;
-    c->tokens = (ZeroCCTokenV2 *)malloc(cap * sizeof(ZeroCCTokenV2));
-    c->token_count = 0;
-    c->token_pos = 0;
-    const char *s = p;
-    while (s && *s) {
-        /* Skip whitespace and simple comments (line comments) */
-        while (*s && isspace((unsigned char)*s)) s++;
-        if (!*s) break;
-
-        if (c->token_count + 2 >= cap) {
-            cap *= 2;
-            c->tokens = (ZeroCCTokenV2 *)realloc(c->tokens, cap * sizeof(ZeroCCTokenV2));
-        }
-
-        ZeroCCTokenV2 tok;
-        memset(&tok, 0, sizeof(tok));
-
-        /* Line comment */
-        if (s[0] == '/' && s[1] == '/') {
-            s += 2;
-            while (*s && *s != '\n') s++;
-            continue;
-        }
-        /* Block comment */
-        if (s[0] == '/' && s[1] == '*') {
-            s += 2;
-            while (*s && !(s[0] == '*' && s[1] == '/')) s++;
-            if (*s) s += 2;
-            continue;
-        }
-
-        /* Character literal: 'a' or '\n' */
-        if (*s == '\'') {
-            s++;
-            int val = 0;
-            if (*s == '\\' && s[1]) {
-                s++;
-                if (*s == 'n') val = '\n';
-                else if (*s == 't') val = '\t';
-                else if (*s == 'r') val = '\r';
-                else if (*s == '\\') val = '\\';
-                else if (*s == '\'') val = '\'';
-                else if (*s == '0') val = '\0';
-                else val = (unsigned char)*s;
-                s++;
-            } else if (*s) {
-                val = (unsigned char)*s;
-                s++;
-            }
-            if (*s == '\'') s++;
-            tok.type = TK_CHAR_LIT;
-            tok.num_val = val;
-            c->tokens[c->token_count++] = tok;
-            continue;
-        }
-
-        /* Numeric or floating-point constants */
-        if (isdigit((unsigned char)*s) || (*s == '.' && isdigit((unsigned char)s[1]))) {
-            /* Try parsing as floating-point if contains '.' or exponent */
-            char *endptr_d = NULL;
-            double dv = strtod(s, &endptr_d);
-            if (endptr_d && endptr_d != s) {
-                /* determine if parsed characters included a decimal point or exponent */
-                bool has_fp = false;
-                for (char *q = (char*)s; q < endptr_d; q++) {
-                    if (*q == '.' || *q == 'e' || *q == 'E') { has_fp = true; break; }
-                }
-                if (has_fp) {
-                    tok.type = TK_FLOAT;
-                tok.float_val = dv;
-                /* skip float suffixes like f, F, l, L */
-                s = endptr_d;
-                if (*s == 'f' || *s == 'F' || *s == 'l' || *s == 'L') s++;
-                c->tokens[c->token_count++] = tok;
-                    continue;
-                }
-            }
-
-            /* Otherwise integer */
-            tok.type = TK_NUM;
-            char *endptr;
-            tok.num_val = strtoll(s, &endptr, 0);
-            /* parse integer suffixes like U, L, UL, LL (order-insensitive) */
-            uint8_t suf = 0;
-            char *p = endptr;
-            while (*p) {
-                if (*p == 'u' || *p == 'U') { suf |= 1; p++; }
-                else if ((*p == 'l' || *p == 'L') && (p[1] == 'l' || p[1] == 'L')) { suf |= 4; p += 2; }
-                else if (*p == 'l' || *p == 'L') { suf |= 2; p++; }
-                else break;
-            }
-            tok.int_suffix = suf;
-            s = p;
-            c->tokens[c->token_count++] = tok;
-            continue;
-        }
-
-        /* String literal with concatenation support */
-        if (*s == '"') {
-            tok.type = TK_STRING;
-            size_t sl = 0;
-            while (*s == '"') {
-                s++;
-                while (*s && *s != '"') {
-                    if (*s == '\\' && s[1]) {
-                        s++;
-                        if (*s == 'n') tok.str_val[sl++] = '\n';
-                        else if (*s == 't') tok.str_val[sl++] = '\t';
-                        else if (*s == '0') tok.str_val[sl++] = '\0';
-                        else tok.str_val[sl++] = *s;
-                        s++;
-                    } else {
-                        if (sl < sizeof(tok.str_val)-1) tok.str_val[sl++] = *s;
-                        s++;
-                    }
-                }
-                if (*s == '"') s++;
-                while (*s && isspace((unsigned char)*s)) s++;
-            }
-            tok.str_val[sl] = '\0';
-            c->tokens[c->token_count++] = tok;
-            continue;
-        }
-
-        /* Identifier or keyword */
-        if (isalpha((unsigned char)*s) || *s == '_') {
-            size_t il = 0;
-            while ((isalnum((unsigned char)*s) || *s == '_') && il < sizeof(tok.str_val)-1) tok.str_val[il++] = *s++;
-            tok.str_val[il] = '\0';
-
-            /* keywords mapping */
-            if (strcmp(tok.str_val, "return") == 0) tok.type = TK_RETURN;
-            else if (strcmp(tok.str_val, "if") == 0) tok.type = TK_IF;
-            else if (strcmp(tok.str_val, "else") == 0) tok.type = TK_ELSE;
-            else if (strcmp(tok.str_val, "while") == 0) tok.type = TK_WHILE;
-            else if (strcmp(tok.str_val, "for") == 0) tok.type = TK_FOR;
-            else if (strcmp(tok.str_val, "do") == 0) tok.type = TK_DO;
-            else if (strcmp(tok.str_val, "break") == 0) tok.type = TK_BREAK;
-            else if (strcmp(tok.str_val, "continue") == 0) tok.type = TK_CONTINUE;
-            else if (strcmp(tok.str_val, "struct") == 0) tok.type = TK_STRUCT;
-            else if (strcmp(tok.str_val, "typedef") == 0) tok.type = TK_TYPEDEF;
-            else if (strcmp(tok.str_val, "enum") == 0) tok.type = TK_ENUM;
-            else if (strcmp(tok.str_val, "switch") == 0) tok.type = TK_SWITCH;
-            else if (strcmp(tok.str_val, "case") == 0) tok.type = TK_CASE;
-            else if (strcmp(tok.str_val, "default") == 0) tok.type = TK_DEFAULT;
-            else if (strcmp(tok.str_val, "sizeof") == 0) tok.type = TK_SIZEOF;
-            else if (strcmp(tok.str_val, "static") == 0) tok.type = TK_STATIC;
-            else if (strcmp(tok.str_val, "inline") == 0) tok.type = TK_INLINE;
-            else if (strcmp(tok.str_val, "int") == 0) tok.type = TK_INT;
-            else if (strcmp(tok.str_val, "char") == 0) tok.type = TK_CHAR;
-            else if (strcmp(tok.str_val, "void") == 0) tok.type = TK_VOID;
-            else if (strcmp(tok.str_val, "float") == 0) tok.type = TK_FLOAT_KW;
-            else if (strcmp(tok.str_val, "double") == 0) tok.type = TK_DOUBLE_KW;
-            else if (strcmp(tok.str_val, "bool") == 0 || strcmp(tok.str_val, "_Bool") == 0) tok.type = TK_BOOL_KW;
-            else if (strcmp(tok.str_val, "signed") == 0) tok.type = TK_SIGNED;
-            else if (strcmp(tok.str_val, "unsigned") == 0) tok.type = TK_UNSIGNED;
-            else if (strcmp(tok.str_val, "short") == 0) tok.type = TK_SHORT;
-            else if (strcmp(tok.str_val, "long") == 0) tok.type = TK_LONG;
-            else if (strcmp(tok.str_val, "auto") == 0) tok.type = TK_AUTO;
-            else if (strcmp(tok.str_val, "_Generic") == 0) tok.type = TK_GENERIC;
-            else if (strcmp(tok.str_val, "nullptr") == 0) tok.type = TK_NULLPTR;
-            else if (strcmp(tok.str_val, "true") == 0) tok.type = TK_TRUE;
-            else if (strcmp(tok.str_val, "false") == 0) tok.type = TK_FALSE;
-            else if (strcmp(tok.str_val, "_Alignas") == 0) tok.type = TK_ALIGNAS;
-            else if (strcmp(tok.str_val, "_Alignof") == 0) tok.type = TK_ALIGNOF;
-            else if (strcmp(tok.str_val, "_Atomic") == 0) tok.type = TK_ATOMIC;
-            else if (strcmp(tok.str_val, "_Noreturn") == 0) tok.type = TK_NORETURN;
-            else if (strcmp(tok.str_val, "_Thread_local") == 0) tok.type = TK_THREAD_LOCAL;
-            else if (strcmp(tok.str_val, "_Static_assert") == 0) tok.type = TK_STATIC_ASSERT;
-            else if (strcmp(tok.str_val, "typeof") == 0) tok.type = TK_TYPEOF;
-            else if (strcmp(tok.str_val, "typeof_unqual") == 0) tok.type = TK_TYPEOF_UNQUAL;
-            else tok.type = TK_IDENT;
-
-            c->tokens[c->token_count++] = tok;
-            continue;
-        }
-
-        /* Preprocessor token operators: ## and # */
-        if (s[0] == '#' && s[1] == '#') { tok.type = TK_PASTE; s += 2; }
-        else if (*s == '#') { tok.type = TK_HASH; s++; }
-        /* Two-character operators */
-        if (s[0] == '+' && s[1] == '+') { tok.type = TK_INC; s += 2; }
-        else if (s[0] == '-' && s[1] == '-') { tok.type = TK_DEC; s += 2; }
-        else if (s[0] == '+' && s[1] == '=') { tok.type = TK_ADD_ASSIGN; s += 2; }
-        else if (s[0] == '-' && s[1] == '=') { tok.type = TK_SUB_ASSIGN; s += 2; }
-        else if (s[0] == '*' && s[1] == '=') { tok.type = TK_MUL_ASSIGN; s += 2; }
-        else if (s[0] == '/' && s[1] == '=') { tok.type = TK_DIV_ASSIGN; s += 2; }
-        else if (s[0] == '=' && s[1] == '=') { tok.type = TK_EQ; s += 2; }
-        else if (s[0] == '!' && s[1] == '=') { tok.type = TK_NE; s += 2; }
-        else if (s[0] == '<' && s[1] == '=') { tok.type = TK_LE; s += 2; }
-        else if (s[0] == '>' && s[1] == '=') { tok.type = TK_GE; s += 2; }
-        else if (s[0] == '&' && s[1] == '&') { tok.type = TK_LOGAND; s += 2; }
-        else if (s[0] == '|' && s[1] == '|') { tok.type = TK_LOGOR; s += 2; }
-        else if (s[0] == '<' && s[1] == '<') { tok.type = TK_SHL; s += 2; }
-        else if (s[0] == '>' && s[1] == '>') { tok.type = TK_SHR; s += 2; }
-        else if (s[0] == '-' && s[1] == '>') { tok.type = TK_ARROW; s += 2; }
-        else if (s[0] == '.' && s[1] == '.' && s[2] == '.') { /* ellipsis */
-            tok.type = TK_ELLIPSIS; zero_strlcpy(tok.str_val, "...", sizeof(tok.str_val)); s += 3;
-        }
-        /* Single-character tokens */
-        else if (*s == ';') { tok.type = TK_SEMI; s++; }
-        else if (*s == ':') { tok.type = TK_COLON; s++; }
-        else if (*s == '{') { tok.type = TK_LBRACE; s++; }
-        else if (*s == '}') { tok.type = TK_RBRACE; s++; }
-        else if (*s == '(') { tok.type = TK_LPAREN; s++; }
-        else if (*s == ')') { tok.type = TK_RPAREN; s++; }
-        else if (*s == '[') { tok.type = TK_LBRACKET; s++; }
-        else if (*s == ']') { tok.type = TK_RBRACKET; s++; }
-        else if (*s == ',') { tok.type = TK_COMMA; s++; }
-        else if (*s == '=') { tok.type = TK_ASSIGN; s++; }
-        else if (*s == '+') { tok.type = TK_PLUS; s++; }
-        else if (*s == '-') { tok.type = TK_MINUS; s++; }
-        else if (*s == '*') { tok.type = TK_STAR; s++; }
-        else if (*s == '/') { tok.type = TK_SLASH; s++; }
-        else if (*s == '%') { tok.type = TK_PERCENT; s++; }
-        else if (*s == '&') { tok.type = TK_AMP; s++; }
-        else if (*s == '|') { tok.type = TK_PIPE; s++; }
-        else if (*s == '^') { tok.type = TK_CARET; s++; }
-        else if (*s == '~') { tok.type = TK_TILDE; s++; }
-        else if (*s == '!') { tok.type = TK_BANG; s++; }
-        else if (*s == '<') { tok.type = TK_LT; s++; }
-        else if (*s == '>') { tok.type = TK_GT; s++; }
-        else if (*s == '.') { tok.type = TK_DOT; s++; }
-        else if (*s == '?') { tok.type = TK_QUESTION; s++; }
-        else { /* Unknown/unsupported character: skip */ s++; continue; }
-
-        c->tokens[c->token_count++] = tok;
-    }
-
-    ZeroCCTokenV2 eof_tok; memset(&eof_tok,0,sizeof(eof_tok)); eof_tok.type = TK_EOF; eof_tok.num_val = 0; eof_tok.str_val[0] = '\0';
-    c->tokens[c->token_count++] = eof_tok;
-}
-
+/* Lexer implementation (moved to lexer.c/lexer.h) */
+void zero_cc_tokenize_c99(const char *p, ZeroCCCompiler *c);
+ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len);
 /* Machine Code Emission Helpers (x86_64) */
 static inline void zero_cc_emit_u8(ZeroCCBuffer *b, uint8_t byte) {
     zero_cc_buf_put_bytes(b, &byte, 1);

@@ -7,6 +7,7 @@ TESTS = $(TEST_SRCS:.c=)
 TOOLS = tools/gen_keywords
 KEYWORDS_INC = src/zero_cc/keywords.inc
 SETTERS_OBJ = src/zero_cc/backends/setters.o
+LEXER_OBJ = src/zero_cc/lexer.o
 TLS_OBJ = src/zero_cc/tls_backend_static.o
 
 .PHONY: all test clean
@@ -14,6 +15,9 @@ TLS_OBJ = src/zero_cc/tls_backend_static.o
 all: $(TESTS)
 
 $(SETTERS_OBJ): src/zero_cc/backends/setters.c src/zero_cc/zero_cc_backends.h src/zero_cc/types_lexer.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TLS_OBJ): src/zero_cc/tls_backend_static.c
@@ -25,8 +29,8 @@ $(TOOLS): tools/gen_keywords.c
 $(KEYWORDS_INC): $(TOOLS) tools/keywords.txt
 	./$(TOOLS) < tools/keywords.txt > $@
 
-test/%: test/%.c $(KEYWORDS_INC) $(SETTERS_OBJ) $(TLS_OBJ)
-	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) -o $@
+test/%: test/%.c $(KEYWORDS_INC) $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ)
+	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) -o $@
 
 test: all
 	@echo "Running tests..."
