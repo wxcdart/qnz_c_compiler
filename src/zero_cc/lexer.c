@@ -18,13 +18,18 @@ static int scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok);
 static int handle_escape(const char **s, size_t *len, char *out, int *out_val);
 
 /* Initialize lexer */
-void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src) {
+void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename) {
     if (!lx || !src) return;
     lx->src = src;
     lx->cur = src;
+    lx->filename = filename;
     lx->line = 1;
     lx->col = 1;
     lx->offset = 0;
+}
+
+void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src) {
+    zero_cc_lexer_init_file(lx, src, NULL);
 }
 
 /* Keyword lookup using perfect hash from generated table */
@@ -151,6 +156,7 @@ int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     /* Initialize token */
     memset(out, 0, sizeof(*out));
     out->src = s;
+    out->filename = lx->filename;
     out->line = line;
     out->col = col;
 
@@ -175,7 +181,64 @@ int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
         return zero_cc_lexer_next(lx, out);
     }
 
+    /* Check for preprocessor line directives: # <line> ["<file>"] or #line <line> */
+    if (*s == '#') {
+        const char *p = s + 1;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "line", 4) == 0 && (p[4] == ' ' || p[4] == '\t')) {
+            p += 4;
+            while (*p == ' ' || *p == '\t') p++;
+        }
+        if (isdigit((unsigned char)*p)) {
+            char *endp = NULL;
+            long new_line = strtol(p, &endp, 10);
+            p = endp;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '"') {
+                p++;
+                const char *fn_start = p;
+                while (*p && *p != '"' && *p != '\n') p++;
+                size_t fn_len = p - fn_start;
+                char *fn = (char *)malloc(fn_len + 1);
+                if (fn) {
+                    memcpy(fn, fn_start, fn_len);
+                    fn[fn_len] = '\0';
+                    lx->filename = fn;
+                }
+                if (*p == '"') p++;
+            }
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') p++;
+            offset += (p - s);
+            line = (new_line > 0) ? (size_t)new_line : line;
+            col = 1;
+            s = p;
+            lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
+            return zero_cc_lexer_next(lx, out);
+        }
+    }
+
     /* Try each token type in order of specificity */
+
+    /* Prefixed character / string literals: L'...', L"...", u8"...", u"...", U"..." */
+    if ((s[0] == 'L' || s[0] == 'u' || s[0] == 'U') && (s[1] == '\'' || s[1] == '"')) {
+        int is_char = (s[1] == '\'');
+        s++; offset++; col++;
+        lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
+        int ret = is_char ? scan_char(lx, out) : scan_string(lx, out);
+        out->src = s - 1;
+        out->len++;
+        return ret;
+    }
+    if (s[0] == 'u' && s[1] == '8' && (s[2] == '\'' || s[2] == '"')) {
+        int is_char = (s[2] == '\'');
+        s += 2; offset += 2; col += 2;
+        lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
+        int ret = is_char ? scan_char(lx, out) : scan_string(lx, out);
+        out->src = s - 2;
+        out->len += 2;
+        return ret;
+    }
 
     /* Character literal */
     if (*s == '\'') {
@@ -265,32 +328,55 @@ static int scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
     size_t offset = lx->offset;
 
     size_t sl = 0;
+    size_t cap = sizeof(tok->str_val);
+    char *buf = tok->str_val;
     tok->type = TK_STRING;
+    tok->allocated_str = NULL;
 
     const char *s = lx->cur;
 
     while (*s == '"') {
         s++; offset++; col++;  /* skip opening " */
         while (*s && *s != '"') {
+            char esc_ch = 0;
             if (*s == '\\' && s[1]) {
                 s++; offset++; col++;
                 char esc = *s;
                 int char_val = 0;
                 if (!handle_escape(&s, &offset, NULL, &char_val)) {
-                    /* Invalid escape, use the character as-is */
                     char_val = (unsigned char)esc;
                 }
-                if (sl < sizeof(tok->str_val) - 1) {
-                    tok->str_val[sl++] = (char)char_val;
-                }
+                esc_ch = (char)char_val;
                 s++; offset++; col++;
             } else {
-                if (sl < sizeof(tok->str_val) - 1) {
-                    tok->str_val[sl++] = *s;
-                }
+                esc_ch = *s;
                 if (*s == '\n') { line++; col = 1; }
                 else col++;
                 s++; offset++;
+            }
+
+            /* Append char, resizing dynamically if needed */
+            if (sl + 1 >= cap) {
+                if (buf == tok->str_val) {
+                    cap = 256;
+                    buf = (char *)malloc(cap);
+                    if (buf) {
+                        memcpy(buf, tok->str_val, sl);
+                        tok->allocated_str = buf;
+                    } else {
+                        buf = tok->str_val; /* fallback */
+                    }
+                } else {
+                    cap *= 2;
+                    char *new_buf = (char *)realloc(buf, cap);
+                    if (new_buf) {
+                        buf = new_buf;
+                        tok->allocated_str = buf;
+                    }
+                }
+            }
+            if (buf != tok->str_val || sl < sizeof(tok->str_val) - 1) {
+                buf[sl++] = esc_ch;
             }
         }
         if (*s == '"') {
@@ -304,7 +390,12 @@ static int scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
         }
     }
 
-    tok->str_val[sl] = '\0';
+    buf[sl] = '\0';
+    if (buf != tok->str_val) {
+        /* Keep first 127 bytes in str_val for compatibility with functions accessing str_val directly */
+        memcpy(tok->str_val, buf, sizeof(tok->str_val) - 1);
+        tok->str_val[sizeof(tok->str_val) - 1] = '\0';
+    }
     tok->len = s - start;
     tok->line = line;
     tok->col = col;
@@ -337,6 +428,45 @@ static int handle_escape(const char **s, size_t *offset, char *out_str, int *out
         case '"': val = '"'; break;
         case '?': val = '?'; break;
         case '0': val = '\0'; break;
+        case 'e': case 'E': val = 0x1B; break; /* GNU escape: \e */
+        case 'u': {
+            /* \uXXXX */
+            const char *p = *s + 1;
+            int hex = 0, digits = 0;
+            while (digits < 4 && isxdigit((unsigned char)*p)) {
+                char c = *p++;
+                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                digits++;
+            }
+            if (digits == 4) {
+                val = hex;
+                *offset += digits;
+                *s = p - 1;
+            } else {
+                handled = 0;
+                val = (unsigned char)'u';
+            }
+            break;
+        }
+        case 'U': {
+            /* \UXXXXXXXX */
+            const char *p = *s + 1;
+            int hex = 0, digits = 0;
+            while (digits < 8 && isxdigit((unsigned char)*p)) {
+                char c = *p++;
+                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                digits++;
+            }
+            if (digits == 8) {
+                val = hex;
+                *offset += digits;
+                *s = p - 1;
+            } else {
+                handled = 0;
+                val = (unsigned char)'U';
+            }
+            break;
+        }
         case 'x': {
             /* Hex escape: \xhh */
             const char *p = *s + 1;
@@ -563,6 +693,9 @@ static int scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok) {
     else if (s[0] == '&' && s[1] == '&') { tok->type = TK_LOGAND; s += 2; offset += 2; col += 2; }
     else if (s[0] == '|' && s[1] == '|') { tok->type = TK_LOGOR; s += 2; offset += 2; col += 2; }
     else if (s[0] == '-' && s[1] == '>') { tok->type = TK_ARROW; s += 2; offset += 2; col += 2; }
+    else if (s[0] == '[' && s[1] == '[') { tok->type = TK_LDBRACKET; s += 2; offset += 2; col += 2; }
+    else if (s[0] == ']' && s[1] == ']') { tok->type = TK_RDBRACKET; s += 2; offset += 2; col += 2; }
+    else if (s[0] == ':' && s[1] == ':') { tok->type = TK_COLONCOLON; s += 2; offset += 2; col += 2; }
     /* Preprocessor operators */
     else if (s[0] == '#' && s[1] == '#') { tok->type = TK_PASTE; s += 2; offset += 2; col += 2; }
     else if (*s == '#') { tok->type = TK_HASH; s++; offset++; col++; }

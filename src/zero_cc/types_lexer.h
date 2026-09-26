@@ -46,7 +46,9 @@ typedef enum {
     TK_INC, TK_DEC,
     /* Compound assignment operators */
     TK_ADD_ASSIGN, TK_SUB_ASSIGN, TK_MUL_ASSIGN, TK_DIV_ASSIGN,
-    TK_MOD_ASSIGN, TK_AND_ASSIGN, TK_OR_ASSIGN, TK_XOR_ASSIGN, TK_SHL_ASSIGN, TK_SHR_ASSIGN
+    TK_MOD_ASSIGN, TK_AND_ASSIGN, TK_OR_ASSIGN, TK_XOR_ASSIGN, TK_SHL_ASSIGN, TK_SHR_ASSIGN,
+    /* C23 double colon and attribute double brackets */
+    TK_COLONCOLON, TK_LDBRACKET, TK_RDBRACKET
 } ZeroCCTokType;
 
 typedef struct ZeroCCToken {
@@ -55,6 +57,8 @@ typedef struct ZeroCCToken {
     double float_val;
     uint8_t int_suffix; /* bitflags: 1=U,2=L,4=LL */
     char str_val[128];
+    char *allocated_str; /* for long strings (> 127 chars) */
+    const char *filename; /* source filename if available */
     size_t line;      /* 1-based line number */
     size_t col;       /* 1-based column number */
     const char *src;   /* pointer into original source */
