@@ -117,6 +117,26 @@ void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
     }
 }
 
+void zero_cc_token_free(ZeroCCToken *tok) {
+    if (tok && tok->allocated_str) {
+        free(tok->allocated_str);
+        tok->allocated_str = NULL;
+    }
+}
+
+void zero_cc_compiler_free_tokens(ZeroCCCompiler *c) {
+    if (!c) return;
+    if (c->tokens) {
+        for (size_t i = 0; i < c->token_count; i++) {
+            zero_cc_token_free(&c->tokens[i]);
+        }
+        free(c->tokens);
+        c->tokens = NULL;
+    }
+    c->token_count = 0;
+    c->token_pos = 0;
+}
+
 /* Get next token */
 int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     if (!lx || !out || !lx->src || !lx->cur) return -1;
@@ -524,7 +544,11 @@ static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
     if (s[0] == '0' && (s[1] == 'b' || s[1] == 'B') && (s[2] == '0' || s[2] == '1')) {
         s += 2; offset += 2; col += 2;
         unsigned long long bval = 0;
-        while (*s == '0' || *s == '1') {
+        while (*s == '0' || *s == '1' || *s == '\'') {
+            if (*s == '\'') {
+                s++; offset++; col++;
+                continue;
+            }
             bval = (bval << 1) | (*s - '0');
             s++; offset++; col++;
         }
@@ -555,13 +579,44 @@ static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
         return 0;
     }
 
+    /* Check if the literal contains digit separators (') */
+    char clean_buf[128];
+    const char *parse_str = s;
+    const char *scan_ptr = s;
+    bool has_sep = false;
+
+    /* Peek ahead across the numeric literal to check for digit separators */
+    bool is_hex = (scan_ptr[0] == '0' && (scan_ptr[1] == 'x' || scan_ptr[1] == 'X'));
+    if (is_hex) scan_ptr += 2;
+    while (*scan_ptr && (isxdigit((unsigned char)*scan_ptr) || *scan_ptr == '.' ||
+           *scan_ptr == 'e' || *scan_ptr == 'E' || *scan_ptr == 'p' || *scan_ptr == 'P' ||
+           *scan_ptr == '+' || *scan_ptr == '-' || *scan_ptr == '\'')) {
+        if (*scan_ptr == '\'') {
+            has_sep = true;
+        }
+        scan_ptr++;
+    }
+
+    if (has_sep) {
+        size_t c_idx = 0;
+        const char *p = s;
+        while (p < scan_ptr && c_idx < sizeof(clean_buf) - 1) {
+            if (*p != '\'') {
+                clean_buf[c_idx++] = *p;
+            }
+            p++;
+        }
+        clean_buf[c_idx] = '\0';
+        parse_str = clean_buf;
+    }
+
     /* Try parsing as floating-point first if it contains '.', 'e'/'E', or hex-float exponent 'p'/'P' */
     char *endptr_d = NULL;
-    double dv = strtod(s, &endptr_d);
+    double dv = strtod(parse_str, &endptr_d);
 
     bool has_fp = false;
-    if (endptr_d && endptr_d != s) {
-        for (char *q = (char*)s; q < endptr_d; q++) {
+    if (endptr_d && endptr_d != parse_str) {
+        for (char *q = (char*)parse_str; q < endptr_d; q++) {
             if (*q == '.' || *q == 'e' || *q == 'E' || *q == 'p' || *q == 'P') {
                 has_fp = true;
                 break;
@@ -573,7 +628,17 @@ static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
         /* Floating point */
         tok->type = TK_FLOAT;
         tok->float_val = dv;
-        s = endptr_d;
+        size_t consumed_clean = endptr_d - parse_str;
+        /* Advance in original source skipping matching characters / separators */
+        size_t matched = 0;
+        while (*s && matched < consumed_clean) {
+            if (*s == '\'') {
+                s++; offset++; col++;
+                continue;
+            }
+            matched++;
+            s++; offset++; col++;
+        }
 
         /* Suffixes: f/F (float), l/L (long double) */
         uint8_t suf = 0;
@@ -595,17 +660,27 @@ static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
     /* Integer */
     tok->type = TK_NUM;
     errno = 0;
-    char *endptr;
-    long long val = strtoll(s, &endptr, 0);
+    char *endptr = NULL;
+    long long val = strtoll(parse_str, &endptr, 0);
     if (errno == ERANGE) {
-        /* Value out of range - clamp to max */
         val = (val < 0) ? LLONG_MIN : LLONG_MAX;
     }
     tok->num_val = val;
 
+    size_t consumed_clean = (endptr && endptr > parse_str) ? (size_t)(endptr - parse_str) : 0;
+    size_t matched = 0;
+    while (*s && matched < consumed_clean) {
+        if (*s == '\'') {
+            s++; offset++; col++;
+            continue;
+        }
+        matched++;
+        s++; offset++; col++;
+    }
+
     /* Parse integer suffixes (U, L, UL, LL, etc.) */
     uint8_t suf = 0;
-    const char *p = endptr;
+    const char *p = s;
     while (*p) {
         if (*p == 'u' || *p == 'U') {
             suf |= 1;

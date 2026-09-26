@@ -25,6 +25,12 @@ int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out);
 /* Convenience: tokenize entire source into compiler's token array */
 void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c);
 
+/* Free dynamically allocated memory in a token */
+void zero_cc_token_free(ZeroCCToken *tok);
+
+/* Free all dynamically allocated tokens in a compiler context */
+void zero_cc_compiler_free_tokens(ZeroCCCompiler *c);
+
 /* Keyword lookup using perfect hash from generated table */
 ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len);
 
