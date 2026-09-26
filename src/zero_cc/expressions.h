@@ -1338,7 +1338,7 @@ static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_EQ || op == TK_NE) {
             (*pos)++;
-            ZeroCCType right = zero_cc_type_of_relational(c, pos);
+            zero_cc_type_of_relational(c, pos);
             left = zero_cc_type_int(); /* comparison yields int */
         } else {
             break;
@@ -1354,7 +1354,7 @@ static inline ZeroCCType zero_cc_type_of_relational(ZeroCCCompiler *c, size_t *p
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_LT || op == TK_GT || op == TK_LE || op == TK_GE) {
             (*pos)++;
-            ZeroCCType right = zero_cc_type_of_additive(c, pos);
+            zero_cc_type_of_additive(c, pos);
             left = zero_cc_type_int();
         } else {
             break;
@@ -1392,7 +1392,7 @@ static inline ZeroCCType zero_cc_type_of_multiplicative(ZeroCCCompiler *c, size_
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_STAR || op == TK_SLASH || op == TK_PERCENT) {
             (*pos)++;
-            ZeroCCType right = zero_cc_type_of_unary(c, pos);
+            zero_cc_type_of_unary(c, pos);
             left = zero_cc_type_int();
         } else {
             break;
@@ -1422,12 +1422,10 @@ static inline ZeroCCType zero_cc_type_of_unary(ZeroCCCompiler *c, size_t *pos)
     }
     if (t == TK_SIZEOF) {
         /* sizeof expression is size_t (uint64_t) */
-        size_t save_pos = *pos;
         eval_sizeof(c, pos);
         return zero_cc_type_uint64();
     }
     if (t == TK_ALIGNOF) {
-        size_t save_pos = *pos;
         eval_alignof(c, pos);
         return zero_cc_type_uint64();
     }
@@ -1517,7 +1515,6 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             while (true) {
                 ZeroCCTokType mt = c->tokens[*pos].type;
                 if (mt == TK_DOT || mt == TK_ARROW) {
-                    bool is_arrow = (mt == TK_ARROW);
                     (*pos)++;
                     if (c->tokens[*pos].type == TK_IDENT) {
                         const char *mem_name = c->tokens[*pos].str_val;
@@ -1567,6 +1564,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
 /* Helper: find member type in struct/union */
 static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType base, const char *member_name)
 {
+    (void)c;
     if (base.tag == TYPE_PTR && base.base) {
         base = *base.base;
     }
