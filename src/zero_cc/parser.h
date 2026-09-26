@@ -1,13 +1,14 @@
 #ifndef ZERO_CC_PARSER_H
 #define ZERO_CC_PARSER_H
 
-#include "types_lexer.h"
 #include <stdint.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /* 32-bit thin pointer into the AST Arena */
 typedef uint32_t ASTRef;
