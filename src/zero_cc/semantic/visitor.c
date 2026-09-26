@@ -1,4 +1,5 @@
 #include "visitor.h"
+#include "decl.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -313,32 +314,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_DECL: {
-            const char *name = node->s.str;
-            TypeInfo *init_t = NULL;
-            if (node->left != AST_NULL) {
-                init_t = sem_analyze_ref(ctx, node->left);
-            }
-            /* Default to init_t or int if unspecified */
-            res = init_t ? init_t : type_int(ctx->perm_arena);
-            if (name) {
-                if (scope_lookup_current(ctx->current_scope, name)) {
-                    sem_node_error(ctx, node, "redefinition of '%s'", name);
-                } else {
-                    scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, res);
-                }
-            }
+            res = decl_handle_var(ctx, node);
             break;
         }
         case NODE_TYPEDEF_DECL: {
-            const char *name = node->s.str;
-            res = type_int(ctx->perm_arena);
-            if (name) {
-                if (scope_lookup_current(ctx->current_scope, name)) {
-                    sem_node_error(ctx, node, "redefinition of typedef '%s'", name);
-                } else {
-                    scope_put_symbol(ctx->current_scope, name, SYMBOL_TYPEDEF, res);
-                }
-            }
+            res = decl_handle_typedef(ctx, node);
             break;
         }
         default:
