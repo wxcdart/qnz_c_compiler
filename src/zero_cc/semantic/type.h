@@ -1,0 +1,112 @@
+#pragma once
+
+#include "../arena.h"
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum TypeKind {
+    TYPE_VOID,
+    TYPE_BOOL,
+    TYPE_CHAR,
+    TYPE_SHORT,
+    TYPE_INT,
+    TYPE_LONG,
+    TYPE_FLOAT,
+    TYPE_DOUBLE,
+    TYPE_POINTER,
+    TYPE_ARRAY,
+    TYPE_FUNCTION,
+    TYPE_STRUCT,
+    TYPE_UNION,
+    TYPE_ENUM
+} TypeKind;
+
+/* Forward declaration */
+typedef struct TypeInfo TypeInfo;
+
+/* Type modifier flags */
+enum TypeModifier {
+    TYPE_MOD_NONE     = 0,
+    TYPE_MOD_UNSIGNED = 1 << 0,
+    TYPE_MOD_CONST    = 1 << 1,
+    TYPE_MOD_VOLATILE = 1 << 2,
+    TYPE_MOD_RESTRICT = 1 << 3,
+    TYPE_MOD_ATOMIC   = 1 << 4
+};
+
+struct TypeInfo {
+    TypeKind kind;
+    uint32_t modifiers; // Bitmask of enum TypeModifier
+    union {
+        struct {
+            TypeInfo *base;
+            size_t    count;
+        } array; // TYPE_ARRAY
+        struct {
+            TypeInfo *base;
+        } pointer; // TYPE_POINTER
+        struct {
+            TypeInfo **params;
+            size_t     param_cnt;
+            TypeInfo  *ret;
+            bool       is_variadic;
+        } function; // TYPE_FUNCTION
+        // Struct / union / enum representation extensions
+        struct {
+            const char *tag;
+            size_t      size;
+            size_t      align;
+        } record;
+    } details;
+};
+
+/** Allocate a new TypeInfo from the permanent arena */
+static inline TypeInfo *type_new(Arena *perm) {
+    return (TypeInfo *)arena_alloc(perm, sizeof(TypeInfo));
+}
+
+/* Canonical primitive type accessors/constructors */
+TypeInfo *type_void(Arena *perm);
+TypeInfo *type_bool(Arena *perm);
+TypeInfo *type_char(Arena *perm);
+TypeInfo *type_short(Arena *perm);
+TypeInfo *type_int(Arena *perm);
+TypeInfo *type_long(Arena *perm);
+TypeInfo *type_float(Arena *perm);
+TypeInfo *type_double(Arena *perm);
+
+/* Unsigned primitive constructors */
+TypeInfo *type_uchar(Arena *perm);
+TypeInfo *type_ushort(Arena *perm);
+TypeInfo *type_uint(Arena *perm);
+TypeInfo *type_ulong(Arena *perm);
+
+/* Derived type constructors */
+TypeInfo *type_pointer_to(Arena *perm, TypeInfo *base);
+TypeInfo *type_array_of(Arena *perm, TypeInfo *base, size_t count);
+TypeInfo *type_function(Arena *perm, TypeInfo *ret, TypeInfo **params, size_t param_cnt, bool is_variadic);
+
+/* Predicates */
+bool type_is_void(const TypeInfo *t);
+bool type_is_bool(const TypeInfo *t);
+bool type_is_integer(const TypeInfo *t);
+bool type_is_floating(const TypeInfo *t);
+bool type_is_arithmetic(const TypeInfo *t);
+bool type_is_pointer(const TypeInfo *t);
+bool type_is_array(const TypeInfo *t);
+bool type_is_function(const TypeInfo *t);
+bool type_is_unsigned(const TypeInfo *t);
+
+/* Comparison and metrics */
+bool   type_equal(const TypeInfo *a, const TypeInfo *b);
+size_t type_size(const TypeInfo *t);
+size_t type_align(const TypeInfo *t);
+
+#ifdef __cplusplus
+}
+#endif
