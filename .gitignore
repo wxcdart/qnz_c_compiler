@@ -8,3 +8,5 @@ src/zero_cc/backends/setters.o
 src/zero_cc/tls_backend_static.o
 
 .obj
+
+text.ext
