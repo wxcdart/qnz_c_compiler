@@ -32,42 +32,16 @@ void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src) {
     zero_cc_lexer_init_file(lx, src, NULL);
 }
 
-/* Keyword lookup using perfect hash from generated table */
+/* Keyword lookup */
 ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len) {
-    if (!s) return TK_IDENT;
-    if (KEYWORD_COUNT <= 0 || KEYWORD_COUNT > 1000) return TK_IDENT;  /* Sanity check */
-    for (int i = 0; i < KEYWORD_COUNT; i++) {
+    if (!s || len == 0) return TK_IDENT;
+    for (size_t i = 0; i < KEYWORD_COUNT; i++) {
         const char *kw = keyword_table[i].name;
-        if (!kw) continue;  /* Safety check */
-        size_t kw_len = strlen(kw);
-        if (kw_len == len && kw[0] == s[0]) {
+        if (kw[0] == s[0] && strlen(kw) == len) {
             if (memcmp(kw, s, len) == 0)
                 return keyword_table[i].type;
         }
     }
-    return TK_IDENT;
-}
-
-/* Debug version of keyword lookup */
-ZeroCCTokType zero_cc_keyword_lookup_debug(const char *s, size_t len) {
-    if (!s || len == 0) {
-        fprintf(stderr, "KEYWORD_LOOKUP: EMPTY STRING! len=%zu\n", len);
-        return TK_IDENT;
-    }
-    fprintf(stderr, "KEYWORD_LOOKUP: '%.*s' (len=%zu)\n", (int)len, s, len);
-    if (KEYWORD_COUNT <= 0 || KEYWORD_COUNT > 1000) return TK_IDENT;
-    for (int i = 0; i < KEYWORD_COUNT; i++) {
-        const char *kw = keyword_table[i].name;
-        if (!kw) continue;
-        size_t kw_len = strlen(kw);
-        if (kw_len == len && kw[0] == s[0]) {
-            if (memcmp(kw, s, len) == 0) {
-                fprintf(stderr, "  -> FOUND: %d\n", keyword_table[i].type);
-                return keyword_table[i].type;
-            }
-        }
-    }
-    fprintf(stderr, "  -> NOT FOUND, returning TK_IDENT\n");
     return TK_IDENT;
 }
 

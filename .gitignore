@@ -3,7 +3,5 @@
 test/*
 !test/*.c
 !test/*.h
-tools/gen_keywords
-src/zero_cc/keywords.inc
 src/zero_cc/backends/setters.o
 src/zero_cc/tls_backend_static.o
