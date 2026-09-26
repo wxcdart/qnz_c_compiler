@@ -67,7 +67,7 @@ typedef struct ZeroCCASTNode {
     union {
         int64_t  int_val;
         double   float_val;
-        char     str_val[64];
+        char     str_val[128];
         struct {
             uint32_t op;      /* operator token type */
             uint32_t alt;     /* secondary branch (e.g. else_stmt in if) */
@@ -93,6 +93,12 @@ static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) 
     if (!arena || ref == AST_NULL || ref >= arena->count) return NULL;
     return &arena->nodes[ref];
 }
+
+/* Parser Functions using 32-bit AST Arena */
+ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+
+/* AST Pretty-Printer / Dumper for debugging and testing */
+void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent);
 
 #ifdef __cplusplus
 }
