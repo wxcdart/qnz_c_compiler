@@ -1,4 +1,5 @@
 #include "visitor.h"
+#include "stmt.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -205,111 +206,47 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_BLOCK: {
-            /* Create new inner scope for block */
-            Scope *inner = scope_enter(&ctx->current_scope, ctx->perm_arena);
-            (void)inner;
-
-            ASTRef stmt_ref = node->left;
-            while (stmt_ref != AST_NULL) {
-                ZeroCCASTNode *stmt_node = sem_get_node(ctx, stmt_ref);
-                if (stmt_node) {
-                    (void)sem_analyze_node(ctx, stmt_node);
-                    stmt_ref = stmt_node->next;
-                } else {
-                    break;
-                }
-            }
-
-            scope_leave(&ctx->current_scope);
+            stmt_handle_block(ctx, node);
             break;
         }
         case NODE_IF: {
-            (void)sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
-            if (node->aux.alt != AST_NULL) {
-                (void)sem_analyze_ref(ctx, node->aux.alt);
-            }
+            stmt_handle_if(ctx, node);
             break;
         }
-        case NODE_WHILE:
+        case NODE_WHILE: {
+            stmt_handle_while(ctx, node);
+            break;
+        }
         case NODE_DO_WHILE: {
-            bool prev_in_loop = ctx->in_loop;
-            ctx->in_loop = true;
-
-            (void)sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
-
-            ctx->in_loop = prev_in_loop;
+            stmt_handle_do_while(ctx, node);
             break;
         }
         case NODE_FOR: {
-            bool prev_in_loop = ctx->in_loop;
-            ctx->in_loop = true;
-
-            /* for-loop can introduce a scope for declarations in init */
-            Scope *for_scope = scope_enter(&ctx->current_scope, ctx->perm_arena);
-            (void)for_scope;
-
-            if (node->left != AST_NULL) sem_analyze_ref(ctx, node->left);
-            if (node->right != AST_NULL) sem_analyze_ref(ctx, node->right);
-            if (node->aux.step != AST_NULL) sem_analyze_ref(ctx, node->aux.step);
-            if (node->aux.alt != AST_NULL) sem_analyze_ref(ctx, node->aux.alt);
-
-            scope_leave(&ctx->current_scope);
-            ctx->in_loop = prev_in_loop;
+            stmt_handle_for(ctx, node);
             break;
         }
         case NODE_SWITCH: {
-            bool prev_in_switch = ctx->in_switch;
-            ctx->in_switch = true;
-
-            (void)sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
-
-            ctx->in_switch = prev_in_switch;
+            stmt_handle_switch(ctx, node);
             break;
         }
         case NODE_CASE: {
-            if (!ctx->in_switch) {
-                sem_node_error(ctx, node, "'case' statement not in switch statement");
-            }
-            (void)sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
+            stmt_handle_case(ctx, node);
             break;
         }
         case NODE_DEFAULT: {
-            if (!ctx->in_switch) {
-                sem_node_error(ctx, node, "'default' statement not in switch statement");
-            }
-            (void)sem_analyze_ref(ctx, node->left);
+            stmt_handle_default(ctx, node);
             break;
         }
         case NODE_BREAK: {
-            if (!ctx->in_loop && !ctx->in_switch) {
-                sem_node_error(ctx, node, "'break' statement not in loop or switch statement");
-            }
+            stmt_handle_break(ctx, node);
             break;
         }
         case NODE_CONTINUE: {
-            if (!ctx->in_loop) {
-                sem_node_error(ctx, node, "'continue' statement not in loop statement");
-            }
+            stmt_handle_continue(ctx, node);
             break;
         }
         case NODE_RETURN: {
-            if (node->left != AST_NULL) {
-                TypeInfo *ret_t = sem_analyze_ref(ctx, node->left);
-                if (ctx->current_fn_ret_type && ret_t) {
-                    /* If function returns void but return expression is present */
-                    if (type_is_void(ctx->current_fn_ret_type) && !type_is_void(ret_t)) {
-                        sem_node_error(ctx, node, "void function should not return a value");
-                    }
-                }
-            } else {
-                if (ctx->current_fn_ret_type && !type_is_void(ctx->current_fn_ret_type)) {
-                    sem_node_error(ctx, node, "non-void function should return a value");
-                }
-            }
+            stmt_handle_return(ctx, node);
             break;
         }
         case NODE_DECL: {
