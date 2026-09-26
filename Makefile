@@ -6,6 +6,7 @@ TESTS = $(TEST_SRCS:.c=)
 
 SETTERS_OBJ = src/zero_cc/backends/setters.o
 LEXER_OBJ = src/zero_cc/lexer.o
+PARSER_OBJ = src/zero_cc/parser.o
 TLS_OBJ = src/zero_cc/tls_backend_static.o
 
 .PHONY: all test clean
@@ -18,11 +19,14 @@ $(SETTERS_OBJ): src/zero_cc/backends/setters.c src/zero_cc/zero_cc_backends.h sr
 $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h src/zero_cc/keywords.inc
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(PARSER_OBJ): src/zero_cc/parser.c src/zero_cc/parser.h src/zero_cc/types_lexer.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(TLS_OBJ): src/zero_cc/tls_backend_static.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ)
-	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) -o $@
+test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
+	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) -o $@
 
 test: all
 	@echo "Running tests..."
