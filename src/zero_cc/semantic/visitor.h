@@ -8,6 +8,7 @@
 #include "diagnostics.h"
 #include "scope.h"
 #include "type.h"
+#include "promote.h"
 
 #ifdef __cplusplus
 extern "C" {

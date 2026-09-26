@@ -145,7 +145,12 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_ASSIGN: {
             TypeInfo *lt = sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
+            TypeInfo *rt = sem_analyze_ref(ctx, node->right);
+            if (lt && rt) {
+                if (!type_compatible_assign(lt, rt)) {
+                    sem_node_error(ctx, node, "incompatible types in assignment");
+                }
+            }
             res = lt;
             break;
         }
