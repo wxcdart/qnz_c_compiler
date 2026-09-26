@@ -554,12 +554,12 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     snprintf(sym->name, sizeof(sym->name), "%s", name);
     sym->type = type;
     size_t alignment = type.align ? type.align : 8;
-    if (alignment < 1) alignment = 8;
+    if (alignment < 8) alignment = 8;
     if (decl_align_spec > 0) {
         if ((size_t)decl_align_spec > alignment) alignment = (size_t)decl_align_spec;
     }
     size_t alloc_sz = type.size ? type.size : alignment;
-    if (alloc_sz < 4) alloc_sz = 4;
+    if (alloc_sz < 8) alloc_sz = 8;
     c->current_stack_frame = (c->current_stack_frame + alignment - 1) & ~(alignment - 1);
     c->current_stack_frame += (int32_t)alloc_sz;
     sym->stack_offset = c->current_stack_frame;

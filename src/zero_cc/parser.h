@@ -45,6 +45,8 @@ typedef enum {
     NODE_DEFAULT,     /* left = stmt */
     NODE_BREAK,
     NODE_CONTINUE,
+    NODE_GOTO,        /* s.str = label name */
+    NODE_LABEL,       /* s.str = label name, left = stmt */
     NODE_RETURN,      /* left = expr (optional) */
     NODE_DECL,        /* var declaration: left = init, str_val = name */
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
@@ -103,6 +105,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 /* AST Pretty-Printer / Dumper for debugging and testing */
 void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent);
+
+/* AST Lowering to AMD64 Machine Code */
+void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root);
 
 #ifdef __cplusplus
 }

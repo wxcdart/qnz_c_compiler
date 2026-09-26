@@ -41,6 +41,7 @@ static void static_tls_emit_store(ZeroCCCompiler *c, const void *handle)
        For simplicity we just generate a call to a helper that aborts. */
     (void)handle;
     const char *msg = "_Thread_local store not supported in static backend";
+    (void)msg;
     /* In a real implementation we would emit a call to abort(). Here we just
        emit a mov rax, 0 and a ret to keep the JIT alive. */
     zero_cc_emit_u8(&c->text_section, 0x48);

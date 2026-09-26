@@ -108,8 +108,6 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
     }
 
     if (c->tokens[c->token_pos].type == TK_LBRACE) {
-        c->token_pos++;
-
         if (c->function_count >= ZERO_CC_MAX_FUNCTIONS) return;
         ZeroCCFunction *fn = &c->functions[c->function_count++];
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
@@ -168,11 +166,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
             }
         }
 
-        while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
-            size_t spos = c->token_pos;
-            zero_cc_parse_stmt(c);
-            if (c->token_pos == spos) c->token_pos++;
-        }
+        // Parse function body into AST and lower to machine code
+        ZeroCCASTArena arena;
+        zero_cc_ast_arena_init(&arena, 1024);
+        ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
+        zero_cc_lower_ast(c, &arena, body);
+        zero_cc_ast_arena_free(&arena);
+        // Consume closing brace if present
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
 
         /* Function Epilogue */

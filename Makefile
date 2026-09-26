@@ -7,7 +7,7 @@ TESTS = $(TEST_SRCS:.c=)
 SETTERS_OBJ = src/zero_cc/backends/setters.o
 LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
-TLS_OBJ = src/zero_cc/tls_backend_static.o
+EXTRA_OBJS = src/zero_cc/hash_table_tpht.o
 
 .PHONY: all test clean
 
@@ -22,14 +22,22 @@ $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h 
 $(PARSER_OBJ): src/zero_cc/parser.c src/zero_cc/parser.h src/zero_cc/types_lexer.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TLS_OBJ): src/zero_cc/tls_backend_static.c
+TLS_OBJ = src/zero_cc/tls_backend_static.o
+src/zero_cc/tls_backend_static.o: src/zero_cc/tls_backend_static.c
+	$(CC) $(CFLAGS) -c $< -o $@
+src/zero_cc/hash_table_tpht.o: src/zero_cc/hash_table_tpht.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
-	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) -o $@
+test/align: test/align.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
+
+test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
 
 test: all
-	@echo "Running tests..."
+benchmark: test/benchmark_struct_by_value
+	@echo "Running benchmark..."
+	@test/benchmark_struct_by_value
 	@for t in $(TESTS); do \
 		echo "Running $$t..."; \
 		if $$t; then \

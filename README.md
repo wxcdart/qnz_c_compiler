@@ -10,6 +10,7 @@ A lightweight, header-only C compiler designed for embedding in applications. Fe
 - Function calls with System V AMD64/ARM64 ABI
 - JIT execution via `mmap` + `dlsym` host symbol resolution
 - ELF64 object and executable emission
+- **AST lowering to AMD64 machine code (`zero_cc_lower_ast`)**
 - Zero libc dependency (uses standard C/POSIX functions directly, with a small inline utility for zero_strlcpy).
 
 ## Directory Structure
@@ -173,6 +174,7 @@ Zero‑CC now uses a clean, layered backend architecture to avoid circular inclu
 * **Setter implementations** live in `src/zero_cc/backends/setters.c` (which includes `types_lexer.h` after the full definition).
 * **Backend implementations** live in `src/zero_cc/backends/` (e.g. `minimal.c`). They include only `zero_cc_backends.h` and register themselves with `zero_cc_init_backends`.
 * **TPHT headers** (`zero_tpht.h`, `zero_chained_tpht.h`, `zero_tinyptr.h`, `zero_posix.h`) are vendored under `src/zero_cc/structures/` from the `qnz_gcc` project for high‑performance hash tables.
+* **TPHT integration** – the TPHT‑backed hash table implementation (`hash_table_tpht.c`) now includes proper `<stdlib.h>` and `<stdio.h>` headers, manual TPHT block allocation, and passes all unit tests (`hash_table_tpht_test`).
 
 This separation guarantees a one‑way include relationship:
 ```
