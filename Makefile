@@ -51,9 +51,6 @@ test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OB
 	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
 
 test: all
-benchmark: test/benchmark_struct_by_value
-	@echo "Running benchmark..."
-	@test/benchmark_struct_by_value
 	@for t in $(TESTS); do \
 		echo "Running $$t..."; \
 		if $$t; then \
@@ -64,6 +61,10 @@ benchmark: test/benchmark_struct_by_value
 		fi; \
 	done
 	@echo "All tests passed."
+
+benchmark: test/benchmark_struct_by_value
+	@echo "Running benchmark..."
+	@test/benchmark_struct_by_value
 
 clean:
 	rm -f $(TESTS) test.o test.exe
