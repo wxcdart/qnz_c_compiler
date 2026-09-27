@@ -1,7 +1,9 @@
 /* Parse and Compile a Top-Level Function */
 #ifndef ZERO_CC_JIT_LINKER_H
 #define ZERO_CC_JIT_LINKER_H
-
+#include "zero_cc/arena.h"
+#include "zero_cc/semantic.h"
+#include "zero_cc/semantic/diagnostics.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
     /* Skip static / inline / const / _Noreturn */
@@ -167,12 +169,29 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
         }
 
         // Parse function body into AST and lower to machine code
-        ZeroCCASTArena arena;
-        zero_cc_ast_arena_init(&arena, 1024);
-        ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
-        zero_cc_lower_ast(c, &arena, body);
-        zero_cc_ast_arena_free(&arena);
-        // Consume closing brace if present
+Arena *perm = arena_create(1024 * 1024);
+Arena *tmp = arena_create(1024 * 1024);
+if (!perm || !tmp) {
+    fprintf(stderr, "zero_cc: arena allocation failed\n");
+    c->had_error = true;
+    return;
+}
+ZeroCCASTArena arena;
+zero_cc_ast_arena_init(&arena, 1024);
+ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
+DiagBuf diags;
+diag_init(&diags, tmp);
+if (semantic_analyze(&arena, body, perm, tmp, &diags)) {
+    zero_cc_lower_ast(c, &arena, body);
+} else {
+    semantic_print_diagnostics(&diags, stderr);
+    c->had_error = true;
+}
+zero_cc_ast_arena_free(&arena);
+arena_destroy(tmp);
+arena_destroy(perm);
+// Consume closing brace if present
+
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
 
         /* Function Epilogue */
@@ -187,6 +206,14 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
     c->function_count = 0;
+    // Create permanent and temporary arenas for semantic analysis
+    Arena *perm = arena_create(1024 * 1024);
+    Arena *tmp = arena_create(1024 * 1024);
+    if (!perm || !tmp) {
+        fprintf(stderr, "zero_cc: arena allocation failed\n");
+        c->had_error = true;
+        return;
+    }
     c->reloc_count = 0;
     zero_cc_init_standard_types(c);
     c->thread_local_count = 0;
@@ -244,7 +271,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
-}
+    arena_destroy(tmp);
+    arena_destroy(perm);
+    // End of compilation
+    }
 
 #include "zero_mmap_adapter.h"
 
