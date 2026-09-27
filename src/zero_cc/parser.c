@@ -1358,6 +1358,13 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             break;
         }
+        case NODE_STATIC_ASSERT: {
+            // Evaluate condition (discard result). No codegen needed unless assertion fails at compile time.
+            if (node->left != AST_NULL) {
+                lower_expr(c, arena, node->left);
+            }
+            break;
+        }
         case NODE_RETURN: {
             if (node->left != AST_NULL) {
                 lower_expr(c, arena, node->left);
@@ -1446,6 +1453,49 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 memcpy(c->text_section.data + patch, &rel, 4);
             }
             // pop stack
+            loop_depth--;
+            break;
+        }
+        case NODE_DO_WHILE: {
+            // do-while loop with break/continue support
+            loop_start_pos[loop_depth] = c->text_section.length;
+            break_patch_count[loop_depth] = 0;
+            continue_patch_count[loop_depth] = 0;
+            loop_depth++;
+
+            // body
+            lower_node(c, arena, node->right);
+
+            // condition
+            size_t cond_pos = c->text_section.length;
+            lower_expr(c, arena, node->left);
+            // test rax, rax
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            // jne loop start
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            uint32_t jump_pos = c->text_section.length;
+            zero_cc_emit_u32(&c->text_section, 0);
+
+            // end label
+            size_t end_pos = c->text_section.length;
+            uint32_t rel_back = (uint32_t)(loop_start_pos[loop_depth-1] - (jump_pos + 4));
+            memcpy(c->text_section.data + jump_pos, &rel_back, 4);
+
+            // patch break jumps to end of loop
+            for (int i = 0; i < break_patch_count[loop_depth-1]; i++) {
+                size_t patch = break_patch_pos[loop_depth-1][i];
+                uint32_t rel = (uint32_t)(end_pos - (patch + 4));
+                memcpy(c->text_section.data + patch, &rel, 4);
+            }
+            // patch continue jumps to condition
+            for (int i = 0; i < continue_patch_count[loop_depth-1]; i++) {
+                size_t patch = continue_patch_pos[loop_depth-1][i];
+                uint32_t rel = (uint32_t)(cond_pos - (patch + 5));
+                memcpy(c->text_section.data + patch, &rel, 4);
+            }
             loop_depth--;
             break;
         }
@@ -1568,6 +1618,12 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0xB8);
             zero_cc_emit_u64(&c->text_section, (uint64_t)node->int_val);
             break;
+        case NODE_FLOAT:
+            // Minimal stub: emit zero (float support requires SSE)
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0xB8);
+            zero_cc_emit_u64(&c->text_section, 0);
+            break;
         case NODE_BOOL:
             zero_cc_emit_u8(&c->text_section, 0x48);
             zero_cc_emit_u8(&c->text_section, 0xB8);
@@ -1577,6 +1633,12 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0x48);
             zero_cc_emit_u8(&c->text_section, 0x31);
             zero_cc_emit_u8(&c->text_section, 0xC0); // xor rax, rax
+            break;
+        case NODE_STRING:
+            // Minimal stub: return null pointer for string literals
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x31);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
             break;
         case NODE_IDENT: {
             const char *var = node->s.str;
@@ -1678,6 +1740,27 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 lower_expr(c, arena, node->left);
             }
             break;
+        case NODE_MEMBER:
+            // Minimal stub for member access: evaluate base, discard, return zero
+            lower_expr(c, arena, node->left);
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x31);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            break;
+        case NODE_INDEX:
+            // Minimal stub for array subscript: evaluate base and index, return zero
+            lower_expr(c, arena, node->left);
+            lower_expr(c, arena, node->right);
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x31);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            break;
+        case NODE_CAST:
+            // Casts are no-ops for integer types in this stub
+            if (node->left != AST_NULL) {
+                lower_expr(c, arena, node->left);
+            }
+            break;
         case NODE_ASSIGN: {
             // Right-hand side evaluated into rax
             lower_expr(c, arena, node->right);
@@ -1694,6 +1777,34 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
                 }
             }
+            break;
+        }
+        case NODE_TERNARY: {
+            // Evaluate condition
+            lower_expr(c, arena, node->left);
+            // test rax, rax
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            zero_cc_emit_u8(&c->text_section, 0xC0);
+            // je else
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0x84);
+            size_t else_pos = c->text_section.length;
+            zero_cc_emit_u32(&c->text_section, 0);
+            // then
+            lower_expr(c, arena, node->right);
+            // jmp end
+            zero_cc_emit_u8(&c->text_section, 0xE9);
+            size_t end_pos_patch = c->text_section.length;
+            zero_cc_emit_u32(&c->text_section, 0);
+            // else
+            size_t else_addr = c->text_section.length;
+            uint32_t rel_else = (uint32_t)(else_addr - (else_pos + 4));
+            memcpy(c->text_section.data + else_pos, &rel_else, 4);
+            lower_expr(c, arena, node->aux.alt);
+            size_t end_addr = c->text_section.length;
+            uint32_t rel_end = (uint32_t)(end_addr - (end_pos_patch + 4));
+            memcpy(c->text_section.data + end_pos_patch, &rel_end, 4);
             break;
         }
         case NODE_BINOP: {
