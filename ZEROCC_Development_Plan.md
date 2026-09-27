@@ -57,7 +57,7 @@
 |-----------|:------:|-------|
 | Integer literals | ✅ | |
 | Float literals | ✅ | `NODE_FLOAT` lowered (stub) |
-| String literals | ✅ | `NODE_STRING` lowered (stub) |
+| String literals | ✅ | `NODE_STRING` lowered via rodata + RIP-relative lea |
 | Bool literals `true`/`false` | ✅ | |
 | `nullptr` | ✅ | |
 | Identifiers / variables | ✅ | |
