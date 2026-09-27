@@ -1635,10 +1635,28 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0xC0); // xor rax, rax
             break;
         case NODE_STRING:
-            // Minimal stub: return null pointer for string literals
-            zero_cc_emit_u8(&c->text_section, 0x48);
-            zero_cc_emit_u8(&c->text_section, 0x31);
-            zero_cc_emit_u8(&c->text_section, 0xC0);
+            // Emit lea rax, [rip + rodata_offset] for string literal
+            if (node->s.str && node->s.len > 0) {
+                size_t rodata_offset = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, node->s.len);
+                // null terminator
+                uint8_t zero = 0;
+                zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8D);
+                zero_cc_emit_u8(&c->text_section, 0x05);
+                size_t patch_pos = c->text_section.length;
+                zero_cc_emit_u32(&c->text_section, 0);
+                if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+                    c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+                    c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+                    c->str_reloc_count++;
+                }
+            } else {
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x31);
+                zero_cc_emit_u8(&c->text_section, 0xC0);
+            }
             break;
         case NODE_IDENT: {
             const char *var = node->s.str;
