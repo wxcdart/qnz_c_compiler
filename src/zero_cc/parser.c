@@ -1636,10 +1636,11 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         case NODE_STRING:
             // Emit lea rax, [rip + rodata_offset] for string literal
-            if (node->s.str && node->s.len > 0) {
+            if (node->s.str) {
+                // Len may be corrupted by semantic passes, recompute safely
+                size_t len = strlen(node->s.str);
                 size_t rodata_offset = c->rodata_section.length;
-                zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, node->s.len);
-                // null terminator
+                zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
                 uint8_t zero = 0;
                 zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
                 zero_cc_emit_u8(&c->text_section, 0x48);
