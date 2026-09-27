@@ -1158,6 +1158,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     func_node->col = col;
                     func_node->s.str = vname;
                     func_node->s.len = strlen(vname);
+                    func_node->flags |= NODE_FLAG_FUNC_PROTO;
                     func_node->left = param_list;
                     func_node->right = AST_NULL;
                     ZeroCCType ret_type;

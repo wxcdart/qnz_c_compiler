@@ -52,6 +52,7 @@ typedef enum {
     NODE_LABEL,       /* s.str = label name, left = stmt */
     NODE_RETURN,      /* left = expr (optional) */
     NODE_DECL,        /* var declaration: left = init, str_val = name */
+#define NODE_FLAG_FUNC_PROTO  (1u << 0)  /* function prototype (no body, has param list) */
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
     NODE_STATIC_ASSERT/* left = cond */
 } ZeroCCASTTag;

@@ -260,14 +260,12 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             if (node->right != AST_NULL) {
                 /* Function definition */
                 res = decl_handle_function_proto(ctx, node);
+            } else if (node->flags & NODE_FLAG_FUNC_PROTO) {
+                /* Function prototype (no body, has param list) */
+                res = decl_handle_function_proto(ctx, node);
             } else {
-                /* Variable declaration or function prototype */
-                /* If it has param list (left) but no body, it's a prototype */
-                if (node->left != AST_NULL) {
-                    res = decl_handle_function_proto(ctx, node);
-                } else {
-                    res = decl_handle_var(ctx, node);
-                }
+                /* Variable declaration */
+                res = decl_handle_var(ctx, node);
             }
             break;
         }

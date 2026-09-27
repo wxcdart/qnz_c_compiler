@@ -209,44 +209,56 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 ZeroCCASTArena arena;
 zero_cc_ast_arena_init(&arena, 1024);
 ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
-// Wrap the body in a NODE_BLOCK for proper scope handling
-ASTRef block_ref = zero_cc_ast_alloc_node(&arena, NODE_BLOCK);
-ZeroCCASTNode *block_node = zero_cc_ast_get(&arena, block_ref);
-block_node->left = body;
-DiagBuf diags;
-diag_init(&diags, tmp);
-
         // Register previously compiled functions in the GLOBAL scope
-    // Find the global scope (root of scope chain)
-    Scope *global_scope = ctx->current_scope;
-    while (global_scope && global_scope->parent) {
-        global_scope = global_scope->parent;
-    }
-    for (size_t i = 0; i < c->function_count; i++) {
-        ZeroCCFunction *fn = &c->functions[i];
-        // Convert ZeroCCType to TypeInfo for return type
-        TypeInfo *ret_type = zero_cc_type_to_typeinfo(perm, fn->return_type);
-        TypeInfo **params = NULL;
-        if (fn->param_count > 0) {
-            params = (TypeInfo **)arena_alloc(perm, fn->param_count * sizeof(TypeInfo *));
-            for (size_t j = 0; j < fn->param_count; j++) {
-                params[j] = zero_cc_type_to_typeinfo(perm, fn->param_types[j]);
-            }
+        // Find the global scope (root of scope chain)
+        Scope *global_scope_root = ctx->current_scope;
+        while (global_scope_root && global_scope_root->parent) {
+            global_scope_root = global_scope_root->parent;
         }
-        TypeInfo *fn_type = type_function(perm, ret_type, params, fn->param_count, fn->is_variadic);
-        scope_put_symbol(global_scope, fn->name, SYMBOL_FUNC, fn_type);
-    }
+        for (size_t i = 0; i < c->function_count; i++) {
+            ZeroCCFunction *f = &c->functions[i];
+            TypeInfo *ret_t = zero_cc_type_to_typeinfo(perm, f->return_type);
+            TypeInfo **params = NULL;
+            if (f->param_count > 0) {
+                params = (TypeInfo **)arena_alloc(perm, f->param_count * sizeof(TypeInfo *));
+                for (size_t j = 0; j < f->param_count; j++) {
+                    params[j] = zero_cc_type_to_typeinfo(perm, f->param_types[j]);
+                }
+            }
+            TypeInfo *fn_t = type_function(perm, ret_t, params, f->param_count, f->is_variadic);
+            scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
+        }
 
-    // Set the AST arena for this function body
-    ctx->ast_arena = &arena;
-    if (sem_analyze_ref(ctx, body)) {
-        zero_cc_lower_ast(c, &arena, body);
-    } else {
-        semantic_print_diagnostics(&diags, stderr);
-        c->had_error = true;
-    }
-    // Restore current_scope to global scope after analysis
-    ctx->current_scope = global_scope;
+        // Set the AST arena for this function body
+        ctx->ast_arena = &arena;
+        ctx->current_scope = global_scope_root;
+
+        // Enter function parameter scope
+        Scope *fn_param_scope = scope_enter(&ctx->current_scope, perm);
+        for (size_t p = 0; p < param_count; p++) {
+            TypeInfo *pti = zero_cc_type_to_typeinfo(perm, param_types[p]);
+            scope_put_symbol(fn_param_scope, param_names[p], SYMBOL_VAR, pti);
+        }
+
+        // Set current function return type for validation in return statements
+        TypeInfo *fn_ret_ti = zero_cc_type_to_typeinfo(perm, fn_ret_type);
+        ctx->current_fn_ret_type = fn_ret_ti;
+
+        size_t err_count_before = ctx->diags ? ctx->diags->count : 0;
+        (void)sem_analyze_ref(ctx, body);
+        bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
+
+        if (sem_ok) {
+            zero_cc_lower_ast(c, &arena, body);
+        } else {
+            if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
+            c->had_error = true;
+        }
+
+        // Restore scope and return type after analysis
+        scope_leave(&ctx->current_scope);
+        ctx->current_scope = global_scope_root;
+        ctx->current_fn_ret_type = NULL;
 // Consume closing brace if present
 
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
