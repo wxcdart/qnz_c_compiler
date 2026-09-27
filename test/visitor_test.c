@@ -57,7 +57,7 @@ int main(void) {
 
     TypeInfo *tb = sem_analyze_node(&ctx, bin_node);
     assert(tb != NULL);
-    assert(tb->kind == TYPE_DOUBLE);
+    assert(tb->kind == TYPE_KIND_DOUBLE);
     assert(node_type(&ctx, bin_node) == tb);
 
     /* 3. Declarations and Identifiers */

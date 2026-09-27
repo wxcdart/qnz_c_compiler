@@ -447,7 +447,7 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         struct_t = target_t;
     }
 
-    if (struct_t->kind != TYPE_STRUCT && struct_t->kind != TYPE_UNION) {
+    if (struct_t->kind != TYPE_KIND_STRUCT && struct_t->kind != TYPE_KIND_UNION) {
         expr_error(ctx, node, "member reference base is not a structure or union");
         return NULL;
     }

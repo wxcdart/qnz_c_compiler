@@ -127,15 +127,15 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             TypeInfo *rt = sem_analyze_ref(ctx, node->right);
             if (lt && rt) {
                 /* If either is double, result is double */
-                if (lt->kind == TYPE_DOUBLE || rt->kind == TYPE_DOUBLE) {
+                if (lt->kind == TYPE_KIND_DOUBLE || rt->kind == TYPE_KIND_DOUBLE) {
                     res = type_double(ctx->perm_arena);
-                } else if (lt->kind == TYPE_FLOAT || rt->kind == TYPE_FLOAT) {
+                } else if (lt->kind == TYPE_KIND_FLOAT || rt->kind == TYPE_KIND_FLOAT) {
                     res = type_float(ctx->perm_arena);
                 } else if (type_is_pointer(lt)) {
                     res = lt;
                 } else if (type_is_pointer(rt) && node->aux.op == '+') {
                     res = rt;
-                } else if (lt->kind == TYPE_LONG || rt->kind == TYPE_LONG) {
+                } else if (lt->kind == TYPE_KIND_LONG || rt->kind == TYPE_KIND_LONG) {
                     res = type_long(ctx->perm_arena);
                 } else {
                     res = type_int(ctx->perm_arena);
@@ -256,7 +256,19 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_DECL: {
-            res = decl_handle_var(ctx, node);
+            /* Check if this is a function definition: has body (right != AST_NULL) */
+            if (node->right != AST_NULL) {
+                /* Function definition */
+                res = decl_handle_function_proto(ctx, node);
+            } else {
+                /* Variable declaration or function prototype */
+                /* If it has param list (left) but no body, it's a prototype */
+                if (node->left != AST_NULL) {
+                    res = decl_handle_function_proto(ctx, node);
+                } else {
+                    res = decl_handle_var(ctx, node);
+                }
+            }
             break;
         }
         case NODE_TYPEDEF_DECL: {

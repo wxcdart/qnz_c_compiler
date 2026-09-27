@@ -1021,40 +1021,85 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
             /* Check if this is a function declarator */
             bool is_function = false;
+            ASTRef param_list = AST_NULL;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 is_function = true;
                 c->token_pos++; // consume '('
-                // Handle parameter list: we only handle void or empty for simplicity
-                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_VOID) {
-                    c->token_pos++; // consume void
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
-                        c->token_pos++; // consume ')'
-                    } else {
-                        // error: expected ')', skip to ')'
-                        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN) {
-                            c->token_pos++;
-                        }
-                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
-                            c->token_pos++;
+                /* Parse parameter list */
+                ASTRef param_head = AST_NULL;
+                ASTRef param_tail = AST_NULL;
+                bool first_param = true;
+                while (c->token_pos < c->token_count) {
+                    if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                        break;
+                    }
+                    if (!first_param) {
+                        if (c->tokens[c->token_pos].type == TK_COMMA) {
+                            c->token_pos++; // consume comma
+                        } else {
+                            break; // error
                         }
                     }
-                } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
-                    c->token_pos++; // consume ')'
-                } else {
-                    // skip to ')'
-                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN) {
+                    first_param = false;
+                    /* Check for void parameter list: void alone means no params */
+                    if (c->tokens[c->token_pos].type == TK_VOID) {
+                        c->token_pos++;
+                        if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                            break;
+                        }
+                    }
+                    /* Parse parameter declaration: type specifier + optional pointer + identifier */
+                    ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
+                    if (!is_type_specifier(c, param_type_tok)) {
+                        break; // error
+                    }
+                    c->token_pos++;
+                    bool param_is_ptr = false;
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                        param_is_ptr = true;
                         c->token_pos++;
                     }
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                        const char *pname = c->tokens[c->token_pos].str_val;
                         c->token_pos++;
+                        /* Create parameter node */
+                        ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                        ZeroCCASTNode *p_node = zero_cc_ast_get(arena, p_ref);
+                        p_node->line = c->tokens[c->token_pos].line; // approximate
+                        p_node->col = c->tokens[c->token_pos].col;
+                        p_node->s.str = pname;
+                        p_node->s.len = strlen(pname);
+                        /* Store parameter type info in aux.extra as ZeroCCType for now */
+                        ZeroCCType ptype;
+                        if (param_type_tok == TK_CHAR || param_type_tok == TK_BOOL_KW) ptype = zero_cc_type_char();
+                        else if (param_type_tok == TK_SHORT) ptype = zero_cc_type_int16();
+                        else if (param_type_tok == TK_INT) ptype = zero_cc_type_int();
+                        else if (param_type_tok == TK_FLOAT_KW) ptype = zero_cc_type_float();
+                        else if (param_type_tok == TK_DOUBLE_KW) ptype = zero_cc_type_double();
+                        else if (param_type_tok == TK_VOID) ptype = zero_cc_type_void();
+                        else ptype = zero_cc_type_int64();
+                        if (param_is_ptr) ptype = zero_cc_type_ptr(&ptype);
+                        p_node->aux.extra = (uint32_t)(uintptr_t)&ptype; // store pointer to type
+                        if (param_head == AST_NULL) {
+                            param_head = p_ref;
+                            param_tail = p_ref;
+                        } else {
+                            ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, param_tail);
+                            if (tail_node) tail_node->next = p_ref;
+                            param_tail = p_ref;
+                        }
                     }
                 }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++; // consume ')'
+                }
+                param_list = param_head;
             }
 
             if (is_function) {
-                // Function definition or prototype
+                /* Function definition or prototype */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
-                    // Function definition with body
+                    /* Function definition with body */
                     c->token_pos++; // consume '{'
                     ASTRef head = AST_NULL;
                     ASTRef tail = AST_NULL;
@@ -1068,9 +1113,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                                 tail = s;
                             } else {
                                 ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, tail);
-                                if (tail_node) {
-                                    tail_node->next = s;
-                                }
+                                if (tail_node) tail_node->next = s;
                                 tail = s;
                             }
                         }
@@ -1080,17 +1123,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     }
                     ASTRef body_ref = head;
 
-                    // Create function node
+                    /* Create function node */
                     ASTRef func_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                     ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
                     func_node->line = line;
                     func_node->col = col;
                     func_node->s.str = vname;
                     func_node->s.len = strlen(vname);
-                    func_node->left = AST_NULL; // parameter list (we ignore for now)
-                    func_node->right = body_ref; // body
-
-                    // Compute function type: return type from type_specifier (adjusted for pointer)
+                    func_node->left = param_list;   // parameter list
+                    func_node->right = body_ref;    // body
+                    /* Store return type in aux.extra for later semantic analysis */
                     ZeroCCType ret_type;
                     if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) ret_type = zero_cc_type_char();
                     else if (type_tok == TK_SHORT) ret_type = zero_cc_type_int16();
@@ -1103,30 +1145,20 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                         ret_type = tdef ? *tdef : zero_cc_type_int64();
                     }
                     if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
-                    // Assume no parameters (void)
-                    TypeInfo *fn_t = type_function(arena, ret_type, NULL, 0, false);
-                    decl_node_set_type(ctx, func_node, fn_t);
-
-                    // Call decl_handle_function_proto
-                    if (!decl_handle_function_proto(ctx, func_node)) {
-                        return AST_NULL;
-                    }
+                    func_node->aux.extra = (uint32_t)(uintptr_t)&ret_type; // store return type
                     return func_ref;
                 } else {
-                    // Function prototype (or declarator without body)
-                    // For now, we'll treat it as a function prototype and register it.
-                    // Consume any trailing semicolon
+                    /* Function prototype */
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
                         c->token_pos++;
                     }
-                    // Create function node with no body
                     ASTRef func_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                     ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
                     func_node->line = line;
                     func_node->col = col;
                     func_node->s.str = vname;
                     func_node->s.len = strlen(vname);
-                    func_node->left = AST_NULL;
+                    func_node->left = param_list;
                     func_node->right = AST_NULL;
                     ZeroCCType ret_type;
                     if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) ret_type = zero_cc_type_char();
@@ -1140,16 +1172,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                         ret_type = tdef ? *tdef : zero_cc_type_int64();
                     }
                     if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
-                    TypeInfo *fn_t = type_function(arena, ret_type, NULL, 0, false);
-                    decl_node_set_type(ctx, func_node, fn_t);
-                    if (!decl_handle_function_proto(ctx, func_node)) {
-                        return AST_NULL;
-                    }
+                    func_node->aux.extra = (uint32_t)(uintptr_t)&ret_type;
                     return func_ref;
                 }
             } else {
-                // Not a function: treat as variable declaration (or array)
-                // We have already consumed the identifier token.
+                /* Not a function: treat as variable declaration */
                 ZeroCCType decl_type;
                 if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) decl_type = zero_cc_type_char();
                 else if (type_tok == TK_SHORT) decl_type = zero_cc_type_int16();

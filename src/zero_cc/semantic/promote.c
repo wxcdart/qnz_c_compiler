@@ -25,16 +25,16 @@
 static int get_integer_rank(const TypeInfo *t) {
     if (!t) return 0;
     switch (t->kind) {
-        case TYPE_BOOL:
+        case TYPE_KIND_BOOL:
             return 1;
-        case TYPE_CHAR:
+        case TYPE_KIND_CHAR:
             return 2;
-        case TYPE_SHORT:
+        case TYPE_KIND_SHORT:
             return 3;
-        case TYPE_INT:
-        case TYPE_ENUM:
+        case TYPE_KIND_INT:
+        case TYPE_KIND_ENUM:
             return 4;
-        case TYPE_LONG:
+        case TYPE_KIND_LONG:
             return 5;
         default:
             return 0;
@@ -73,12 +73,12 @@ TypeInfo *type_common_arithmetic_type(Arena *perm, const TypeInfo *t1, const Typ
     if (!type_is_arithmetic(t1) || !type_is_arithmetic(t2)) return NULL;
 
     /* 1. If either operand is double, result is double */
-    if (t1->kind == TYPE_DOUBLE || t2->kind == TYPE_DOUBLE) {
+    if (t1->kind == TYPE_KIND_DOUBLE || t2->kind == TYPE_KIND_DOUBLE) {
         return type_double(perm);
     }
 
     /* 2. Otherwise, if either operand is float, result is float */
-    if (t1->kind == TYPE_FLOAT || t2->kind == TYPE_FLOAT) {
+    if (t1->kind == TYPE_KIND_FLOAT || t2->kind == TYPE_KIND_FLOAT) {
         return type_float(perm);
     }
 
@@ -127,7 +127,7 @@ TypeInfo *type_common_arithmetic_type(Arena *perm, const TypeInfo *t1, const Typ
     }
 
     /* Otherwise, convert both to unsigned type of signed operand */
-    if (s_type->kind == TYPE_LONG) {
+    if (s_type->kind == TYPE_KIND_LONG) {
         return type_ulong(perm);
     }
     return type_uint(perm);
@@ -146,27 +146,27 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
     uint32_t m2 = t2->modifiers & TYPE_MOD_UNSIGNED;
 
     /* Special case: enum is compatible with its underlying integer type (int) */
-    if (t1->kind == TYPE_ENUM && t2->kind == TYPE_INT && m2 == 0) return true;
-    if (t2->kind == TYPE_ENUM && t1->kind == TYPE_INT && m1 == 0) return true;
+    if (t1->kind == TYPE_KIND_ENUM && t2->kind == TYPE_KIND_INT && m2 == 0) return true;
+    if (t2->kind == TYPE_KIND_ENUM && t1->kind == TYPE_KIND_INT && m1 == 0) return true;
 
     if (t1->kind != t2->kind) return false;
     if (m1 != m2) return false;
 
     switch (t1->kind) {
-        case TYPE_VOID:
-        case TYPE_BOOL:
-        case TYPE_CHAR:
-        case TYPE_SHORT:
-        case TYPE_INT:
-        case TYPE_LONG:
-        case TYPE_FLOAT:
-        case TYPE_DOUBLE:
+        case TYPE_KIND_VOID:
+        case TYPE_KIND_BOOL:
+        case TYPE_KIND_CHAR:
+        case TYPE_KIND_SHORT:
+        case TYPE_KIND_INT:
+        case TYPE_KIND_LONG:
+        case TYPE_KIND_FLOAT:
+        case TYPE_KIND_DOUBLE:
             return true;
 
-        case TYPE_POINTER:
+        case TYPE_KIND_POINTER:
             return type_is_compatible(t1->details.pointer.base, t2->details.pointer.base);
 
-        case TYPE_ARRAY: {
+        case TYPE_KIND_ARRAY: {
             if (!type_is_compatible(t1->details.array.base, t2->details.array.base)) {
                 return false;
             }
@@ -177,7 +177,7 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
             return t1->details.array.count == t2->details.array.count;
         }
 
-        case TYPE_FUNCTION: {
+        case TYPE_KIND_FUNCTION: {
             if (t1->details.function.is_variadic != t2->details.function.is_variadic) {
                 return false;
             }
@@ -195,9 +195,9 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
             return true;
         }
 
-        case TYPE_STRUCT:
-        case TYPE_UNION:
-        case TYPE_ENUM:
+        case TYPE_KIND_STRUCT:
+        case TYPE_KIND_UNION:
+        case TYPE_KIND_ENUM:
             if (t1->details.record.tag && t2->details.record.tag) {
                 return strcmp(t1->details.record.tag, t2->details.record.tag) == 0;
             }
@@ -252,21 +252,21 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
     }
 
     /* Both are compatible structure or union types */
-    if ((dst->kind == TYPE_STRUCT || dst->kind == TYPE_UNION) &&
-        (src->kind == TYPE_STRUCT || src->kind == TYPE_UNION)) {
+    if ((dst->kind == TYPE_KIND_STRUCT || dst->kind == TYPE_KIND_UNION) &&
+        (src->kind == TYPE_KIND_STRUCT || src->kind == TYPE_KIND_UNION)) {
         return type_is_compatible(dst, src);
     }
 
     /* Decay array or function src to pointer */
     const TypeInfo *effective_src = src;
     TypeInfo decay_src_buf;
-    if (src->kind == TYPE_ARRAY) {
-        decay_src_buf.kind = TYPE_POINTER;
+    if (src->kind == TYPE_KIND_ARRAY) {
+        decay_src_buf.kind = TYPE_KIND_POINTER;
         decay_src_buf.modifiers = TYPE_MOD_NONE;
         decay_src_buf.details.pointer.base = src->details.array.base;
         effective_src = &decay_src_buf;
-    } else if (src->kind == TYPE_FUNCTION) {
-        decay_src_buf.kind = TYPE_POINTER;
+    } else if (src->kind == TYPE_KIND_FUNCTION) {
+        decay_src_buf.kind = TYPE_KIND_POINTER;
         decay_src_buf.modifiers = TYPE_MOD_NONE;
         decay_src_buf.details.pointer.base = (TypeInfo *)src;
         effective_src = &decay_src_buf;
@@ -319,13 +319,13 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
     /* Decay array and function types to pointers for operands */
     const TypeInfo *lp = l;
     TypeInfo decay_l;
-    if (l->kind == TYPE_ARRAY) {
-        decay_l.kind = TYPE_POINTER;
+    if (l->kind == TYPE_KIND_ARRAY) {
+        decay_l.kind = TYPE_KIND_POINTER;
         decay_l.modifiers = TYPE_MOD_NONE;
         decay_l.details.pointer.base = l->details.array.base;
         lp = &decay_l;
-    } else if (l->kind == TYPE_FUNCTION) {
-        decay_l.kind = TYPE_POINTER;
+    } else if (l->kind == TYPE_KIND_FUNCTION) {
+        decay_l.kind = TYPE_KIND_POINTER;
         decay_l.modifiers = TYPE_MOD_NONE;
         decay_l.details.pointer.base = (TypeInfo *)l;
         lp = &decay_l;
@@ -333,13 +333,13 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
 
     const TypeInfo *rp = r;
     TypeInfo decay_r;
-    if (r->kind == TYPE_ARRAY) {
-        decay_r.kind = TYPE_POINTER;
+    if (r->kind == TYPE_KIND_ARRAY) {
+        decay_r.kind = TYPE_KIND_POINTER;
         decay_r.modifiers = TYPE_MOD_NONE;
         decay_r.details.pointer.base = r->details.array.base;
         rp = &decay_r;
-    } else if (r->kind == TYPE_FUNCTION) {
-        decay_r.kind = TYPE_POINTER;
+    } else if (r->kind == TYPE_KIND_FUNCTION) {
+        decay_r.kind = TYPE_KIND_POINTER;
         decay_r.modifiers = TYPE_MOD_NONE;
         decay_r.details.pointer.base = (TypeInfo *)r;
         rp = &decay_r;

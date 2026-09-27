@@ -1,11 +1,48 @@
 /* Parse and Compile a Top-Level Function */
 #ifndef ZERO_CC_JIT_LINKER_H
 #define ZERO_CC_JIT_LINKER_H
-#include "zero_cc/arena.h"
-#include "zero_cc/semantic.h"
-#include "zero_cc/semantic/diagnostics.h"
+#include "arena.h"
+#include "semantic.h"
+#include "semantic/diagnostics.h"
+#include "semantic/scope.h"
+#include "semantic/type.h"
+#include "semantic/visitor.h"
 
-static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
+static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
+    switch (t.tag) {
+        case TYPE_VOID: return type_void(perm);
+        case TYPE_BOOL: return type_bool(perm);
+        case TYPE_INT8:
+        case TYPE_UINT8: return type_char(perm);
+        case TYPE_INT16:
+        case TYPE_UINT16: return type_short(perm);
+        case TYPE_INT32:
+        case TYPE_UINT32: return type_int(perm);
+        case TYPE_INT64:
+        case TYPE_UINT64: return type_long(perm);
+        case TYPE_FLOAT: return type_float(perm);
+        case TYPE_DOUBLE: return type_double(perm);
+        case TYPE_PTR: {
+            TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
+            return type_pointer_to(perm, base);
+        }
+        case TYPE_ARRAY: {
+            TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
+            return type_array_of(perm, base, t.array_len);
+        }
+        case TYPE_STRUCT: {
+            TypeInfo *ti = type_new(perm);
+            ti->kind = TYPE_KIND_STRUCT;
+            ti->details.record.tag = t.struct_name;
+            ti->details.record.size = t.size;
+            ti->details.record.align = t.align;
+            return ti;
+        }
+        default: return type_int(perm);
+    }
+}
+
+static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Scope *global_scope, Arena *perm, Arena *tmp) {
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
@@ -169,27 +206,47 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c) {
         }
 
         // Parse function body into AST and lower to machine code
-Arena *perm = arena_create(1024 * 1024);
-Arena *tmp = arena_create(1024 * 1024);
-if (!perm || !tmp) {
-    fprintf(stderr, "zero_cc: arena allocation failed\n");
-    c->had_error = true;
-    return;
-}
 ZeroCCASTArena arena;
 zero_cc_ast_arena_init(&arena, 1024);
 ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
+// Wrap the body in a NODE_BLOCK for proper scope handling
+ASTRef block_ref = zero_cc_ast_alloc_node(&arena, NODE_BLOCK);
+ZeroCCASTNode *block_node = zero_cc_ast_get(&arena, block_ref);
+block_node->left = body;
 DiagBuf diags;
 diag_init(&diags, tmp);
-if (semantic_analyze(&arena, body, perm, tmp, &diags)) {
-    zero_cc_lower_ast(c, &arena, body);
-} else {
-    semantic_print_diagnostics(&diags, stderr);
-    c->had_error = true;
-}
-zero_cc_ast_arena_free(&arena);
-arena_destroy(tmp);
-arena_destroy(perm);
+
+        // Register previously compiled functions in the GLOBAL scope
+    // Find the global scope (root of scope chain)
+    Scope *global_scope = ctx->current_scope;
+    while (global_scope && global_scope->parent) {
+        global_scope = global_scope->parent;
+    }
+    for (size_t i = 0; i < c->function_count; i++) {
+        ZeroCCFunction *fn = &c->functions[i];
+        // Convert ZeroCCType to TypeInfo for return type
+        TypeInfo *ret_type = zero_cc_type_to_typeinfo(perm, fn->return_type);
+        TypeInfo **params = NULL;
+        if (fn->param_count > 0) {
+            params = (TypeInfo **)arena_alloc(perm, fn->param_count * sizeof(TypeInfo *));
+            for (size_t j = 0; j < fn->param_count; j++) {
+                params[j] = zero_cc_type_to_typeinfo(perm, fn->param_types[j]);
+            }
+        }
+        TypeInfo *fn_type = type_function(perm, ret_type, params, fn->param_count, fn->is_variadic);
+        scope_put_symbol(global_scope, fn->name, SYMBOL_FUNC, fn_type);
+    }
+
+    // Set the AST arena for this function body
+    ctx->ast_arena = &arena;
+    if (sem_analyze_ref(ctx, body)) {
+        zero_cc_lower_ast(c, &arena, body);
+    } else {
+        semantic_print_diagnostics(&diags, stderr);
+        c->had_error = true;
+    }
+    // Restore current_scope to global scope after analysis
+    ctx->current_scope = global_scope;
 // Consume closing brace if present
 
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
@@ -219,6 +276,18 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     c->thread_local_count = 0;
     /* Initialise default TLS backend */
     zero_cc_set_tls_backend(c, NULL);
+
+    /* Create shared semantic context for all functions */
+    DiagBuf shared_diags;
+    diag_init(&shared_diags, tmp);
+    SemContext shared_ctx;
+    if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL)) {
+        c->had_error = true;
+        return;
+    }
+    // Save the global scope pointer (root of scope chain)
+    Scope *global_scope = shared_ctx.current_scope;
+    // Register standard library functions if any
 
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
         if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
@@ -265,12 +334,13 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
         size_t prev_pos = c->token_pos;
         /* Top level functions */
-        zero_cc_compile_function(c);
+        zero_cc_compile_function(c, &shared_ctx, global_scope, perm, tmp);
         if (c->had_error) break;
         if (c->token_pos == prev_pos) {
             c->token_pos++;
         }
     }
+    sem_context_destroy(&shared_ctx);
     arena_destroy(tmp);
     arena_destroy(perm);
     // End of compilation

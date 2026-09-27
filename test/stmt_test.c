@@ -119,7 +119,7 @@ int main(void) {
 
     /* Case 2c: if with non-scalar (struct) condition -> error diag */
     TypeInfo *struct_t = type_new(perm);
-    struct_t->kind = TYPE_STRUCT;
+    struct_t->kind = TYPE_KIND_STRUCT;
     struct_t->details.record.tag = "MyStruct";
     scope_put_symbol(ctx.current_scope, "s_val", SYMBOL_VAR, struct_t);
 

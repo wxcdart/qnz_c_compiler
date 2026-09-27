@@ -297,9 +297,9 @@ int main(void) {
      * ------------------------------------------------------------- */
     printf("Testing struct/union/enum tag registration...\n");
     {
-        TypeInfo *tag_ty = decl_handle_tag(&ctx, "Point", TYPE_STRUCT, 16, 8);
+        TypeInfo *tag_ty = decl_handle_tag(&ctx, "Point", TYPE_KIND_STRUCT, 16, 8);
         assert(tag_ty != NULL);
-        assert(tag_ty->kind == TYPE_STRUCT);
+        assert(tag_ty->kind == TYPE_KIND_STRUCT);
         assert(strcmp(tag_ty->details.record.tag, "Point") == 0);
         assert(tag_ty->details.record.size == 16);
         assert(tag_ty->details.record.align == 8);
@@ -311,7 +311,7 @@ int main(void) {
 
         /* Redefinition of tag in same scope produces diagnostic */
         size_t diags_before = diags.count;
-        TypeInfo *dup_tag = decl_handle_tag(&ctx, "Point", TYPE_STRUCT, 16, 8);
+        TypeInfo *dup_tag = decl_handle_tag(&ctx, "Point", TYPE_KIND_STRUCT, 16, 8);
         assert(dup_tag == NULL);
         assert(diags.count > diags_before);
     }
