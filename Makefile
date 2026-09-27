@@ -9,7 +9,7 @@ LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
 EXTRA_OBJS = src/zero_cc/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/arena.o
 
-.PHONY: all test clean
+.PHONY: all test clean golden_test
 
 all: $(TESTS)
 
@@ -67,3 +67,8 @@ benchmark: test/benchmark_struct_by_value
 
 clean:
 	rm -f $(TESTS) test.o test.exe
+
+# Target to build and run the golden error test
+
+golden_test: test/golden_error_test
+	./test/golden_error_test
