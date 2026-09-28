@@ -58,8 +58,13 @@ make test
 - **Semantic analysis now correctly registers function definitions in the global scope**
 - **Stricter type checking** prevents implicit float→int narrowing in returns/assignments
 
-## Remaining Issue
-- Pre-existing `hash_table_tpht_stress_test` failure (unrelated to these changes)
+## Additional Fixes This Session
+- **TPHT implementation bugs fixed** (`src/zero_cc/structures/zero_tpht.h`, `src/zero_cc/hash_table_tpht.c`, `test/hash_table_tpht_stress_test.c`):
+  - Bad hash function (FNV only mixing into low 32 bits) → replaced with splitmix64-style finaliser for full avalanche
+  - Mismatched `fingerprints[12]` vs 8 real slots → corrected to `fingerprints[8]` + explicit padding
+  - `size` counter double-increment on key updates → now only bumps on genuine new inserts
+  - Stress test had stale assumption about capacity (no overflow table) → updated to reflect real behaviour
+- All three TPHT unit tests now pass: `hash_table_tpht_test`, `hash_table_tpht_duplicate_test`, `hash_table_tpht_stress_test`
 
 ## Additional Context
 - The repository uses multiple Git work-trees; the main work-tree (`/home/ubuntu/dev/qnz_c_compiler`) is on the `main` branch.

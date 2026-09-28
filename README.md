@@ -174,7 +174,7 @@ Zero‑CC now uses a clean, layered backend architecture to avoid circular inclu
 * **Setter implementations** live in `src/zero_cc/backends/setters.c` (which includes `types_lexer.h` after the full definition).
 * **Backend implementations** live in `src/zero_cc/backends/` (e.g. `minimal.c`). They include only `zero_cc_backends.h` and register themselves with `zero_cc_init_backends`.
 * **TPHT headers** (`zero_tpht.h`, `zero_chained_tpht.h`, `zero_tinyptr.h`, `zero_posix.h`) are vendored under `src/zero_cc/structures/` from the `qnz_gcc` project for high‑performance hash tables.
-* **TPHT integration** – the TPHT‑backed hash table implementation (`hash_table_tpht.c`) now includes proper `<stdlib.h>` and `<stdio.h>` headers, manual TPHT block allocation, and passes all unit tests (`hash_table_tpht_test`).
+* **TPHT integration** – the TPHT‑backed hash table implementation (`hash_table_tpht.c`) now includes proper `<stdlib.h>` and `<stdio.h>` headers, manual TPHT block allocation, and passes all unit tests (`hash_table_tpht_test`, `hash_table_tpht_stress_test`, `hash_table_tpht_duplicate_test`). Fixed: hash function diffusion (splitmix64), fingerprint array sizing, `size` counter double-count on updates, and stress-test capacity assumptions.
 
 This separation guarantees a one‑way include relationship:
 ```

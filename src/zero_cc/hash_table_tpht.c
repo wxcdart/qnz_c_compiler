@@ -81,10 +81,13 @@ bool ht32_put(HashTable32 *ht, uint32_t key, uint32_t value)
     HashTableWrapper *wrap = (HashTableWrapper *)ht->keys;
     if (!wrap) return false;
 
-    int slot = zero_flatten_tpht_put(&wrap->tpht, (uint64_t)key,
-                                    (uint64_t)value);
-    if (slot >= 0) {
-        ht->size++;
+    /* Check if key already exists — update should not bump size */
+    uint32_t existing;
+    bool is_update = (zero_flatten_tpht_get(&wrap->tpht, (uint64_t)key, &existing) == 0);
+
+    int ret = zero_flatten_tpht_put(&wrap->tpht, (uint64_t)key, value);
+    if (ret == 0) {
+        if (!is_update) ht->size++;
         return true;
     }
     return false;               /* table full or other error */
