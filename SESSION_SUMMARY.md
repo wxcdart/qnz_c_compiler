@@ -1,7 +1,10 @@
 # Session Summary (2026-09-27)
 
 ## Overview
-This session fixed the 'use of undeclared identifier' error when calling functions defined earlier in the same translation unit. The semantic analysis now correctly registers function definitions in the global scope before analyzing subsequent functions.
+This session fixed two critical bugs in the ZeroCC compiler:
+
+1. **'use of undeclared identifier' error** - Functions defined earlier in the same translation unit were not visible to subsequent functions
+2. **Code generation bug** - Function calls returned 0 instead of correct return values (e.g., `foo()` returned 0 instead of 42)
 
 ### Changes Made
 
@@ -20,21 +23,22 @@ This session fixed the 'use of undeclared identifier' error when calling functio
   - Restore the global scope after each function analysis
 - Added `zero_cc_type_to_typeinfo` helper for `ZeroCCType` -> `TypeInfo*` conversion
 
-#### 3. Enhanced Parser (`src/zero_cc/parser.c`)
+#### 3. Enhanced Parser (`src/zero_cc/parser.c`, `src/zero_cc/parser.h`)
+- Added `NODE_FLAG_FUNC_PROTO` flag to distinguish function prototypes from variable declarations
 - Improved function definition parsing with full parameter list support
 - Parse parameter declarations (type + optional pointer + identifier)
 - Handle `void` parameter lists
 - Wrap function bodies in `NODE_BLOCK` for proper semantic scope handling
+- Fixed variable declaration type storage on AST nodes
 
 #### 4. Updated Semantic Visitor (`src/zero_cc/semantic/visitor.c`)
 - Added function definition detection in `NODE_DECL` handling
-- Route function definitions to `decl_handle_function_proto` for proper scope registration
+- Route function definitions/prototypes to `decl_handle_function_proto` for proper scope registration
+- Use `NODE_FLAG_FUNC_PROTO` flag to distinguish function prototypes from variable declarations
 
-#### 5. Updated Parser (`src/zero_cc/parser.c`)
-- Enhanced function definition parsing with full parameter list support
-- Parse parameter declarations (type + optional pointer + identifier)
-- Handle `void` parameter lists
-- Wrap function bodies in `NODE_BLOCK` for proper semantic scope handling
+#### 5. Stricter Type Checking (`src/zero_cc/semantic/promote.c`)
+- Added explicit rejection of floating-point to integer narrowing conversions in assignments/returns
+- Prevents implicit float→int narrowing that was previously silently allowed
 
 #### 6. Updated Test Files
 - `test/decl_test.c`, `test/stmt_test.c`, `test/visitor_test.c`: Updated to use new `TYPE_KIND_*` enum names
@@ -50,11 +54,12 @@ make test
 
 ## Fixes
 - **Fixed**: 'use of undeclared identifier' error when calling functions defined earlier in the same translation unit
+- **Fixed**: Function calls returning 0 instead of correct return values (e.g., `foo()` now returns 42)
 - **Semantic analysis now correctly registers function definitions in the global scope**
+- **Stricter type checking** prevents implicit float→int narrowing in returns/assignments
 
 ## Remaining Issue
-- **Code generation bug**: Function calls return 0 instead of correct values (e.g., `foo()` returns 0 instead of 42)
-- This is a code generation/linking issue in the JIT lowering/ELF emission phase, separate from the semantic analysis fix.
+- Pre-existing `hash_table_tpht_stress_test` failure (unrelated to these changes)
 
 ## Additional Context
 - The repository uses multiple Git work-trees; the main work-tree (`/home/ubuntu/dev/qnz_c_compiler`) is on the `main` branch.
