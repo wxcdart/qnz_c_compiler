@@ -1882,7 +1882,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else {
                     ZeroCCFunction *fn = zero_cc_find_function(c, name);
                     void *host_fn = zero_cc_resolve_symbol(name);
-                    if (fn) {
+                    if (fn && !fn->is_prototype) {
+                        /* Internal function: generate call with relocation */
                         zero_cc_emit_u8(&c->text_section, 0xE8);
                         size_t patch_pos = c->text_section.length;
                         int32_t rel = (int32_t)(fn->text_offset - (patch_pos + 4));
@@ -1894,13 +1895,31 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             r->is_call = true;
                         }
                     } else if (host_fn) {
+                        /* External function resolved at compile time: generate indirect call */
                         zero_cc_emit_u8(&c->text_section, 0x49);
                         zero_cc_emit_u8(&c->text_section, 0xBB);
                         zero_cc_emit_u64(&c->text_section, (uint64_t)host_fn);
                         zero_cc_emit_u8(&c->text_section, 0x41);
                         zero_cc_emit_u8(&c->text_section, 0xFF);
                         zero_cc_emit_u8(&c->text_section, 0xD3);
+                    } else if (fn && fn->is_prototype) {
+                        /* External function prototype: generate indirect call with placeholder */
+                        zero_cc_emit_u8(&c->text_section, 0x49);
+                        zero_cc_emit_u8(&c->text_section, 0xBB);
+                        uint64_t placeholder = 0;
+                        zero_cc_emit_u64(&c->text_section, placeholder);
+                        zero_cc_emit_u8(&c->text_section, 0x41);
+                        zero_cc_emit_u8(&c->text_section, 0xFF);
+                        zero_cc_emit_u8(&c->text_section, 0xD3);
+                        /* Record relocation for runtime address patching */
+                        if (c->reloc_count < 512) {
+                            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                            r->text_patch_offset = c->text_section.length - 9; /* Point to the 8-byte address */
+                            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", name);
+                            r->is_call = false; /* Address patch, not call relocation */
+                        }
                     } else {
+                        /* Unknown function: generate call with relocation */
                         zero_cc_emit_u8(&c->text_section, 0xE8);
                         size_t patch_pos = c->text_section.length;
                         zero_cc_emit_u32(&c->text_section, 0);

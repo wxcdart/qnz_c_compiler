@@ -111,6 +111,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->ret_struct_sz = fn_ret_type.size;
             fn->is_variadic = is_variadic_fn;
             fn->noreturn = fn_noreturn;
+            fn->is_prototype = true;
         }
         c->token_pos++;
         return;
@@ -127,6 +128,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->ret_struct_sz = fn_ret_type.size;
         fn->is_variadic = is_variadic_fn;
         fn->noreturn = fn_noreturn;
+        fn->is_prototype = false;
 
         c->local_count = 0;
         c->current_stack_frame = 16;

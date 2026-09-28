@@ -35,6 +35,12 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             }
+        } else {
+            /* Address patch for external function indirect calls */
+            void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+            if (host_fn) {
+                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+            }
         }
     }
     for (size_t i = 0; i < c->str_reloc_count; i++) {

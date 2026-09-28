@@ -116,7 +116,7 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
     for (size_t i = 0; i < c->reloc_count; i++) {
         if (c->relocs[i].is_call) {
             ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
-            if (target_fn) {
+            if (target_fn && !target_fn->is_prototype) {
                 int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             }

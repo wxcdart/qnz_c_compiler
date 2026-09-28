@@ -87,6 +87,7 @@ typedef struct {
     size_t ret_struct_sz;
     bool is_variadic;
     bool noreturn;
+    bool is_prototype;                    /* True for external prototypes (no body) */
 } ZeroCCFunction;
 
 /* Relocation Record */
