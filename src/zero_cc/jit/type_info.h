@@ -14,6 +14,11 @@
 /* Parse and Compile a Top-Level Function */
 
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
+    // FIX: Guard against invalid types (e.g., from malformed external function signatures)
+    // If the type has an unreasonably large size, treat it as int to prevent stack overflow
+    if (t.size > 1024) {
+        return type_int(perm);
+    }
     switch (t.tag) {
         case TYPE_VOID: return type_void(perm);
         case TYPE_BOOL: return type_bool(perm);
@@ -28,10 +33,18 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_FLOAT: return type_float(perm);
         case TYPE_DOUBLE: return type_double(perm);
         case TYPE_PTR: {
+            // FIX: Guard against NULL base pointer (incomplete types like FILE*)
+            if (!t.base) {
+                return type_pointer_to(perm, type_void(perm));
+            }
             TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
             return type_pointer_to(perm, base);
         }
         case TYPE_ARRAY: {
+            // FIX: Guard against NULL base pointer
+            if (!t.base) {
+                return type_array_of(perm, type_void(perm), t.array_len);
+            }
             TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
             return type_array_of(perm, base, t.array_len);
         }

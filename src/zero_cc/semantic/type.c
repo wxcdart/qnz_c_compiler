@@ -80,12 +80,16 @@ TypeInfo *type_function(Arena *perm, TypeInfo *ret, TypeInfo **params, size_t pa
     t->details.function.ret = ret;
     t->details.function.param_cnt = param_cnt;
     t->details.function.is_variadic = is_variadic;
-    if (param_cnt > 0 && params) {
+    // FIX: Only copy params if both param_cnt > 0 AND params is non-NULL
+    // This prevents memcpy from NULL when external function signatures are malformed
+    if (param_cnt > 0 && params != NULL) {
         TypeInfo **p_copy = (TypeInfo **)arena_alloc(perm, param_cnt * sizeof(TypeInfo *));
         if (p_copy) {
             memcpy(p_copy, params, param_cnt * sizeof(TypeInfo *));
+            t->details.function.params = p_copy;
+        } else {
+            t->details.function.params = NULL;
         }
-        t->details.function.params = p_copy;
     } else {
         t->details.function.params = NULL;
     }
