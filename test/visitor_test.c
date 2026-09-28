@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-#include "../src/zero_cc/arena.h"
-#include "../src/zero_cc/parser.h"
-#include "../src/zero_cc/semantic/type.h"
-#include "../src/zero_cc/semantic/scope.h"
-#include "../src/zero_cc/semantic/diagnostics.h"
-#include "../src/zero_cc/semantic/visitor.h"
+#include "zero_cc/utils/arena.h"
+#include "zero_cc/parser.h"
+#include "zero_cc/semantic/type.h"
+#include "zero_cc/semantic/scope.h"
+#include "zero_cc/semantic/diagnostics.h"
+#include "zero_cc/semantic/visitor.h"
 
 int main(void) {
     Arena *perm = arena_create(1024 * 1024);

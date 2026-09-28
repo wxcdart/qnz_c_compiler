@@ -101,10 +101,5 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     // End of compilation
     }
 
-#include "zero_cc/zero_mmap_adapter.h"
-
-/* --------------------------------------------------------------------------
- *  4. JIT EXECUTION ENGINE
- *  -------------------------------------------------------------------------- */
 
 #endif /* ZERO_CC_JIT_COMPILE_UNIT_H */

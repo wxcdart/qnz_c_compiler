@@ -17,6 +17,7 @@
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
+#include "../platform/mmap_adapter.h"
 
 static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     if (!c || c->text_section.length == 0) return -1;
@@ -64,17 +65,5 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     return 0;
 #endif
 }
-
-/* --------------------------------------------------------------------------
- *  5. ELF64 EMITTERS
- *  -------------------------------------------------------------------------- */
-#if defined(__has_include) && __has_include(<elf.h>)
-#include <elf.h>
-#else
-#include "zero_cc/zero_elf.h"
-#endif
-
-#ifdef __linux__
-
 
 #endif /* ZERO_CC_JIT_EXECUTION_H */

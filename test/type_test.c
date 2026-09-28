@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
-#include "zero_cc/arena.h"
+#include "zero_cc/utils/arena.h"
 #include "zero_cc/semantic/type.h"
 
 int main(void) {

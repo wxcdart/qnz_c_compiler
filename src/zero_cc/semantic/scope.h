@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "../arena.h"
+#include "../utils/arena.h"
 #include "../structures/zero_tpht.h"
 
 #ifdef __cplusplus

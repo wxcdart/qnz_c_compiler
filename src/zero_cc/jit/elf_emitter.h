@@ -21,6 +21,18 @@
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
 
+
+/* --------------------------------------------------------------------------
+ *  5. ELF64 EMITTERS
+ *  -------------------------------------------------------------------------- */
+#if defined(__has_include) && __has_include(<elf.h>)
+#include <elf.h>
+#else
+#include "zero_elf.h"
+#endif
+
+#ifdef __linux__
+
 static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath) {
     FILE *f = fopen(filepath, "wb");
     if (!f) return false;
@@ -201,8 +213,6 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
 static inline bool zero_cc_emit_ape_exe(ZeroCCCompiler *c, const char *filepath) {
     return zero_cc_emit_elf_exe(c, filepath);
 }
-
-#endif /* ZERO_CC_JIT_LINKER_H */
 
 
 #endif /* ZERO_CC_JIT_ELF_EMITTER_H */

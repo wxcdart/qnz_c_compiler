@@ -2,7 +2,7 @@
 
 #include <stdarg.h>
 #include <stdint.h>
-#include "../arena.h"
+#include "../utils/arena.h"
 #include <stdbool.h>
 
 typedef struct {

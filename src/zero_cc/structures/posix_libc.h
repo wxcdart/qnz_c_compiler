@@ -41,4 +41,20 @@ static inline char *zero_posix_strncat(char *dest, const char *src, size_t n) {
 #endif
 }
 
+#ifndef zero_posix_malloc
+#if defined(ZERO_NOLIBC) || defined(ZERO_FREESTANDING)
+#include "zero_posix_baremetal.h"
+#define ZERO_POSIX_BAREMETAL_INCLUDED 1
+#define zero_posix_malloc(size)       zero_posix_baremetal_malloc(size)
+#define zero_posix_free(ptr)          zero_posix_baremetal_free(ptr)
+#define zero_posix_calloc(n, sz)      zero_posix_baremetal_calloc((n), (sz))
+#define zero_posix_realloc(ptr, size) zero_posix_baremetal_realloc((ptr), (size))
+#else
+#define zero_posix_malloc(size)       malloc((size))
+#define zero_posix_free(ptr)          free((ptr))
+#define zero_posix_calloc(n, sz)      calloc((n), (sz))
+#define zero_posix_realloc(ptr, size) realloc((ptr), (size))
+#endif
+#endif
+
 #endif /* ZERO_CC_POSIX_LIBC_H */

@@ -9,7 +9,7 @@
  * ----------------------------------------------------------------------- */
 
 #include "hash_table.h"          /* public API declarations */
-#include "structures/zero_tpht.h"  /* runtime TPHT implementation */
+#include "../structures/zero_tpht.h"  /* runtime TPHT implementation */
 #include <stdlib.h>
 #include <stdio.h>
 

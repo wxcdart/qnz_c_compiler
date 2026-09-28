@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../arena.h"
+#include "../utils/arena.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

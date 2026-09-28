@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../src/zero_cc/hash_table.h"
+#include "zero_cc/data_structures/hash_table.h"
 
 /* Stress test: insert many keys until the table reports failure. */
 int main(void) {

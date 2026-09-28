@@ -7,7 +7,7 @@ TESTS = $(TEST_SRCS:.c=)
 SETTERS_OBJ = src/zero_cc/backends/setters.o
 LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
-EXTRA_OBJS = src/zero_cc/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/arena.o
+EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o
 
 .PHONY: all test clean golden_test
 
@@ -25,7 +25,7 @@ $(PARSER_OBJ): src/zero_cc/parser.c src/zero_cc/parser.h src/zero_cc/types_lexer
 TLS_OBJ = src/zero_cc/tls_backend_static.o
 src/zero_cc/tls_backend_static.o: src/zero_cc/tls_backend_static.c
 	$(CC) $(CFLAGS) -c $< -o $@
-src/zero_cc/arena.o: src/zero_cc/arena.c
+src/zero_cc/utils/arena.o: src/zero_cc/utils/arena.c
 	$(CC) $(CFLAGS) -c $< -o $@
 src/zero_cc/semantic/type.o: src/zero_cc/semantic/type.c src/zero_cc/semantic/type.h
 	$(CC) $(CFLAGS) -c $< -o $@
