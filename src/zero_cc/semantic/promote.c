@@ -246,11 +246,6 @@ bool type_can_cast(const TypeInfo *src, const TypeInfo *dst) {
 bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
     if (!dst || !src) return false;
 
-    /* Reject floating-point to integer conversions (narrowing) */
-    if (type_is_floating(src) && type_is_integer(dst)) {
-        return false;
-    }
-
     /* Both are arithmetic types */
     if (type_is_arithmetic(dst) && type_is_arithmetic(src)) {
         return true;

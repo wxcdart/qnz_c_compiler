@@ -69,8 +69,8 @@ int main(void) {
     run_test("int main(void) { int x = undefined_var; }", true, "undefined");
     // 3. Duplicate variable definition – expect "redefinition".
     run_test("int main(void) { int x = 1; int x = 2; }", true, "redefinition");
-    // 4. Type mismatch in return – expect "incompatible".
-    run_test("int main(void) { return 1.0; }", true, "incompatible");
+    // 4. Type mismatch in return – returning a float from int is allowed in C, so expect no error.
+    run_test("int main(void) { return 1.0; }", false, NULL);
     // 5. Correct program – no error.
     run_test("int main(void) { return 0; }", false, NULL);
     return 0;
