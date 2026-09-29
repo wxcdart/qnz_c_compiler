@@ -8,6 +8,184 @@
 #include <string.h>
 #include <stdio.h>
 
+static inline void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {
+    memset(cpp, 0, sizeof(*cpp));
+    cpp->macro_capacity = 512;
+    cpp->macros = (ZeroCCMacro *)calloc(cpp->macro_capacity, sizeof(ZeroCCMacro));
+    cpp->hash_next = (int32_t *)malloc(cpp->macro_capacity * sizeof(int32_t));
+    for (int i = 0; i < 4096; i++) cpp->hash_buckets[i] = -1;
+    cpp->cond_depth = 0;
+    cpp->cond_true[0] = true;
+    cpp->cond_seen_true[0] = true;
+}
+
+static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
+    if (!cpp) return;
+    for (size_t i = 0; i < cpp->macro_count; i++) {
+        if (cpp->macros[i].replacement) free(cpp->macros[i].replacement);
+        for (int p = 0; p < cpp->macros[i].param_count; p++) {
+            if (cpp->macros[i].params[p]) free(cpp->macros[i].params[p]);
+        }
+    }
+    if (cpp->macros) free(cpp->macros);
+    if (cpp->hash_next) free(cpp->hash_next);
+    for (size_t i = 0; i < cpp->include_dirs.count; i++) {
+        if (cpp->include_dirs.paths[i]) free(cpp->include_dirs.paths[i]);
+    }
+}
+
+static inline void zero_cc_cpp_add_include_dir(ZeroCCPreprocessor *cpp, const char *path) {
+    if (cpp->include_dirs.count < ZERO_CC_MAX_INCLUDE_PATHS && path) {
+        cpp->include_dirs.paths[cpp->include_dirs.count++] = strdup(path);
+    }
+}
+
+static inline ZeroCCMacro* zero_cc_cpp_find_macro(ZeroCCPreprocessor *cpp, const char *name) {
+    if (!cpp || !name || cpp->macro_count == 0) return NULL;
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    int32_t idx = cpp->hash_buckets[b];
+    while (idx >= 0 && (size_t)idx < cpp->macro_count) {
+        if (strcmp(cpp->macros[idx].name, name) == 0) {
+            return &cpp->macros[idx];
+        }
+        idx = cpp->hash_next[idx];
+    }
+    return NULL;
+}
+
+static inline void zero_cc_cpp_define_obj(ZeroCCPreprocessor *cpp, const char *name, const char *value) {
+    if (!cpp || !name) return;
+    ZeroCCMacro *existing = zero_cc_cpp_find_macro(cpp, name);
+    if (existing) {
+        free(existing->replacement);
+        existing->replacement = strdup(value ? value : "");
+        return;
+    }
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = -1;
+    m->is_variadic = false;
+    m->replacement = strdup(value ? value : "");
+
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
+static inline void zero_cc_cpp_define_func1(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *value) {
+    if (!cpp || !name) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = 1;
+    m->params[0] = strdup(p1 ? p1 : "arg");
+    m->is_variadic = false;
+    m->replacement = strdup(value ? value : "");
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
+static inline void zero_cc_cpp_define_func2(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *value) {
+    if (!cpp || !name) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = 2;
+    m->params[0] = strdup(p1 ? p1 : "a1");
+    m->params[1] = strdup(p2 ? p2 : "a2");
+    m->is_variadic = false;
+    m->replacement = strdup(value ? value : "");
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
+static inline void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *p3, const char *value) {
+    if (!cpp || !name) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = 3;
+    m->params[0] = strdup(p1 ? p1 : "a1");
+    m->params[1] = strdup(p2 ? p2 : "a2");
+    m->params[2] = strdup(p3 ? p3 : "a3");
+    m->is_variadic = false;
+    m->replacement = strdup(value ? value : "");
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
+static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
+    zero_cc_cpp_define_obj(cpp, "__STDC__", "1");
+    zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "199901L");
+    zero_cc_cpp_define_obj(cpp, "__GNUC__", "4");
+    zero_cc_cpp_define_obj(cpp, "__GNUC_MINOR__", "2");
+    zero_cc_cpp_define_obj(cpp, "__linux__", "1");
+    zero_cc_cpp_define_obj(cpp, "__unix__", "1");
+    zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
+    zero_cc_cpp_define_obj(cpp, "true", "1");
+    zero_cc_cpp_define_obj(cpp, "false", "0");
+    zero_cc_cpp_define_obj(cpp, "va_list", "char*");
+    /* Self-hosted atomic builtins for Milestone 3 */
+    zero_cc_cpp_define_func2(cpp, "__atomic_load_n", "p", "m", "(0)" );
+    zero_cc_cpp_define_func3(cpp, "__atomic_store_n", "p", "v", "m", "((void)0)" );
+    zero_cc_cpp_define_func3(cpp, "__atomic_add_fetch", "p", "v", "m", "(0)" );
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELEASE", "3");
+    zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQ_REL", "4");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
+    zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
+    zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
+    zero_cc_cpp_define_func1(cpp, "va_end", "ap", "((void)0)");
+    zero_cc_cpp_define_func1(cpp, "__attribute__", "x", "");
+    zero_cc_cpp_define_func1(cpp, "__attribute", "x", "");
+    zero_cc_cpp_define_obj(cpp, "__extension__", "");
+    zero_cc_cpp_define_obj(cpp, "__restrict", "");
+    zero_cc_cpp_define_obj(cpp, "__restrict__", "");
+    zero_cc_cpp_define_obj(cpp, "__inline__", "inline");
+    zero_cc_cpp_define_obj(cpp, "__inline", "inline");
+    zero_cc_cpp_define_obj(cpp, "__volatile__", "");
+    zero_cc_cpp_define_obj(cpp, "volatile", "");
+    zero_cc_cpp_define_func3(cpp, "__builtin_memcpy", "dest", "src", "n", "memcpy(dest, src, n)");
+    zero_cc_cpp_define_func1(cpp, "__builtin_memset", "s", "memset(s, 0, 0)");
+#if defined(ZERO_CC_TARGET_X86_64)
+    zero_cc_cpp_define_obj(cpp, "__x86_64__", "1");
+    zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
+#elif defined(ZERO_CC_TARGET_ARM64)
+    zero_cc_cpp_define_obj(cpp, "__aarch64__", "1");
+    zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
+#endif
+}
 
 static inline void zero_cc_cpp_undef(ZeroCCPreprocessor *cpp, const char *name) {
     if (!cpp || !name) return;
@@ -365,5 +543,401 @@ static inline int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char 
         return 0;
     }
     return 0;
+}
+
+static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out) {
+    if (!src) return;
+    const char *p = src;
+    bool at_line_start = true;
+
+    while (*p) {
+        /* Comments - process first */
+        if (*p == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; }
+            continue;
+        }
+        if (*p == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(*p == '*' && p[1] == '/')) {
+                if (*p == '\n') { zero_cc_buf_putc(out, '\n'); at_line_start = true; }
+                p++;
+            }
+            if (*p) p += 2;
+            continue;
+        }
+
+        if (at_line_start) {
+            const char *look = p;
+            while (*look && isspace((unsigned char)*look) && *look != '\n') look++;
+            if (*look == '#') {
+                p = look + 1;
+                while (*p && isspace((unsigned char)*p)) p++;
+                char directive[32]; size_t dl = 0;
+                while (*p && isalpha((unsigned char)*p) && dl < 31) directive[dl++] = *p++;
+                directive[dl] = '\0';
+                while (*p && isspace((unsigned char)*p)) p++;
+
+                bool active = (cpp->cond_depth == 0 || cpp->cond_true[cpp->cond_depth]);
+
+                if (strcmp(directive, "ifdef") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+                    cpp->cond_depth++;
+                    bool val = active && (zero_cc_cpp_find_macro(cpp, macro_name) != NULL);
+                    cpp->cond_true[cpp->cond_depth] = val;
+                    cpp->cond_seen_true[cpp->cond_depth] = val;
+                } else if (strcmp(directive, "ifndef") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+                    cpp->cond_depth++;
+                    bool val = active && (zero_cc_cpp_find_macro(cpp, macro_name) == NULL);
+                    cpp->cond_true[cpp->cond_depth] = val;
+                    cpp->cond_seen_true[cpp->cond_depth] = val;
+                } else if (strcmp(directive, "if") == 0) {
+                    cpp->cond_depth++;
+                    bool val = active && (zero_cc_cpp_eval_expr(cpp, p) != 0);
+                    cpp->cond_true[cpp->cond_depth] = val;
+                    cpp->cond_seen_true[cpp->cond_depth] = val;
+                } else if (strcmp(directive, "elif") == 0) {
+                    if (cpp->cond_depth > 0) {
+                        bool prev_depth_active = (cpp->cond_depth == 1 || cpp->cond_true[cpp->cond_depth - 1]);
+                        if (!cpp->cond_seen_true[cpp->cond_depth] && prev_depth_active && zero_cc_cpp_eval_expr(cpp, p) != 0) {
+                            cpp->cond_true[cpp->cond_depth] = true;
+                            cpp->cond_seen_true[cpp->cond_depth] = true;
+                        } else {
+                            cpp->cond_true[cpp->cond_depth] = false;
+                        }
+                    }
+                } else if (strcmp(directive, "else") == 0) {
+                    if (cpp->cond_depth > 0) {
+                        bool prev_depth_active = (cpp->cond_depth == 1 || cpp->cond_true[cpp->cond_depth - 1]);
+                        cpp->cond_true[cpp->cond_depth] = prev_depth_active && !cpp->cond_seen_true[cpp->cond_depth];
+                    }
+                } else if (strcmp(directive, "endif") == 0) {
+                    if (cpp->cond_depth > 0) cpp->cond_depth--;
+                } else if (active && strcmp(directive, "define") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+
+                    if (*p == '(') {
+                        p++;
+                        char *params[32];
+                        int pcount = 0;
+                        bool is_var = false;
+                        while (*p && *p != ')') {
+                            while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+                            if (*p == '.' && p[1] == '.' && p[2] == '.') {
+                                is_var = true;
+                                if (pcount < 32) params[pcount++] = strdup("__VA_ARGS__");
+                                p += 3;
+                                break;
+                            }
+                            char pname[128]; size_t pl = 0;
+                            while (*p && (isalnum((unsigned char)*p) || *p == '_') && pl < 127) pname[pl++] = *p++;
+                            pname[pl] = '\0';
+                            if (pl > 0 && pcount < 32) {
+                                params[pcount++] = strdup(pname);
+                            }
+                        }
+                        if (*p == ')') p++;
+                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                        const char *body_start = p;
+                        while (*p && *p != '\n') {
+                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+                            p++;
+                        }
+                        size_t body_len = p - body_start;
+                        char *body = (char *)malloc(body_len + 1);
+                        memcpy(body, body_start, body_len);
+                        body[body_len] = '\0';
+
+                        if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
+                            size_t idx = cpp->macro_count++;
+                            ZeroCCMacro *m = &cpp->macros[idx];
+                            memset(m,0,sizeof(*m));
+                            snprintf(m->name, sizeof(m->name), "%s", macro_name);
+                            m->param_count = pcount;
+                            m->is_variadic = is_var;
+                            for (int k = 0; k < pcount; k++) m->params[k] = params[k];
+                            m->replacement = body;
+
+                            uint32_t b = (uint32_t)(zero_cc_hash64(macro_name) & 4095);
+                            cpp->hash_next[idx] = cpp->hash_buckets[b];
+                            cpp->hash_buckets[b] = (int32_t)idx;
+                        }
+                    } else {
+                        while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                        const char *val_start = p;
+                        while (*p && *p != '\n') {
+                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+                            p++;
+                        }
+                        size_t val_len = p - val_start;
+                        char *val = (char *)malloc(val_len + 1);
+                        memcpy(val, val_start, val_len);
+                        val[val_len] = '\0';
+                        zero_cc_cpp_define_obj(cpp, macro_name, val);
+                        free(val);
+                    }
+                } else if (active && strcmp(directive, "undef") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+                    zero_cc_cpp_undef(cpp, macro_name);
+                } else if (active && strcmp(directive, "include") == 0) {
+                    bool is_sys = (*p == '<');
+                    char delim_end = is_sys ? '>' : '"';
+                    p++;
+                    char inc_name[256]; size_t inl = 0;
+                    while (*p && *p != delim_end && *p != '\n' && inl < 255) inc_name[inl++] = *p++;
+                    inc_name[inl] = '\0';
+                    if (*p == delim_end) p++;
+                    
+                    char *inc_content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys);
+                    if (inc_content) {
+                        zero_cc_cpp_process_text(cpp, inc_content, out);
+                        free(inc_content);
+                    }
+                } else if (active && strcmp(directive, "embed") == 0) {
+                    while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                    bool is_sys = (*p == '<');
+                    char delim_end = is_sys ? '>' : '"';
+                    if (*p == '"' || *p == '<') p++;
+                    char asset_path[256]; size_t apl = 0;
+                    while (*p && *p != delim_end && *p != '\n' && apl < 255) asset_path[apl++] = *p++;
+                    asset_path[apl] = '\0';
+                    if (*p == delim_end) p++;
+
+                    FILE *f = fopen(asset_path, "rb");
+                    if (!f && cpp) {
+                        /* Try resolve via include search paths */
+                        char *resolved = zero_cc_cpp_resolve_include(cpp, asset_path, is_sys);
+                        if (resolved) {
+                            /* read from resolved string as raw bytes */
+                            size_t rlen = strlen(resolved);
+                            for (size_t i = 0; i < rlen; i++) {
+                                char buf[16];
+                                snprintf(buf, sizeof(buf), "%u%s", (unsigned char)resolved[i], (i + 1 < rlen) ? ", " : "");
+                                zero_cc_buf_puts(out, buf);
+                            }
+                            free(resolved);
+                            f = NULL;
+                        }
+                    }
+                    if (f) {
+                        fseek(f, 0, SEEK_END);
+                        long fsz = ftell(f);
+                        fseek(f, 0, SEEK_SET);
+                        if (fsz > 0) {
+                            unsigned char *data = (unsigned char *)malloc((size_t)fsz);
+                            if (data) {
+                                size_t r = fread(data, 1, (size_t)fsz, f);
+                                for (size_t i = 0; i < r; i++) {
+                                    char buf[16];
+                                    snprintf(buf, sizeof(buf), "%u%s", data[i], (i + 1 < r) ? ", " : "");
+                                    zero_cc_buf_puts(out, buf);
+                                }
+                                free(data);
+                            }
+                        }
+                        fclose(f);
+                    }
+                }
+
+                while (*p && *p != '\n') p++;
+                if (*p == '\n') p++;
+                at_line_start = true;
+                continue;
+            }
+        }
+
+        if (cpp->cond_depth > 0 && !cpp->cond_true[cpp->cond_depth]) {
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') { p++; at_line_start = true; }
+            continue;
+        }
+
+        at_line_start = (*p == '\n');
+
+        /* String literals */
+        if (*p == '"' || *p == '\'') {
+            char quote = *p;
+            zero_cc_buf_putc(out, *p++);
+            while (*p && *p != quote) {
+                if (*p == '\\' && p[1]) {
+                    zero_cc_buf_putc(out, *p++);
+                }
+                zero_cc_buf_putc(out, *p++);
+            }
+            if (*p == quote) zero_cc_buf_putc(out, *p++);
+            continue;
+        }
+
+        /* Identifiers or macro substitutions */
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            char ident[128]; size_t il = 0;
+            while (*p && (isalnum((unsigned char)*p) || *p == '_') && il < 127) ident[il++] = *p++;
+            ident[il] = '\0';
+
+            ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, ident);
+            if (m) {
+                if (m->param_count < 0) {
+                    zero_cc_buf_puts(out, m->replacement);
+                } else if (*p == '(') {
+                    p++;
+                    char *args[64];
+                    int arg_count = 0;
+                    while (*p && *p != ')') {
+                        while (*p && isspace((unsigned char)*p)) p++;
+                        const char *arg_s = p;
+                        int paren_nest = 0;
+                        while (*p && (paren_nest > 0 || (*p != ',' && *p != ')'))) {
+                            if (*p == '(') paren_nest++;
+                            else if (*p == ')') paren_nest--;
+                            p++;
+                        }
+                        size_t arg_l = (size_t)(p - arg_s);
+                        char *arg_str = (char *)malloc(arg_l + 1);
+                        if (arg_str) {
+                            memcpy(arg_str, arg_s, arg_l);
+                            arg_str[arg_l] = '\0';
+                            if (arg_count < 64) {
+                                args[arg_count++] = arg_str;
+                            } else {
+                                free(arg_str);
+                            }
+                        }
+                        if (*p == ',') p++;
+                    }
+                    if (*p == ')') p++;
+
+                    /* Bundle variadic arguments into __VA_ARGS__ */
+                    if (m->is_variadic && m->param_count > 0 && arg_count >= m->param_count) {
+                        size_t total_va_len = 0;
+                        for (int k = m->param_count - 1; k < arg_count; k++) {
+                            total_va_len += strlen(args[k]) + 4;
+                        }
+                        char *va_str = (char *)malloc(total_va_len + 1);
+                        if (va_str) {
+                            va_str[0] = '\0';
+                            for (int k = m->param_count - 1; k < arg_count; k++) {
+                                if (k > m->param_count - 1) strcat(va_str, ", ");
+                                strcat(va_str, args[k]);
+                                free(args[k]);
+                            }
+                            args[m->param_count - 1] = va_str;
+                            arg_count = m->param_count;
+                        }
+                    }
+
+                    const char *b = m->replacement;
+                    while (*b) {
+                        /* Token pasting: ## */
+                        if (b[0] == '#' && b[1] == '#') {
+                            b += 2;
+                            while (*b && isspace((unsigned char)*b)) b++;
+                            continue;
+                        }
+
+                        /* Stringification: #param */
+                        if (*b == '#' && (isalpha((unsigned char)b[1]) || b[1] == '_')) {
+                            b++;
+                            char param_id[128]; size_t pl = 0;
+                            while (*b && (isalnum((unsigned char)*b) || *b == '_') && pl < 127) param_id[pl++] = *b++;
+                            param_id[pl] = '\0';
+                            int match = -1;
+                            for (int k = 0; k < m->param_count; k++) {
+                                if (strcmp(m->params[k], param_id) == 0) { match = k; break; }
+                            }
+                            if (strcmp(param_id, "__VA_ARGS__") == 0 && m->is_variadic && m->param_count > 0) {
+                                match = m->param_count - 1;
+                            }
+                            if (match >= 0 && match < arg_count) {
+                                zero_cc_buf_putc(out, '"');
+                                zero_cc_buf_puts(out, args[match]);
+                                zero_cc_buf_putc(out, '"');
+                            }
+                            continue;
+                        }
+
+                        if (isalpha((unsigned char)*b) || *b == '_') {
+                            char param_id[128]; size_t pl = 0;
+                            while (*b && (isalnum((unsigned char)*b) || *b == '_') && pl < 127) param_id[pl++] = *b++;
+                            param_id[pl] = '\0';
+                            int match = -1;
+                            for (int k = 0; k < m->param_count; k++) {
+                                if (strcmp(m->params[k], param_id) == 0) { match = k; break; }
+                            }
+                            if (strcmp(param_id, "__VA_ARGS__") == 0 && m->is_variadic && m->param_count > 0) {
+                                match = m->param_count - 1;
+                            }
+                            if (match >= 0 && match < arg_count) {
+                                zero_cc_buf_puts(out, args[match]);
+                            } else {
+                                zero_cc_buf_puts(out, param_id);
+                            }
+                        } else {
+                            zero_cc_buf_putc(out, *b++);
+                        }
+                    }
+                    for (int k = 0; k < arg_count; k++) free(args[k]);
+                } else {
+                    zero_cc_buf_puts(out, ident);
+                }
+            } else {
+                zero_cc_buf_puts(out, ident);
+            }
+            continue;
+        }
+
+        zero_cc_buf_putc(out, *p++);
+    }
+}
+
+typedef struct {
+    char *name;
+    char *value;
+} ZeroCCMacroDef;
+
+typedef struct {
+    ZeroCCMacroDef defs[128];
+    size_t count;
+} ZeroCCDefines;
+
+static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
+    ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
+    if (!cpp) return strdup(source ? source : "");
+    zero_cc_cpp_init(cpp);
+    zero_cc_cpp_define_builtin_macros(cpp);
+    if (defines) {
+        for (size_t i = 0; i < defines->count; i++) {
+            if (defines->defs[i].name) {
+                zero_cc_cpp_define_obj(cpp, defines->defs[i].name, defines->defs[i].value ? defines->defs[i].value : "1");
+            }
+        }
+    }
+    if (inc_dirs) {
+        for (size_t i = 0; i < inc_dirs->count; i++) {
+            zero_cc_cpp_add_include_dir(cpp, inc_dirs->paths[i]);
+        }
+    }
+    ZeroCCBuffer out;
+    zero_cc_buf_init(&out, 4096);
+    zero_cc_cpp_process_text(cpp, source, &out);
+    free(cpp);
+    return out.data;
+}
+
+static inline char* zero_cc_preprocess(const char *source, ZeroCCIncludeDirs *inc_dirs) {
+    return zero_cc_preprocess_ext(source, inc_dirs, NULL);
+}
+
+
+
 
 #endif /* ZERO_CC_CORE_PREPROCESSOR_H */
