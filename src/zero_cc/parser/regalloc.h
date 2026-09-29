@@ -30,12 +30,12 @@ typedef enum RegClass {
 } RegClass;
 
 /* Available registers per class (System V AMD64 ABI) */
-static const char *gpr_registers[] = {
+static const char *gpr_registers[] __attribute__((unused)) = {
     "rax", "rcx", "rdx", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
 };
 #define GPR_COUNT 14
 
-static const char *xmm_registers[] = {
+static const char *xmm_registers[] __attribute__((unused)) = {
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
 };
 #define XMM_COUNT 8
@@ -94,23 +94,6 @@ static void regalloc_init(RegAllocator *ra) {
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
 }
 
-/* Free register allocator resources */
-static void regalloc_free(RegAllocator *ra) __attribute__((unused));
-static void regalloc_free(RegAllocator *ra) {
-    if (!ra) return;
-    if (ra->intervals) {
-        free(ra->intervals);
-        ra->intervals = NULL;
-    }
-    if (ra->active) {
-        free(ra->active);
-        ra->active = NULL;
-    }
-    ra->interval_count = 0;
-    ra->active_count = 0;
-    ra->next_spill_slot = 0;
-}
-
 /* Add a new live interval */
 static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, size_t end, RegClass reg_class) __attribute__((unused));
 static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, size_t end, RegClass reg_class) {
@@ -143,16 +126,6 @@ static int compare_intervals_by_start(const void *a, const void *b) {
     const LiveInterval *ib = *(const LiveInterval **)b;
     if (ia->start < ib->start) return -1;
     if (ia->start > ib->start) return 1;
-    return 0;
-}
-
-/* Comparison function for sorting active intervals by end position */
-static int compare_active_by_end(const void *a, const void *b) __attribute__((unused));
-static int compare_active_by_end(const void *a, const void *b) {
-    const LiveInterval *ia = *(const LiveInterval **)a;
-    const LiveInterval *ib = *(const LiveInterval **)b;
-    if (ia->end < ib->end) return -1;
-    if (ia->end > ib->end) return 1;
     return 0;
 }
 
@@ -298,32 +271,6 @@ static void regalloc_allocate(RegAllocator *ra) {
     }
     
     free(sorted);
-}
-
-/* Get register name by class and index */
-static const char *regalloc_get_reg_name(RegClass reg_class, int reg_index) __attribute__((unused));
-static const char *regalloc_get_reg_name(RegClass reg_class, int reg_index) {
-    if (reg_class == REG_CLASS_GPR && reg_index >= 0 && reg_index < GPR_COUNT) {
-        return gpr_registers[reg_index];
-    }
-    if (reg_class == REG_CLASS_XMM && reg_index >= 0 && reg_index < XMM_COUNT) {
-        return xmm_registers[reg_index];
-    }
-    return NULL;
-}
-
-/* Get x86-64 register encoding for mov instructions */
-static uint8_t regalloc_get_reg_byte(RegClass reg_class, int reg_index) __attribute__((unused));
-static uint8_t regalloc_get_reg_byte(RegClass reg_class, int reg_index) {
-    /* Return the ModR/M register byte (0-7 for low registers) */
-    if (reg_class == REG_CLASS_GPR) {
-        if (reg_index >= 0 && reg_index < 8) return (uint8_t)reg_index;
-        if (reg_index >= 8 && reg_index < 16) return (uint8_t)(reg_index - 8); /* R8-R15 */
-    }
-    if (reg_class == REG_CLASS_XMM) {
-        if (reg_index >= 0 && reg_index < 8) return (uint8_t)reg_index;
-    }
-    return 0;
 }
 
 #endif /* ZERO_CC_PARSER_REGALLOC_H */

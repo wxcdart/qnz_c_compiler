@@ -26,44 +26,6 @@ typedef struct {
 static TempVar temp_vars[256];
 static size_t temp_var_count = 0;
 
-/* Allocate a new temporary variable */
-static int alloc_temp(ZeroCCCompiler *c, RegClass reg_class) __attribute__((unused));
-static int alloc_temp(ZeroCCCompiler *c, RegClass reg_class) {
-    int temp_id = c->next_temp_id++;
-    if (temp_var_count < 256) {
-        TempVar *tv = &temp_vars[temp_var_count++];
-        tv->temp_id = temp_id;
-        tv->live_start = c->text_section.length;
-        tv->live_end = 0;
-        tv->reg_class = reg_class;
-        tv->assigned_reg = -1;
-        tv->spill_slot = -1;
-    }
-    return temp_id;
-}
-
-/* Update live end position for a temporary */
-static void update_temp_live_end(int temp_id, size_t pos) __attribute__((unused));
-static void update_temp_live_end(int temp_id, size_t pos) {
-    for (size_t i = 0; i < temp_var_count; i++) {
-        if (temp_vars[i].temp_id == temp_id) {
-            temp_vars[i].live_end = pos;
-            break;
-        }
-    }
-}
-
-/* Get register for a temporary (placeholder - returns -1 for now) */
-static int get_temp_reg(int temp_id) __attribute__((unused));
-static int get_temp_reg(int temp_id) {
-    for (size_t i = 0; i < temp_var_count; i++) {
-        if (temp_vars[i].temp_id == temp_id) {
-            return temp_vars[i].assigned_reg;
-        }
-    }
-    return -1;
-}
-
 /* Loop control flow support */
 #define MAX_LOOP_NESTING 16
 #define MAX_LOOP_PATCHES 64
@@ -87,26 +49,12 @@ static int goto_patch_count[MAX_LABELS];
 static int goto_patch_list_count = 0;
 
 /* Reset label/goto state at function entry */
-static void reset_label_state(void) __attribute__((unused));
 static void reset_label_state(void) {
     label_count = 0;
     goto_patch_list_count = 0;
     for (int i = 0; i < MAX_LABELS; i++) {
         goto_patch_count[i] = 0;
     }
-}
-
-/* Helper: check if both operands are float literals for simple float arithmetic */
-static bool is_simple_float_binop(ZeroCCASTArena *arena, ZeroCCASTNode *node) __attribute__((unused));
-static bool is_simple_float_binop(ZeroCCASTArena *arena, ZeroCCASTNode *node) {
-    if (!node) return false;
-    ZeroCCASTNode *left = zero_cc_ast_get(arena, node->left);
-    ZeroCCASTNode *right = zero_cc_ast_get(arena, node->right);
-    if (!left || !right) return false;
-    /* Only handle float + float, float - float, etc. where both are NODE_FLOAT */
-    return (left->tag == NODE_FLOAT && right->tag == NODE_FLOAT &&
-           (node->aux.op == TK_PLUS || node->aux.op == TK_MINUS ||
-            node->aux.op == TK_STAR || node->aux.op == TK_SLASH));
 }
 
 /* Find label by name, return index or -1 if not found */
@@ -127,26 +75,6 @@ static int add_label(const char *name, size_t position) {
     label_table[label_count].position = position;
     return label_count++;
 }
-
-/* Record a goto patch location for later patching */
-static void record_goto_patch(ZeroCCCompiler *c, const char *label_name, size_t patch_pos) __attribute__((unused));
-static void record_goto_patch(ZeroCCCompiler *c, const char *label_name, size_t patch_pos) {
-    int idx = find_label(label_name);
-    if (idx >= 0) {
-        /* Label already seen, patch immediately */
-        size_t rel = label_table[idx].position - (patch_pos + 4);
-        memcpy(c->text_section.data + patch_pos, &rel, 4);
-    } else {
-        /* Label not seen yet, record for later patching */
-        if (goto_patch_list_count >= MAX_LABELS) return;
-        int list_idx = goto_patch_list_count++;
-        goto_patch_list[list_idx] = (size_t*)malloc(sizeof(size_t) * 64);
-        goto_patch_count[list_idx] = 0;
-        /* Store label name and patch position in a simple way */
-        /* For now, use a simplified approach: store patch_pos in a global array */
-    }
-}
-
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return;
