@@ -2,17 +2,13 @@
 #ifndef ZERO_CC_LEXER_H
 #define ZERO_CC_LEXER_H
 
-#include "types_lexer.h"
+#include "lexer/state.h"
 
-/* Lexer state */
-typedef struct {
-    const char *src;      /* full source string */
-    const char *cur;      /* current position */
-    const char *filename; /* source file name */
-    size_t      line;     /* 1-based */
-    size_t      col;      /* 1-based */
-    size_t      offset;   /* byte offset from src start */
-} ZeroCCLexer;
+/* Forward declaration for token - needed before types_lexer.h */
+typedef struct ZeroCCToken ZeroCCToken;
+
+/* Now include type system */
+#include "types_lexer.h"
 
 /* Forward declarations for scan functions */
 static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok);

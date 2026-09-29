@@ -62,7 +62,7 @@ static int add_label(const char *name, size_t position) {
 }
 
 /* Record a goto patch location for later patching */
-static void record_goto_patch(const char *label_name, size_t patch_pos) {
+static void record_goto_patch(ZeroCCCompiler *c, const char *label_name, size_t patch_pos) {
     int idx = find_label(label_name);
     if (idx >= 0) {
         /* Label already seen, patch immediately */

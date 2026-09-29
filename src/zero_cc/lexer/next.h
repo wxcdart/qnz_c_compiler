@@ -3,7 +3,7 @@
 #define ZERO_CC_LEXER_NEXT_H
 
 /* Get next token - main lexer function */
-int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
+static inline int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     if (!lx || !out || !lx->src || !lx->cur) return -1;
 
     const char *s = lx->cur;

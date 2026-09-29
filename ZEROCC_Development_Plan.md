@@ -168,6 +168,21 @@
 
 ## Implementation Plan
 
+### Sprint 0.5 – Include Architecture Hardening (Week 0.5)
+
+**Completed 2026-09-29** - Infrastructure work to reduce future maintenance burden.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Create `zero_cc_fwd.h` forward declaration header | ✅ | All major types declared |
+| Fix circular include: `lexer.h` ↔ `lexer/scan.h` | ✅ | Extracted `ZeroCCLexer` to `state.h` |
+| Document include order dependencies | ✅ | `types_lexer.h` header comments |
+| Create include best practices documentation | ✅ | `docs/includes-and-forward-declarations.md` |
+| Fix missing standard library includes | ✅ | `<stdio.h>`, `<stdbool.h>`, `<dlfcn.h>` |
+| Verify all tests pass | ✅ | 40/40 tests pass |
+
+---
+
 ### Sprint 1 – Low‑hanging fruit: 🟡 → ✅ (Weeks 1–3)
 
 These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `lower_expr()` — no new parsing needed.
@@ -252,6 +267,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 | Week | Work |
 |------|------|
+| 0.5 | **Sprint 0.5** – Include architecture hardening (forward decls, circular include fixes) ✅ |
 | 1–3 | **Sprint 1** – lower_node/lower_expr gap fill (float, string, ternary, member, subscript) |
 | 4–7 | **Sprint 2** – New parsing (goto, globals, extern, macros) |
 | 8–12 | **Sprint 3** – Codegen depth (FP, structs, va_arg, register alloc) |
@@ -264,12 +280,25 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 ## Immediate Next Actions
 
-1. Open `src/zero_cc/parser.c` at `lower_expr()` and add cases for `NODE_FLOAT`, `NODE_STRING`.
-2. Add `case NODE_DO_WHILE` in `lower_node()`.
-3. Add `case NODE_TERNARY` in `lower_expr()`.
-4. Run `make golden_test` after each case to confirm no regressions.
-5. Commit as `"feat: fill lower_node/lower_expr for float, string, do-while, ternary"`.
+### What's Next: Sprint 1 - Code Generation Gap Fill
+
+The include architecture is now solid. The next work focuses on filling in the missing `lower_node()` and `lower_expr()` cases.
+
+1. **Float literal emission** (`NODE_FLOAT` → `movsd` from rodata) - 1 day
+2. **String literal emission** (`NODE_STRING` → `lea rax, [rip+rodata]`) - 1 day  
+3. **`do … while` machine code** (`NODE_DO_WHILE`) - 1 day
+4. **Ternary `?:` codegen** (`NODE_TERNARY`) - 2 days
+5. **Member access `.` / `->` codegen** (`NODE_MEMBER`) - 2 days
+6. **Array subscript codegen** (`NODE_INDEX`) - 1 day
+7. **Cast codegen** (`NODE_CAST`) - 1 day
+8. **Fix `_Static_assert`** to actually abort on failure - 1 day
+
+**Recommended workflow:**
+- Open `src/zero_cc/parser.c` at `lower_expr()` and add cases
+- Run `make clean && make test` after each case to confirm no regressions
+- Commit incrementally: `"feat: fill lower_expr for NODE_FLOAT"`, etc.
 
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-09-26.*
+*Include architecture audit completed 2026-09-29.*

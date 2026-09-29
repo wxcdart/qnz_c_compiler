@@ -1,9 +1,14 @@
 #ifndef ZERO_CC_TYPES_EMIT_HELPERS_H
 #define ZERO_CC_TYPES_EMIT_HELPERS_H
 
+#include <stddef.h>
+#include <stdint.h>
+#include "zero_cc/core/buffers.h"
+
 /* Lexer implementation (moved to lexer.c/lexer.h) */
-void zero_cc_tokenize_c99(const char *p, ZeroCCCompiler *c);
-ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len);
+/* Functions now static inline in lexer headers */
+/* void zero_cc_tokenize_c99(const char *p, ZeroCCCompiler *c); */
+/* ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len); */
 /* Machine Code Emission Helpers (x86_64) */
 static inline void zero_cc_emit_u8(ZeroCCBuffer *b, uint8_t byte) {
     zero_cc_buf_put_bytes(b, &byte, 1);

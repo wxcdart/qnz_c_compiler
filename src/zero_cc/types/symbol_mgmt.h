@@ -1,6 +1,9 @@
 #ifndef ZERO_CC_TYPES_SYMBOL_MGMT_H
 #define ZERO_CC_TYPES_SYMBOL_MGMT_H
 
+#include <stdbool.h>
+#include <dlfcn.h>
+
 /* Symbol & Scope Management */
 static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name) {
     for (size_t i = 0; i < c->local_count; i++) {

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "zero_cc/lexer/scan.h"
 
 static inline void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {
     memset(cpp, 0, sizeof(*cpp));
@@ -32,6 +33,9 @@ static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
     if (cpp->hash_next) free(cpp->hash_next);
     for (size_t i = 0; i < cpp->include_dirs.count; i++) {
         if (cpp->include_dirs.paths[i]) free(cpp->include_dirs.paths[i]);
+    for (size_t i = 0; i < cpp->once_file_count; i++) {
+        if (cpp->once_files[i]) free(cpp->once_files[i]);
+    }
     }
 }
 
@@ -709,6 +713,39 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         zero_cc_cpp_process_text(cpp, inc_content, out);
                         free(inc_content);
                     }
+                } else if (active && strcmp(directive, "pragma") == 0) {
+                    while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
+                    if (strncmp(p, "once", 4) == 0 && isspace((unsigned char)p[4])) {
+                        /* Handle #pragma once */
+                        if (cpp->filename) {
+                            int found = 0;
+                            for (size_t i = 0; i < cpp->once_file_count; i++) {
+                                if (strcmp(cpp->once_files[i], cpp->filename) == 0) {
+                                    found = 1;
+                                    break;
+                                }
+                            }
+                            if (found) {
+                                /* Skip the rest of the file */
+                                while (*p) {
+                                    if (*p == '\n') {
+                                        cpp->line_num++;
+                                    }
+                                    p++;
+                                }
+                            } else {
+                                /* Add to once files */
+                                if (cpp->once_file_count < ONCE_FILES_MAX) {
+                                    cpp->once_files[cpp->once_file_count] = strdup(cpp->filename);
+                                    cpp->once_file_count++;
+                                }
+                            }
+                        }
+                        /* Skip the rest of the line */
+                        while (*p && *p != '\n') p++;
+                        if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
+                        continue;
+                    }
                 } else if (active && strcmp(directive, "embed") == 0) {
                     while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
                     bool is_sys = (*p == '<');
@@ -816,6 +853,97 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             } else if (strcmp(ident, "__func__") == 0) {
                 /* __func__ is handled during parsing, emit empty string here */
                 zero_cc_buf_puts(out, "\"\"");
+                continue;
+            } else if (strcmp(ident, "_Pragma") == 0) {
+                /* Handle _Pragma operator */
+                /* Skip whitespace and check for '(' */
+                const char *p2 = p;
+                while (*p2 && isspace((unsigned char)*p2)) p2++;
+                if (*p2 == '(') {
+                    p2++; /* skip '(' */
+                    while (*p2 && isspace((unsigned char)*p2)) p2++;
+                    /* Expect a string literal */
+                    if (*p2 == '"') {
+                        char quote = *p2;
+                        const char *start = p2 + 1;
+                        const char *end = start;
+                        while (*end && *end != quote) {
+                            if (*end == '\\' && end[1]) {
+                                /* skip escaped character */
+                                end += 2;
+                            } else {
+                                end++;
+                            }
+                        }
+                        if (*end == quote) {
+                            size_t len = end - start;
+                            char *temp = malloc(len + 1);
+                            if (temp) {
+                                memcpy(temp, start, len);
+                                temp[len] = '\0';
+                                /* Process escape sequences in the string */
+                                char *processed = malloc(len + 1); /* worst case */
+                                size_t processed_len = 0;
+                                const char *s = temp;
+                                while (*s) {
+                                    if (*s == '\\' && s[1]) {
+                                        char esc = 0;
+                                        int val = 0;
+                                        if (!zero_cc_handle_escape(&s, NULL, &esc, &val)) {
+                                            esc = (unsigned char)*s;
+                                        }
+                                        processed[processed_len++] = (char)val;
+                                        s++;
+                                    } else {
+                                        processed[processed_len++] = *s++;
+                                    }
+                                }
+                                processed[processed_len] = '\0';
+                                /* Now we have the processed string without quotes, with escape sequences applied.
+                                 * We need to treat this as the text after a #pragma directive.
+                                 * That means we need to process it as if it were the rest of a line after "#pragma ".
+                                 * We'll handle #pragma once only.
+                                 */
+                                const char *pragma_text = processed;
+                                while (*pragma_text && isspace((unsigned char)*pragma_text)) pragma_text++;
+                                if (strncmp(pragma_text, "once", 4) == 0 && isspace((unsigned char)pragma_text[4])) {
+                                    /* Handle #pragma once */
+                                    if (cpp->filename) {
+                                        int found = 0;
+                                        for (size_t i = 0; i < cpp->once_file_count; i++) {
+                                            if (strcmp(cpp->once_files[i], cpp->filename) == 0) {
+                                                found = 1;
+                                                break;
+                                            }
+                                        }
+                                        if (found) {
+                                            /* Skip the rest of the file */
+                                            while (*p) {
+                                                if (*p == '\n') {
+                                                    cpp->line_num++;
+                                                }
+                                                p++;
+                                            }
+                                            free(temp);
+                                            free(processed);
+                                            continue; /* skip the rest of the loop */
+                                        } else {
+                                            /* Add to once files */
+                                            if (cpp->once_file_count < ONCE_FILES_MAX) {
+                                                cpp->once_files[cpp->once_file_count] = strdup(cpp->filename);
+                                                cpp->once_file_count++;
+                                            }
+                                        }
+                                    }
+                                }
+                                free(temp);
+                                free(processed);
+                            }
+                        }
+                    }
+                }
+                /* If we didn't handle it, fall back to treating _Pragma as an identifier */
+                zero_cc_buf_puts(out, ident);
                 continue;
             }
 
@@ -979,9 +1107,11 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     for (int k = 0; k < arg_count; k++) free(args[k]);
                 } else {
                     zero_cc_buf_puts(out, ident);
+                continue;
                 }
             } else {
                 zero_cc_buf_puts(out, ident);
+                continue;
             }
             continue;
         }

@@ -1,6 +1,8 @@
 #ifndef ZERO_CC_TYPES_TYPE_SYSTEM_H
 #define ZERO_CC_TYPES_TYPE_SYSTEM_H
 
+#include <stdbool.h>
+
 typedef enum {
     TYPE_VOID,
     TYPE_BOOL,

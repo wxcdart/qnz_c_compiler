@@ -1,6 +1,8 @@
 #ifndef ZERO_CC_TYPES_REGISTRY_H
 #define ZERO_CC_TYPES_REGISTRY_H
 
+#include <stdio.h>
+
 /* Struct Registry */
 static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
     for (size_t i = 0; i < c->struct_count; i++) {

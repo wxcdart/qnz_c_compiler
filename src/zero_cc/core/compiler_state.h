@@ -16,6 +16,7 @@
 #define ZERO_CC_MAX_ENUMS          16384
 #define ZERO_CC_MAX_RELOCS         32768
 #define ZERO_CC_MAX_STR_RELOCS     16384
+#define ONCE_FILES_MAX 64
 
 
 /* High-speed FNV-1a 64-bit string hashing */
@@ -54,6 +55,8 @@ typedef struct {
     char *filename;
     size_t line_num;
     int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
+    char *once_files[ONCE_FILES_MAX];
+    size_t once_file_count;
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

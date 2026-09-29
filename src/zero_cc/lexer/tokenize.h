@@ -2,8 +2,11 @@
 #ifndef ZERO_CC_LEXER_TOKENIZE_H
 #define ZERO_CC_LEXER_TOKENIZE_H
 
+#include "zero_cc/types/symbols.h"
+#include "zero_cc/lexer/next.h"
+
 /* Main tokenization function */
-void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
+static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
     if (!src || !c) return;
 
     ZeroCCLexer lx;
@@ -49,7 +52,7 @@ void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
 }
 
 /* Free token memory */
-void zero_cc_token_free(ZeroCCToken *tok) {
+static inline void zero_cc_token_free(ZeroCCToken *tok) {
     if (tok && tok->allocated_str) {
         free(tok->allocated_str);
         tok->allocated_str = NULL;
@@ -57,7 +60,7 @@ void zero_cc_token_free(ZeroCCToken *tok) {
 }
 
 /* Free all compiler tokens */
-void zero_cc_compiler_free_tokens(ZeroCCCompiler *c) {
+static inline void zero_cc_compiler_free_tokens(ZeroCCCompiler *c) {
     if (!c) return;
     if (c->tokens) {
         for (size_t i = 0; i < c->token_count; i++) {

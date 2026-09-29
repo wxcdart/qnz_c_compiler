@@ -1,11 +1,8 @@
 #ifndef ZERO_CC_TYPES_TOKEN_H
 #define ZERO_CC_TYPES_TOKEN_H
 
-/* --------------------------------------------------------------------------
- *  3. STEP 2 & 3: ADVANCED C99 TYPE SYSTEM & COMPILER ENGINE
- *  -------------------------------------------------------------------------- */
-
-#include "zero_cc/core.h"
+#include <stddef.h>
+#include <stdint.h>
 /* Forward declarations for backend structs – needed because zero_cc_backends.h
    refers to them before they are defined. */
 typedef struct ZeroCCEmitBackend   ZeroCCEmitBackend;

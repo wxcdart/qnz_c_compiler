@@ -1,6 +1,13 @@
 #ifndef ZERO_CC_TYPES_SYMBOLS_H
 #define ZERO_CC_TYPES_SYMBOLS_H
 
+#include <stddef.h>
+#include <stdint.h>
+#include "zero_cc/core/compiler_state.h"
+#include "zero_cc/core/buffers.h"
+#include "zero_cc/types/token.h"
+#include "zero_cc/types/type_system.h"
+
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
     ZeroCCToken *tokens;

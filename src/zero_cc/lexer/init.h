@@ -5,7 +5,7 @@
 #include "../keywords.inc"
 
 /* Initialize lexer with source and filename */
-void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename) {
+static inline void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename) {
     if (!lx || !src) return;
     lx->src = src;
     lx->cur = src;
@@ -16,12 +16,12 @@ void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filen
 }
 
 /* Initialize lexer with source only */
-void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src) {
+static inline void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src) {
     zero_cc_lexer_init_file(lx, src, NULL);
 }
 
 /* Keyword lookup using generated table */
-ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len) {
+static inline ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len) {
     if (!s || len == 0) return TK_IDENT;
     for (size_t i = 0; i < KEYWORD_COUNT; i++) {
         const char *kw = keyword_table[i].name;
