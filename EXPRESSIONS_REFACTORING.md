@@ -77,3 +77,51 @@ Each sub-file includes forward declarations for:
 Continue with remaining refactoring targets:
 - `semantic/` directory
 - `jit/` directory
+
+---
+
+# Core.h Refactoring Status
+
+## Status: ✅ Complete
+
+The monolithic `core.h` (1,197 lines) has been split into 5 modular header files.
+
+## File Structure
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `core.h` | 16 | Wrapper that includes sub-files |
+| `core/utils.h` | 88 | Utilities, strlcpy, register mapping |
+| `core/buffers.h` | 111 | Buffer and pointer stack utilities |
+| `core/compiler_state.h` | 56 | Constants, hash, compiler state structs |
+| `core/preprocessor.h` | 943 | Preprocessor implementation |
+
+**Total**: 1,214 lines (includes + headers overhead)
+
+## Implementation Details
+
+### Key Functions by File
+
+#### utils.h
+- `zero_strlcpy()` - Safe string copy
+- `zero_cc_get_regmap()` - Register mapping for target architecture
+
+#### buffers.h
+- `zero_cc_buf_*` - Byte/string buffer utilities
+- `zero_ptr_stack_*` - Pointer stack utilities
+
+#### compiler_state.h
+- Constants (MAX_INCLUDE_PATHS, MAX_MACROS, etc.)
+- `zero_cc_hash64()` - FNV-1a hash function
+- Compiler state structs (ZeroCCPreprocessor, etc.)
+
+#### preprocessor.h
+- `zero_cc_cpp_*` - Preprocessor functions
+- `zero_cc_read_file()` - File reading
+- `zero_cc_cpp_process_text()` - Text preprocessing
+- `zero_cc_preprocess()` - Main preprocessing entry point
+
+## Test Results
+- **Total tests**: 40
+- **Passing**: 40
+- **Failing**: 0
