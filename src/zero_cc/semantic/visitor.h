@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include "../utils/arena.h"
 #include "../parser.h"
+#include "../types/token.h"
 #include "diagnostics.h"
 #include "scope.h"
 #include "type.h"

@@ -1,6 +1,6 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-09-26. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-09-28. Findings are **grounded in actual source inspection** of
 > [`parser.c`](src/zero_cc/parser.c), [`types_lexer.h`](src/zero_cc/types_lexer.h),
 > [`lexer.c`](src/zero_cc/lexer.c), and the `lower_node()` / `lower_expr()` switch statements.
 
@@ -16,10 +16,13 @@
 | Preprocessor | 5 | 2 | 4 |
 | Code Generation | 2 | 1 | 7 |
 | Diagnostics | 0 | 1 | 2 |
-| **Total** | **40** | **23** | **25** |
+| **Total** | **40** | **23** | **24** |
 
 > **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
 > in `lower_node()` / `lower_expr()` are missing.
+>
+> **✅ Sprint 0 Complete:** `NODE_INDEX`, postfix `++/--`, and pointer comparison type inference have been fixed.
+> All 40 tests now pass. Ready to proceed with parser.c/parser.h refactoring.
 
 ---
 

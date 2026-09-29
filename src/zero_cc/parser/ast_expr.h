@@ -10,15 +10,10 @@
 
 #include "../types_lexer.h"
 #include "../parser.h"
-#include "../expressions.h"
-#include "../statements.h"
-#include "../semantic/type.h"
-#include "../semantic/decl.h"
 
 /* Forward declaration for statement parsing */
 static ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
-/* Primary Expressions: Literals, identifiers, (expr), function calls */
 static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
     ZeroCCToken *tok = &c->tokens[c->token_pos];
@@ -572,13 +567,5 @@ static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t) {
     return false;
 }
 
-ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
-    if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
-
-    skip_c23_attributes(c);
-    if (c->token_pos >= c->token_count) return AST_NULL;
-
-    ZeroCCTokType t = c->tokens[c->token_pos].type;
-    uint32_t line = (uint32_t)c->tokens[c->token_pos].line;
 
 #endif /* ZERO_CC_PARSER_AST_EXPR_H */

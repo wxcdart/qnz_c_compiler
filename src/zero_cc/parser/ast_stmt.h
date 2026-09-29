@@ -10,15 +10,16 @@
 
 #include "../types_lexer.h"
 #include "../parser.h"
-#include "../expressions.h"
-#include "../statements.h"
-#include "../semantic/type.h"
-#include "../semantic/decl.h"
 
-/* Forward declaration for expression parsing */
-static ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
+ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
+    if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
+
+    skip_c23_attributes(c);
+    if (c->token_pos >= c->token_count) return AST_NULL;
+
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+    uint32_t line = (uint32_t)c->tokens[c->token_pos].line;
     uint32_t col = (uint32_t)c->tokens[c->token_pos].col;
 
     /* Empty statement */

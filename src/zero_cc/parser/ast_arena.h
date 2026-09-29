@@ -10,15 +10,6 @@
 #include "../types_lexer.h"
 #include "../parser.h"
 
-#include "types_lexer.h"
-#include "parser.h"
-#include "expressions.h"
-#include "statements.h"
-#include <stdlib.h>
-#include <string.h>
-#include "semantic/type.h"
-#include "semantic/decl.h"
-
 void zero_cc_ast_arena_init(ZeroCCASTArena *arena, size_t initial_cap) {
     if (!arena) return;
     arena->capacity = initial_cap ? initial_cap : 1024;
@@ -78,5 +69,6 @@ static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
 
+/* Primary Expressions: Literals, identifiers, (expr), function calls */
 
 #endif /* ZERO_CC_PARSER_AST_ARENA_H */

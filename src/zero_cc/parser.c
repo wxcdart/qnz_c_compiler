@@ -1947,14 +1947,31 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0x31);
             zero_cc_emit_u8(&c->text_section, 0xC0);
             break;
-        case NODE_INDEX:
-            // Minimal stub for array subscript: evaluate base and index, return zero
+        case NODE_INDEX: {
+            // Array subscript: base[index]
+            // For char/byte elements (element size = 1)
+            // 1. Evaluate base pointer -> rax
             lower_expr(c, arena, node->left);
-            lower_expr(c, arena, node->right);
+            // Save base to rdx
             zero_cc_emit_u8(&c->text_section, 0x48);
-            zero_cc_emit_u8(&c->text_section, 0x31);
-            zero_cc_emit_u8(&c->text_section, 0xC0);
+            zero_cc_emit_u8(&c->text_section, 0x89);
+            zero_cc_emit_u8(&c->text_section, 0xC2);  // mov rdx, rax
+            
+            // 2. Evaluate index -> rax
+            lower_expr(c, arena, node->right);
+            
+            // 3. Calculate address: rax = rdx + rax (base + index)
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+            zero_cc_emit_u8(&c->text_section, 0xD0);  // add rax, rdx
+            
+            // 4. Load byte from address and zero-extend -> rax
+            zero_cc_emit_u8(&c->text_section, 0x48);
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0xB6);
+            zero_cc_emit_u8(&c->text_section, 0x00);  // movzx rax, byte [rax]
             break;
+        }
         case NODE_CAST:
             // Casts are no-ops for integer types in this stub
             if (node->left != AST_NULL) {
@@ -2223,6 +2240,43 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         zero_cc_emit_u8(&c->text_section, 0x89);
                         zero_cc_emit_u8(&c->text_section, 0x85);
                         zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                    }
+                }
+            } else if (node->flags != 0 && (node->aux.op == TK_INC || node->aux.op == TK_DEC)) {
+                // Handle postfix ++/-- on identifiers.
+                ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
+                if (operand && operand->tag == NODE_IDENT) {
+                    const char *var = operand->s.str;
+                    ZeroCCSym *sym = zero_cc_find_local(c, var);
+                    if (sym) {
+                        // Load current value (to return).
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x8B);
+                        zero_cc_emit_u8(&c->text_section, 0x85);
+                        zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                        // Save original value to rcx.
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x89);
+                        zero_cc_emit_u8(&c->text_section, 0xC1); // mov rcx, rax
+                        // Increment/decrement rax.
+                        if (node->aux.op == TK_INC) {
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0xFF);
+                            zero_cc_emit_u8(&c->text_section, 0xC0); // inc rax
+                        } else {
+                            zero_cc_emit_u8(&c->text_section, 0x48);
+                            zero_cc_emit_u8(&c->text_section, 0xFF);
+                            zero_cc_emit_u8(&c->text_section, 0xC8); // dec rax
+                        }
+                        // Store back.
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x89);
+                        zero_cc_emit_u8(&c->text_section, 0x85);
+                        zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                        // Restore original value to rax (for postfix semantics).
+                        zero_cc_emit_u8(&c->text_section, 0x48);
+                        zero_cc_emit_u8(&c->text_section, 0x89);
+                        zero_cc_emit_u8(&c->text_section, 0xC8); // mov rax, rcx
                     }
                 }
             }

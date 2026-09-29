@@ -126,14 +126,22 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             TypeInfo *lt = sem_analyze_ref(ctx, node->left);
             TypeInfo *rt = sem_analyze_ref(ctx, node->right);
             if (lt && rt) {
-                /* If either is double, result is double */
-                if (lt->kind == TYPE_KIND_DOUBLE || rt->kind == TYPE_KIND_DOUBLE) {
+                uint32_t op = node->aux.op;
+                /* Comparison operators (<, <=, >, >=, ==, !=) always return int */
+                bool is_comparison = (op == '<' || op == '>' || op == TK_LT || op == TK_GT ||
+                                      op == TK_LE || op == TK_GE || op == TK_EQ || op == TK_NE);
+                if (is_comparison) {
+                    res = type_int(ctx->perm_arena);
+                } else if (lt->kind == TYPE_KIND_DOUBLE || rt->kind == TYPE_KIND_DOUBLE) {
                     res = type_double(ctx->perm_arena);
                 } else if (lt->kind == TYPE_KIND_FLOAT || rt->kind == TYPE_KIND_FLOAT) {
                     res = type_float(ctx->perm_arena);
+                } else if (type_is_pointer(lt) && type_is_pointer(rt)) {
+                    /* Pointer-pointer operations (except comparisons which are handled above) */
+                    res = lt;
                 } else if (type_is_pointer(lt)) {
                     res = lt;
-                } else if (type_is_pointer(rt) && node->aux.op == '+') {
+                } else if (type_is_pointer(rt) && op == '+') {
                     res = rt;
                 } else if (lt->kind == TYPE_KIND_LONG || rt->kind == TYPE_KIND_LONG) {
                     res = type_long(ctx->perm_arena);
