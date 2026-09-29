@@ -15,6 +15,43 @@
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/types/symbols.h"
 
+/* Goto/Label support */
+#define MAX_LABELS 256
+#define MAX_LABEL_NAME 64
+static struct {
+    char name[MAX_LABEL_NAME];
+    size_t position;
+} label_table[MAX_LABELS];
+static int label_count = 0;
+static size_t* goto_patch_list[MAX_LABELS];
+static int goto_patch_list_count = 0;
+static int block_depth = 0;
+
+/* Reset label/goto state at function entry (block_depth == 0) */
+static void reset_label_state(void) {
+    label_count = 0;
+    goto_patch_list_count = 0;
+}
+
+/* Find label by name, return index or -1 if not found */
+static int find_label(const char *name) {
+    for (int i = 0; i < label_count; i++) {
+        if (strcmp(label_table[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Add label to table, return index */
+static int add_label(const char *name, size_t position) {
+    if (label_count >= MAX_LABELS) return -1;
+    strncpy(label_table[label_count].name, name, MAX_LABEL_NAME - 1);
+    label_table[label_count].name[MAX_LABEL_NAME - 1] = '\0';
+    label_table[label_count].position = position;
+    return label_count++;
+}
+
 /* Forward declarations - needed by submodules */
 static inline void zero_cc_parse_stmt(ZeroCCCompiler *c);
 static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t decl_align_spec);
@@ -143,6 +180,32 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
             zero_cc_stmt_continue(c);
             return;
 
+        /* Goto Statement */
+        case TK_GOTO: {
+            c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                const char *label_name = c->tokens[c->token_pos].str_val;
+                c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                /* Emit jump to label */
+                int idx = find_label(label_name);
+                zero_cc_emit_u8(&c->text_section, 0xE9); /* JMP rel32 */
+                size_t patch = c->text_section.length;
+                if (idx >= 0) {
+                    /* Label already seen, patch immediately */
+                    size_t rel = label_table[idx].position - (patch + 4);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)rel);
+                } else {
+                    /* Label not seen yet, record for later patching */
+                    zero_cc_emit_u32(&c->text_section, 0); /* Placeholder */
+                    size_t *patch_list = (size_t*)malloc(sizeof(size_t));
+                    patch_list[0] = patch;
+                    goto_patch_list[goto_patch_list_count++] = patch_list;
+                }
+            }
+            return;
+        }
+
         /* Typedef: check next token for struct/enum vs scalar */
         case TK_TYPEDEF:
             if (c->tokens[c->token_pos + 1].type == TK_STRUCT) {
@@ -191,13 +254,43 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
 
     /* Compound conditions requiring lookahead (TK_IDENT cases after switch) */
 
+    /* Label: IDENT followed by : */
+    if (t == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_COLON) {
+        const char *label_name = c->tokens[c->token_pos].str_val;
+        c->token_pos += 2; /* Skip IDENT and : */
+        /* Record label position */
+        int idx = find_label(label_name);
+        if (idx < 0) {
+            add_label(label_name, c->text_section.length);
+        }
+        /* Patch any pending gotos to this label */
+        for (int i = 0; i < goto_patch_list_count; i++) {
+            if (goto_patch_list[i] != NULL) {
+                size_t patch_pos = goto_patch_list[i][0];
+                size_t rel = c->text_section.length - (patch_pos + 4);
+                memcpy(c->text_section.data + patch_pos, &rel, 4);
+                free(goto_patch_list[i]);
+                goto_patch_list[i] = NULL;
+                /* Remove from list by shifting */
+                for (int j = i; j < goto_patch_list_count - 1; j++) {
+                    goto_patch_list[j] = goto_patch_list[j + 1];
+                }
+                goto_patch_list_count--;
+                i--; /* Recheck this index */
+            }
+        }
+        return;
+    }
+
     /* Struct Member Post-Increment/Decrement: ptr->member++ or ptr->member-- */
     if (t == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_ARROW &&
         c->tokens[c->token_pos + 2].type == TK_IDENT &&
         (c->tokens[c->token_pos + 3].type == TK_INC || c->tokens[c->token_pos + 3].type == TK_DEC)) {
         char ptr_name[128], mem_name[128];
-        snprintf(ptr_name, sizeof(ptr_name), "%s", c->tokens[c->token_pos].str_val);
-        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
+        strncpy(ptr_name, c->tokens[c->token_pos].str_val, 127);
+        ptr_name[127] = '\0';
+        strncpy(mem_name, c->tokens[c->token_pos + 2].str_val, 127);
+        mem_name[127] = '\0';
         bool is_inc = (c->tokens[c->token_pos + 3].type == TK_INC);
         zero_cc_stmt_member_incdec(c, ptr_name, mem_name, is_inc);
         return;
@@ -206,7 +299,8 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     /* Variable Post-Increment/Decrement: x++ or x-- */
     if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_INC || c->tokens[c->token_pos + 1].type == TK_DEC)) {
         char var_name[128];
-        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        strncpy(var_name, c->tokens[c->token_pos].str_val, 127);
+        var_name[127] = '\0';
         bool is_inc = (c->tokens[c->token_pos + 1].type == TK_INC);
         zero_cc_stmt_var_incdec(c, var_name, is_inc);
         return;
@@ -216,9 +310,11 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_DOT || c->tokens[c->token_pos + 1].type == TK_ARROW) &&
         c->tokens[c->token_pos + 2].type == TK_IDENT && c->tokens[c->token_pos + 3].type == TK_LBRACKET) {
         char base_name[128], mem_name[128];
-        snprintf(base_name, sizeof(base_name), "%s", c->tokens[c->token_pos].str_val);
+        strncpy(base_name, c->tokens[c->token_pos].str_val, 127);
+        base_name[127] = '\0';
         bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
-        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
+        strncpy(mem_name, c->tokens[c->token_pos + 2].str_val, 127);
+        mem_name[127] = '\0';
         zero_cc_stmt_member_array_assign(c, base_name, is_arrow, mem_name);
         return;
     }
@@ -226,7 +322,8 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     /* Local Variable Array Assignment: sym[idx] = ... */
     if (t == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LBRACKET) {
         char var_name[128];
-        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        strncpy(var_name, c->tokens[c->token_pos].str_val, 127);
+        var_name[127] = '\0';
         zero_cc_stmt_var_array_assign(c, var_name);
         return;
     }
@@ -234,9 +331,11 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     /* Assignment to Struct Member: sym.member = ... or ptr->member = ... */
     if (t == TK_IDENT && (c->tokens[c->token_pos + 1].type == TK_ARROW || c->tokens[c->token_pos + 1].type == TK_DOT)) {
         char ptr_name[128], mem_name[128];
-        snprintf(ptr_name, sizeof(ptr_name), "%s", c->tokens[c->token_pos].str_val);
+        strncpy(ptr_name, c->tokens[c->token_pos].str_val, 127);
+        ptr_name[127] = '\0';
         bool is_arrow = (c->tokens[c->token_pos + 1].type == TK_ARROW);
-        snprintf(mem_name, sizeof(mem_name), "%s", c->tokens[c->token_pos + 2].str_val);
+        strncpy(mem_name, c->tokens[c->token_pos + 2].str_val, 127);
+        mem_name[127] = '\0';
         zero_cc_stmt_member_assign(c, ptr_name, is_arrow, mem_name);
         return;
     }
@@ -250,7 +349,8 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     /* Pointer Dereference Assignment: *p = ... */
     if (t == TK_STAR && c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_ASSIGN) {
         char var_name[128];
-        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos + 1].str_val);
+        strncpy(var_name, c->tokens[c->token_pos + 1].str_val, 127);
+        var_name[127] = '\0';
         zero_cc_stmt_ptr_deref_assign(c, var_name);
         return;
     }
@@ -258,7 +358,8 @@ static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     /* Variable Assignment: x = ... or compound assignment */
     if (t == TK_IDENT && is_assignment_op(c->tokens[c->token_pos + 1].type)) {
         char var_name[128];
-        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+        strncpy(var_name, c->tokens[c->token_pos].str_val, 127);
+        var_name[127] = '\0';
         ZeroCCTokType aop = c->tokens[c->token_pos + 1].type;
         zero_cc_stmt_var_assign(c, var_name, aop);
         return;

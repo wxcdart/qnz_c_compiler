@@ -6,11 +6,18 @@
 
 /* Compound Block: { stmt* } */
 static inline void zero_cc_stmt_block(ZeroCCCompiler *c) {
+    /* Track block depth for label state management */
+    bool is_function_start = (block_depth == 0);
+    if (is_function_start) {
+        reset_label_state();
+    }
+    block_depth++;
     c->token_pos++; /* consume TK_LBRACE */
     while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
         zero_cc_parse_stmt(c);
     }
     if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+    block_depth--;
 }
 
 /* Inline Assembly: __asm__ (...) or __asm (...) or asm (...) */

@@ -21,6 +21,64 @@ static int continue_patch_count[MAX_LOOP_NESTING];
 static size_t loop_start_pos[MAX_LOOP_NESTING];
 static int loop_depth = 0;
 
+/* Goto/Label support */
+#define MAX_LABELS 256
+#define MAX_LABEL_NAME 64
+static struct {
+    char name[MAX_LABEL_NAME];
+    size_t position;
+} label_table[MAX_LABELS];
+static int label_count = 0;
+static size_t* goto_patch_list[MAX_LABELS];
+static int goto_patch_count[MAX_LABELS];
+static int goto_patch_list_count = 0;
+
+/* Reset label/goto state at function entry */
+static void reset_label_state(void) {
+    label_count = 0;
+    goto_patch_list_count = 0;
+    for (int i = 0; i < MAX_LABELS; i++) {
+        goto_patch_count[i] = 0;
+    }
+}
+
+/* Find label by name, return index or -1 if not found */
+static int find_label(const char *name) {
+    for (int i = 0; i < label_count; i++) {
+        if (strcmp(label_table[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Add label to table, return index */
+static int add_label(const char *name, size_t position) {
+    if (label_count >= MAX_LABELS) return -1;
+    strncpy(label_table[label_count].name, name, MAX_LABEL_NAME - 1);
+    label_table[label_count].name[MAX_LABEL_NAME - 1] = '\0';
+    label_table[label_count].position = position;
+    return label_count++;
+}
+
+/* Record a goto patch location for later patching */
+static void record_goto_patch(const char *label_name, size_t patch_pos) {
+    int idx = find_label(label_name);
+    if (idx >= 0) {
+        /* Label already seen, patch immediately */
+        size_t rel = label_table[idx].position - (patch_pos + 4);
+        memcpy(c->text_section.data + patch_pos, &rel, 4);
+    } else {
+        /* Label not seen yet, record for later patching */
+        if (goto_patch_list_count >= MAX_LABELS) return;
+        int list_idx = goto_patch_list_count++;
+        goto_patch_list[list_idx] = (size_t*)malloc(sizeof(size_t) * 64);
+        goto_patch_count[list_idx] = 0;
+        /* Store label name and patch position in a simple way */
+        /* For now, use a simplified approach: store patch_pos in a global array */
+    }
+}
+
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return;
@@ -194,6 +252,54 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 memcpy(c->text_section.data + patch, &rel, 4);
             }
             loop_depth--;
+            break;
+        }
+        case NODE_LABEL: {
+            /* Record label position for later patching */
+            const char *label_name = node->s.str;
+            if (label_name && strlen(label_name) > 0) {
+                int idx = find_label(label_name);
+                if (idx < 0) {
+                    add_label(label_name, c->text_section.length);
+                }
+                /* Patch any pending gotos to this label */
+                for (int i = 0; i < goto_patch_list_count; i++) {
+                    if (goto_patch_list[i] != NULL) {
+                        size_t patch_pos = goto_patch_list[i][0];
+                        size_t rel = c->text_section.length - (patch_pos + 4);
+                        memcpy(c->text_section.data + patch_pos, &rel, 4);
+                        free(goto_patch_list[i]);
+                        goto_patch_list[i] = NULL;
+                        /* Remove from list by shifting */
+                        for (int j = i; j < goto_patch_list_count - 1; j++) {
+                            goto_patch_list[j] = goto_patch_list[j + 1];
+                        }
+                        goto_patch_list_count--;
+                        i--; /* Recheck this index */
+                    }
+                }
+            }
+            break;
+        }
+        case NODE_GOTO: {
+            /* Emit jump to label */
+            const char *label_name = node->s.str;
+            if (label_name && strlen(label_name) > 0) {
+                int idx = find_label(label_name);
+                zero_cc_emit_u8(&c->text_section, 0xE9); /* JMP rel32 */
+                size_t patch = c->text_section.length;
+                if (idx >= 0) {
+                    /* Label already seen, patch immediately */
+                    size_t rel = label_table[idx].position - (patch + 4);
+                    zero_cc_emit_u32(&c->text_section, (uint32_t)rel);
+                } else {
+                    /* Label not seen yet, record for later patching */
+                    zero_cc_emit_u32(&c->text_section, 0); /* Placeholder */
+                    size_t *patch_list = (size_t*)malloc(sizeof(size_t));
+                    patch_list[0] = patch;
+                    goto_patch_list[goto_patch_list_count++] = patch_list;
+                }
+            }
             break;
         }
         case NODE_BREAK: {
@@ -828,6 +934,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     epilogue_patch_count = 0;
+    reset_label_state();
     lower_node(c, arena, root);
     // Backpatch all return epilogue jumps to the current offset (which will immediately precede epilogue)
     size_t epilogue_target = c->text_section.length;
