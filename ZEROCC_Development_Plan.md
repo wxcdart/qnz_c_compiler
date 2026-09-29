@@ -129,8 +129,8 @@
 | `#ifdef / #ifndef / #if / #else / #endif` | ✅ | |
 | `#undef` | ✅ | |
 | `#pragma once` | ❌ | `#pragma` directives not handled |
-| Token paste `##` | 🟡 | `TK_PASTE` lexed; no macro expansion logic |
-| Stringification `#arg` | 🟡 | `TK_HASH` lexed; no expansion |
+| Token paste `##` | ✅ | `a ## b` pastes tokens correctly |
+| Stringification `#arg` | ✅ | `#arg` converts to string literal |
 | Variadic macros `…` / `__VA_ARGS__` | ❌ | |
 | `_Pragma` operator | ❌ | |
 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | ✅ | Dynamic value tracking implemented |
@@ -194,7 +194,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 | 11 | Global variable declarations (write to `data_section`) | 3 days | ✅ |
 | 12 | `extern` symbol table | 2 days | ✅ |
 | 13 | `typedef` for function pointers | 2 days | ✅ |
-| 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ❌ |
+| 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ✅ |
 | 15 | Variadic macros / `__VA_ARGS__` | 3 days | ❌ |
 | 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day | ✅ |
 | 17 | `#pragma once` guard | 1 day | ❌ |
