@@ -409,10 +409,16 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             return ty;
         }
         /* Unknown identifier */
-        return zero_cc_type_int();
+        c->had_error = 1;
+        ZeroCCType unknown_ty;
+        memset(&unknown_ty, 0, sizeof(unknown_ty));
+        return unknown_ty;
     }
     /* Should not reach here for valid constant expression */
-    return zero_cc_type_int();
+    c->had_error = 1;
+    ZeroCCType unknown_ty;
+    memset(&unknown_ty, 0, sizeof(unknown_ty));
+    return unknown_ty;
 }
 
 /* Helper: find member type in struct/union */
