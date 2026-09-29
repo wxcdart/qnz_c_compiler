@@ -2,6 +2,33 @@
 
 ## Phase 1 Complete: Infrastructure ✅
 
+## Phase 2: Pass 1 (Instruction Selection) - In Progress ✅
+
+### What We Built
+
+**IR Buffer** (`src/zero_cc/parser/ir.h`):
+- 64K instruction buffer (512KB, packed 8-byte instructions)
+- O(1) emit and reset
+- Overflow protection
+
+**Opcode Definitions**:
+- 57 opcodes defined (50 main + 7 special)
+- Data movement (10): MOV, LEA, PUSH, POP
+- Arithmetic (10): ADD, SUB, MUL, DIV, MOD, NEG, INC, DEC
+- Logical (8): AND, OR, XOR, NOT, LNOT, SHL, SHR, SAR
+- Comparison (6): CMP, TEST, SETcc
+- Control flow (6): JMP, JE, JNE, JL, JLE, JG
+- Function (4): CALL, CALL_INDIRECT, RET, LEAVE
+- Special (6): LABEL, DEREF, CMP_ZERO, SET_E, SET_NE, STACK_ALIGN
+
+**Helper Functions**:
+- `ir_emit_mov_imm()` - Move immediate to temp
+- `ir_emit_add/sub/mul()` - Binary operations
+- `ir_emit_label/jmp/je/ret()` - Control flow
+
+**Opcode Name Function**:
+- `ir_opcode_name()` - Debugging support
+
 ### What We Built
 
 **IR Buffer** (`src/zero_cc/parser/ir.h`):
@@ -17,19 +44,20 @@
 
 | File | Changes |
 |------|---------|
-| `src/zero_cc/parser/ir.h` | NEW: IR buffer infrastructure |
+| `src/zero_cc/parser/ir.h` | NEW: IR buffer + 57 opcodes + helper functions |
 | `src/zero_cc/jit/compile_unit.h` | Include ir.h |
 | `src/zero_cc/jit/compile.h` | Include ir.h, reset IR per function |
 | `test/ir_test.c` | NEW: Unit tests for IR buffer |
+| `test/ir_opcodes_test.c` | NEW: Unit tests for opcodes |
 | `2_pass_plan.md` | Updated with IR design |
 | `2_pass_decision.md` | NEW: Final design decisions |
 | `2_pass_considerations.md` | NEW: Edge cases and details |
-| `circular_dependency_analysis.md` | NEW: Architecture analysis |
 
 ### Test Results
 
 ```
 ✅ IR unit tests pass
+✅ IR opcode tests pass
 ✅ All 71 existing tests pass
 ✅ No compiler warnings
 ```

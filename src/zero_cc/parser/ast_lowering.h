@@ -11,6 +11,7 @@
 #include "../types_lexer.h"
 #include "../parser.h"
 #include "regalloc.h"
+#include "ir.h"
 #include "../types/global_vars.h"
 
 /* Temporary variable tracking for register allocation */
@@ -788,6 +789,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x01);
                     zero_cc_emit_u8(&c->text_section, 0xC8);
+                    /* Emit IR for register allocation */
+                    ir_emit_add(c->next_temp_id - 1, c->next_temp_id - 2, c->next_temp_id - 1);
                     break;
                 case TK_MINUS:
                     // sub rcx, rax ; mov rax, rcx
