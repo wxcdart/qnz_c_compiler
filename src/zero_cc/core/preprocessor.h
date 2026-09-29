@@ -549,19 +549,20 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
     if (!src) return;
     const char *p = src;
     bool at_line_start = true;
+    cpp->line_num = 1; /* Start at line 1 */
 
     while (*p) {
         /* Comments - process first */
         if (*p == '/' && p[1] == '/') {
             p += 2;
             while (*p && *p != '\n') p++;
-            if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; }
+            if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
             continue;
         }
         if (*p == '/' && p[1] == '*') {
             p += 2;
             while (*p && !(*p == '*' && p[1] == '/')) {
-                if (*p == '\n') { zero_cc_buf_putc(out, '\n'); at_line_start = true; }
+                if (*p == '\n') { zero_cc_buf_putc(out, '\n'); at_line_start = true; cpp->line_num++; }
                 p++;
             }
             if (*p) p += 2;
@@ -751,18 +752,19 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
 
                 while (*p && *p != '\n') p++;
                 if (*p == '\n') p++;
-                at_line_start = true;
+                at_line_start = true; cpp->line_num++;
                 continue;
             }
         }
 
         if (cpp->cond_depth > 0 && !cpp->cond_true[cpp->cond_depth]) {
             while (*p && *p != '\n') p++;
-            if (*p == '\n') { p++; at_line_start = true; }
+            if (*p == '\n') { p++; at_line_start = true; cpp->line_num++; }
             continue;
         }
 
-        at_line_start = (*p == '\n');
+        if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; continue; }
+        at_line_start = false;
 
         /* String literals */
         if (*p == '"' || *p == '\'') {
@@ -783,6 +785,34 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             char ident[128]; size_t il = 0;
             while (*p && (isalnum((unsigned char)*p) || *p == '_') && il < 127) ident[il++] = *p++;
             ident[il] = '\0';
+            
+            /* Handle special predefined macros with dynamic values */
+            if (strcmp(ident, "__FILE__") == 0) {
+                zero_cc_buf_putc(out, '"');
+                const char *fn = cpp->filename ? cpp->filename : "";
+                for (const char *f = fn; *f; f++) {
+                    if (*f == '\\') {
+                        zero_cc_buf_putc(out, '\\');
+                        zero_cc_buf_putc(out, '\\');
+                    } else if (*f == '"') {
+                        zero_cc_buf_putc(out, '\\');
+                        zero_cc_buf_putc(out, '"');
+                    } else {
+                        zero_cc_buf_putc(out, *f);
+                    }
+                }
+                zero_cc_buf_putc(out, '"');
+                continue;
+            } else if (strcmp(ident, "__LINE__") == 0) {
+                char line_buf[32];
+                snprintf(line_buf, sizeof(line_buf), "%zu", cpp->line_num);
+                zero_cc_buf_puts(out, line_buf);
+                continue;
+            } else if (strcmp(ident, "__func__") == 0) {
+                /* __func__ is handled during parsing, emit empty string here */
+                zero_cc_buf_puts(out, "\"\"");
+                continue;
+            }
 
             ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, ident);
             if (m) {

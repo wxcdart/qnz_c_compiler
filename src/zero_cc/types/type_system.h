@@ -88,6 +88,7 @@ typedef struct {
     bool is_variadic;
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */
+    bool is_external;                     /* True for extern declarations */
 } ZeroCCFunction;
 
 /* Relocation Record */

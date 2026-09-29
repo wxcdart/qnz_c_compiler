@@ -51,6 +51,8 @@ typedef struct {
     int cond_depth;
     bool cond_true[64];
     bool cond_seen_true[64];
+    char *filename;
+    size_t line_num;
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

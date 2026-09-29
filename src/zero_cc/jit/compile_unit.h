@@ -56,6 +56,33 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             continue;
         }
 
+        /* Extern symbol declarations */
+        if (c->tokens[c->token_pos].type == TK_EXTERN) {
+            c->token_pos++; /* skip extern */
+            /* Parse type and identifier */
+            ZeroCCType ext_type = zero_cc_parse_type_name(c);
+            (void)ext_type; /* unused for now */
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                char ext_name[128];
+                snprintf(ext_name, sizeof(ext_name), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                /* Consume trailing semicolon */
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                /* Register as external symbol (no code generation, just declaration) */
+                if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                    ZeroCCFunction *fn = &c->functions[c->function_count++];
+                    fn->text_offset = 0; /* External, no code */
+                    snprintf(fn->name, sizeof(fn->name), "%s", ext_name);
+                    fn->is_external = true;
+                }
+            } else {
+                /* Syntax error: skip until semicolon */
+                while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            }
+            continue;
+        }
+
         /* Thread‑local variable handling via backend */
         if (c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
             // Skip the _Thread_local token
