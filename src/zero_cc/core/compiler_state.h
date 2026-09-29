@@ -53,6 +53,7 @@ typedef struct {
     bool cond_seen_true[64];
     char *filename;
     size_t line_num;
+    int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

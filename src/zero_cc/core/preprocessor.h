@@ -17,6 +17,7 @@ static inline void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {
     cpp->cond_depth = 0;
     cpp->cond_true[0] = true;
     cpp->cond_seen_true[0] = true;
+    cpp->expanding_macro_index = -1;
 }
 
 static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
@@ -46,6 +47,10 @@ static inline ZeroCCMacro* zero_cc_cpp_find_macro(ZeroCCPreprocessor *cpp, const
     int32_t idx = cpp->hash_buckets[b];
     while (idx >= 0 && (size_t)idx < cpp->macro_count) {
         if (strcmp(cpp->macros[idx].name, name) == 0) {
+            if (cpp->expanding_macro_index == idx) {
+                /* Inhibit expansion of the macro currently being expanded */
+                return NULL;
+            }
             return &cpp->macros[idx];
         }
         idx = cpp->hash_next[idx];
@@ -817,7 +822,10 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, ident);
             if (m) {
                 if (m->param_count < 0) {
-                    zero_cc_buf_puts(out, m->replacement);
+                    int prev_expanding = cpp->expanding_macro_index;
+                    cpp->expanding_macro_index = (int)(m - cpp->macros);
+                    zero_cc_cpp_process_text(cpp, m->replacement, out);
+                    cpp->expanding_macro_index = prev_expanding;
                 } else if (*p == '(') {
                     p++;
                     char *args[64];
@@ -872,6 +880,10 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     paste_buf[0] = '\0';
 
                     const char *b = m->replacement;
+                    ZeroCCBuffer temp_buf;
+                    zero_cc_buf_init(&temp_buf, 256);
+                    int prev_expanding = cpp->expanding_macro_index;
+                    cpp->expanding_macro_index = (int)(m - cpp->macros);
                     while (*b) {
                         /* Token pasting: ## */
                         if (b[0] == '#' && b[1] == '#') {
@@ -897,22 +909,24 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                 if (pending_paste) {
                                     /* Paste then stringify */
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
-                                    zero_cc_buf_putc(out, '"');
-                                    zero_cc_buf_puts(out, paste_buf);
-                                    zero_cc_buf_putc(out, '"');
+                                    zero_cc_buf_putc(&temp_buf, '"');
+                                    zero_cc_buf_puts(&temp_buf, paste_buf);
+                                    zero_cc_buf_putc(&temp_buf, '"');
                                     paste_len = 0;
                                     paste_buf[0] = '\0';
                                     pending_paste = false;
                                 } else {
-                                    zero_cc_buf_putc(out, '"');
-                                    zero_cc_buf_puts(out, args[match]);
-                                    zero_cc_buf_putc(out, '"');
+                                    zero_cc_buf_puts(&temp_buf, args[match]);
+                                }
+                            } else {
+                                if (pending_paste) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", param_id);
+                                    pending_paste = false;
+                                } else {
+                                    zero_cc_buf_puts(&temp_buf, param_id);
                                 }
                             }
-                            continue;
-                        }
-
-                        if (isalpha((unsigned char)*b) || *b == '_') {
+                        } else if (isalpha((unsigned char)*b) || *b == '_') {
                             char param_id[128]; size_t pl = 0;
                             while (*b && (isalnum((unsigned char)*b) || *b == '_') && pl < 127) param_id[pl++] = *b++;
                             param_id[pl] = '\0';
@@ -928,14 +942,14 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
                                     pending_paste = false;
                                 } else {
-                                    zero_cc_buf_puts(out, args[match]);
+                                    zero_cc_buf_puts(&temp_buf, args[match]);
                                 }
                             } else {
                                 if (pending_paste) {
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", param_id);
                                     pending_paste = false;
                                 } else {
-                                    zero_cc_buf_puts(out, param_id);
+                                    zero_cc_buf_puts(&temp_buf, param_id);
                                 }
                             }
                         } else if (pending_paste && (*b >= '0' && *b <= '9')) {
@@ -952,13 +966,16 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
                             pending_paste = false;
                         } else {
-                            zero_cc_buf_putc(out, *b++);
+                            zero_cc_buf_putc(&temp_buf, *b++);
                         }
                     }
                     /* Flush any remaining pasted token */
                     if (paste_len > 0) {
-                        zero_cc_buf_puts(out, paste_buf);
+                        zero_cc_buf_puts(&temp_buf, paste_buf);
                     }
+                    zero_cc_cpp_process_text(cpp, temp_buf.data, out);
+                    zero_cc_buf_free(&temp_buf);
+                    cpp->expanding_macro_index = prev_expanding;
                     for (int k = 0; k < arg_count; k++) free(args[k]);
                 } else {
                     zero_cc_buf_puts(out, ident);
