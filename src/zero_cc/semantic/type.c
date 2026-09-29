@@ -265,3 +265,52 @@ size_t type_align(const TypeInfo *t) {
             return 1;
     }
 }
+
+/* Add a field to a struct type */
+void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type) {
+    if (!struct_t || !name || !field_type) return;
+    
+    // Allocate or grow field array
+    size_t new_count = struct_t->details.record.field_count + 1;
+    struct FieldInfo *new_fields = (struct FieldInfo *)arena_alloc(perm, new_count * sizeof(struct FieldInfo));
+    if (!new_fields) return;
+    
+    // Copy existing fields
+    if (struct_t->details.record.fields) {
+        memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct FieldInfo));
+    }
+    
+    // Add new field
+    new_fields[new_count - 1].name = name;
+    new_fields[new_count - 1].offset = offset;
+    new_fields[new_count - 1].type = field_type;
+    
+    struct_t->details.record.fields = new_fields;
+    struct_t->details.record.field_count = new_count;
+}
+
+/* Find a field by name in a struct type */
+TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name) {
+    if (!struct_t || !name) return NULL;
+    if (!struct_t->details.record.fields) return NULL;
+    
+    for (size_t i = 0; i < struct_t->details.record.field_count; i++) {
+        if (strcmp(struct_t->details.record.fields[i].name, name) == 0) {
+            return struct_t->details.record.fields[i].type;
+        }
+    }
+    return NULL;
+}
+
+/* Get field offset by name */
+size_t type_get_field_offset(const TypeInfo *struct_t, const char *name) {
+    if (!struct_t || !name) return 0;
+    if (!struct_t->details.record.fields) return 0;
+    
+    for (size_t i = 0; i < struct_t->details.record.field_count; i++) {
+        if (strcmp(struct_t->details.record.fields[i].name, name) == 0) {
+            return struct_t->details.record.fields[i].offset;
+        }
+    }
+    return 0;
+}

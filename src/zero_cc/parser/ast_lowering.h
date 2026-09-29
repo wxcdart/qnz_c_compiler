@@ -604,16 +604,36 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         case NODE_MEMBER:
             // Member access: evaluate base, add offset, load value
-            // For now, assume offset 0 (first member only)
-            // TODO: Store member offset during semantic analysis
             lower_expr(c, arena, node->left);
             // For arrow ->, rax is already a pointer to struct
             // For dot ., rax contains the struct value (not address)
             // Current implementation assumes pointer base (arrow case)
-            // Load int from [rax] (member at offset 0)
-            zero_cc_emit_u8(&c->text_section, 0x48);
-            zero_cc_emit_u8(&c->text_section, 0x8B);
-            zero_cc_emit_u8(&c->text_section, 0x00);  // mov rax, [rax]
+            // Load member from [rax + offset]
+            size_t offset = node->aux.extra;
+            if (offset == 0) {
+                // No offset: mov rax, [rax]
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x00);  // mov rax, [rax]
+            } else if (offset < 128) {
+                // Small offset: mov rax, [rax + offset]
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x40);  // mov rax, [rax + disp8]
+                zero_cc_emit_u8(&c->text_section, (uint8_t)offset);
+            } else if (offset < 256) {
+                // Offset fits in 8 bits
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x80);  // mov rax, [rax + disp32]
+                zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+            } else {
+                // Large offset: mov rax, [rax + offset]
+                zero_cc_emit_u8(&c->text_section, 0x48);
+                zero_cc_emit_u8(&c->text_section, 0x8B);
+                zero_cc_emit_u8(&c->text_section, 0x80);  // mov rax, [rax + disp32]
+                zero_cc_emit_u32(&c->text_section, (uint32_t)offset);
+            }
             break;
         case NODE_INDEX: {
             // Array subscript: base[index]

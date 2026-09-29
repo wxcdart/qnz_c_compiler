@@ -28,6 +28,14 @@ typedef enum TypeKind {
 
 /* Forward declaration */
 typedef struct TypeInfo TypeInfo;
+typedef struct FieldInfo FieldInfo;
+
+/* Field info for struct member access */
+struct FieldInfo {
+    const char *name;
+    size_t      offset;
+    TypeInfo   *type;
+};
 
 /* Type modifier flags */
 enum TypeModifier {
@@ -61,6 +69,13 @@ struct TypeInfo {
             const char *tag;
             size_t      size;
             size_t      align;
+            // For structs/unions: field info (optional, for member access)
+            struct {
+                const char *name;
+                size_t      offset;
+                TypeInfo   *type;
+            } *fields;
+            size_t      field_count;
         } record;
     } details;
 };
@@ -106,6 +121,11 @@ bool type_is_unsigned(const TypeInfo *t);
 bool   type_equal(const TypeInfo *a, const TypeInfo *b);
 size_t type_size(const TypeInfo *t);
 size_t type_align(const TypeInfo *t);
+
+/* Struct field access */
+void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type);
+TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name);
+size_t type_get_field_offset(const TypeInfo *struct_t, const char *name);
 
 #ifdef __cplusplus
 }

@@ -455,6 +455,7 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
     /* Field lookup from tag / struct definition in symbol table */
     TypeInfo *member_t = NULL;
     const char *member_name = node->s.str;
+    size_t member_offset = 0;
 
     if (struct_t->details.record.tag) {
         Symbol *sym = scope_lookup(ctx->current_scope, struct_t->details.record.tag);
@@ -463,12 +464,20 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
+    /* Try to find field by name in struct fields */
+    if (struct_t->details.record.fields && member_name) {
+        member_t = type_find_field(struct_t, member_name);
+        member_offset = type_get_field_offset(struct_t, member_name);
+    }
+
     if (!member_t) {
         /* Default to int if struct fields not yet recorded */
         member_t = type_int(ctx->perm_arena);
     }
 
-    (void)member_name;
+    /* Store member offset in node->aux.extra for codegen */
+    node->aux.extra = (uint32_t)member_offset;
+
     expr_node_set_type(ctx, node, member_t);
     return member_t;
 }
