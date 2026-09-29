@@ -12,6 +12,7 @@
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
+#include "zero_cc/types/global_vars.h"
 
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
@@ -19,6 +20,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
     c->function_count = 0;
+    reset_global_vars(); /* Reset global variable state */
     // Create permanent and temporary arenas for semantic analysis
     Arena *perm = arena_create(1024 * 1024);
     Arena *tmp = arena_create(1024 * 1024);
@@ -76,6 +78,64 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     snprintf(fn->name, sizeof(fn->name), "%s", ext_name);
                     fn->is_external = true;
                 }
+            } else {
+                /* Syntax error: skip until semicolon */
+                while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            }
+            continue;
+        }
+
+        /* Global variable declarations */
+        if (c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_CHAR ||
+            c->tokens[c->token_pos].type == TK_VOID || c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+            c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
+            c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
+            c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
+            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_IDENT) {
+            /* Check for static keyword */
+            bool is_static = false;
+            if (c->tokens[c->token_pos].type == TK_STATIC) {
+                is_static = true;
+                c->token_pos++;
+            }
+            /* Parse type */
+            ZeroCCType gtype = zero_cc_parse_type_name(c);
+            /* Expect identifier */
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                char var_name[128];
+                snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                /* Optional initializer */
+                size_t init_offset = c->data_section.length;
+                bool has_initializer = false;
+                if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                    c->token_pos++; /* skip = */
+                    has_initializer = true;
+                    /* Evaluate constant expression */
+                    int64_t init_val = zero_cc_eval_const_expr(c);
+                    /* Emit to data_section */
+                    if (gtype.kind == ZERO_CC_TYPE_INT || gtype.kind == ZERO_CC_TYPE_CHAR) {
+                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                    } else if (gtype.kind == ZERO_CC_TYPE_PTR) {
+                        /* String literal or pointer - emit as 64-bit value */
+                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                    } else {
+                        /* Default to 64-bit for now */
+                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                    }
+                }
+                /* Consume trailing semicolon */
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                /* Register global variable */
+                size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
+                /* Align to 8 bytes */
+                size_t padding = (8 - (init_offset % 8)) % 8;
+                for (size_t i = 0; i < padding; i++) {
+                    zero_cc_emit_u8(&c->data_section, 0);
+                }
+                add_global_var(var_name, gtype, init_offset + padding, size, is_static, has_initializer);
             } else {
                 /* Syntax error: skip until semicolon */
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;

@@ -3,5 +3,5 @@ int main() {
 loop:
     x++;
     if (x < 3) goto loop;
-    return x;
+    return x == 3 ? 0 : 1;
 }
