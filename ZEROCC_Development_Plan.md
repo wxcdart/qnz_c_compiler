@@ -115,7 +115,7 @@
 | Anonymous struct/union members | ❌ | |
 | Bit-fields | ❌ | |
 | Global variable declarations | ❌ | `data_section` buffer exists; **nothing is ever written to it** |
-| `extern` declarations | ❌ | `TK_EXTERN` skipped; no external symbol table |
+| `extern` declarations | ✅ | External symbol table implemented |
 
 ---
 
@@ -133,7 +133,7 @@
 | Stringification `#arg` | 🟡 | `TK_HASH` lexed; no expansion |
 | Variadic macros `…` / `__VA_ARGS__` | ❌ | |
 | `_Pragma` operator | ❌ | |
-| Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | ❌ | |
+| Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | ✅ | Dynamic value tracking implemented |
 
 ---
 
@@ -188,16 +188,16 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 ### Sprint 2 – New parsing needed (Weeks 4–7)
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 10 | `goto` + label parsing and jump backpatching | 3 days |
-| 11 | Global variable declarations (write to `data_section`) | 3 days |
-| 12 | `extern` symbol table | 2 days |
-| 13 | `typedef` for function pointers | 2 days |
-| 14 | Token paste `##` and stringification `#` in macro expander | 3 days |
-| 15 | Variadic macros / `__VA_ARGS__` | 3 days |
-| 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day |
-| 17 | `#pragma once` guard | 1 day |
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 10 | `goto` + label parsing and jump backpatching | 3 days | ❌ |
+| 11 | Global variable declarations (write to `data_section`) | 3 days | ❌ |
+| 12 | `extern` symbol table | 2 days | ✅ |
+| 13 | `typedef` for function pointers | 2 days | ❌ |
+| 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ❌ |
+| 15 | Variadic macros / `__VA_ARGS__` | 3 days | ❌ |
+| 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day | ✅ |
+| 17 | `#pragma once` guard | 1 day | ❌ |
 
 ---
 
