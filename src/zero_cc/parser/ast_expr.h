@@ -15,75 +15,105 @@
 /* Forward declaration for statement parsing */
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
+/* Helper: Check if token is a primary expression */
+static inline bool is_primary_token(ZeroCCTokType t) {
+    return (t == TK_NUM || t == TK_FLOAT || t == TK_STRING ||
+            t == TK_NULLPTR || t == TK_TRUE || t == TK_FALSE ||
+            t == TK_IDENT || t == TK_GENERIC || t == TK_LPAREN);
+}
+
+/* Helper: Check if token is an assignment operator */
+static inline bool is_assign_op(ZeroCCTokType t) {
+    return (t == TK_ASSIGN || t == TK_ADD_ASSIGN || t == TK_SUB_ASSIGN ||
+            t == TK_MUL_ASSIGN || t == TK_DIV_ASSIGN || t == TK_MOD_ASSIGN ||
+            t == TK_AND_ASSIGN || t == TK_OR_ASSIGN || t == TK_XOR_ASSIGN ||
+            t == TK_SHL_ASSIGN || t == TK_SHR_ASSIGN);
+}
+
 /* Forward declarations */
 static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
+/* Primary Expressions: literals, identifiers, parenthesized expressions */
 static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
     ZeroCCToken *tok = &c->tokens[c->token_pos];
 
-    if (tok->type == TK_NUM) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        n->int_val = tok->num_val;
-        return ref;
+    /* Switch for simple primary tokens */
+    switch (tok->type) {
+        case TK_NUM: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            n->int_val = tok->num_val;
+            return ref;
+        }
+
+        case TK_FLOAT: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_FLOAT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            n->float_val = tok->float_val;
+            return ref;
+        }
+
+        case TK_STRING: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_STRING);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            const char *s = tok->allocated_str ? tok->allocated_str : tok->str_val;
+            n->s.str = s;
+            n->s.len = strlen(s);
+            return ref;
+        }
+
+        case TK_NULLPTR: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_NULLPTR);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            return ref;
+        }
+
+        case TK_TRUE:
+        case TK_FALSE: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_BOOL);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            n->int_val = (tok->type == TK_TRUE) ? 1 : 0;
+            return ref;
+        }
+
+        case TK_IDENT: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            n->s.str = tok->str_val;
+            n->s.len = strlen(tok->str_val);
+            return ref;
+        }
+
+        /* Fall through to handle complex cases */
+        case TK_GENERIC:
+        case TK_LPAREN:
+            break;
+
+        default:
+            return AST_NULL;
     }
 
-    if (tok->type == TK_FLOAT) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_FLOAT);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        n->float_val = tok->float_val;
-        return ref;
-    }
-
-    if (tok->type == TK_STRING) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_STRING);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        const char *s = tok->allocated_str ? tok->allocated_str : tok->str_val;
-        n->s.str = s;
-        n->s.len = strlen(s);
-        return ref;
-    }
-
-    if (tok->type == TK_NULLPTR) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_NULLPTR);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        return ref;
-    }
-
-    if (tok->type == TK_TRUE || tok->type == TK_FALSE) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_BOOL);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        n->int_val = (tok->type == TK_TRUE) ? 1 : 0;
-        return ref;
-    }
-
-    if (tok->type == TK_IDENT) {
-        c->token_pos++;
-        ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-        n->line = (uint32_t)tok->line;
-        n->col = (uint32_t)tok->col;
-        n->s.str = tok->str_val;
-        n->s.len = strlen(tok->str_val);
-        return ref;
-    }
+    /* Complex cases requiring lookahead and nested parsing */
 
     /* C11 _Generic compile-time selection */
     if (tok->type == TK_GENERIC) {
@@ -154,6 +184,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         return AST_NULL;
     }
 
+    /* Parenthesized expressions and casts */
     if (tok->type == TK_LPAREN) {
         size_t cast_start = c->token_pos;
         if (c->token_pos + 1 < c->token_count && is_type_specifier(c, c->tokens[c->token_pos + 1].type)) {
@@ -290,16 +321,27 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
-    if (t == TK_PLUS || t == TK_MINUS || t == TK_BANG || t == TK_TILDE ||
-        t == TK_STAR || t == TK_AMP || t == TK_INC || t == TK_DEC) {
-        c->token_pos++;
-        ASTRef operand = parse_unary_ast(c, arena);
-        ASTRef un_ref = zero_cc_ast_alloc_node(arena, NODE_UNOP);
-        ZeroCCASTNode *un = zero_cc_ast_get(arena, un_ref);
-        un->left = operand;
-        un->aux.op = (uint32_t)t;
-        un->flags = 0; /* prefix */
-        return un_ref;
+    /* Switch for unary operators */
+    switch (t) {
+        case TK_PLUS:
+        case TK_MINUS:
+        case TK_BANG:
+        case TK_TILDE:
+        case TK_STAR:
+        case TK_AMP:
+        case TK_INC:
+        case TK_DEC: {
+            c->token_pos++;
+            ASTRef operand = parse_unary_ast(c, arena);
+            ASTRef un_ref = zero_cc_ast_alloc_node(arena, NODE_UNOP);
+            ZeroCCASTNode *un = zero_cc_ast_get(arena, un_ref);
+            un->left = operand;
+            un->aux.op = (uint32_t)t;
+            un->flags = 0; /* prefix */
+            return un_ref;
+        }
+        default:
+            break;
     }
 
     return parse_postfix_ast(c, arena);
@@ -507,14 +549,6 @@ static ASTRef parse_ternary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         return tern_ref;
     }
     return cond;
-}
-
-/* Assignment Expressions: target = val or compound assign */
-static bool is_assign_op(ZeroCCTokType t) {
-    return (t == TK_ASSIGN || t == TK_ADD_ASSIGN || t == TK_SUB_ASSIGN ||
-            t == TK_MUL_ASSIGN || t == TK_DIV_ASSIGN || t == TK_MOD_ASSIGN ||
-            t == TK_AND_ASSIGN || t == TK_OR_ASSIGN || t == TK_XOR_ASSIGN ||
-            t == TK_SHL_ASSIGN || t == TK_SHR_ASSIGN);
 }
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
