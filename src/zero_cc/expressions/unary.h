@@ -21,7 +21,6 @@ static inline ZeroCCType zero_cc_type_of_unary(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType base, const char *member_name);
 
-/* Unary Expression Parser */
 static inline void zero_cc_parse_unary(ZeroCCCompiler *c) {
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
