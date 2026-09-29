@@ -147,13 +147,15 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         zero_cc_emit_u8(&c->data_section, 0);
                     }
                     add_global_var(var_name, gtype, init_offset + padding, size, is_static, has_initializer);
+                    continue; /* Skip function parser for variables */
                 }
             } else {
                 /* Syntax error: skip until semicolon */
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                continue;
             }
-            continue;
+            /* If we got here, it's a function - don't continue, let it fall through to function parser */
         }
 
         /* Thread‑local variable handling via backend */
