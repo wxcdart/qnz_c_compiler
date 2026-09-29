@@ -80,8 +80,8 @@
 | Ternary `? :` | ✅ | `NODE_TERNARY` lowered |
 | Comma operator `,` | 🟡 | Handled in arg lists only; **no `NODE_COMMA` expression** |
 | Cast `(T)expr` | ✅ | `NODE_CAST` lowered (no-op stub) |
-| `sizeof(T)` / `sizeof expr` | 🟡 | `TK_SIZEOF` recognised; no lowering |
-| `_Alignof(T)` | ❌ | Token defined; no parse rule |
+| `sizeof(T)` / `sizeof expr` | ✅ | `TK_SIZEOF` recognised and evaluated |
+| `_Alignof(T)` | ✅ | Token defined and evaluated |
 | Member access `.` / `->` | ✅ | `NODE_MEMBER` lowered (stub) |
 | Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered (stub) |
 | Function call | ✅ | |
@@ -181,7 +181,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 | 5 | Member access `.` / `->` codegen (`NODE_MEMBER`) | 2 days |
 | 6 | Array subscript codegen (`NODE_INDEX`) | 1 day |
 | 7 | Cast codegen (`NODE_CAST`) | 1 day |
-| 8 | `sizeof` constant folding | 1 day |
+| 8 | `sizeof` constant folding | 1 day | ✅ |
 | 9 | Fix `_Static_assert` to actually abort on failure | 1 day |
 
 ---
