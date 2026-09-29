@@ -94,6 +94,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_IDENT) {
+            /* Save position before parsing - needed to back up for function definitions */
+            size_t global_start = c->token_pos;
             /* Check for static keyword */
             bool is_static = false;
             if (c->tokens[c->token_pos].type == TK_STATIC) {
@@ -104,38 +106,48 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             ZeroCCType gtype = zero_cc_parse_type_name(c);
             /* Expect identifier */
             if (c->tokens[c->token_pos].type == TK_IDENT) {
-                char var_name[128];
-                snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
-                c->token_pos++;
-                /* Optional initializer */
-                size_t init_offset = c->data_section.length;
-                bool has_initializer = false;
-                if (c->tokens[c->token_pos].type == TK_ASSIGN) {
-                    c->token_pos++; /* skip = */
-                    has_initializer = true;
-                    /* Evaluate constant expression */
-                    int64_t init_val = zero_cc_eval_const_expr(c);
-                    /* Emit to data_section */
-                    if (gtype.kind == ZERO_CC_TYPE_INT || gtype.kind == ZERO_CC_TYPE_CHAR) {
-                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
-                    } else if (gtype.kind == ZERO_CC_TYPE_PTR) {
-                        /* String literal or pointer - emit as 64-bit value */
-                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
-                    } else {
-                        /* Default to 64-bit for now */
-                        zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                /* Check if this is a function (followed by '(') or variable (followed by ';' or '=') */
+                if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+                    /* This is a function definition, back up to start and let function parser handle it */
+                    c->token_pos = global_start;
+                } else {
+                    /* This is a variable declaration */
+                    char var_name[128];
+                    snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                    /* Optional initializer */
+                    size_t init_offset = c->data_section.length;
+                    bool has_initializer = false;
+                    if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                        c->token_pos++; /* skip = */
+                        has_initializer = true;
+                        /* Evaluate constant expression */
+                        int64_t init_val = zero_cc_eval_const_expr(c);
+                        /* Emit to data_section */
+                        if (gtype.tag == TYPE_INT8 || gtype.tag == TYPE_UINT8 ||
+                            gtype.tag == TYPE_INT16 || gtype.tag == TYPE_UINT16 ||
+                            gtype.tag == TYPE_INT32 || gtype.tag == TYPE_UINT32 ||
+                            gtype.tag == TYPE_INT64 || gtype.tag == TYPE_UINT64) {
+                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                        } else if (gtype.tag == TYPE_PTR) {
+                            /* String literal or pointer - emit as 64-bit value */
+                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                        } else {
+                            /* Default to 64-bit for now */
+                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                        }
                     }
+                    /* Consume trailing semicolon */
+                    if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                    /* Register global variable */
+                    size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
+                    /* Align to 8 bytes */
+                    size_t padding = (8 - (init_offset % 8)) % 8;
+                    for (size_t i = 0; i < padding; i++) {
+                        zero_cc_emit_u8(&c->data_section, 0);
+                    }
+                    add_global_var(var_name, gtype, init_offset + padding, size, is_static, has_initializer);
                 }
-                /* Consume trailing semicolon */
-                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                /* Register global variable */
-                size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
-                /* Align to 8 bytes */
-                size_t padding = (8 - (init_offset % 8)) % 8;
-                for (size_t i = 0; i < padding; i++) {
-                    zero_cc_emit_u8(&c->data_section, 0);
-                }
-                add_global_var(var_name, gtype, init_offset + padding, size, is_static, has_initializer);
             } else {
                 /* Syntax error: skip until semicolon */
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
