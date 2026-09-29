@@ -11,6 +11,7 @@
 #include "../types_lexer.h"
 #include "../parser.h"
 
+static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;

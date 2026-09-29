@@ -19,8 +19,8 @@ static int break_patch_count[MAX_LOOP_NESTING];
 static size_t continue_patch_pos[MAX_LOOP_NESTING][MAX_LOOP_PATCHES];
 static int continue_patch_count[MAX_LOOP_NESTING];
 static size_t loop_start_pos[MAX_LOOP_NESTING];
-/* static size_t loop_end_placeholder_pos[MAX_LOOP_NESTING]; */
 static int loop_depth = 0;
+
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return;

@@ -59,13 +59,34 @@ This document tracks the implementation status of AST lowering in the ZeroCC com
 - **Issue**: Previous implementation returned pointer type for pointer comparisons, causing "incompatible return type" errors
 - **Test**: `test/string_literal_jit` now passes
 
+## Parser Refactoring
+
+### Status: ✅ Complete
+
+The monolithic `parser.c` (2,305 lines) has been split into 5 modular header files:
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `parser.c` | 14 | Wrapper that includes sub-files |
+| `parser/ast_arena.h` | 65 | AST arena management |
+| `parser/ast_expr.h` | 576 | Expression AST parser |
+| `parser/ast_stmt.h` | 634 | Statement AST parser |
+| `parser/ast_dump.h` | 254 | AST debugging utilities |
+| `parser/ast_lowering.h` | 842 | AST → machine code generation |
+
+**Total**: 2,385 lines (includes + headers overhead)
+
 ## Test Results
 - **Total tests**: 40
 - **Passing**: 40
 - **Failing**: 0
 
 ## Files Modified
-- `src/zero_cc/parser.c` - NODE_INDEX and postfix ++/-- lowering
-- `src/zero_cc/parser/ast_lowering.h` - Synced with parser.c
+- `src/zero_cc/parser.c` - NODE_INDEX and postfix ++/-- lowering, refactored to wrapper
+- `src/zero_cc/parser/ast_arena.h` - AST arena management
+- `src/zero_cc/parser/ast_expr.h` - Expression AST parser
+- `src/zero_cc/parser/ast_stmt.h` - Statement AST parser
+- `src/zero_cc/parser/ast_dump.h` - AST debugging utilities
+- `src/zero_cc/parser/ast_lowering.h` - AST lowering
 - `src/zero_cc/semantic/visitor.c` - Fixed comparison operator type inference
 - `src/zero_cc/semantic/visitor.h` - Added token.h include

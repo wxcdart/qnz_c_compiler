@@ -22,7 +22,7 @@
 > in `lower_node()` / `lower_expr()` are missing.
 >
 > **✅ Sprint 0 Complete:** `NODE_INDEX`, postfix `++/--`, and pointer comparison type inference have been fixed.
-> All 40 tests now pass. Ready to proceed with parser.c/parser.h refactoring.
+> Parser refactoring completed: `parser.c` split into 5 modular headers. All 40 tests pass.
 
 ---
 

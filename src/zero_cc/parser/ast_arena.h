@@ -61,14 +61,5 @@ ASTRef zero_cc_ast_alloc_node(ZeroCCASTArena *arena, ZeroCCASTTag tag) {
     return ref;
 }
 
-/* =========================================================================
- *  Expression AST Builder
- * ========================================================================= */
-
-static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
-
-/* Primary Expressions: Literals, identifiers, (expr), function calls */
 
 #endif /* ZERO_CC_PARSER_AST_ARENA_H */
