@@ -47,10 +47,11 @@
 > - `#pragma once` guard
 > - `_Pragma` operator
 >
-> **🟡 Sprint 1 In Progress:** Code generation gap fill.
-> - ✅ String literals, ternary, do-while, sizeof, _Static_assert
-> - ❌ Float literals (stub), member access (stub)
-> - Partial: Array subscript (char/byte only), cast (integers only)
+> **🟡 Sprint 1 In Progress (2026-09-29):** Code generation gap fill.
+> - ✅ Float literals, string literals, ternary, do-while, sizeof, _Static_assert
+> - ❌ Member access codegen (stub returns zero)
+> - ⚠️ Float operations (SSE2 arithmetic not yet implemented)
+> - ⚠️ Float casts (cvttsd2si not yet implemented)
 
 ---
 
@@ -213,7 +214,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 1 | Float literal emission (`NODE_FLOAT` → `movsd` from rodata) | 1 day | ❌ |
+| 1 | Float literal emission (`NODE_FLOAT` → `movsd` from rodata) | 1 day | ✅ |
 | 2 | String literal emission (`NODE_STRING` → `lea rax, [rip+rodata]`) | 1 day | ✅ |
 | 3 | `do … while` machine code (`NODE_DO_WHILE`) | 1 day | ✅ |
 | 4 | Ternary `?:` codegen (`NODE_TERNARY`) | 2 days | ✅ |

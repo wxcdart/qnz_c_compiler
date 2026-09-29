@@ -422,10 +422,31 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u64(&c->text_section, (uint64_t)node->int_val);
             break;
         case NODE_FLOAT:
-            // Minimal stub: emit zero (float support requires SSE)
-            zero_cc_emit_u8(&c->text_section, 0x48);
-            zero_cc_emit_u8(&c->text_section, 0xB8);
-            zero_cc_emit_u64(&c->text_section, 0);
+            // Emit SSE2 movsd xmm0, [rip + rodata_offset] for float literal
+            if (node->s.float_val != NULL) {
+                double val = strtod(node->s.float_val, NULL);
+                size_t rodata_offset = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&val, sizeof(val));
+                // movsd xmm0, [rip + offset]
+                zero_cc_emit_u8(&c->text_section, 0xF2);
+                zero_cc_emit_u8(&c->text_section, 0x0F);
+                zero_cc_emit_u8(&c->text_section, 0x10);
+                zero_cc_emit_u8(&c->text_section, 0x05);
+                size_t patch_pos = c->text_section.length;
+                zero_cc_emit_u32(&c->text_section, 0);
+                if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+                    c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+                    c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+                    c->str_reloc_count++;
+                }
+            } else {
+                // Fallback: emit zero
+                zero_cc_emit_u8(&c->text_section, 0xF2);
+                zero_cc_emit_u8(&c->text_section, 0x0F);
+                zero_cc_emit_u8(&c->text_section, 0x10);
+                zero_cc_emit_u8(&c->text_section, 0x05);
+                zero_cc_emit_u32(&c->text_section, 0);
+            }
             break;
         case NODE_BOOL:
             zero_cc_emit_u8(&c->text_section, 0x48);
@@ -615,6 +636,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         case NODE_CAST:
             // Casts are no-ops for integer types in this stub
+            // Float to int conversion requires SSE2 cvttsd2si (not yet implemented)
             if (node->left != AST_NULL) {
                 lower_expr(c, arena, node->left);
             }
