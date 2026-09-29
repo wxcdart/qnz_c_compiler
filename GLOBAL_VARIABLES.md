@@ -109,6 +109,7 @@ int main() {
 
 ## Status
 
+### Core Features ✅
 - [x] `data_section` buffer initialized
 - [x] Parsing support for type + identifier
 - [x] Emission to data_section with alignment
@@ -116,8 +117,22 @@ int main() {
 - [x] Basic integer initialization
 - [x] Uninitialized globals (zero)
 - [x] String pointer initialization
+- [x] Function/variable distinction (infinite loop fix)
+
+### Future Enhancements
 - [ ] Static keyword support (internal linkage)
 - [ ] Multiple declarations (int a = 1, b = 2)
 - [ ] Complex initializers (structs, arrays)
 - [ ] BSS section for zero-initialized globals
 - [ ] ELF .data section emission
+
+## Bug Fixes
+
+### Infinite Loop Fix (2024)
+**Issue**: Global variable parsing caused infinite loop when encountering function definitions.
+
+**Root Cause**: The parser would detect a function definition (e.g., `int main(void)`), back up to the start position, but then unconditionally `continue` the loop, causing it to repeat forever.
+
+**Fix**: Only `continue` for actual variable declarations. Function definitions now fall through to the function parser.
+
+**Commit**: `00abb41` - "fix: Resolve infinite loop in global variable parsing"

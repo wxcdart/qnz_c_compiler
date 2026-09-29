@@ -106,7 +106,7 @@
 | `enum` (simple, explicit values) | ✅ | Constants registered and resolved |
 | Named `enum` as a distinct type-tag | 🟡 | Constants OK; enum type not emitted |
 | `typedef` (scalar, struct) | ✅ | |
-| `typedef` for function pointers | ❌ | `typedef int (*fn)(int)` not parsed |
+| `typedef` for function pointers | ✅ | `typedef int (*fn)(int)` works correctly |
 | `const` / `volatile` / `restrict` | 🟡 | Bits stored in `ZeroCCType`; **no enforcement** |
 | `_Atomic` | 🟡 | `is_atomic` bit present; no atomic ops emitted |
 | `_Thread_local` | 🟡 | TLS backend wired; read-only static value only |
@@ -193,7 +193,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 | 10 | `goto` + label parsing and jump backpatching | 3 days | ❌ |
 | 11 | Global variable declarations (write to `data_section`) | 3 days | ✅ |
 | 12 | `extern` symbol table | 2 days | ✅ |
-| 13 | `typedef` for function pointers | 2 days | ❌ |
+| 13 | `typedef` for function pointers | 2 days | ✅ |
 | 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ❌ |
 | 15 | Variadic macros / `__VA_ARGS__` | 3 days | ❌ |
 | 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day | ✅ |
