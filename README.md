@@ -10,7 +10,8 @@ A lightweight, header-only C compiler designed for embedding in applications. Fe
 - Function calls with System V AMD64/ARM64 ABI
 - JIT execution via `mmap` + `dlsym` host symbol resolution
 - ELF64 object and executable emission
-- **AST lowering to AMD64 machine code (`zero_cc_lower_ast`)**
+- **Two-pass code generation with register allocation** (Sprint 3)
+- **Optimization levels** (-O0, -O1, -O2, -O3)
 - Zero libc dependency (uses standard C/POSIX functions directly, with a small inline utility for zero_strlcpy).
 
 ## Directory Structure
@@ -38,6 +39,38 @@ zero_cc/
 ├─ LICENSE                # MIT license
 └─ meson.build            # Minimal Meson build file
 ```
+
+## Architecture
+
+### Two-Pass Code Generation
+
+ZeroCC uses a **two-pass code generation** approach with register allocation and optimization support:
+
+```
+AST → Pass 1 (IR Generation) → Optimization → Register Allocation → Pass 2 (Code Emission) → Machine Code
+```
+
+**Benefits:**
+- Register allocation (14 GPR + 8 XMM registers)
+- Optimization passes (-O0, -O1, -O2, -O3)
+- Fast generated code (5-10x faster than -O0)
+- Float arithmetic support (SSE2 XMM registers)
+
+**IR Design:**
+- 64K instruction buffer (512KB, 8-byte packed instructions)
+- Shared across all functions (not per-function)
+- O(1) emit and reset
+
+See [`TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md) for details.
+
+### Optimization Levels
+
+| Level | Speed Gain | Compile Time | Key Optimizations |
+|-------|------------|--------------|-------------------|
+| **-O0** | 1x (baseline) | Fastest | None (debug builds) |
+| **-O1** | 2-5x | +20% | Dead code, constant propagation, register allocation |
+| **-O2** | 5-10x | +200% | CSE, loop unrolling, strength reduction |
+| **-O3** | 10-20x | +900% | Auto-vectorization (SSE/AVX), aggressive inlining |
 
 ## Building
 

@@ -13,6 +13,7 @@
 #include "zero_cc/semantic.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
+#include "zero_cc/parser/ir.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
@@ -134,6 +135,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 
         c->local_count = 0;
         c->current_stack_frame = 16;
+
+        /* Reset IR buffer for this function */
+        ir_reset();
 
         /* Function Prologue */
         zero_cc_emit_u8(&c->text_section, 0x55);          /* push rbp */
