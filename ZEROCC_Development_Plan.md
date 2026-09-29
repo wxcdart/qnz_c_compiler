@@ -17,6 +17,7 @@
 | Code Generation | 3 | 1 | 6 |
 | Diagnostics | 0 | 1 | 2 |
 | **Sprint 2** | **✅ Complete** | | |
+| **Sprint 2.5** | **📋 Planned** | | |
 | **Total** | **43** | **22** | **23** |
 
 > **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
@@ -234,48 +235,62 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 ---
 
-### Sprint 3 – Code generation depth (Weeks 8–12)
+### Sprint 2.5 – Extended pragma support (Week 8)
+
+Extended pragma directive support for better compatibility with real-world C code.
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 18 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week |
-| 19 | Struct return by value (hidden-pointer calling convention) | 1 week |
-| 20 | `va_arg` expansion | 1 week |
-| 21 | Linear-scan register allocator | 2 weeks |
-| 22 | Global variable storage emission (`.data` / `.bss`) | 3 days |
+| 18 | `#pragma pack(n)` - structure packing control | 2 days |
+| 19 | `#pragma message("text")` - compiler messages | 1 day |
+| 20 | `#pragma GCC diagnostic` - warning control | 2 days |
+| 21 | `#pragma GCC push_options` / `pop_options` | 1 day |
+| 22 | Generic pragma passthrough (emit to output) | 1 day |
 
 ---
 
-### Sprint 4 – Type system completeness (Weeks 13–15)
+### Sprint 3 – Code generation depth (Weeks 9–13)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 23 | `union` proper layout (overlapping members) | 3 days |
-| 24 | Bit-fields | 1 week |
-| 25 | Flexible array members | 2 days |
-| 26 | Anonymous struct/union members | 3 days |
-| 27 | VLA (dynamic stack allocation) | 1 week |
-| 28 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week |
-| 29 | `const` / `volatile` semantic enforcement | 3 days |
+| 23 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week |
+| 24 | Struct return by value (hidden-pointer calling convention) | 1 week |
+| 25 | `va_arg` expansion | 1 week |
+| 26 | Linear-scan register allocator | 2 weeks |
+| 27 | Global variable storage emission (`.data` / `.bss`) | 3 days |
 
 ---
 
-### Sprint 5 – Diagnostics, Testing & CI (Weeks 16–18)
+### Sprint 4 – Type system completeness (Weeks 14–16)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 30 | Rich diagnostics: `file:line:col: error: …` format | 1 week |
-| 31 | Warning vs. error distinction | 2 days |
-| 32 | Regression test suite (bootstrap from TCC corpus) | 2 weeks |
-| 33 | GitHub Actions CI (`make clean && make test`) | 1 day |
+| 28 | `union` proper layout (overlapping members) | 3 days |
+| 29 | Bit-fields | 1 week |
+| 30 | Flexible array members | 2 days |
+| 31 | Anonymous struct/union members | 3 days |
+| 32 | VLA (dynamic stack allocation) | 1 week |
+| 33 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week |
+| 34 | `const` / `volatile` semantic enforcement | 3 days |
 
 ---
 
-### Sprint 6 – Cross-platform (Weeks 19–21)
+### Sprint 5 – Diagnostics, Testing & CI (Weeks 17–19)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 34 | ARM64 backend (complete TODOs in `types_lexer.h`) | 3 weeks |
+| 35 | Rich diagnostics: `file:line:col: error: …` format | 1 week |
+| 36 | Warning vs. error distinction | 2 days |
+| 37 | Regression test suite (bootstrap from TCC corpus) | 2 weeks |
+| 38 | GitHub Actions CI (`make clean && make test`) | 1 day |
+
+---
+
+### Sprint 6 – Cross-platform (Weeks 20–22)
+
+| Priority | Task | Effort |
+|----------|------|--------|
+| 39 | ARM64 backend (complete TODOs in `types_lexer.h`) | 3 weeks |
 | 35 | PE/COFF backend (Windows) | 3 weeks |
 | 36 | `STATIC=1` make flag for static binaries | 3 days |
 
