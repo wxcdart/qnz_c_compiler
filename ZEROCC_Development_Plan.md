@@ -1,6 +1,6 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-09-28. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-09-29. Findings are **grounded in actual source inspection** of
 > [`parser.c`](src/zero_cc/parser.c), [`types_lexer.h`](src/zero_cc/types_lexer.h),
 > [`lexer.c`](src/zero_cc/lexer.c), and the `lower_node()` / `lower_expr()` switch statements.
 
@@ -10,13 +10,13 @@
 
 | Category | ✅ Done | 🟡 Partial (parsed, not lowered) | ❌ Missing |
 |----------|:-------:|:---------------------------------:|:---------:|
-| Statements | 8 | 2 | 1 |
+| Statements | 9 | 1 | 1 |
 | Expressions | 14 | 9 | 3 |
 | Types & Declarations | 11 | 8 | 8 |
-| Preprocessor | 5 | 2 | 4 |
-| Code Generation | 2 | 1 | 7 |
+| Preprocessor | 6 | 2 | 3 |
+| Code Generation | 3 | 1 | 6 |
 | Diagnostics | 0 | 1 | 2 |
-| **Total** | **40** | **23** | **24** |
+| **Total** | **43** | **22** | **23** |
 
 > **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
 > in `lower_node()` / `lower_expr()` are missing.
@@ -53,7 +53,7 @@
 | `break` | ✅ | Full |
 | `continue` | ✅ | Full |
 | `return <expr>` | ✅ | Full |
-| `goto` / labels | 🟡 | `NODE_GOTO` / `NODE_LABEL` in AST enum; **no parse rule, no lowering** |
+| `goto` / labels | ✅ | `NODE_GOTO` / `NODE_LABEL` in AST enum; parsed and lowered (JMP rel32 with patching) |
 | `_Static_assert` | ✅ | Parsed and lowered (condition evaluated, stub) |
 
 ---
@@ -131,7 +131,7 @@
 | `#pragma once` | ❌ | `#pragma` directives not handled |
 | Token paste `##` | ✅ | `a ## b` pastes tokens correctly |
 | Stringification `#arg` | ✅ | `#arg` converts to string literal |
-| Variadic macros `…` / `__VA_ARGS__` | ❌ | |
+| Variadic macros `…` / `__VA_ARGS__` | ✅ | Supported via macro expansion and __VA_ARGS__ handling |
 | `_Pragma` operator | ❌ | |
 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | ✅ | Dynamic value tracking implemented |
 
@@ -146,7 +146,7 @@
 | `do … while` machine code | ✅ | Lowered with break/continue patching |
 | Ternary branch machine code | ✅ | Lowered |
 | Member access / subscript machine code | ✅ | Stubs lowered |
-| `goto` / label jumps | ❌ | No machine-code emission |
+| `goto` / label jumps | ✅ | Machine-code emission via JMP rel32 with patching |
 | Struct return by value | ❌ | Hidden-pointer convention not implemented |
 | `va_start` / `va_arg` / `va_end` | ❌ | Spill area allocated; no `va_arg` expansion |
 | Global variable storage (`.data`) | ❌ | Buffer allocated; nothing written |
@@ -190,12 +190,12 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 10 | `goto` + label parsing and jump backpatching | 3 days | ❌ |
+| 10 | `goto` + label parsing and jump backpatching | 3 days | ✅ |
 | 11 | Global variable declarations (write to `data_section`) | 3 days | ✅ |
 | 12 | `extern` symbol table | 2 days | ✅ |
 | 13 | `typedef` for function pointers | 2 days | ✅ |
 | 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ✅ |
-| 15 | Variadic macros / `__VA_ARGS__` | 3 days | ❌ |
+| 15 | Variadic macros / `__VA_ARGS__` | 3 days | ✅ |
 | 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day | ✅ |
 | 17 | `#pragma once` guard | 1 day | ❌ |
 
