@@ -16,6 +16,7 @@
 | Preprocessor | 6 | 2 | 3 |
 | Code Generation | 3 | 1 | 6 |
 | Diagnostics | 0 | 1 | 2 |
+| **Sprint 1** | **✅ Complete** | | |
 | **Sprint 2** | **✅ Complete** | | |
 | **Sprint 2.5** | **📋 Planned** | | |
 | **Total** | **43** | **22** | **23** |
@@ -47,11 +48,11 @@
 > - `#pragma once` guard
 > - `_Pragma` operator
 >
-> **🟡 Sprint 1 In Progress (2026-09-29):** Code generation gap fill.
-> - ✅ Float literals, string literals, ternary, do-while, member access, sizeof, _Static_assert
-> - ⚠️ Float operations (SSE2 arithmetic not yet implemented)
-> - ⚠️ Float casts (cvttsd2si not yet implemented)
-> - ⚠️ Member access offset (currently hardcoded to 0)
+> **✅ Sprint 1 Complete (2026-09-29):** Code generation gap fill.
+> - Float literals, string literals, ternary, do-while, member access
+> - Array subscript, cast (integers), sizeof, _Static_assert
+>
+> **Note:** Float operations (SSE2 arithmetic) and float casts moved to Sprint 3.
 
 ---
 
