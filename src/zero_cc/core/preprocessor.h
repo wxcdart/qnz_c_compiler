@@ -865,12 +865,18 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         }
                     }
 
+                    /* Token pasting buffer */
+                    char paste_buf[512];
+                    size_t paste_len = 0;
+                    bool pending_paste = false;
+                    paste_buf[0] = '\0';
+
                     const char *b = m->replacement;
                     while (*b) {
                         /* Token pasting: ## */
                         if (b[0] == '#' && b[1] == '#') {
+                            pending_paste = true;
                             b += 2;
-                            while (*b && isspace((unsigned char)*b)) b++;
                             continue;
                         }
 
@@ -888,9 +894,20 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                 match = m->param_count - 1;
                             }
                             if (match >= 0 && match < arg_count) {
-                                zero_cc_buf_putc(out, '"');
-                                zero_cc_buf_puts(out, args[match]);
-                                zero_cc_buf_putc(out, '"');
+                                if (pending_paste) {
+                                    /* Paste then stringify */
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
+                                    zero_cc_buf_putc(out, '"');
+                                    zero_cc_buf_puts(out, paste_buf);
+                                    zero_cc_buf_putc(out, '"');
+                                    paste_len = 0;
+                                    paste_buf[0] = '\0';
+                                    pending_paste = false;
+                                } else {
+                                    zero_cc_buf_putc(out, '"');
+                                    zero_cc_buf_puts(out, args[match]);
+                                    zero_cc_buf_putc(out, '"');
+                                }
                             }
                             continue;
                         }
@@ -907,13 +924,40 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                 match = m->param_count - 1;
                             }
                             if (match >= 0 && match < arg_count) {
-                                zero_cc_buf_puts(out, args[match]);
+                                if (pending_paste) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
+                                    pending_paste = false;
+                                } else {
+                                    zero_cc_buf_puts(out, args[match]);
+                                }
                             } else {
-                                zero_cc_buf_puts(out, param_id);
+                                if (pending_paste) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", param_id);
+                                    pending_paste = false;
+                                } else {
+                                    zero_cc_buf_puts(out, param_id);
+                                }
                             }
+                        } else if (pending_paste && (*b >= '0' && *b <= '9')) {
+                            /* Digit after ## - collect full number */
+                            while (*b && (*b >= '0' && *b <= '9' || *b == '.' || *b == 'x' || *b == 'X' ||
+                                   *b == 'a' || *b == 'b' || *b == 'c' || *b == 'd' || *b == 'e' || *b == 'f' ||
+                                   *b == 'A' || *b == 'B' || *b == 'C' || *b == 'D' || *b == 'E' || *b == 'F' ||
+                                   *b == 'u' || *b == 'U' || *b == 'l' || *b == 'L')) {
+                                paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                            }
+                            pending_paste = false;
+                        } else if (pending_paste) {
+                            /* Other char after ## - paste single char */
+                            paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                            pending_paste = false;
                         } else {
                             zero_cc_buf_putc(out, *b++);
                         }
+                    }
+                    /* Flush any remaining pasted token */
+                    if (paste_len > 0) {
+                        zero_cc_buf_puts(out, paste_buf);
                     }
                     for (int k = 0; k < arg_count; k++) free(args[k]);
                 } else {
