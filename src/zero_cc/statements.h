@@ -53,7 +53,6 @@ static int add_label(const char *name, size_t position) {
 }
 
 /* Forward declarations - needed by submodules */
-static inline void zero_cc_parse_stmt(ZeroCCCompiler *c);
 static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t decl_align_spec);
 static inline void zero_cc_stmt_var_incdec(ZeroCCCompiler *c, char *var_name, bool is_inc);
 static inline void zero_cc_stmt_var_assign(ZeroCCCompiler *c, char *var_name, ZeroCCTokType aop);
@@ -92,7 +91,7 @@ static inline bool is_asm_keyword(const char *str) {
 }
 
 /* Main statement parser - dispatches to modular handlers */
-static inline void zero_cc_parse_stmt(ZeroCCCompiler *c) {
+void zero_cc_parse_stmt(ZeroCCCompiler *c) {
     size_t decl_align_spec = 0;
 
     /* Skip C23 attributes: [[ ... ]] */

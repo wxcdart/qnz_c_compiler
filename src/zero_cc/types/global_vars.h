@@ -18,11 +18,13 @@ static ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
 static size_t global_var_count = 0;
 
 /* Reset global variable state at compilation start */
+static void reset_global_vars(void) __attribute__((unused));
 static void reset_global_vars(void) {
     global_var_count = 0;
 }
 
 /* Add global variable, return index or -1 on error */
+static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) __attribute__((unused));
 static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) {
     if (global_var_count >= ZERO_CC_MAX_GLOBALS) return -1;
     ZeroCCGlobalVar *gv = &global_vars[global_var_count++];

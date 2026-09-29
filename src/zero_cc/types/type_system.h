@@ -98,6 +98,7 @@ typedef struct {
     size_t text_patch_offset;
     char target_symbol[128];
     bool is_call;
+    size_t data_offset;  /* For data references (global variables) */
 } ZeroCCReloc;
 
 typedef struct {

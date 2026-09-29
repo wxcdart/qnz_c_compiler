@@ -34,6 +34,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     c->thread_local_count = 0;
     /* Initialise default TLS backend */
     zero_cc_set_tls_backend(c, NULL);
+    /* Initialize register allocator */
+    regalloc_init(&c->regalloc);
+    c->next_temp_id = 0;
 
     /* Create shared semantic context for all functions */
     DiagBuf shared_diags;

@@ -7,6 +7,7 @@
 #include "zero_cc/core/buffers.h"
 #include "zero_cc/types/token.h"
 #include "zero_cc/types/type_system.h"
+#include "../parser/regalloc.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
@@ -36,6 +37,10 @@ typedef struct ZeroCCCompiler {
 
     ZeroCCStringReloc str_relocs[ZERO_CC_MAX_STR_RELOCS];
     size_t str_reloc_count;
+
+    /* Register allocator state */
+    RegAllocator regalloc;                /* Linear-scan register allocator */
+    int next_temp_id;                     /* Next temporary variable ID */
 
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */

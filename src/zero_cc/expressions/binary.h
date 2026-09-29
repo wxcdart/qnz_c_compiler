@@ -10,7 +10,6 @@
 
 /* Forward declarations */
 static inline void zero_cc_parse_expr(ZeroCCCompiler *c);
-static inline void zero_cc_parse_stmt(ZeroCCCompiler *c);
 static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c);
 static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c);
 static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos);

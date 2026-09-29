@@ -223,7 +223,15 @@ ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
         bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
 
         if (sem_ok) {
+            /* Reset register allocator for this function */
+            regalloc_init(&c->regalloc);
+            c->next_temp_id = 0;
+            
+            /* Lower AST to machine code */
             zero_cc_lower_ast(c, &arena, body);
+            
+            /* Run register allocation (placeholder - full integration TBD) */
+            /* regalloc_allocate(&c->regalloc); */
         } else {
             if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
             c->had_error = true;
@@ -236,10 +244,6 @@ ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
 // Consume closing brace if present
 
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
-
-        /* Function Epilogue */
-        zero_cc_emit_u8(&c->text_section, 0xC9);
-        zero_cc_emit_u8(&c->text_section, 0xC3);
     }
 }
 

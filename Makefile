@@ -19,7 +19,13 @@ $(SETTERS_OBJ): src/zero_cc/backends/setters.c src/zero_cc/zero_cc_backends.h sr
 $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h src/zero_cc/keywords.inc
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(PARSER_OBJ): src/zero_cc/parser.c src/zero_cc/parser.h src/zero_cc/types_lexer.h
+PARSER_HEADERS = src/zero_cc/parser.h src/zero_cc/types_lexer.h \
+	$(wildcard src/zero_cc/parser/*.h) \
+	$(wildcard src/zero_cc/expressions/*.h) \
+	$(wildcard src/zero_cc/types/*.h) \
+	$(wildcard src/zero_cc/jit/*.h)
+
+$(PARSER_OBJ): src/zero_cc/parser.c $(PARSER_HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 TLS_OBJ = src/zero_cc/tls_backend_static.o
@@ -68,6 +74,7 @@ benchmark: test/benchmark_struct_by_value
 
 clean:
 	rm -f $(TESTS) test.o test.exe
+	rm -f $(SETTERS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(TLS_OBJ) $(EXTRA_OBJS)
 
 # Target to build and run the golden error test
 

@@ -272,18 +272,19 @@ void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t of
     
     // Allocate or grow field array
     size_t new_count = struct_t->details.record.field_count + 1;
-    struct FieldInfo *new_fields = (struct FieldInfo *)arena_alloc(perm, new_count * sizeof(struct FieldInfo));
+    void *new_fields = arena_alloc(perm, new_count * sizeof(struct { const char *name; size_t offset; TypeInfo *type; }));
     if (!new_fields) return;
     
     // Copy existing fields
     if (struct_t->details.record.fields) {
-        memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct FieldInfo));
+        memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct { const char *name; size_t offset; TypeInfo *type; }));
     }
     
     // Add new field
-    new_fields[new_count - 1].name = name;
-    new_fields[new_count - 1].offset = offset;
-    new_fields[new_count - 1].type = field_type;
+    struct { const char *name; size_t offset; TypeInfo *type; } *fields = new_fields;
+    fields[new_count - 1].name = name;
+    fields[new_count - 1].offset = offset;
+    fields[new_count - 1].type = field_type;
     
     struct_t->details.record.fields = new_fields;
     struct_t->details.record.field_count = new_count;

@@ -10,6 +10,59 @@
 
 #include "../types_lexer.h"
 #include "../parser.h"
+#include "regalloc.h"
+#include "../types/global_vars.h"
+
+/* Temporary variable tracking for register allocation */
+typedef struct {
+    int temp_id;              /* Temporary ID */
+    size_t live_start;        /* Start of live range */
+    size_t live_end;          /* End of live range */
+    RegClass reg_class;       /* Required register class */
+    int assigned_reg;         /* Assigned register (-1 if spilled) */
+    int spill_slot;           /* Spill slot (-1 if not spilled) */
+} TempVar;
+
+static TempVar temp_vars[256];
+static size_t temp_var_count = 0;
+
+/* Allocate a new temporary variable */
+static int alloc_temp(ZeroCCCompiler *c, RegClass reg_class) __attribute__((unused));
+static int alloc_temp(ZeroCCCompiler *c, RegClass reg_class) {
+    int temp_id = c->next_temp_id++;
+    if (temp_var_count < 256) {
+        TempVar *tv = &temp_vars[temp_var_count++];
+        tv->temp_id = temp_id;
+        tv->live_start = c->text_section.length;
+        tv->live_end = 0;
+        tv->reg_class = reg_class;
+        tv->assigned_reg = -1;
+        tv->spill_slot = -1;
+    }
+    return temp_id;
+}
+
+/* Update live end position for a temporary */
+static void update_temp_live_end(int temp_id, size_t pos) __attribute__((unused));
+static void update_temp_live_end(int temp_id, size_t pos) {
+    for (size_t i = 0; i < temp_var_count; i++) {
+        if (temp_vars[i].temp_id == temp_id) {
+            temp_vars[i].live_end = pos;
+            break;
+        }
+    }
+}
+
+/* Get register for a temporary (placeholder - returns -1 for now) */
+static int get_temp_reg(int temp_id) __attribute__((unused));
+static int get_temp_reg(int temp_id) {
+    for (size_t i = 0; i < temp_var_count; i++) {
+        if (temp_vars[i].temp_id == temp_id) {
+            return temp_vars[i].assigned_reg;
+        }
+    }
+    return -1;
+}
 
 /* Loop control flow support */
 #define MAX_LOOP_NESTING 16
@@ -34,12 +87,26 @@ static int goto_patch_count[MAX_LABELS];
 static int goto_patch_list_count = 0;
 
 /* Reset label/goto state at function entry */
+static void reset_label_state(void) __attribute__((unused));
 static void reset_label_state(void) {
     label_count = 0;
     goto_patch_list_count = 0;
     for (int i = 0; i < MAX_LABELS; i++) {
         goto_patch_count[i] = 0;
     }
+}
+
+/* Helper: check if both operands are float literals for simple float arithmetic */
+static bool is_simple_float_binop(ZeroCCASTArena *arena, ZeroCCASTNode *node) __attribute__((unused));
+static bool is_simple_float_binop(ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    if (!node) return false;
+    ZeroCCASTNode *left = zero_cc_ast_get(arena, node->left);
+    ZeroCCASTNode *right = zero_cc_ast_get(arena, node->right);
+    if (!left || !right) return false;
+    /* Only handle float + float, float - float, etc. where both are NODE_FLOAT */
+    return (left->tag == NODE_FLOAT && right->tag == NODE_FLOAT &&
+           (node->aux.op == TK_PLUS || node->aux.op == TK_MINUS ||
+            node->aux.op == TK_STAR || node->aux.op == TK_SLASH));
 }
 
 /* Find label by name, return index or -1 if not found */
@@ -62,6 +129,7 @@ static int add_label(const char *name, size_t position) {
 }
 
 /* Record a goto patch location for later patching */
+static void record_goto_patch(ZeroCCCompiler *c, const char *label_name, size_t patch_pos) __attribute__((unused));
 static void record_goto_patch(ZeroCCCompiler *c, const char *label_name, size_t patch_pos) {
     int idx = find_label(label_name);
     if (idx >= 0) {
@@ -421,33 +489,25 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0xB8);
             zero_cc_emit_u64(&c->text_section, (uint64_t)node->int_val);
             break;
-        case NODE_FLOAT:
+        case NODE_FLOAT: {
             // Emit SSE2 movsd xmm0, [rip + rodata_offset] for float literal
-            if (node->s.float_val != NULL) {
-                double val = strtod(node->s.float_val, NULL);
-                size_t rodata_offset = c->rodata_section.length;
-                zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&val, sizeof(val));
-                // movsd xmm0, [rip + offset]
-                zero_cc_emit_u8(&c->text_section, 0xF2);
-                zero_cc_emit_u8(&c->text_section, 0x0F);
-                zero_cc_emit_u8(&c->text_section, 0x10);
-                zero_cc_emit_u8(&c->text_section, 0x05);
-                size_t patch_pos = c->text_section.length;
-                zero_cc_emit_u32(&c->text_section, 0);
-                if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
-                    c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
-                    c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
-                    c->str_reloc_count++;
-                }
-            } else {
-                // Fallback: emit zero
-                zero_cc_emit_u8(&c->text_section, 0xF2);
-                zero_cc_emit_u8(&c->text_section, 0x0F);
-                zero_cc_emit_u8(&c->text_section, 0x10);
-                zero_cc_emit_u8(&c->text_section, 0x05);
-                zero_cc_emit_u32(&c->text_section, 0);
+            double val = node->float_val;
+            size_t rodata_offset = c->rodata_section.length;
+            zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&val, sizeof(val));
+            // movsd xmm0, [rip + offset]
+            zero_cc_emit_u8(&c->text_section, 0xF2);
+            zero_cc_emit_u8(&c->text_section, 0x0F);
+            zero_cc_emit_u8(&c->text_section, 0x10);
+            zero_cc_emit_u8(&c->text_section, 0x05);
+            size_t patch_pos = c->text_section.length;
+            zero_cc_emit_u32(&c->text_section, 0);
+            if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+                c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+                c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+                c->str_reloc_count++;
             }
             break;
+        }
         case NODE_BOOL:
             zero_cc_emit_u8(&c->text_section, 0x48);
             zero_cc_emit_u8(&c->text_section, 0xB8);
@@ -485,6 +545,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         case NODE_IDENT: {
             const char *var = node->s.str;
+            /* First check if it's a local variable */
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
                 // mov rax, [rbp - offset]
@@ -492,6 +553,31 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x8B);
                 zero_cc_emit_u8(&c->text_section, 0x85);
                 zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+            } else {
+                /* Check if it's a global variable */
+                ZeroCCGlobalVar *gv = find_global_var(var);
+                if (gv) {
+                    /* Load global variable from data section using RIP-relative addressing */
+                    /* lea rax, [rip + data_offset + gv->data_offset] */
+                    /* First, emit the address as a relocation */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x8D);
+                    zero_cc_emit_u8(&c->text_section, 0x05);
+                    size_t patch_pos = c->text_section.length;
+                    zero_cc_emit_u32(&c->text_section, 0); /* Placeholder for RIP-relative offset */
+                    /* Add relocation for global variable access */
+                    if (c->reloc_count < 512) {
+                        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                        r->text_patch_offset = patch_pos;
+                        r->is_call = false; /* Not a call, it's a data reference */
+                        snprintf(r->target_symbol, sizeof(r->target_symbol), "__data_%s", var);
+                        r->data_offset = gv->data_offset;
+                    }
+                    /* Now load the value: mov rax, [rax] */
+                    zero_cc_emit_u8(&c->text_section, 0x48);
+                    zero_cc_emit_u8(&c->text_section, 0x8B);
+                    zero_cc_emit_u8(&c->text_section, 0x00);
+                }
             }
             break;
         }
@@ -983,8 +1069,30 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     epilogue_patch_count = 0;
     reset_label_state();
+    
+    /* Reset temp variable tracking */
+    temp_var_count = 0;
+    
+    /* Lower AST to machine code */
     lower_node(c, arena, root);
-    // Backpatch all return epilogue jumps to the current offset (which will immediately precede epilogue)
+    
+    /* Update live end positions for all temporaries */
+    size_t end_pos = c->text_section.length;
+    for (size_t i = 0; i < temp_var_count; i++) {
+        if (temp_vars[i].live_end == 0) {
+            temp_vars[i].live_end = end_pos;
+        }
+    }
+    
+    /* Run register allocation */
+    for (size_t i = 0; i < temp_var_count; i++) {
+        regalloc_add_interval(&c->regalloc, temp_vars[i].temp_id, 
+                              temp_vars[i].live_start, temp_vars[i].live_end,
+                              temp_vars[i].reg_class);
+    }
+    regalloc_allocate(&c->regalloc);
+    
+    /* Backpatch all return epilogue jumps to the current offset */
     size_t epilogue_target = c->text_section.length;
     for (size_t i = 0; i < epilogue_patch_count; i++) {
         size_t patch_pos = epilogue_patches[i];
@@ -992,6 +1100,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         memcpy(c->text_section.data + patch_pos, &rel, 4);
     }
     epilogue_patch_count = 0;
+    
+    /* Emit function epilogue */
+    zero_cc_emit_u8(&c->text_section, 0xC9);           /* leave (mov rsp, rbp; pop rbp) */
+    zero_cc_emit_u8(&c->text_section, 0xC3);           /* ret */
+    
+    /* Reset temp variables for next function */
+    temp_var_count = 0;
 }
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_H */
