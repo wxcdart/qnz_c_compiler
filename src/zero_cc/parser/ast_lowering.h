@@ -26,6 +26,43 @@ typedef struct {
 static TempVar temp_vars[256];
 static size_t temp_var_count = 0;
 
+/* Allocate a new temporary variable */
+static int alloc_temp(ZeroCCCompiler *c, RegClass reg_class) {
+    int temp_id = c->next_temp_id++;
+    if (temp_var_count < 256) {
+        TempVar *tv = &temp_vars[temp_var_count++];
+        tv->temp_id = temp_id;
+        tv->live_start = c->text_section.length;
+        tv->live_end = 0;
+        tv->reg_class = reg_class;
+        tv->assigned_reg = -1;
+        tv->spill_slot = -1;
+    }
+    return temp_id;
+}
+
+/* Get register for a temporary after allocation */
+static int get_temp_reg(int temp_id) __attribute__((unused));
+static int get_temp_reg(int temp_id) {
+    for (size_t i = 0; i < temp_var_count; i++) {
+        if (temp_vars[i].temp_id == temp_id) {
+            return temp_vars[i].assigned_reg;
+        }
+    }
+    return -1;
+}
+
+/* Check if a temporary is spilled */
+static bool is_temp_spilled(int temp_id) __attribute__((unused));
+static bool is_temp_spilled(int temp_id) {
+    for (size_t i = 0; i < temp_var_count; i++) {
+        if (temp_vars[i].temp_id == temp_id) {
+            return temp_vars[i].assigned_reg < 0;
+        }
+    }
+    return true;
+}
+
 /* Loop control flow support */
 #define MAX_LOOP_NESTING 16
 #define MAX_LOOP_PATCHES 64
@@ -510,6 +547,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_CALL: {
+            /* Allocate temp for function call result */
+            int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
             // Evaluate arguments left to right and push them to stack
             ASTRef arg = node->right;
             int arg_count = 0;
@@ -700,6 +739,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_TERNARY: {
+            /* Allocate temp for ternary result */
+            int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
             // Evaluate condition
             lower_expr(c, arena, node->left);
             // test rax, rax
@@ -728,10 +769,15 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_BINOP: {
-            // Evaluate left operand, push to stack.
+            /* Allocate temp for left operand */
+            int left_temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+            /* Evaluate left operand */
             lower_expr(c, arena, node->left);
+            /* Store left temp result */
             zero_cc_emit_u8(&c->text_section, 0x50); // push rax
-            // Evaluate right operand.
+            /* Allocate temp for right operand */
+            int right_temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+            /* Evaluate right operand */
             lower_expr(c, arena, node->right);
             zero_cc_emit_u8(&c->text_section, 0x59); // pop rcx (left operand)
             // Left is now in rcx, right is in rax.
@@ -867,6 +913,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_UNOP: {
+            /* Allocate temp for unary operation result */
+            int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
             if (node->aux.op == TK_AMP) {
                 // Address-of operator &var
                 ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
@@ -882,21 +930,27 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
             } else if (node->aux.op == TK_STAR) {
-                // Dereference operator *ptr
+                /* Allocate temp for dereference result */
+                int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+                /* Dereference operator *ptr */
                 lower_expr(c, arena, node->left);
                 // mov rax, [rax]
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0x8B);
                 zero_cc_emit_u8(&c->text_section, 0x00);
             } else if (node->aux.op == TK_MINUS) {
-                // Negation -x
+                /* Allocate temp for negation result */
+                int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+                /* Negation -x */
                 lower_expr(c, arena, node->left);
                 // neg rax
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0xF7);
                 zero_cc_emit_u8(&c->text_section, 0xD8);
             } else if (node->aux.op == TK_BANG) {
-                // Logical NOT !x
+                /* Allocate temp for logical NOT result */
+                int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+                /* Logical NOT !x */
                 lower_expr(c, arena, node->left);
                 // test rax, rax; sete al; movzx rax, al
                 zero_cc_emit_u8(&c->text_section, 0x48);
@@ -910,7 +964,9 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0xB6);
                 zero_cc_emit_u8(&c->text_section, 0xC0);
             } else if (node->aux.op == TK_TILDE) {
-                // Bitwise NOT ~x
+                /* Allocate temp for bitwise NOT result */
+                int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
+                /* Bitwise NOT ~x */
                 lower_expr(c, arena, node->left);
                 // not rax
                 zero_cc_emit_u8(&c->text_section, 0x48);
