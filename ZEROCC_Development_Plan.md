@@ -16,17 +16,35 @@
 | Preprocessor | 6 | 2 | 3 |
 | Code Generation | 3 | 1 | 6 |
 | Diagnostics | 0 | 1 | 2 |
+| **Sprint 2** | **✅ Complete** | | |
 | **Total** | **43** | **22** | **23** |
 
 > **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
 > in `lower_node()` / `lower_expr()` are missing.
 >
 > **✅ Sprint 0 Complete:** `NODE_INDEX`, postfix `++/--`, and pointer comparison type inference have been fixed.
-> **✅ Sprint 0 Complete:** `NODE_INDEX`, postfix `++/--`, and pointer comparison type inference have been fixed.
 > - Parser refactoring: `parser.c` split into 5 modular headers.
 > - Expressions refactoring: `expressions.h` split into 6 modular headers.
 > - Core refactoring: `core.h` split into 4 modular headers.
 > All 40 tests pass.
+>
+> **✅ Sprint 0.5 Complete (2026-09-29):** Include architecture hardening.
+> - Created `zero_cc_fwd.h` forward declaration header for reducing dependencies
+> - Fixed circular include: `lexer.h` ↔ `lexer/scan.h`
+> - Added comprehensive include documentation (`docs/includes-and-forward-declarations.md`)
+> - Fixed missing standard library includes across type headers
+> - All 40 tests pass with improved include structure
+>
+> **✅ Sprint 2 Complete (2026-09-29):** New parsing features.
+> - `goto` + label parsing and jump backpatching
+> - Global variable declarations
+> - `extern` symbol table
+> - `typedef` for function pointers
+> - Token paste `##` and stringification `#`
+> - Variadic macros / `__VA_ARGS__`
+> - Predefined macros (`__FILE__`, `__LINE__`, `__func__`)
+> - `#pragma once` guard
+> - `_Pragma` operator
 
 ---
 
@@ -212,7 +230,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 | 14 | Token paste `##` and stringification `#` in macro expander | 3 days | ✅ |
 | 15 | Variadic macros / `__VA_ARGS__` | 3 days | ✅ |
 | 16 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | 1 day | ✅ |
-| 17 | `#pragma once` guard | 1 day | ❌ |
+| 17 | `#pragma once` guard | 1 day | ✅ |
 
 ---
 
