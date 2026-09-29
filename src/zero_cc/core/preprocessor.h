@@ -954,7 +954,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             }
                         } else if (pending_paste && (*b >= '0' && *b <= '9')) {
                             /* Digit after ## - collect full number */
-                            while (*b && (*b >= '0' && *b <= '9' || *b == '.' || *b == 'x' || *b == 'X' ||
+                            while (*b && ((*b >= '0' && *b <= '9') || *b == '.' || *b == 'x' || *b == 'X' ||
                                    *b == 'a' || *b == 'b' || *b == 'c' || *b == 'd' || *b == 'e' || *b == 'f' ||
                                    *b == 'A' || *b == 'B' || *b == 'C' || *b == 'D' || *b == 'E' || *b == 'F' ||
                                    *b == 'u' || *b == 'U' || *b == 'l' || *b == 'L')) {

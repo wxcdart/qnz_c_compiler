@@ -10,10 +10,11 @@
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
+#include "zero_cc/semantic.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 
-static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Scope *global_scope, Arena *perm, Arena *tmp) {
+static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||

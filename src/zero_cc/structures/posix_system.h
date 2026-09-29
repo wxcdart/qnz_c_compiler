@@ -109,7 +109,7 @@ static inline int zero_posix_gethostname(char *name, size_t len) {
 #elif defined(ZERO_PLATFORM_POSIX) && !defined(ZERO_FREESTANDING) && !defined(ZERO_NOLIBC)
     return gethostname(name, len);
 #else
-    if (name && len > 0) zero_posix_snprintf(name, len, "localhost");
+    if (name && len > 0) snprintf(name, len, "localhost");
     return 0;
 #endif
 }

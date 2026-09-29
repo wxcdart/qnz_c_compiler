@@ -44,7 +44,6 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         return;
     }
     // Save the global scope pointer (root of scope chain)
-    Scope *global_scope = shared_ctx.current_scope;
     // Register standard library functions if any
 
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
@@ -191,7 +190,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
         size_t prev_pos = c->token_pos;
         /* Top level functions */
-        zero_cc_compile_function(c, &shared_ctx, global_scope, perm, tmp);
+        zero_cc_compile_function(c, &shared_ctx, perm);
         if (c->had_error) break;
         if (c->token_pos == prev_pos) {
             c->token_pos++;
