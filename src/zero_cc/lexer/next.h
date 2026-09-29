@@ -1,17 +1,44 @@
+/* Get Next Token - Main Lexer Function */
 #ifndef ZERO_CC_LEXER_NEXT_H
 #define ZERO_CC_LEXER_NEXT_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
+/* Get next token - main lexer function */
+int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
+    if (!lx || !out || !lx->src || !lx->cur) return -1;
 
-#include "../types_lexer.h"
-#include "../lexer.h"
+    const char *s = lx->cur;
+    size_t line = lx->line;
+    size_t col = lx->col;
+    size_t offset = lx->offset;
 
+    /* Skip whitespace */
+    while (*s && isspace((unsigned char)*s)) {
+        if (*s == '\n') { line++; col = 1; }
+        else col++;
+        s++; offset++;
+    }
+
+    lx->cur = s;
+    lx->line = line;
+    lx->col = col;
+    lx->offset = offset;
+
+    if (!*s) {
+        /* EOF token */
+        memset(out, 0, sizeof(*out));
+        out->type = TK_EOF;
+        out->line = line;
+        out->col = col;
+        out->src = s;
+        out->len = 0;
+        lx->cur = s;
+        lx->line = line;
+        lx->col = col;
+        lx->offset = offset;
+        return 1;
+    }
+
+    /* Initialize token */
     memset(out, 0, sizeof(*out));
     out->src = s;
     out->filename = lx->filename;
@@ -83,7 +110,7 @@
         int is_char = (s[1] == '\'');
         s++; offset++; col++;
         lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
-        int ret = is_char ? scan_char(lx, out) : scan_string(lx, out);
+        int ret = is_char ? zero_cc_scan_char(lx, out) : zero_cc_scan_string(lx, out);
         out->src = s - 1;
         out->len++;
         return ret;
@@ -92,7 +119,7 @@
         int is_char = (s[2] == '\'');
         s += 2; offset += 2; col += 2;
         lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
-        int ret = is_char ? scan_char(lx, out) : scan_string(lx, out);
+        int ret = is_char ? zero_cc_scan_char(lx, out) : zero_cc_scan_string(lx, out);
         out->src = s - 2;
         out->len += 2;
         return ret;
@@ -100,37 +127,31 @@
 
     /* Character literal */
     if (*s == '\'') {
-        int ret = scan_char(lx, out);
+        int ret = zero_cc_scan_char(lx, out);
         return ret;
     }
 
     /* String literal */
     if (*s == '"') {
-        int ret = scan_string(lx, out);
+        int ret = zero_cc_scan_string(lx, out);
         return ret;
     }
 
     /* Numeric literal */
     if (isdigit((unsigned char)*s) || (*s == '.' && isdigit((unsigned char)s[1]))) {
-        int ret = scan_number(lx, out);
+        int ret = zero_cc_scan_number(lx, out);
         return ret;
     }
 
     /* Identifier or keyword */
     if (isalpha((unsigned char)*s) || *s == '_') {
-        int ret = scan_identifier(lx, out);
+        int ret = zero_cc_scan_identifier(lx, out);
         return ret;
     }
 
     /* Operators and punctuation */
-    int ret = scan_operator(lx, out);
+    int ret = zero_cc_scan_operator(lx, out);
     return ret;
 }
-
-/* Scan a character literal */
-static int scan_char(ZeroCCLexer *lx, ZeroCCToken *tok) {
-    const char *start = lx->cur;
-    size_t line = lx->line;
-    size_t col = lx->col;
 
 #endif /* ZERO_CC_LEXER_NEXT_H */

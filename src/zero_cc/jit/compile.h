@@ -11,6 +11,7 @@
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
+#include "zero_cc/semantic/visitor.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Scope *global_scope, Arena *perm, Arena *tmp) {
     /* Skip static / inline / const / _Noreturn */

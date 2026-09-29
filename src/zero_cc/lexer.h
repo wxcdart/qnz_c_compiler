@@ -1,9 +1,8 @@
+/* Lexer - Modular Headers */
 #ifndef ZERO_CC_LEXER_H
 #define ZERO_CC_LEXER_H
 
 #include "types_lexer.h"
-
-
 
 /* Lexer state */
 typedef struct {
@@ -15,23 +14,17 @@ typedef struct {
     size_t      offset;   /* byte offset from src start */
 } ZeroCCLexer;
 
-/* Initialize lexer */
-void zero_cc_lexer_init(ZeroCCLexer *lx, const char *src);
-void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename);
+/* Forward declarations for scan functions */
+static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok);
+static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok);
+static int zero_cc_scan_char(ZeroCCLexer *lx, ZeroCCToken *tok);
+static int zero_cc_scan_identifier(ZeroCCLexer *lx, ZeroCCToken *tok);
+static int zero_cc_scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok);
+static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, int *out_val);
 
-/* Get next token; returns 0 on success, 1 on EOF, -1 on error */
-int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out);
-
-/* Convenience: tokenize entire source into compiler's token array */
-void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c);
-
-/* Free dynamically allocated memory in a token */
-void zero_cc_token_free(ZeroCCToken *tok);
-
-/* Free all dynamically allocated tokens in a compiler context */
-void zero_cc_compiler_free_tokens(ZeroCCCompiler *c);
-
-/* Keyword lookup using perfect hash from generated table */
-ZeroCCTokType zero_cc_keyword_lookup(const char *s, size_t len);
+#include "lexer/init.h"
+#include "lexer/next.h"
+#include "lexer/scan.h"
+#include "lexer/tokenize.h"
 
 #endif /* ZERO_CC_LEXER_H */

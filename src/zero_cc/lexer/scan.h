@@ -1,18 +1,251 @@
-#ifndef ZERO_CC_LEXER_SCAN_NUMBER_H
-#define ZERO_CC_LEXER_SCAN_NUMBER_H
+/* Token Scanning Functions */
+#ifndef ZERO_CC_LEXER_SCAN_H
+#define ZERO_CC_LEXER_SCAN_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
+/* Handle escape sequences */
+static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, int *out_val) {
+    if (!s || !*s || !**s) return 0;
 
-#include "../types_lexer.h"
-#include "../lexer.h"
+    char esc = **s;
+    int val = 0;
+    int handled = 1;
 
-static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
+    switch (esc) {
+        case 'a': val = '\a'; break;
+        case 'b': val = '\b'; break;
+        case 'f': val = '\f'; break;
+        case 'n': val = '\n'; break;
+        case 'r': val = '\r'; break;
+        case 't': val = '\t'; break;
+        case 'v': val = '\v'; break;
+        case '\\': val = '\\'; break;
+        case '\'': val = '\''; break;
+        case '"': val = '"'; break;
+        case '?': val = '?'; break;
+        case '0': val = '\0'; break;
+        case 'e': case 'E': val = 0x1B; break; /* GNU escape: \e */
+        case 'u': {
+            /* \uXXXX */
+            const char *p = *s + 1;
+            int hex = 0, digits = 0;
+            while (digits < 4 && isxdigit((unsigned char)*p)) {
+                char c = *p++;
+                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                digits++;
+            }
+            if (digits == 4) {
+                val = hex;
+                *offset += digits;
+                *s = p - 1;
+            } else {
+                handled = 0;
+                val = (unsigned char)'u';
+            }
+            break;
+        }
+        case 'U': {
+            /* \UXXXXXXXX */
+            const char *p = *s + 1;
+            int hex = 0, digits = 0;
+            while (digits < 8 && isxdigit((unsigned char)*p)) {
+                char c = *p++;
+                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                digits++;
+            }
+            if (digits == 8) {
+                val = hex;
+                *offset += digits;
+                *s = p - 1;
+            } else {
+                handled = 0;
+                val = (unsigned char)'U';
+            }
+            break;
+        }
+        case 'x': {
+            /* Hex escape: \xhh */
+            const char *p = *s + 1;
+            int hex = 0;
+            int digits = 0;
+            while (digits < 2 && isxdigit((unsigned char)*p)) {
+                char c = *p++;
+                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                digits++;
+            }
+            if (digits == 0) {
+                handled = 0;
+                val = (unsigned char)'x';
+            } else {
+                val = hex;
+                *offset += digits;
+                *s = p - 1;
+            }
+            break;
+        }
+        default:
+            /* Octal escape: \ooo (up to 3 octal digits) */
+            if (esc >= '0' && esc <= '7') {
+                int oct = 0;
+                int digits = 0;
+                const char *p = *s;
+                while (digits < 3 && *p >= '0' && *p <= '7') {
+                    oct = oct * 8 + (*p - '0');
+                    p++; digits++; (*offset)++;
+                }
+                val = oct;
+                *s = p - 1;
+            } else {
+                handled = 0;
+                val = (unsigned char)esc;
+            }
+            break;
+    }
+
+    if (out_val) *out_val = val;
+    if (out_str && handled) *out_str = (char)val;
+    return handled;
+}
+
+/* Scan a character literal */
+static int zero_cc_scan_char(ZeroCCLexer *lx, ZeroCCToken *tok) {
+    const char *start = lx->cur;
+    size_t line = lx->line;
+    size_t col = lx->col;
+    size_t offset = lx->offset;
+
+    const char *s = lx->cur;
+    s++; offset++; col++;  /* skip opening ' */
+
+    if (!*s) {
+        tok->type = TK_EOF;
+        return -1;
+    }
+
+    int val = 0;
+    if (*s == '\\') {
+        s++; offset++; col++;
+        if (!*s) {
+            tok->type = TK_EOF;
+            return -1;
+        }
+        if (!zero_cc_handle_escape(&s, &offset, tok->str_val, &val)) {
+            /* Invalid escape, but we continue */
+            val = (unsigned char)*s;
+        }
+        s++; offset++; col++;
+    } else {
+        val = (unsigned char)*s;
+        s++; offset++; col++;
+    }
+
+    if (*s == '\'') {
+        s++; offset++; col++;
+    } else {
+        /* Unterminated character literal - continue anyway */
+    }
+
+    tok->type = TK_CHAR_LIT;
+    tok->num_val = val;
+    tok->len = s - start;
+    tok->line = line;
+    tok->col = col;
+
+    lx->cur = s;
+    lx->line = line;
+    lx->col = col;
+    lx->offset = offset;
+    return 0;
+}
+
+/* Scan a string literal */
+static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
+    const char *start = lx->cur;
+    size_t line = lx->line;
+    size_t col = lx->col;
+    size_t offset = lx->offset;
+
+    size_t sl = 0;
+    size_t cap = sizeof(tok->str_val);
+    char *buf = tok->str_val;
+    tok->type = TK_STRING;
+    tok->allocated_str = NULL;
+
+    const char *s = lx->cur;
+
+    while (*s == '"') {
+        s++; offset++; col++;  /* skip opening " */
+        while (*s && *s != '"') {
+            char esc_ch = 0;
+            if (*s == '\\' && s[1]) {
+                s++; offset++; col++;
+                char esc = *s;
+                int char_val = 0;
+                if (!zero_cc_handle_escape(&s, &offset, NULL, &char_val)) {
+                    char_val = (unsigned char)esc;
+                }
+                esc_ch = (char)char_val;
+                s++; offset++; col++;
+            } else {
+                esc_ch = *s;
+                if (*s == '\n') { line++; col = 1; }
+                else col++;
+                s++; offset++;
+            }
+
+            /* Append char, resizing dynamically if needed */
+            if (sl + 1 >= cap) {
+                if (buf == tok->str_val) {
+                    cap = 256;
+                    buf = (char *)malloc(cap);
+                    if (buf) {
+                        memcpy(buf, tok->str_val, sl);
+                        tok->allocated_str = buf;
+                    } else {
+                        buf = tok->str_val; /* fallback */
+                    }
+                } else {
+                    cap *= 2;
+                    char *new_buf = (char *)realloc(buf, cap);
+                    if (new_buf) {
+                        buf = new_buf;
+                        tok->allocated_str = buf;
+                    }
+                }
+            }
+            if (buf != tok->str_val || sl < sizeof(tok->str_val) - 1) {
+                buf[sl++] = esc_ch;
+            }
+        }
+        if (*s == '"') {
+            s++; offset++; col++;  /* skip closing " */
+        }
+        /* Skip whitespace between string literals (concatenation) */
+        while (*s && isspace((unsigned char)*s)) {
+            if (*s == '\n') { line++; col = 1; }
+            else col++;
+            s++; offset++;
+        }
+    }
+
+    buf[sl] = '\0';
+    if (buf != tok->str_val) {
+        /* Keep first 127 bytes in str_val for compatibility with functions accessing str_val directly */
+        memcpy(tok->str_val, buf, sizeof(tok->str_val) - 1);
+        tok->str_val[sizeof(tok->str_val) - 1] = '\0';
+    }
+    tok->len = s - start;
+    tok->line = line;
+    tok->col = col;
+
+    lx->cur = s;
+    lx->line = line;
+    lx->col = col;
+    lx->offset = offset;
+    return 0;
+}
+
+/* Scan a numeric literal (integer or floating point) */
+static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
     const char *start = lx->cur;
     size_t line = lx->line;
     size_t col = lx->col;
@@ -186,7 +419,7 @@ static int scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
 }
 
 /* Scan an identifier or keyword */
-static int scan_identifier(ZeroCCLexer *lx, ZeroCCToken *tok) {
+static int zero_cc_scan_identifier(ZeroCCLexer *lx, ZeroCCToken *tok) {
     const char *start = lx->cur;
     size_t line = lx->line;
     size_t col = lx->col;
@@ -213,7 +446,7 @@ static int scan_identifier(ZeroCCLexer *lx, ZeroCCToken *tok) {
 }
 
 /* Scan operators and punctuation */
-static int scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok) {
+static int zero_cc_scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok) {
     const char *start = lx->cur;
     size_t line = lx->line;
     size_t col = lx->col;
@@ -294,5 +527,6 @@ static int scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok) {
 
     lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
     return 0;
+}
 
-#endif /* ZERO_CC_LEXER_SCAN_NUMBER_H */
+#endif /* ZERO_CC_LEXER_SCAN_H */
