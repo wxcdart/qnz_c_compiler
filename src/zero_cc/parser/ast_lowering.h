@@ -680,6 +680,37 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             me_emit_u8(c, 0x00);
             break;
         }
+        case NODE_MEMBER: {
+            /* Evaluate base expression (struct/union/pointer) */
+            lower_expr(c, arena, node->left);
+            /* rax now has the base address */
+            
+            /* Get member offset from aux.extra (set during semantic analysis) */
+            int32_t offset = (int32_t)node->aux.extra;
+            
+            /* Add offset to base address: mov rax, [rax + offset] */
+            if (offset == 0) {
+                /* No offset: just dereference */
+                me_emit_u8(c, 0x48);
+                me_emit_u8(c, 0x8B);
+                me_emit_u8(c, 0x00); /* mov rax, [rax] */
+            } else if (offset >= -128 && offset <= 127) {
+                /* 8-bit displacement: mov rax, [rax + disp8] */
+                me_emit_u8(c, 0x48);
+                me_emit_u8(c, 0x8B);
+                me_emit_u8(c, 0x40); /* mov rax, [rax + disp8] */
+                me_emit_u8(c, (uint8_t)offset);
+            } else {
+                /* 32-bit displacement: mov rax, [rax + disp32] */
+                me_emit_u8(c, 0x48);
+                me_emit_u8(c, 0x8B);
+                me_emit_u8(c, 0x80); /* mov rax, [rax + disp32] */
+                me_emit_u32(c, offset);
+            }
+            /* Result is in rax, not float */
+            c->last_expr_is_float = 0;
+            break;
+        }
         case NODE_CALL: {
             ASTRef arg = node->right;
             int arg_count = 0;
