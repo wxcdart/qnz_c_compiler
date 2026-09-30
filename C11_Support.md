@@ -4,13 +4,28 @@ This document tracks the plan, milestones, and status for bringing **C11**
 language support to `zero_cc`. It is the companion to the test suite in
 `test/` and the `Makefile` used to build/run those tests.
 
-The long‑term goal is: once zero_cc understands a useful subset of C11, we
-will write a thin self‑hosting driver (`zcc.c`) that uses zero_cc's own
-JIT/ELF back‑ends to compile C source — including, eventually, itself.
+## Long-Term Goal: Self-Hosting Compiler
+
+Once zero_cc understands a useful subset of C11, we will write a thin
+self‑hosting driver (`zcc.c`) that uses zero_cc's own JIT/ELF back‑ends
+to compile C source — including, eventually, itself.
 
 **Do not attempt self‑hosting before this plan is complete.** Real‑world C
 code (and the zero_cc sources themselves) rely on C11 features such as
 `_Static_assert`, `_Alignas`, and `_Atomic`.
+
+## Backend Architecture
+
+C11 features are implemented using a **modular backend architecture**:
+
+| Feature | Backend | Status |
+|---------|---------|--------|
+| `_Thread_local` | `tls_backend` | In Progress |
+| `_Atomic` | `atomic_backend` | Planned |
+| `_Alignas` / `_Alignof` | `abi_backend` | Planned |
+| `inline` semantics | `isa_backend` | Planned |
+
+See [`TLS_IMPLEMENTATION_PLAN.md`](TLS_IMPLEMENTATION_PLAN.md) for cross-platform TLS details.
 
 ---
 
@@ -187,17 +202,33 @@ misparsing.
 
 ### Milestone 5 — `_Thread_local`
 
-**Goal:** Provide tokenizer support for `_Thread_local` and later extend the parser to treat it as a static alias (Policy A) in the freestanding/JIT implementation.
+**Goal:** Full C11 `_Thread_local` support using system TLS on each platform.
 
 **Work items**
-- [x] Parser: accept `_Thread_local` as a storage-class specifier in variable declarations, skipped before type parsing.
-- [x] Code‑gen: variables declared with `_Thread_local` are emitted as normal locals/globals — same semantics as `static` for this JIT implementation.
-- [x] Document the limitation in `README.md` under "Known Limitations".
-- [ ] (Future/Policy B, not in this milestone) real TLS via
-      `pthread_key_create`/`__thread` — tracked as a follow‑up item, not
-      required for C11 baseline.
+- [x] Parser: accept `_Thread_local` as a storage-class specifier in variable declarations.
+- [x] Backend: `tls_backend` interface for platform-specific TLS access.
+- [x] x86-64 Linux: `fs` segment access (musl/glibc).
+- [x] x86-64 Windows/macOS: `gs` segment access (UCRT/libc).
+- [x] aarch64: `x28` register (TLS register per ABI).
+- [x] riscv64: `tp` register (TLS register).
+- [ ] Baremetal: Custom `TLSBlock` implementation (no C library).
+- [ ] Full mutable write support (currently static alias).
+- [ ] Address-of operator (`&tls_var`) support.
 
-**Test:** `test/tls.c` — passes with the `static` alias semantics.
+**Platform Support:**
+
+| Platform | C Library | TLS Access |
+|----------|-----------|------------|
+| Linux x86-64 | musl/glibc | `fs` segment |
+| Linux aarch64/riscv64 | musl/glibc | `x28`/`tp` register |
+| Windows x86-64 | UCRT | `gs` segment |
+| macOS x86-64/aarch64 | libc | `gs` segment / `x28` |
+| Baremetal | None | Custom TLSBlock |
+
+See [`TLS_IMPLEMENTATION_PLAN.md`](TLS_IMPLEMENTATION_PLAN.md) for details.
+
+**Test:** `test/tls.c` — currently passes with static alias semantics.
+Future tests: `test/tls_write.c`, `test/tls_address.c` for full support.
 
 ---
 

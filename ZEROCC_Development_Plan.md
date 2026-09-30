@@ -1,8 +1,17 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-09-29. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-10-01. Findings are **grounded in actual source inspection** of
 > [`parser.c`](src/zero_cc/parser.c), [`types_lexer.h`](src/zero_cc/types_lexer.h),
 > [`lexer.c`](src/zero_cc/lexer.c), and the `lower_node()` / `lower_expr()` switch statements.
+
+## Goal: Self-Hosting C11 Compiler
+
+ZeroCC is designed to eventually **self-host** (compile itself). Architecture supports:
+
+- **Modular design**: Separate source files, not single-header
+- **Multi-ISA**: x86-64, aarch64, riscv64 backends
+- **C11 conformance**: TLS, Atomic, Alignment, Generic selection
+- **Cross-platform**: Linux, Windows, macOS, baremetal
 
 ---
 
@@ -18,7 +27,7 @@
 | Diagnostics | 0 | 1 | 2 |
 | **Sprint 1** | **✅ Complete** | | |
 | **Sprint 2** | **✅ Complete** | | |
-| **Sprint 2.5** | **📋 Planned** | | |
+| **Sprint 3** | **✅ Complete** | | |
 | **Total** | **43** | **22** | **23** |
 
 > **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
@@ -256,50 +265,60 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
-### Sprint 3 – Code generation depth (Weeks 9–13)
+### Sprint 3 – Multi-ISA Backend & VREG System (Weeks 9–13) ✅
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 23 | Virtual Register (VREG) system | 1 week | ✅ |
+| 24 | Multi-ISA backends (x86-64, aarch64, riscv64) | 2 weeks | ✅ |
+| 25 | Backend architecture cleanup | 3 days | ✅ |
+| 26 | TLS backend (system TLS) | 1 week | ✅ |
+| 27 | x86-64 encoding bug fixes | 3 days | ✅ |
+
+### Sprint 4 – Code generation depth (Weeks 14–18)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 23 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week |
-| 24 | Struct return by value (hidden-pointer calling convention) | 1 week |
-| 25 | `va_arg` expansion | 1 week |
-| 26 | Linear-scan register allocator | 2 weeks |
-| 27 | Global variable storage emission (`.data` / `.bss`) | 3 days |
+| 28 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week |
+| 29 | Struct return by value (hidden-pointer calling convention) | 1 week |
+| 30 | `va_arg` expansion | 1 week |
+| 31 | Linear-scan register allocator | 2 weeks |
+| 32 | Global variable storage emission (`.data` / `.bss`) | 3 days |
 
 ---
 
-### Sprint 4 – Type system completeness (Weeks 14–16)
+### Sprint 5 – Type system completeness (Weeks 19–21)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 28 | `union` proper layout (overlapping members) | 3 days |
-| 29 | Bit-fields | 1 week |
-| 30 | Flexible array members | 2 days |
-| 31 | Anonymous struct/union members | 3 days |
-| 32 | VLA (dynamic stack allocation) | 1 week |
-| 33 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week |
-| 34 | `const` / `volatile` semantic enforcement | 3 days |
+| 33 | `union` proper layout (overlapping members) | 3 days |
+| 34 | Bit-fields | 1 week |
+| 35 | Flexible array members | 2 days |
+| 36 | Anonymous struct/union members | 3 days |
+| 37 | VLA (dynamic stack allocation) | 1 week |
+| 38 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week |
+| 39 | `const` / `volatile` semantic enforcement | 3 days |
 
 ---
 
-### Sprint 5 – Diagnostics, Testing & CI (Weeks 17–19)
+### Sprint 6 – Diagnostics, Testing & CI (Weeks 22–24)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 35 | Rich diagnostics: `file:line:col: error: …` format | 1 week |
-| 36 | Warning vs. error distinction | 2 days |
-| 37 | Regression test suite (bootstrap from TCC corpus) | 2 weeks |
-| 38 | GitHub Actions CI (`make clean && make test`) | 1 day |
+| 40 | Rich diagnostics: `file:line:col: error: …` format | 1 week |
+| 41 | Warning vs. error distinction | 2 days |
+| 42 | Regression test suite (bootstrap from TCC corpus) | 2 weeks |
+| 43 | GitHub Actions CI (`make clean && make test`) | 1 day |
 
 ---
 
-### Sprint 6 – Cross-platform (Weeks 20–22)
+### Sprint 7 – Cross-platform (Weeks 25–27)
 
 | Priority | Task | Effort |
 |----------|------|--------|
-| 39 | ARM64 backend (complete TODOs in `types_lexer.h`) | 3 weeks |
-| 35 | PE/COFF backend (Windows) | 3 weeks |
-| 36 | `STATIC=1` make flag for static binaries | 3 days |
+| 44 | ARM64 backend (complete TODOs in `types_lexer.h`) | 3 weeks |
+| 45 | PE/COFF backend (Windows) | 3 weeks |
+| 46 | `STATIC=1` make flag for static binaries | 3 days |
 
 ---
 
@@ -308,13 +327,14 @@ Extended pragma directive support for better compatibility with real-world C cod
 | Week | Work |
 |------|------|
 | 0.5 | **Sprint 0.5** – Include architecture hardening (forward decls, circular include fixes) ✅ |
-| 1–3 | **Sprint 1** – lower_node/lower_expr gap fill (float, string, ternary, member, subscript) |
-| 4–7 | **Sprint 2** – New parsing (goto, globals, extern, macros) |
-| 8–12 | **Sprint 3** – Codegen depth (FP, structs, va_arg, register alloc) |
-| 13–15 | **Sprint 4** – Type system completeness |
-| 16–18 | **Sprint 5** – Diagnostics, tests, CI |
-| 19–21 | **Sprint 6** – Cross-platform backends |
-| 22 | Final release, docs, tag `v1.0` |
+| 1–3 | **Sprint 1** – lower_node/lower_expr gap fill (float, string, ternary, member, subscript) ✅ |
+| 4–7 | **Sprint 2** – New parsing (goto, globals, extern, macros) ✅ |
+| 8–12 | **Sprint 3** – Multi-ISA Backend & VREG System ✅ |
+| 13–18 | **Sprint 4** – Codegen depth (FP, structs, va_arg, register alloc) |
+| 19–21 | **Sprint 5** – Type system completeness |
+| 22–24 | **Sprint 6** – Diagnostics, tests, CI |
+| 25–27 | **Sprint 7** – Cross-platform backends |
+| 28 | Final release, docs, tag `v1.0` |
 
 ---
 
