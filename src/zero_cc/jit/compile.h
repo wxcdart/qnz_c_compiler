@@ -13,9 +13,7 @@
 #include "zero_cc/semantic.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
-#include "zero_cc/parser/ir.h"
-#include "zero_cc/parser/regalloc.h"
-#include "zero_cc/parser/live_range.h"
+#include "zero_cc/parser/ir_emitter.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
