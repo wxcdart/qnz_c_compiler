@@ -2,7 +2,7 @@
 #ifndef ZERO_CC_STATEMENTS_CONTROL_H
 #define ZERO_CC_STATEMENTS_CONTROL_H
 
-#include "../statements.h"
+#include "zero_cc/statements.h"
 
 /* Compound Block: { stmt* } */
 static inline void zero_cc_stmt_block(ZeroCCCompiler *c) {

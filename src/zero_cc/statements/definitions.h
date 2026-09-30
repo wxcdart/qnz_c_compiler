@@ -2,7 +2,7 @@
 #ifndef ZERO_CC_STATEMENTS_DEFINITIONS_H
 #define ZERO_CC_STATEMENTS_DEFINITIONS_H
 
-#include "../statements.h"
+#include "zero_cc/statements.h"
 
 /* Forward declaration */
 /* Typedef Struct Definition */

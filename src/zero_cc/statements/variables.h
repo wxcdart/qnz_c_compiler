@@ -2,7 +2,7 @@
 #ifndef ZERO_CC_STATEMENTS_VARIABLES_H
 #define ZERO_CC_STATEMENTS_VARIABLES_H
 
-#include "../statements.h"
+#include "zero_cc/statements.h"
 
 /* Variable Declaration */
 static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t decl_align_spec) {
