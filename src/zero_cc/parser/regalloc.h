@@ -78,6 +78,11 @@ static void regalloc_init(RegAllocator *ra) __attribute__((unused));
 static void regalloc_init(RegAllocator *ra) {
     if (!ra) return;
     
+    
+    /* Free old intervals */
+    free(ra->intervals);
+    free(ra->active);
+    
     ra->intervals = NULL;
     ra->interval_count = 0;
     ra->interval_capacity = 0;
@@ -98,6 +103,7 @@ static void regalloc_init(RegAllocator *ra) {
 static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, size_t end, RegClass reg_class) __attribute__((unused));
 static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, size_t end, RegClass reg_class) {
     if (!ra) return -1;
+    
     
     if (ra->interval_count >= ra->interval_capacity) {
         size_t new_cap = ra->interval_capacity ? ra->interval_capacity * 2 : 64;
@@ -192,6 +198,7 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
 static void regalloc_allocate(RegAllocator *ra) __attribute__((unused));
 static void regalloc_allocate(RegAllocator *ra) {
     if (!ra || ra->interval_count == 0) return;
+    
     
     /* Sort intervals by start position */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));

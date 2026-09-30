@@ -4,90 +4,51 @@
 
 ## Phase 2 Complete: Pass 1 (Instruction Selection) ✅
 
+## Phase 3: Register Allocation Integration - In Progress ⏸️
+
 ### What We Built
 
-**IR Buffer** (`src/zero_cc/parser/ir.h`):
-- 64K instruction buffer (512KB, packed 8-byte instructions)
-- O(1) emit and reset
-- Overflow protection
+**Live Range Analysis** (`src/zero_cc/parser/live_range.h`):
+- Tracks temp uses/defs from IR instructions
+- Computes live intervals for each temporary
+- Integrates with existing regalloc.h infrastructure
 
-**Opcode Definitions**:
-- 57 opcodes defined (50 main + 7 special)
-- Data movement (10): MOV, LEA, PUSH, POP
-- Arithmetic (10): ADD, SUB, MUL, DIV, MOD, NEG, INC, DEC
-- Logical (8): AND, OR, XOR, NOT, LNOT, SHL, SHR, SAR
-- Comparison (6): CMP, TEST, SETcc
-- Control flow (6): JMP, JE, JNE, JL, JLE, JG
-- Function (4): CALL, CALL_INDIRECT, RET, LEAVE
-- Special (6): LABEL, DEREF, CMP_ZERO, SET_E, SET_NE, STACK_ALIGN
+**Key Functions**:
+- `live_range_init()` - Initialize analyzer
+- `live_range_add_use()` - Record temp use/def
+- `live_range_scan_ir()` - Scan IR for temp uses/defs
+- `live_range_compute()` - Compute live intervals
+- `live_range_free()` - Free analyzer
 
-**Helper Functions**:
-- `ir_emit_mov_imm()` - Move immediate to temp
-- `ir_emit_add/sub/mul()` - Binary operations
-- `ir_emit_label/jmp/je/ret()` - Control flow
+### Current Status
 
-**Opcode Name Function**:
-- `ir_opcode_name()` - Debugging support
+**IR Emission**: Working for most expression types (BINOP, UNOP, TERNARY, CALL, IDENT, ASSIGN)
 
-**Integration**:
-- Added to `compile_unit.h` (global init)
-- Added to `compile.h` (per-function reset)
-- Added `ir_next_label` to compiler state
+**Register Allocation**: Temporarily disabled pending IR emission fixes
 
-**Dual Emission Mode**:
-- IR emitted alongside machine code for all expression types
-- Machine code continues to work (all tests pass)
-- IR tracks virtual register operations for future register allocation
-
-### IR Coverage
-
-| AST Node | IR Emission | Status |
-|----------|-------------|--------|
-| NODE_INT | None (literal) | ✅ |
-| NODE_FLOAT | None (deferred) | ⏸️ |
-| NODE_BINOP | Full (all operators) | ✅ |
-| NODE_UNOP | Full (deref, neg, lnot, not) | ✅ |
-| NODE_TERNARY | Full (conditional, labels) | ✅ |
-| NODE_CALL | Full (function calls) | ✅ |
-| NODE_IDENT | Full (local/global) | ✅ |
-| NODE_ASSIGN | Full (store) | ✅ |
-
-**Coverage**: ~90% of expression types covered
+**Issue**: Some test cases (e.,g., `abi_sum_jit`) show IR count = 0, indicating IR emission not working correctly
 
 ### Files Created/Modified
 
 | File | Changes |
 |------|---------|
-| `src/zero_cc/parser/ir.h` | NEW: IR buffer + 57 opcodes + helper functions |
-| `src/zero_cc/jit/compile_unit.h` | Include ir.h |
-| `src/zero_cc/jit/compile.h` | Include ir.h, reset IR per function, reset labels |
-| `src/zero_cc/parser/ast_lowering.h` | Include ir.h, emit IR for all expression types |
-| `src/zero_cc/types/symbols.h` | Added ir_next_label field |
-| `test/ir_test.c` | NEW: Unit tests for IR buffer |
-| `test/ir_opcodes_test.c` | NEW: Unit tests for opcodes |
-| `test/float_arithmetic_jit.c` | NEW: Float arithmetic test (deferred) |
-| `test/float_debug.c` | NEW: Float debugging |
-| `test/float_debug2.c` | NEW: Float debugging |
-| `test/float_debug3.c` | NEW: Float debugging |
+| `src/zero_cc/parser/live_range.h` | NEW: Live range analysis infrastructure |
+| `src/zero_cc/jit/compile.h` | Include live_range.h, register allocation integration (disabled) |
+| `src/zero_cc/parser/ir.h` | Added ir_get_buffer() for live range analysis |
 
 ### Test Results
 
 - **IR Unit Tests**: ✅ All pass
 - **Opcode Tests**: ✅ All pass
-- **JIT Tests**: ✅ All 71 pass
+- **JIT Tests**: ✅ All 71 pass (with machine code path)
 - **Total**: ✅ 73/73 tests passing
 
-## Next Steps: Phase 3 (Register Allocation Integration)
+## Next Steps: Complete Phase 3
 
-1. **Compute Live Ranges**: Track when virtual registers are defined and used
-
-2. **Run Linear-Scan**: Integrate with existing regalloc.h infrastructure
-
-3. **Assign Physical Registers**: Map virtual temps to RAX, RCX, etc.
-
-4. **Handle Spills**: Generate load/store for registers that don't fit
-
-5. **Build Pass 2**: Replace machine code emission with IR-based code generation
+1. **Fix IR emission**: Debug why IR count is 0 for some test cases
+2. **Enable register allocation**: Once IR emission is working
+3. **Build Pass 2**: Generate machine code from IR using allocated registers
+4. **Remove dual emission**: Transition to IR-only code generation
 
 ## Architecture Summary
 
@@ -104,12 +65,3 @@ AST → Pass 1 (IR + Machine Code) → Execute
 ```
 AST → Pass 1 (IR) → Live Analysis → RegAlloc → Pass 2 (Machine Code) → Execute
 ```
-
-## Phase 2 Summary
-
-Phase 2 is now complete! We have successfully implemented instruction selection that:
-- Emits IR for all core expression types (BINOP, UNOP, TERNARY, CALL, IDENT, ASSIGN)
-- Maintains dual emission mode (IR + machine code) for testing
-- Provides the foundation for register allocation integration in Phase 3
-
-The IR buffer is ready to receive live range analysis and register allocation.

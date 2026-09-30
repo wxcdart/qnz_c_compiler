@@ -241,7 +241,7 @@ ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
             zero_cc_lower_ast(c, &arena, body);
             
             /* Pass 2: Compute live ranges and allocate registers */
-            /* TODO: Enable when IR emission is working correctly */
+            /* TODO: Enable when register allocation is fully integrated */
             /* LiveRangeAnalyzer lra;
             live_range_init(&lra);
             live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());

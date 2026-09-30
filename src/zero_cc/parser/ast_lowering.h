@@ -1108,6 +1108,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset temp variable tracking */
     temp_var_count = 0;
     
+    
     /* Lower AST to machine code */
     lower_node(c, arena, root);
     

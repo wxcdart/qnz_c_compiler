@@ -124,6 +124,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) __attri
 static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
     if (!lra || !ra) return;
     
+    
     /* Process each temp that was defined */
     for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
         if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
@@ -132,6 +133,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         
         size_t start = lra->temp_def_pos[temp_id];
         size_t end = lra->temp_live_end[temp_id];
+        
         
         /* Skip if start > end (shouldn't happen, but be safe) */
         if (start > end) continue;
@@ -162,15 +164,15 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         }
         
         /* Record destination temp (definition) - skip 0xFF (no temp) */
-        if (instr->temp_dest != 0xFF && instr->temp_dest < 256) {
+        if (instr->temp_dest != 0xFF) {
             live_range_add_use(lra, i, instr->temp_dest, true);
         }
         
         /* Record source temps (uses) - skip 0xFF (no temp) */
-        if (instr->temp_src1 != 0xFF && instr->temp_src1 < 256) {
+        if (instr->temp_src1 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src1, false);
         }
-        if (instr->temp_src2 != 0xFF && instr->temp_src2 < 256) {
+        if (instr->temp_src2 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src2, false);
         }
     }
@@ -191,4 +193,5 @@ static const char *live_range_get_reg_name(RegClass reg_class, int reg_index) {
 }
 
 #endif /* ZERO_CC_PARSER_LIVE_RANGE_H */
+
 

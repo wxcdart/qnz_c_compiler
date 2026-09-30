@@ -145,8 +145,9 @@ typedef struct __attribute__((packed)) {
 } Instr;
 
 /* Global instruction buffer (shared across all functions) */
-static Instr instrs[MAX_INSTRS];
-static size_t instr_count = 0;
+/* Defined in ir.c, declared extern here */
+extern Instr instrs[MAX_INSTRS];
+extern size_t instr_count;
 
 /* Get instruction buffer (for live range analysis) */
 static inline const Instr *ir_get_buffer(void) {
@@ -214,6 +215,3 @@ static inline void ir_emit_ret(void) {
 #endif /* ZERO_CC_IR_H */
 
 /* Debug: Print IR count */
-/* static inline void debug_print_ir_count(void) {
-    fprintf(stderr, "IR count: %zu\n", instr_count);
-} */
