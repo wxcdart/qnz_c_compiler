@@ -272,7 +272,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 23 | Virtual Register (VREG) system | 1 week | ✅ |
 | 24 | Multi-ISA backends (x86-64, aarch64, riscv64) | 2 weeks | ✅ |
 | 25 | Backend architecture cleanup | 3 days | ✅ |
-| 26 | TLS backend (system TLS) | 1 week | ✅ |
+| 26 | TLS backend (system TLS with fs/gs segments) | 1 week | ✅ |
 | 27 | x86-64 encoding bug fixes | 3 days | ✅ |
 
 ### Sprint 4 – Code generation depth (Weeks 14–18)

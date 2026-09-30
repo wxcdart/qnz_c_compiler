@@ -24,7 +24,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 #### Backend Architecture
 - Unified backend interface (`zero_cc_backends.h`)
-- TLS backend (`tls_backend`) for `_Thread_local`
+- TLS backend (`tls_backend`) for `_Thread_local` ✅ Complete
 - Atomic backend (`atomic_backend`) for `_Atomic`
 - ABI backend (`abi_backend`) for calling conventions
 - Pragma backend (`pragma_backend`) for `#pragma` directives

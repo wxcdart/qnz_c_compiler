@@ -27,8 +27,8 @@ PARSER_HEADERS = src/zero_cc/parser.h src/zero_cc/types_lexer.h \
 $(PARSER_OBJ): src/zero_cc/parser.c $(PARSER_HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-TLS_OBJ = src/zero_cc/tls_backend_static.o
-src/zero_cc/tls_backend_static.o: src/zero_cc/tls_backend_static.c
+TLS_OBJ = src/zero_cc/tls_backend.o
+src/zero_cc/tls_backend.o: src/zero_cc/tls_backend.c
 	$(CC) $(CFLAGS) -c $< -o $@
 src/zero_cc/utils/arena.o: src/zero_cc/utils/arena.c
 	$(CC) $(CFLAGS) -c $< -o $@

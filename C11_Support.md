@@ -202,7 +202,7 @@ misparsing.
 
 ### Milestone 5 — `_Thread_local`
 
-**Goal:** Full C11 `_Thread_local` support using system TLS on each platform.
+**Goal:** Full C11 `_Thread_local` support using system TLS on each platform. ✅
 
 **Work items**
 - [x] Parser: accept `_Thread_local` as a storage-class specifier in variable declarations.
@@ -211,9 +211,9 @@ misparsing.
 - [x] x86-64 Windows/macOS: `gs` segment access (UCRT/libc).
 - [x] aarch64: `x28` register (TLS register per ABI).
 - [x] riscv64: `tp` register (TLS register).
+- [x] Full mutable write support.
+- [x] Address-of operator (`&tls_var`) support.
 - [ ] Baremetal: Custom `TLSBlock` implementation (no C library).
-- [ ] Full mutable write support (currently static alias).
-- [ ] Address-of operator (`&tls_var`) support.
 
 **Platform Support:**
 

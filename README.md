@@ -134,7 +134,7 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 
 | Feature | Status | Backend |
 |---------|--------|---------|
-| **`_Thread_local`** | ✅ In Progress | `tls_backend` |
+| **`_Thread_local`** | ✅ Complete | `tls_backend` |
 | **`_Atomic`** | 📋 Planned | `atomic_backend` |
 | **`_Alignas` / `_Alignof`** | 📋 Planned | `abi_backend` |
 | **`_Noreturn`** | ✅ Parser | - |
@@ -145,7 +145,7 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 
 ### Known Limitations
 
-- `_Thread_local`: Static alias implementation; mutable writes and address-of (`&`) not yet supported
+- `_Thread_local`: Full system TLS support (fs/gs segments on x86-64)
 - `_Atomic`: JIT execution supported; ELF object/executable emission deferred
 - `_Generic`: Simplified type matching; full C11 compatibility rules not implemented
 
