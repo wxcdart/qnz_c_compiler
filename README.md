@@ -1,6 +1,6 @@
 # zero_cc - Standalone Embeddable C99/C11/C23 Compiler
 
-A lightweight, header-only C compiler designed for embedding in applications. Features include:
+A lightweight C compiler designed for embedding or standalone use. Modular architecture with separate source files. Features include:
 
 - **C99/C11/C23 compiler** (freestanding with optional standard library)
 - **Multi-ISA support** (x86-64, aarch64, riscv64)
@@ -174,6 +174,14 @@ make test
 
 ZeroCC is released under the MIT License. See the `LICENSE` file for details.
 
+## Self-Hosting
+
+ZeroCC is designed to eventually **self-host** (compile itself). Current status:
+
+- **Phase 1**: Compile simple C programs ✅
+- **Phase 2**: Compile ZeroCC itself (in progress)
+- **Phase 3**: Full C11 conformance with self-hosting
+
 ## Acknowledgements
 
-This code was extracted from the [zero.h](https://github.com/earendil-works/zero.h) project and adapted to be a standalone, embeddable compiler.
+This code was extracted from the [zero.h](https://github.com/earendil-works/zero.h) project and adapted to be a standalone, modular compiler.

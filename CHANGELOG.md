@@ -2,6 +2,17 @@
 
 ## [Unreleased] - Multi-ISA Backend & C11 Support
 
+### Goal: Self-Hosting Compiler
+
+ZeroCC is designed to eventually **self-host** (compile itself). Architecture supports:
+
+- **Modular design**: Separate source files, not single-header
+- **Multi-ISA**: x86-64, aarch64, riscv64 backends
+- **C11 conformance**: TLS, Atomic, Alignment, Generic selection
+- **Cross-platform**: Linux, Windows, macOS, baremetal
+
+### Progress
+
 ### Added
 
 #### Virtual Register (VREG) System ✅
