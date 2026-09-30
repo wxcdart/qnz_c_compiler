@@ -230,6 +230,10 @@ ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
             /* Reset register allocator for this function */
             regalloc_init(&c->regalloc);
             c->next_temp_id = 0;
+            c->ir_next_label = 0;
+            
+            /* Reset IR buffer for this function */
+            ir_reset();
             
             /* Lower AST to machine code */
             zero_cc_lower_ast(c, &arena, body);

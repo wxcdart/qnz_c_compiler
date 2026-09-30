@@ -519,6 +519,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x8B);
                 zero_cc_emit_u8(&c->text_section, 0x85);
                 zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                /* Emit IR for register allocation */
+                ir_emit((Instr){.op = OP_MOV_RAX_MEM, .temp_dest = c->next_temp_id - 1, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = sym->stack_offset, .label_idx = 0});
             } else {
                 /* Check if it's a global variable */
                 ZeroCCGlobalVar *gv = find_global_var(var);
@@ -543,6 +545,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x8B);
                     zero_cc_emit_u8(&c->text_section, 0x00);
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_MOV_RAX_MEM, .temp_dest = c->next_temp_id - 1, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = gv->data_offset, .label_idx = 0});
                 }
             }
             break;
@@ -724,6 +728,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_ASSIGN: {
             // Right-hand side evaluated into rax
             lower_expr(c, arena, node->right);
+            /* Emit IR for the value being assigned */
+            uint8_t src_temp = c->next_temp_id - 1;
             // Left-hand side variable target
             ZeroCCASTNode *target = zero_cc_ast_get(arena, node->left);
             if (target && target->tag == NODE_IDENT) {
@@ -735,6 +741,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x89);
                     zero_cc_emit_u8(&c->text_section, 0x85);
                     zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                    /* Emit IR for store */
+                    ir_emit((Instr){.op = OP_MOV_MEM_RAX, .temp_dest = 0xFF, .temp_src1 = src_temp, .temp_src2 = 0xFF, .imm = sym->stack_offset, .label_idx = 0});
                 }
             }
             break;
@@ -748,17 +756,25 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             zero_cc_emit_u8(&c->text_section, 0x48);
             zero_cc_emit_u8(&c->text_section, 0x85);
             zero_cc_emit_u8(&c->text_section, 0xC0);
+            /* Emit IR for condition test */
+            ir_emit((Instr){.op = OP_TEST, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 1, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
             // je else
             zero_cc_emit_u8(&c->text_section, 0x0F);
             zero_cc_emit_u8(&c->text_section, 0x84);
             size_t else_pos = c->text_section.length;
             zero_cc_emit_u32(&c->text_section, 0);
+            // Emit IR label for else branch
+            uint16_t else_label = (uint16_t)(c->ir_next_label++);
+            ir_emit((Instr){.op = OP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = else_label});
             // then
             lower_expr(c, arena, node->right);
             // jmp end
             zero_cc_emit_u8(&c->text_section, 0xE9);
             size_t end_pos_patch = c->text_section.length;
             zero_cc_emit_u32(&c->text_section, 0);
+            // Emit IR jump to end
+            uint16_t end_label = (uint16_t)(c->ir_next_label++);
+            ir_emit((Instr){.op = OP_JMP, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = end_label});
             // else
             size_t else_addr = c->text_section.length;
             uint32_t rel_else = (uint32_t)(else_addr - (else_pos + 4));
@@ -767,6 +783,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             size_t end_addr = c->text_section.length;
             uint32_t rel_end = (uint32_t)(end_addr - (end_pos_patch + 4));
             memcpy(c->text_section.data + end_pos_patch, &rel_end, 4);
+            // Emit IR label for end
+            ir_emit((Instr){.op = OP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = end_label});
             break;
         }
         case NODE_BINOP: {

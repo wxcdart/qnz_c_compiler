@@ -41,6 +41,7 @@ typedef struct ZeroCCCompiler {
     /* Register allocator state */
     RegAllocator regalloc;                /* Linear-scan register allocator */
     int next_temp_id;                     /* Next temporary variable ID */
+    uint16_t ir_next_label;               /* Next IR label index */
 
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */

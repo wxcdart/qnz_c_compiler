@@ -34,9 +34,23 @@
 - Added to `compile.h` (per-function reset)
 
 **Dual Emission Mode**:
-- IR emitted alongside machine code for NODE_BINOP (TK_PLUS)
+- IR emitted alongside machine code for NODE_BINOP (all operators)
+- IR emitted alongside machine code for NODE_UNOP (deref, neg, lnot, not)
 - Machine code continues to work (all tests pass)
 - IR tracks virtual register operations for future register allocation
+
+### IR Coverage
+
+| AST Node | IR Emission | Status |
+|----------|-------------|--------|
+| NODE_INT | None (literal) | ✅ |
+| NODE_FLOAT | None (deferred) | ⏸️ |
+| NODE_BINOP | Full (all operators) | ✅ |
+| NODE_UNOP | Full (deref, neg, lnot, not) | ✅ |
+| NODE_TERNARY | Pending | ⏸️ |
+| NODE_CALL | Pending | ⏸️ |
+| NODE_IDENT | Pending | ⏸️ |
+| NODE_ASSIGN | Pending | ⏸️ |
 
 ### Files Created/Modified
 
@@ -45,7 +59,7 @@
 | `src/zero_cc/parser/ir.h` | NEW: IR buffer + 57 opcodes + helper functions |
 | `src/zero_cc/jit/compile_unit.h` | Include ir.h |
 | `src/zero_cc/jit/compile.h` | Include ir.h, reset IR per function |
-| `src/zero_cc/parser/ast_lowering.h` | Include ir.h, emit IR for TK_PLUS |
+| `src/zero_cc/parser/ast_lowering.h` | Include ir.h, emit IR for BINOP and UNOP |
 | `test/ir_test.c` | NEW: Unit tests for IR buffer |
 | `test/ir_opcodes_test.c` | NEW: Unit tests for opcodes |
 | `test/float_arithmetic_jit.c` | NEW: Float arithmetic test (deferred) |
@@ -62,10 +76,19 @@
 
 ## Next Steps: Phase 3 (Register Allocation Integration)
 
-1. **Compute Live Ranges**: Track when virtual registers are defined and used
-2. **Run Linear-Scan**: Integrate with existing regalloc.h infrastructure
-3. **Assign Physical Registers**: Map virtual temps to RAX, RCX, etc.
-4. **Handle Spills**: Generate load/store for registers that don't fit
+1. **Complete IR emission for remaining AST nodes**:
+   - NODE_TERNARY (conditional expressions)
+   - NODE_CALL (function calls)
+   - NODE_IDENT (variable access)
+   - NODE_ASSIGN (assignment)
+
+2. **Compute Live Ranges**: Track when virtual registers are defined and used
+
+3. **Run Linear-Scan**: Integrate with existing regalloc.h infrastructure
+
+4. **Assign Physical Registers**: Map virtual temps to RAX, RCX, etc.
+
+5. **Handle Spills**: Generate load/store for registers that don't fit
 
 ## Architecture Summary
 
