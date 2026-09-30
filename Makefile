@@ -4,7 +4,7 @@ LDFLAGS ?=
 TEST_SRCS = $(wildcard test/*.c)
 TESTS = $(TEST_SRCS:.c=)
 
-SETTERS_OBJ = src/zero_cc/backends/setters.o
+
 LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
 EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/statements.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
@@ -13,7 +13,6 @@ EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/
 
 all: $(TESTS)
 
-$(SETTERS_OBJ): src/zero_cc/backends/setters.c src/zero_cc/zero_cc_backends.h src/zero_cc/types_lexer.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h src/zero_cc/keywords.inc
@@ -50,11 +49,11 @@ src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/de
 src/zero_cc/semantic.o: src/zero_cc/semantic.c src/zero_cc/semantic.h src/zero_cc/semantic/visitor.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test/align: test/align.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
 
-test/%: test/%.c $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-	$(CC) $(CFLAGS) $< $(SETTERS_OBJ) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
+test/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
+test/align: test/align.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
 
 test: all
 	@for t in $(TESTS); do \
@@ -74,7 +73,7 @@ benchmark: test/benchmark_struct_by_value
 
 clean:
 	rm -f $(TESTS) test.o test.exe
-	rm -f $(SETTERS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(TLS_OBJ) $(EXTRA_OBJS)
+	rm -f $(LEXER_OBJ) $(PARSER_OBJ) $(TLS_OBJ) $(EXTRA_OBJS)
 
 # Target to build and run the golden error test
 

@@ -62,15 +62,7 @@ typedef struct ZeroCCCompiler {
     } thread_locals[64];
     size_t thread_local_count;
     /* Backend pointers */
-    const ZeroCCTLSBackend *tls_backend;
-    const ZeroCCEmitBackend   *emit_backend;
-    const ZeroCCLinkBackend   *link_backend;
-    const ZeroCCMemoryBackend *memory_backend;
-    const ZeroCCABICallBackend *abi_backend;
-    const ZeroCCAtomicBackend *atomic_backend;
-    const ZeroCCGenericBackend *generic_backend;
-    const ZeroCCStdlibBackend *stdlib_backend;
-    const ZeroCCDiagBackend   *diag_backend;
+    const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
     int had_error;
     char error_msg[256];
 } ZeroCCCompiler;

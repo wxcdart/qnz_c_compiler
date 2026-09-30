@@ -10,6 +10,9 @@
 #include "zero_cc/types_lexer.h"
 #include <string.h>
 
+/* Forward declaration */
+extern const ZeroCCTLSBackend zero_cc_default_tls_backend;
+
 static void *static_tls_declare(ZeroCCCompiler *c,
                                 const char *name,
                                 const ZeroCCType *type,
@@ -60,6 +63,11 @@ static void static_tls_emit_address(ZeroCCCompiler *c, const void *handle)
     zero_cc_emit_u8(&c->text_section, 0xB8);
     zero_cc_emit_u64(&c->text_section, 0);
     c->last_expr_is_float = 0;
+}
+
+/* Setter for TLS backend - NULL resets to default */
+void zero_cc_set_tls_backend(struct ZeroCCCompiler *c, const ZeroCCTLSBackend *b) {
+    c->tls_backend = b ? b : &zero_cc_default_tls_backend;
 }
 
 /* Export the default static‑alias TLS backend */
