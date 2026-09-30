@@ -1,6 +1,36 @@
-#include "zero_cc/isa_backend.h"
+#include "../isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
 #include <stdint.h>
+
+/* Helper macro to convert VREG to physical register */
+static int riscv_vreg_to_phys(int vreg) {
+    switch (vreg) {
+        case 0:  return 10;  /* a0 - result */
+        case 1:  return 11;  /* a1 */
+        case 2:  return 12;  /* a2 */
+        case 3:  return 13;  /* a3 */
+        case 4:  return 14;  /* a4 */
+        case 5:  return 15;  /* a5 */
+        case 6:  return 16;  /* a6 */
+        case 7:  return 17;  /* a7 */
+        case 8:  return 5;   /* t0 */
+        case 9:  return 6;   /* t1 */
+        case 10: return 7;   /* t2 */
+        case 11: return 28;  /* t3 */
+        case 12: return 29;  /* t4 */
+        case 13: return 30;  /* t5 */
+        case 14: return 31;  /* t6 */
+        case 15: return 3;   /* gp (avoid for now) */
+        default: return vreg;
+    }
+}
+
+/* Wrapper functions for VREG mapping */
+static int riscv_get_int_reg(int vreg) { return riscv_vreg_to_phys(vreg); }
+static int riscv_get_fp_reg(int vreg) { return vreg; }  /* Float regs are sequential */
+
+#define RV_REG(vreg) riscv_vreg_to_phys(vreg)
+
 
 /* RISC-V register info */
 static const ISARegInfo riscv_regs = {
@@ -63,55 +93,55 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
 static void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     /* Use lui + addi sequence for 64-bit immediates */
     if (imm <= 2047 && imm >= -2048) {
-        riscv_emit_u32(c, 0x00000113 | (((uint64_t)imm & 0xFFF) << 20) | (dst_reg << 7));
+        riscv_emit_u32(c, 0x00000113 | (((uint64_t)imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7));
     } else {
         /* For larger immediates, use lui + addi */
         uint64_t hi = (imm + 0x800) >> 12;
         uint64_t lo = imm & 0xFFF;
         if (hi != 0) {
-            riscv_emit_u32(c, 0x000003B7 | ((hi & 0xFFFFF) << 12) | (dst_reg << 7));  /* lui */
+            riscv_emit_u32(c, 0x000003B7 | ((hi & 0xFFFFF) << 12) | (RV_REG(dst_reg) << 7));  /* lui */
         }
         if (lo != 0) {
-            riscv_emit_u32(c, 0x00000113 | (lo << 20) | (dst_reg << 15) | (dst_reg << 7));  /* addi */
+            riscv_emit_u32(c, 0x00000113 | (lo << 20) | (RV_REG(dst_reg) << 15) | (RV_REG(dst_reg) << 7));  /* addi */
         }
     }
 }
 
 static void riscv64_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* add dst, src1, src2 */
-    riscv_emit_u32(c, 0x00000033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv64_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* sub dst, src1, src2 */
-    riscv_emit_u32(c, 0x40000033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* mul dst, src1, src2 (M extension) */
-    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (0 << 25));
+    riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (0 << 25));
 }
 
 static void riscv64_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* div dst, src1, src2 (M extension) */
-    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (3 << 25));
+    riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (3 << 25));
 }
 
 static void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00007033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00007033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv64_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00006033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00006033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv64_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00004033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00004033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv64_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
     if (shift >= 0 && shift < 64) {
-        riscv_emit_u32(c, 0x00001013 | (dst << 7) | (src << 15) | (shift << 20));
+        riscv_emit_u32(c, 0x00001013 | (RV_REG(dst) << 7) | (RV_REG(src) << 15) | (shift << 20));
     }
 }
 
@@ -123,59 +153,73 @@ static void riscv64_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
 
 static void riscv64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     /* sub dst, zero, src */
-    riscv_emit_u32(c, 0x40000033 | (dst << 7) | (src << 20));
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst) << 7) | (RV_REG(src) << 20));
 }
 
 static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* ld dst, offset(base) */
-    riscv_emit_u32(c, 0x00000003 | (dst_reg << 7) | (base_reg << 15) | ((offset & 0xFFF) << 20));
+    riscv_emit_u32(c, 0x00000003 | (RV_REG(dst_reg) << 7) | (RV_REG(base_reg) << 15) | ((offset & 0xFFF) << 20));
 }
 
 static void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
     /* sd src, offset(base) */
-    riscv_emit_u32(c, 0x00002023 | (base_reg << 15) | (src_reg << 20) | ((offset & 0xFFF) << 7));
+    riscv_emit_u32(c, 0x00002023 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7));
 }
 
-static void riscv64_emit_jmp(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jmp(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* jal zero, offset */
     riscv_emit_u32(c, 0x0000006F);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jeq(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jeq(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* beq x, zero, label */
     riscv_emit_u32(c, 0x00000063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jne(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jne(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* bne x, zero, label */
     riscv_emit_u32(c, 0x00001063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jlt(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jlt(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* blt x, zero, label */
     riscv_emit_u32(c, 0x00004063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jle(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jle(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* ble x, zero, label */
     riscv_emit_u32(c, 0x00006063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jgt(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jgt(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* bgt x, zero, label */
     riscv_emit_u32(c, 0x00005063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv64_emit_jge(ZeroCCCompiler *c, const char *label) {
+static size_t riscv64_emit_jge(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     /* bge x, zero, label */
     riscv_emit_u32(c, 0x00007063);
     (void)label;
+    return patch_pos;
 }
 
 static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
@@ -192,12 +236,12 @@ static void riscv64_emit_ret(ZeroCCCompiler *c) {
 /* Floating point operations */
 static void riscv64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* fld fa, offset(base) */
-    riscv_emit_u32(c, 0x00000007 | (dst_reg << 7) | (base_reg << 15) | ((offset & 0xFFF) << 20) | (3 << 25));
+    riscv_emit_u32(c, 0x00000007 | (RV_REG(dst_reg) << 7) | (RV_REG(base_reg) << 15) | ((offset & 0xFFF) << 20) | (3 << 25));
 }
 
 static void riscv64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
     /* fsd fa, offset(base) */
-    riscv_emit_u32(c, 0x00002027 | (base_reg << 15) | (src_reg << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
+    riscv_emit_u32(c, 0x00002027 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
 }
 
 static void riscv64_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
@@ -277,7 +321,56 @@ static void riscv64_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
 }
 
+
+
+static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
+    int32_t rel = (int32_t)(target_offset - patch_offset);
+    if (patch_offset + 4 <= c->text_section.length) {
+        uint8_t *buf = c->text_section.data;
+        uint32_t *insn = (uint32_t*)(buf + patch_offset);
+        *insn = (*insn & 0xFFF000FF) | ((rel & 0xFFFFF) << 12);
+    }
+    return patch_offset;
+}
+
+
+
+static void riscv64_emit_test(ZeroCCCompiler *c, int src1, int src2) {
+    /* and t0, src1, src2 (use t0 as temp for test) */
+    riscv_emit_u32(c, 0x00007033 | (5 << 7) | (src1 << 15) | (src2 << 20));
+}
+
+static void riscv64_emit_cqo(ZeroCCCompiler *c) {
+    (void)c;
+}
+
+static void riscv64_emit_idiv(ZeroCCCompiler *c, int src) {
+    /* div a0, a0, src */
+    riscv_emit_u32(c, 0x02000033 | (10 << 7) | (10 << 15) | (src << 20) | (3 << 25));
+}
+
+static void riscv64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* addi dst, base, offset */
+    riscv_emit_u32(c, 0x00000113 | ((offset & 0xFFF) << 20) | ((base & 0x1F) << 15) | ((dst & 0x1F) << 7));
+}
+
+
+
+static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* Modulo: dst = src1 % src2
+     * RISC-V rem instruction */
+    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (7 << 25));
+}
+
 /* RISC-V 64-bit backend instance */
+
+/* RISC-V VREG mapping: map virtual register numbers to RISC-V encodings
+ * VREG_0 (result) -> a0 (x10)
+ * VREG_1-7 (temps/args) -> a1-a7 (x11-x17)
+ * VREG_8-15 (temps) -> t0-t7 (x5-x7, x28-x30)
+ * Special: use BE(c)->fp_reg (s0/x8) and BE(c)->sp_reg (sp/x2)
+ */
+
 const ZeroCCISABackend riscv64_backend = {
     .isa = ISA_RISCV64,
     .regs = &riscv_regs,
@@ -292,12 +385,18 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_sub = riscv64_emit_sub,
     .emit_mul = riscv64_emit_mul,
     .emit_div = riscv64_emit_div,
+    .emit_mod = riscv64_emit_mod,
     .emit_and = riscv64_emit_and,
     .emit_or = riscv64_emit_or,
     .emit_xor = riscv64_emit_xor,
     .emit_shl = riscv64_emit_shl,
     .emit_cmp = riscv64_emit_cmp,
     .emit_neg = riscv64_emit_neg,
+    .emit_test = riscv64_emit_test,
+    .emit_cqo = riscv64_emit_cqo,
+    .emit_idiv = riscv64_emit_idiv,
+    .emit_lea = riscv64_emit_lea,
+    .patch_jmp = riscv64_patch_jmp,
     
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
@@ -311,6 +410,10 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_jge = riscv64_emit_jge,
     .emit_call = riscv64_emit_call,
     .emit_ret = riscv64_emit_ret,
+    
+    /* VREG mapping */
+    .get_int_reg = riscv_get_int_reg,
+    .get_fp_reg = riscv_get_fp_reg,
     
     .emit_load_fp = riscv64_emit_load_fp,
     .emit_store_fp = riscv64_emit_store_fp,
@@ -354,98 +457,112 @@ static void riscv32_emit_epilogue(ZeroCCCompiler *c) {
 static void riscv32_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     int32_t val = (int32_t)imm;
     if (val <= 2047 && val >= -2048) {
-        riscv_emit_u32(c, 0x00000113 | ((val & 0xFFF) << 20) | (dst_reg << 7));
+        riscv_emit_u32(c, 0x00000113 | ((val & 0xFFF) << 20) | (RV_REG(dst_reg) << 7));
     } else {
         uint32_t hi = (val + 0x800) >> 12;
         uint32_t lo = val & 0xFFF;
         if (hi != 0) {
-            riscv_emit_u32(c, 0x000003B7 | ((hi & 0xFFFFF) << 12) | (dst_reg << 7));
+            riscv_emit_u32(c, 0x000003B7 | ((hi & 0xFFFFF) << 12) | (RV_REG(dst_reg) << 7));
         }
         if (lo != 0) {
-            riscv_emit_u32(c, 0x00000113 | (lo << 20) | (dst_reg << 15) | (dst_reg << 7));
+            riscv_emit_u32(c, 0x00000113 | (lo << 20) | (RV_REG(dst_reg) << 15) | (RV_REG(dst_reg) << 7));
         }
     }
 }
 
 static void riscv32_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00000033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv32_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x40000033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv32_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (0 << 25));
+    riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (0 << 25));
 }
 
 static void riscv32_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (3 << 25));
+    riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (3 << 25));
 }
 
 static void riscv32_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00007033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00007033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv32_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00006033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00006033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv32_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x00004033 | (dst << 7) | (src1 << 15) | (src2 << 20));
+    riscv_emit_u32(c, 0x00004033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
 }
 
 static void riscv32_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
     if (shift >= 0 && shift < 32) {
-        riscv_emit_u32(c, 0x00001013 | (dst << 7) | (src << 15) | (shift << 20));
+        riscv_emit_u32(c, 0x00001013 | (RV_REG(dst) << 7) | (RV_REG(src) << 15) | (shift << 20));
     }
 }
 
 static void riscv32_emit_neg(ZeroCCCompiler *c, int dst, int src) {
-    riscv_emit_u32(c, 0x40000033 | (dst << 7) | (src << 20));
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst) << 7) | (RV_REG(src) << 20));
 }
 
 static void riscv32_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, 0x00000003 | (dst_reg << 7) | (base_reg << 15) | ((offset & 0xFFF) << 20));
+    riscv_emit_u32(c, 0x00000003 | (RV_REG(dst_reg) << 7) | (RV_REG(base_reg) << 15) | ((offset & 0xFFF) << 20));
 }
 
 static void riscv32_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, 0x00002023 | (base_reg << 15) | (src_reg << 20) | ((offset & 0xFFF) << 7));
+    riscv_emit_u32(c, 0x00002023 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7));
 }
 
-static void riscv32_emit_jmp(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jmp(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x0000006F);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jeq(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jeq(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00000063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jne(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jne(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00001063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jlt(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jlt(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00004063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jle(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jle(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00006063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jgt(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jgt(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00005063);
     (void)label;
+    return patch_pos;
 }
 
-static void riscv32_emit_jge(ZeroCCCompiler *c, const char *label) {
+static size_t riscv32_emit_jge(ZeroCCCompiler *c, const char *label) {
+    size_t patch_pos = me_get_offset(c);
     riscv_emit_u32(c, 0x00007063);
     (void)label;
+    return patch_pos;
 }
 
 static void riscv32_emit_call(ZeroCCCompiler *c, const char *func_name) {
@@ -458,11 +575,11 @@ static void riscv32_emit_ret(ZeroCCCompiler *c) {
 }
 
 static void riscv32_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, 0x00000007 | (dst_reg << 7) | (base_reg << 15) | ((offset & 0xFFF) << 20) | (3 << 25));
+    riscv_emit_u32(c, 0x00000007 | (RV_REG(dst_reg) << 7) | (RV_REG(base_reg) << 15) | ((offset & 0xFFF) << 20) | (3 << 25));
 }
 
 static void riscv32_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, 0x00002027 | (base_reg << 15) | (src_reg << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
+    riscv_emit_u32(c, 0x00002027 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
 }
 
 static void riscv32_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
@@ -533,6 +650,47 @@ static void riscv32_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
 }
 
+
+
+static size_t riscv32_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
+    int32_t rel = (int32_t)(target_offset - patch_offset);
+    if (patch_offset + 4 <= c->text_section.length) {
+        uint8_t *buf = c->text_section.data;
+        uint32_t *insn = (uint32_t*)(buf + patch_offset);
+        *insn = (*insn & 0xFFF000FF) | ((rel & 0xFFFFF) << 12);
+    }
+    return patch_offset;
+}
+
+
+
+static void riscv32_emit_test(ZeroCCCompiler *c, int src1, int src2) {
+    /* and t0, src1, src2 */
+    riscv_emit_u32(c, 0x00007033 | (5 << 7) | (src1 << 15) | (src2 << 20));
+}
+
+static void riscv32_emit_cqo(ZeroCCCompiler *c) {
+    (void)c;
+}
+
+static void riscv32_emit_idiv(ZeroCCCompiler *c, int src) {
+    /* div a0, a0, src */
+    riscv_emit_u32(c, 0x02000033 | (10 << 7) | (10 << 15) | (src << 20) | (3 << 25));
+}
+
+static void riscv32_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* addi dst, base, offset */
+    riscv_emit_u32(c, 0x00000113 | ((offset & 0xFFF) << 20) | ((base & 0x1F) << 15) | ((dst & 0x1F) << 7));
+}
+
+
+
+static void riscv32_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* Modulo: dst = src1 % src2
+     * RISC-V rem instruction */
+    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (7 << 25));
+}
+
 /* RISC-V 32-bit backend instance */
 const ZeroCCISABackend riscv32_backend = {
     .isa = ISA_RISCV32,
@@ -548,12 +706,22 @@ const ZeroCCISABackend riscv32_backend = {
     .emit_sub = riscv32_emit_sub,
     .emit_mul = riscv32_emit_mul,
     .emit_div = riscv32_emit_div,
+    .emit_mod = riscv32_emit_mod,
     .emit_and = riscv32_emit_and,
     .emit_or = riscv32_emit_or,
     .emit_xor = riscv32_emit_xor,
     .emit_shl = riscv32_emit_shl,
     .emit_cmp = riscv64_emit_cmp,
     .emit_neg = riscv32_emit_neg,
+    .emit_test = riscv32_emit_test,
+    .emit_cqo = riscv32_emit_cqo,
+    .emit_idiv = riscv32_emit_idiv,
+    .emit_lea = riscv32_emit_lea,
+    .patch_jmp = riscv32_patch_jmp,
+    
+    /* VREG mapping */
+    .get_int_reg = riscv_get_int_reg,
+    .get_fp_reg = riscv_get_fp_reg,
     
     .emit_load = riscv32_emit_load,
     .emit_store = riscv32_emit_store,

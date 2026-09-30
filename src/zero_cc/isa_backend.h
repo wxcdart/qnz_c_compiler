@@ -43,25 +43,31 @@ typedef struct ZeroCCISABackend {
     void (*emit_sub)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_mul)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_div)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_mod)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_and)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_or)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_xor)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_shl)(ZeroCCCompiler *c, int dst, int src, int shift);
     void (*emit_cmp)(ZeroCCCompiler *c, int src1, int src2);
     void (*emit_neg)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_test)(ZeroCCCompiler *c, int src1, int src2);
+    void (*emit_cqo)(ZeroCCCompiler *c);
+    void (*emit_idiv)(ZeroCCCompiler *c, int src);
+    void (*emit_lea)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     
     /* Load/store */
     void (*emit_load)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
     void (*emit_store)(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
     
     /* Control flow */
-    void (*emit_jmp)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jeq)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jne)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jlt)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jle)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jgt)(ZeroCCCompiler *c, const char *label);
-    void (*emit_jge)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jmp)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jeq)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jne)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jlt)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jle)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jgt)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jge)(ZeroCCCompiler *c, const char *label);
     void (*emit_call)(ZeroCCCompiler *c, const char *func_name);
     void (*emit_ret)(ZeroCCCompiler *c);
     
@@ -89,6 +95,10 @@ typedef struct ZeroCCISABackend {
     
     /* Labels */
     void (*emit_label)(ZeroCCCompiler *c, const char *name);
+    
+    /* VREG mapping (ISA-independent virtual to physical register) */
+    int (*get_int_reg)(int vreg);  /* Map VREG_INT_* to physical */
+    int (*get_fp_reg)(int vreg);   /* Map VREG_FP_* to physical */
     
     /* Frame pointer */
     int fp_reg;        /* Frame pointer register index */

@@ -72,3 +72,31 @@ typedef struct __attribute__((packed)) {
 - Type system
 - Semantic analysis
 - Basic expression evaluation
+
+## [Unreleased] - Virtual Register (VREG) System
+
+### Added
+
+#### New Files
+- `src/zero_cc/types/vregs.h` - Virtual register definitions (VREG_0-15, VREG_F0-F15)
+- `VREG.md` - Complete VREG system documentation
+
+#### Changes
+- `src/zero_cc/isa_backend.h` - Added `get_int_reg()`/`get_fp_reg()` function pointers
+- `src/zero_cc/parser/ast_lowering.h` - Updated to use ISA-independent VREGs
+- `src/zero_cc/isa/x86_64.c` - VREG mapping + x86 encoding bug fixes
+- `src/zero_cc/isa/aarch64.c` - VREG mapping
+- `src/zero_cc/isa/riscv.c` - VREG mapping with RISC-V remapping
+
+### Features
+- **ISA Independence**: Lowering code is the same for all backends
+- **Type Safety**: Separate integer (VREG_0-15) and float (VREG_F0-F15) registers
+- **Special Registers**: `BE(c)->fp_reg`/`BE(c)->sp_reg` for frame/stack pointers
+- **RISC-V Support**: Special remapping since RISC-V has non-linear register numbering
+
+### Bug Fixes
+- Fixed x86-64 load/store encoding (wrong REX bits, wrong displacement size)
+- Fixed subtraction lowering (dst = src1 - src2, not src1 - dst + src2)
+- Fixed stack offset sign convention (use -offset for [fp - offset])
+- Fixed jump patch position (return position of rel32 field, not opcode)
+- Fixed push/pop REX prefix (not needed in 64-bit mode)

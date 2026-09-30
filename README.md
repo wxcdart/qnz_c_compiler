@@ -63,6 +63,16 @@ AST → Pass 1 (IR Generation) → Optimization → Register Allocation → Pass
 
 See [`TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md) for details.
 
+### Virtual Register (VREG) System
+
+ZeroCC uses an **ISA-independent virtual register system** to enable multi-ISA code generation:
+
+- **Virtual registers** (VREG_0-15, VREG_F0-F15) are used in lowering code
+- Each backend maps VREGs to **physical registers** (x86-64, aarch64, riscv64)
+- Special registers: `BE(c)->fp_reg` (frame pointer), `BE(c)->sp_reg` (stack pointer)
+
+See [`VREG.md`](VREG.md) for details.
+
 ### Optimization Levels
 
 | Level | Speed Gain | Compile Time | Key Optimizations |

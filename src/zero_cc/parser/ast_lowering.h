@@ -13,11 +13,27 @@
 #include "../parser.h"
 #include "ir_emitter.h"
 #include "machine_emitter.h"
+#include "../isa_backend.h"
+#include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
 
 /* IR Emitter Context for state management (replaces static globals) */
 static IREmitterContext g_ir_emitter_ctx;
+
+/* Virtual registers are defined in ../types/vregs.h
+ * They use the simple index-based approach where each ISA backend
+ * interprets the numbers as its native register encodings.
+ * 
+ * Usage:
+ *   VREG_0  - result / return value
+ *   VREG_1-7 - argument passing / temporaries
+ *   VREG_8-15 - general temporaries
+ *   VREG_F0 - float result
+ *   VREG_F1-7 - float temporaries
+ *   BE(c)->fp_reg - frame pointer (ISA-specific)
+ *   BE(c)->sp_reg - stack pointer (ISA-specific)
+ */
 
 /* =========================================================================
  * Forward Declarations (matching ast_dump.h)
@@ -69,7 +85,7 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
                     me_emit_u8(c, 0x2C);
                     me_emit_u8(c, 0xC0);
                     /* Store integer to stack */
-                    me_mov_mem_rax(c, sym->stack_offset);
+                    BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 } else {
                     /* Float assignment: store xmm0 to [rbp - offset] */
                     me_emit_u8(c, 0xF2);
@@ -81,7 +97,7 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
                 c->last_expr_is_float = 0; /* Reset after store */
             } else {
                 /* Integer assignment: store rax to stack */
-                me_mov_mem_rax(c, sym->stack_offset);
+                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
             }
         }
     }
@@ -108,16 +124,16 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
 static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     lower_expr(c, arena, node->left);
-    me_test_rax_rax(c);
-    size_t else_patch = me_emit_je_rel32(c);
+    BE(c)->emit_test(c, VREG_0, VREG_0);
+    size_t else_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
     lower_node(c, arena, node->right);
     if (node->aux.alt != AST_NULL) {
-        size_t end_patch = me_emit_jmp_rel32(c);
-        me_patch_jmp_rel32(c, else_patch, me_get_offset(c));
+        size_t end_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
+        BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
         lower_node(c, arena, node->aux.alt);
-        me_patch_jmp_rel32(c, end_patch, me_get_offset(c));
+        BE(c)->patch_jmp(c, end_patch, me_get_offset(c));
     } else {
-        me_patch_jmp_rel32(c, else_patch, me_get_offset(c));
+        BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
     }
 }
 
@@ -126,12 +142,12 @@ static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     size_t loop_start = me_get_offset(c);
     ir_emitter_enter_loop(&g_ir_emitter_ctx, loop_start);
     lower_expr(c, arena, node->left);
-    me_test_rax_rax(c);
-    size_t exit_patch = me_emit_je_rel32(c);
+    BE(c)->emit_test(c, VREG_0, VREG_0);
+    size_t exit_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
     lower_node(c, arena, node->right);
-    size_t back_patch = me_emit_jmp_rel32(c);
-    me_patch_jmp_rel32(c, exit_patch, me_get_offset(c));
-    me_patch_jmp_rel32(c, back_patch, loop_start);
+    size_t back_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
+    BE(c)->patch_jmp(c, exit_patch, me_get_offset(c));
+    BE(c)->patch_jmp(c, back_patch, loop_start);
     ir_emitter_exit_loop(&g_ir_emitter_ctx);
 }
 
@@ -141,9 +157,9 @@ static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCC
     ir_emitter_enter_loop(&g_ir_emitter_ctx, loop_start);
     lower_node(c, arena, node->right);
     lower_expr(c, arena, node->left);
-    me_test_rax_rax(c);
-    size_t back_patch = me_emit_jne_rel32(c);
-    me_patch_jmp_rel32(c, back_patch, loop_start);
+    BE(c)->emit_test(c, VREG_0, VREG_0);
+    size_t back_patch = BE(c)->emit_jne(c, ""); /* TODO: label */;
+    BE(c)->patch_jmp(c, back_patch, loop_start);
     ir_emitter_exit_loop(&g_ir_emitter_ctx);
 }
 
@@ -157,23 +173,23 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     if (node->right != AST_NULL) {
         lower_expr(c, arena, node->right);
     } else {
-        me_xor_rax_rax(c);
+        BE(c)->emit_xor(c, VREG_0, VREG_0, VREG_0);
         me_emit_u8(c, 0x48);
         me_emit_u8(c, 0x83);
         me_emit_u8(c, 0xC0);
         me_emit_u8(c, 0x00);
     }
-    me_test_rax_rax(c);
-    size_t exit_patch = me_emit_je_rel32(c);
+    BE(c)->emit_test(c, VREG_0, VREG_0);
+    size_t exit_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
     }
     if (node->aux.step != AST_NULL) {
         lower_expr(c, arena, node->aux.step);
     }
-    size_t back_patch = me_emit_jmp_rel32(c);
-    me_patch_jmp_rel32(c, back_patch, loop_start);
-    me_patch_jmp_rel32(c, exit_patch, me_get_offset(c));
+    size_t back_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
+    BE(c)->patch_jmp(c, back_patch, loop_start);
+    BE(c)->patch_jmp(c, exit_patch, me_get_offset(c));
     ir_emitter_exit_loop(&g_ir_emitter_ctx);
 }
 
@@ -186,14 +202,14 @@ static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
 
 static void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
     if (g_ir_emitter_ctx.loop_depth > 0) {
-        size_t patch = me_emit_jmp_rel32(c);
+        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
         ir_emitter_add_break_patch(&g_ir_emitter_ctx, patch);
     }
 }
 
 static void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
     if (g_ir_emitter_ctx.loop_depth > 0) {
-        size_t patch = me_emit_jmp_rel32(c);
+        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
         ir_emitter_add_continue_patch(&g_ir_emitter_ctx, patch);
     }
 }
@@ -221,10 +237,10 @@ static void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute
     if (!node) return;
     int idx = ir_emitter_find_label(&g_ir_emitter_ctx, node->s.str);
     if (idx >= 0) {
-        size_t patch = me_emit_jmp_rel32(c);
-        me_patch_jmp_rel32(c, patch, g_ir_emitter_ctx.label_table[idx].position);
+        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
+        BE(c)->patch_jmp(c, patch, g_ir_emitter_ctx.label_table[idx].position);
     } else {
-        size_t patch = me_emit_jmp_rel32(c);
+        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
         if (g_ir_emitter_ctx.goto_patch_list_count < 256) {
             g_ir_emitter_ctx.goto_patch_list[g_ir_emitter_ctx.goto_patch_list_count] = (size_t*)malloc(sizeof(size_t) * 16);
             g_ir_emitter_ctx.goto_patch_list[g_ir_emitter_ctx.goto_patch_list_count][0] = patch;
@@ -303,7 +319,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (!node) return;
     switch (node->tag) {
         case NODE_INT:
-            me_mov_rax_imm(c, node->int_val);
+            BE(c)->emit_mov_imm(c, VREG_0, node->int_val);
             break;
         case NODE_FLOAT: {
             double val = node->float_val;
@@ -324,10 +340,10 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_BOOL:
-            me_mov_rax_imm(c, node->int_val);
+            BE(c)->emit_mov_imm(c, VREG_0, node->int_val);
             break;
         case NODE_NULLPTR:
-            me_xor_rax_rax(c);
+            BE(c)->emit_xor(c, VREG_0, VREG_0, VREG_0);
             break;
         case NODE_STRING: {
             if (node->s.str) {
@@ -363,7 +379,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd xmm0, [rbp-offset] */
                     c->last_expr_is_float = 1;
                 } else {
-                    me_mov_rax_mem(c, sym->stack_offset);
+                    BE(c)->emit_load(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 }
             } else {
                 ZeroCCGlobalVar *gv = find_global_var(name);
@@ -396,7 +412,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 me_emit_u8(c, 0x04);
                 me_emit_u8(c, 0x24); /* movsd [rsp], xmm0 */
             } else {
-                me_push_rax(c); /* Save rax for int */
+                BE(c)->emit_push_reg(c, VREG_0); /* Save rax for int */
             }
             
             /* Evaluate right operand */
@@ -446,40 +462,31 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 1; /* Result is float */
             } else {
                 /* Integer arithmetic */
-                if (left_is_float) {
+                                if (left_is_float) {
                     /* Load left operand from stack to rcx */
-                    me_pop_rcx(c);
+                    BE(c)->emit_pop_reg(c, VREG_1);
                 } else {
-                    me_pop_rcx(c);
+                    BE(c)->emit_pop_reg(c, VREG_1);
                 }
-                switch (node->aux.op) {
+                                switch (node->aux.op) {
                     case TK_PLUS:
-                        me_add_rax_rcx(c);
+                        BE(c)->emit_add(c, VREG_0, VREG_0, VREG_1);
                         break;
                     case TK_MINUS:
-                        me_sub_rcx_rax(c);
-                        me_mov_rax_rcx(c);
+                        /* RAX = RCX - RAX (left - right) */
+                        BE(c)->emit_sub(c, VREG_0, VREG_1, VREG_0);
                         break;
                     case TK_STAR:
-                        me_imul_rax_rcx(c);
+                        BE(c)->emit_mul(c, VREG_0, VREG_0, VREG_1);
                         break;
                     case TK_SLASH: {
-                        me_push_rbx(c);
-                        me_mov_rbx_rax(c);
-                        me_mov_rax_rcx(c);
-                        me_cqo(c);
-                        me_idiv_rbx(c);
-                        me_pop_rbx(c);
+                        /* Division: RAX = RCX / RAX (left / right) */
+                        BE(c)->emit_div(c, VREG_0, VREG_1, VREG_0);
                         break;
                     }
                     case TK_PERCENT: {
-                        me_push_rbx(c);
-                        me_mov_rbx_rax(c);
-                        me_mov_rax_rcx(c);
-                        me_cqo(c);
-                        me_idiv_rbx(c);
-                        me_mov_rax_rdx(c);
-                        me_pop_rbx(c);
+                        /* Modulo: RAX = RCX % RAX (left % right) */
+                        BE(c)->emit_mod(c, VREG_0, VREG_1, VREG_0);
                         break;
                     }
                     case TK_AMP:
@@ -514,37 +521,37 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         me_emit_u8(c, 0xE8);
                         break;
                     case TK_EQ:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x94);
                         me_emit_u8(c, 0xC0);
                         break;
                     case TK_NE:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x95);
                         me_emit_u8(c, 0xC0);
                         break;
                     case TK_LT:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x92);
                         me_emit_u8(c, 0xC0);
                         break;
                     case TK_LE:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x96);
                         me_emit_u8(c, 0xC0);
                         break;
                     case TK_GT:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x97);
                         me_emit_u8(c, 0xC0);
                         break;
                     case TK_GE:
-                        me_cmp_rcx_rax(c);
+                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x93);
                         me_emit_u8(c, 0xC0);
@@ -608,7 +615,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 lower_expr(c, arena, node->left);
                 switch (node->aux.op) {
                     case TK_STAR:
-                        me_mov_rax_mem(c, 0);
+                        BE(c)->emit_load(c, VREG_0, VREG_0, 0); /* mov rax, [rax] */
                         break;
                     case TK_MINUS:
                         me_emit_u8(c, 0x48);
@@ -616,7 +623,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         me_emit_u8(c, 0xD8);
                         break;
                     case TK_BANG:
-                        me_test_rax_rax(c);
+                        BE(c)->emit_test(c, VREG_0, VREG_0);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x94);
                         me_emit_u8(c, 0xC0);
@@ -638,19 +645,19 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
-                me_mov_mem_rax(c, sym->stack_offset);
+                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
             }
             break;
         }
         case NODE_TERNARY: {
             lower_expr(c, arena, node->left);
-            me_test_rax_rax(c);
-            size_t else_patch = me_emit_je_rel32(c);
+            BE(c)->emit_test(c, VREG_0, VREG_0);
+            size_t else_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
             lower_expr(c, arena, node->right);
-            size_t end_patch = me_emit_jmp_rel32(c);
-            me_patch_jmp_rel32(c, else_patch, me_get_offset(c));
+            size_t end_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
+            BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
             lower_expr(c, arena, node->aux.alt);
-            me_patch_jmp_rel32(c, end_patch, me_get_offset(c));
+            BE(c)->patch_jmp(c, end_patch, me_get_offset(c));
             break;
         }
         case NODE_COMPOUND_LIT:
@@ -773,7 +780,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Emit epilogue */
     me_emit_leave(c);
-    me_emit_ret(c);
+    BE(c)->emit_ret(c);
 }
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_H */

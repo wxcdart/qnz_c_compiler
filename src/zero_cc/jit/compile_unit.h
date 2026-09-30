@@ -13,9 +13,9 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
-#include "zero_cc/isa_backend.h"
+#include "../isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
-#include "zero_cc/isa_backend.h"
+#include "../isa_backend.h"
 
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
