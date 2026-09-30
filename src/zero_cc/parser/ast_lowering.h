@@ -340,6 +340,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_BINOP: {
+            /* For now, use integer arithmetic only */
+            /* Float arithmetic requires proper type tracking */
             lower_expr(c, arena, node->left);
             me_push_rax(c);
             lower_expr(c, arena, node->right);
