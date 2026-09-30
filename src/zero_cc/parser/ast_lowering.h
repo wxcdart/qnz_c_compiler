@@ -652,6 +652,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
             }
+            /* Emit IR for function call */
+            ir_emit((Instr){.op = OP_CALL, .temp_dest = c->next_temp_id - 1, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = arg_count, .label_idx = 0});
             break;
         }
         case NODE_COMPOUND_LIT:
