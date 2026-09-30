@@ -1,0 +1,536 @@
+#include "zero_cc/isa_backend.h"
+#include "zero_cc/parser/machine_emitter.h"
+#include <string.h>
+
+/* x86-64 register info */
+static const ISARegInfo x86_64_regs = {
+    .int_regs = {
+        "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "r8", "r9",
+        "r10", "r11", "r12", "r13", "r14", "r15", "rsp", "rbp",
+    },
+    .fp_regs = {
+        "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+        "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
+    },
+    .int_arg_regs = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"},
+    .fp_arg_regs = {"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"},
+    .int_ret_reg = "rax",
+    .fp_ret_reg = "xmm0",
+    .num_int_regs = 16,
+    .num_fp_regs = 16,
+};
+
+/* Helper: emit ModR/M byte for x86-64 */
+static inline void x86_modrm(ZeroCCCompiler *c, int mod, int reg, int rm) {
+    me_emit_u8(c, (mod << 6) | ((reg & 7) << 3) | (rm & 7));
+}
+
+static inline void x86_rex(ZeroCCCompiler *c, int w, int r, int x, int b) {
+    if (w || r || x || b) {
+        me_emit_u8(c, 0x40 | (w << 3) | (r << 2) | (x << 1) | b);
+    }
+}
+
+/* x86-64 backend implementation */
+static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
+    /* push rbp */
+    me_emit_u8(c, 0x55);
+    /* mov rbp, rsp */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x89);
+    me_emit_u8(c, 0xe5);
+    /* sub rsp, stack_size (align to 16 bytes) */
+    if (stack_size > 0) {
+        me_emit_u8(c, 0x48);
+        me_emit_u8(c, 0x81);
+        me_emit_u8(c, 0xec);
+        me_emit_u32(c, (uint32_t)stack_size);
+    }
+}
+
+static void x86_emit_epilogue(ZeroCCCompiler *c) {
+    /* leave */
+    me_emit_u8(c, 0xc9);
+    /* ret */
+    me_emit_u8(c, 0xc3);
+}
+
+static void x86_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
+    /* mov reg, imm64 */
+    x86_rex(c, 1, 0, 0, dst_reg >> 3);
+    me_emit_u8(c, 0xB8 | (dst_reg & 7));
+    me_emit_u64(c, imm);
+}
+
+static void x86_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* add dst, src2 (dst = src1 + src2) - we use two-operand form */
+    if (dst != src1) {
+        x86_emit_mov_imm(c, dst, 0);  // placeholder, will emit mov
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);  /* mov */
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 1, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0x01);  /* add */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* sub dst, src2 */
+    if (dst != src1) {
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 1, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0x29);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* imul dst, src1, src2 (3-operand form) */
+    x86_rex(c, 1, 0, 0, (src1 >> 3) | ((src2 >> 3) << 1));
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xaf);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+    /* If src1 != dst, we need mov first */
+    if (src1 != dst) {
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+}
+
+static void x86_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* idiv: rax = rdx:rax / src2, remainder in rdx */
+    /* This is complex on x86 - requires rax/rdx setup */
+    (void)dst; (void)src1; (void)src2;
+    /* TODO: implement properly with register shuffling */
+}
+
+static void x86_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 1, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0x21);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 1, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0x09);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 1, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 1, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0x31);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
+    if (dst != src) {
+        x86_rex(c, 1, 0, 0, src >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src & 7);
+    }
+    if (shift == 1) {
+        x86_rex(c, 1, 0, 0, dst >> 3);
+        me_emit_u8(c, 0xD1);
+        me_emit_u8(c, 0xE0 | (dst & 7));
+    } else {
+        x86_rex(c, 1, 0, 0, dst >> 3);
+        me_emit_u8(c, 0xC1);
+        me_emit_u8(c, 0xE0 | (dst & 7));
+        me_emit_u8(c, shift & 0xFF);
+    }
+}
+
+static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
+    x86_rex(c, 1, 0, 0, (src1 >> 3) | ((src2 >> 3) << 1));
+    me_emit_u8(c, 0x39);
+    x86_modrm(c, 3, src1 & 7, src2 & 7);
+}
+
+static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src) {
+    if (dst != src) {
+        x86_rex(c, 1, 0, 0, src >> 3);
+        me_emit_u8(c, 0x89);
+        x86_modrm(c, 3, dst & 7, src & 7);
+    }
+    x86_rex(c, 1, 0, 0, dst >> 3);
+    me_emit_u8(c, 0xF7);
+    me_emit_u8(c, 0xD8 | (dst & 7));
+}
+
+static void x86_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
+    /* mov reg, [base + offset] */
+    x86_rex(c, 1, 0, 0, (base_reg >> 3) | ((dst_reg >> 3) << 1));
+    me_emit_u8(c, 0x8B);
+    if (offset == 0 && base_reg != 5 && base_reg != 13) {  /* not rsp/rbp */
+        x86_modrm(c, 0, dst_reg & 7, base_reg & 7);
+    } else {
+        x86_modrm(c, 1, dst_reg & 7, base_reg & 7);
+        me_emit_u32(c, (uint32_t)offset);
+    }
+}
+
+static void x86_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
+    /* mov [base + offset], reg */
+    x86_rex(c, 1, 0, 0, (base_reg >> 3) | ((src_reg >> 3) << 1));
+    me_emit_u8(c, 0x89);
+    if (offset == 0 && base_reg != 5 && base_reg != 13) {
+        x86_modrm(c, 0, src_reg & 7, base_reg & 7);
+    } else {
+        x86_modrm(c, 1, src_reg & 7, base_reg & 7);
+        me_emit_u32(c, (uint32_t)offset);
+    }
+}
+
+static void x86_emit_jmp(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0xE9);
+    me_emit_u32(c, 0);  /* placeholder for rel32 patch */
+    /* TODO: record relocation */
+    (void)label;
+}
+
+static void x86_emit_jeq(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x84);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_jne(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x85);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_jlt(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x8C);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_jle(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x8E);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_jgt(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x8F);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_jge(ZeroCCCompiler *c, const char *label) {
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x8D);
+    me_emit_u32(c, 0);
+    (void)label;
+}
+
+static void x86_emit_call(ZeroCCCompiler *c, const char *func_name) {
+    me_emit_u8(c, 0xE8);
+    me_emit_u32(c, 0);
+    (void)func_name;
+}
+
+static void x86_emit_ret(ZeroCCCompiler *c) {
+    me_emit_u8(c, 0xC3);
+}
+
+/* Floating point operations */
+static void x86_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
+    /* movsd xmm, [base + offset] */
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);
+    x86_rex(c, 0, 0, 0, (base_reg >> 3) | ((dst_reg >> 3) << 1));
+    if (offset == 0 && base_reg != 5 && base_reg != 13) {
+        x86_modrm(c, 0, dst_reg & 7, base_reg & 7);
+    } else {
+        x86_modrm(c, 1, dst_reg & 7, base_reg & 7);
+        me_emit_u32(c, (uint32_t)offset);
+    }
+}
+
+static void x86_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
+    /* movsd [base + offset], xmm */
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);
+    x86_rex(c, 0, 0, 0, (base_reg >> 3) | ((src_reg >> 3) << 1));
+    if (offset == 0 && base_reg != 5 && base_reg != 13) {
+        x86_modrm(c, 0, src_reg & 7, base_reg & 7);
+    } else {
+        x86_modrm(c, 1, src_reg & 7, base_reg & 7);
+        me_emit_u32(c, (uint32_t)offset);
+    }
+}
+
+static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
+    /* Store to rodata and load via RIP-relative addressing */
+    size_t rodata_offset = c->rodata_section.length;
+    zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&value, sizeof(value));
+    
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);
+    me_emit_u8(c, 0x05);  /* RIP-relative */
+    size_t patch_pos = me_get_offset(c);
+    me_emit_u32(c, 0);
+    
+    if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+        c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+        c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+        c->str_reloc_count++;
+    }
+    (void)dst_reg;  /* For now, always loads to xmm0 - TODO: handle other regs */
+}
+
+static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* addsd dst, src2 (dst = src1 + src2) */
+    if (dst != src1) {
+        x86_rex(c, 0, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0xF2);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);  /* movsd */
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 0, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x58);  /* addsd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 0, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0xF2);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 0, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5C);  /* subsd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 0, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0xF2);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 0, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x59);  /* mulsd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst != src1) {
+        x86_rex(c, 0, 0, 0, src1 >> 3);
+        me_emit_u8(c, 0xF2);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+    }
+    x86_rex(c, 0, 0, 0, src2 >> 3);
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5E);  /* divsd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
+    /* xorps with sign bit mask, or use subsd from zero */
+    if (dst != src) {
+        x86_rex(c, 0, 0, 0, src >> 3);
+        me_emit_u8(c, 0xF2);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        x86_modrm(c, 3, dst & 7, src & 7);
+    }
+    /* Use xorps with sign bit: xorpd xmm, [mask] */
+    static const double neg_mask = -0.0;
+    size_t off = c->rodata_section.length;
+    zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&neg_mask, sizeof(neg_mask));
+    me_emit_u8(c, 0x66);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x54);  /* xorpd */
+    me_emit_u8(c, 0x05);
+    size_t p = me_get_offset(c);
+    me_emit_u32(c, 0);
+    if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+        c->str_relocs[c->str_reloc_count].text_patch_offset = p;
+        c->str_relocs[c->str_reloc_count].rodata_offset = off;
+        c->str_reloc_count++;
+    }
+    x86_rex(c, 0, 0, 0, dst >> 3);
+    (void)dst; (void)src;
+}
+
+static void x86_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
+    x86_rex(c, 0, 0, 0, (src1 >> 3) | ((src2 >> 3) << 1));
+    me_emit_u8(c, 0x66);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x2F);  /* ucomisd */
+    x86_modrm(c, 3, src1 & 7, src2 & 7);
+}
+
+static void x86_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
+    /* cvttsd2si reg, xmm */
+    x86_rex(c, 1, 0, 0, (int_dst >> 3) | ((fp_src >> 3) << 1));
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x2C);
+    x86_modrm(c, 3, int_dst & 7, fp_src & 7);
+}
+
+static void x86_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
+    /* cvtsi2sd xmm, reg */
+    x86_rex(c, 1, 0, 0, (int_src >> 3) | ((fp_dst >> 3) << 1));
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x2A);
+    x86_modrm(c, 3, fp_dst & 7, int_src & 7);
+}
+
+static void x86_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    x86_rex(c, 0, 0, 0, (src >> 3) | ((dst >> 3) << 1));
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);  /* movsd */
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_const(ZeroCCCompiler *c, int64_t value) {
+    x86_emit_mov_imm(c, 0, value);  /* rax */
+}
+
+static void x86_emit_stack_adjust(ZeroCCCompiler *c, int32_t delta) {
+    if (delta == 0) return;
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x81);
+    me_emit_u8(c, delta > 0 ? 0xC4 : 0xEC);  /* add/sub rsp */
+    me_emit_u32(c, (uint32_t)(delta > 0 ? delta : -delta));
+}
+
+static void x86_emit_push_reg(ZeroCCCompiler *c, int reg) {
+    x86_rex(c, 1, 0, 0, reg >> 3);
+    me_emit_u8(c, 0x50 | (reg & 7));
+}
+
+static void x86_emit_pop_reg(ZeroCCCompiler *c, int reg) {
+    x86_rex(c, 1, 0, 0, reg >> 3);
+    me_emit_u8(c, 0x58 | (reg & 7));
+}
+
+static void x86_emit_label(ZeroCCCompiler *c, const char *name) {
+    (void)c; (void)name;
+    /* TODO: implement label emission with patching */
+}
+
+/* x86-64 backend instance */
+const ZeroCCISABackend x86_64_backend = {
+    .isa = ISA_X86_64,
+    .regs = &x86_64_regs,
+    .fp_reg = 15,  /* rbp */
+    .sp_reg = 14,  /* rsp */
+    
+    .emit_prologue = x86_emit_prologue,
+    .emit_epilogue = x86_emit_epilogue,
+    
+    .emit_mov_imm = x86_emit_mov_imm,
+    .emit_add = x86_emit_add,
+    .emit_sub = x86_emit_sub,
+    .emit_mul = x86_emit_mul,
+    .emit_div = x86_emit_div,
+    .emit_and = x86_emit_and,
+    .emit_or = x86_emit_or,
+    .emit_xor = x86_emit_xor,
+    .emit_shl = x86_emit_shl,
+    .emit_cmp = x86_emit_cmp,
+    .emit_neg = x86_emit_neg,
+    
+    .emit_load = x86_emit_load,
+    .emit_store = x86_emit_store,
+    
+    .emit_jmp = x86_emit_jmp,
+    .emit_jeq = x86_emit_jeq,
+    .emit_jne = x86_emit_jne,
+    .emit_jlt = x86_emit_jlt,
+    .emit_jle = x86_emit_jle,
+    .emit_jgt = x86_emit_jgt,
+    .emit_jge = x86_emit_jge,
+    .emit_call = x86_emit_call,
+    .emit_ret = x86_emit_ret,
+    
+    .emit_load_fp = x86_emit_load_fp,
+    .emit_store_fp = x86_emit_store_fp,
+    .emit_load_fp_imm = x86_emit_load_fp_imm,
+    .emit_fp_add = x86_emit_fp_add,
+    .emit_fp_sub = x86_emit_fp_sub,
+    .emit_fp_mul = x86_emit_fp_mul,
+    .emit_fp_div = x86_emit_fp_div,
+    .emit_fp_neg = x86_emit_fp_neg,
+    .emit_fp_cmp = x86_emit_fp_cmp,
+    .emit_fp_cvtsi = x86_emit_fp_cvtsi,
+    .emit_fp_cvtsf = x86_emit_fp_cvtsf,
+    .emit_fp_mov = x86_emit_fp_mov,
+    
+    .emit_const = x86_emit_const,
+    .emit_stack_adjust = x86_emit_stack_adjust,
+    .emit_push_reg = x86_emit_push_reg,
+    .emit_pop_reg = x86_emit_pop_reg,
+    .emit_label = x86_emit_label,
+};
+
+const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
+    switch (isa) {
+        case ISA_X86_64: return &x86_64_backend;
+        default: return NULL;
+    }
+}
+
+const ZeroCCISABackend *zero_cc_get_native_backend(void) {
+#if defined(__x86_64__)
+    return &x86_64_backend;
+#elif defined(__aarch64__)
+    return &aarch64_backend;
+#elif defined(__riscv) && __riscv_xlen == 64
+    return &riscv64_backend;
+#elif defined(__riscv) && __riscv_xlen == 32
+    return &riscv32_backend;
+#else
+    return &x86_64_backend;  /* fallback */
+#endif
+}

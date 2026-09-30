@@ -13,7 +13,9 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
+#include "zero_cc/isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
+#include "zero_cc/isa_backend.h"
 
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
@@ -38,6 +40,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     /* Initialize register allocator */
     regalloc_init(&c->regalloc);
     c->next_temp_id = 0;
+
+    /* Initialize ISA backend */
+    c->isa = zero_cc_get_native_backend()->isa;
+    c->isa_backend = zero_cc_get_native_backend();
 
     /* Create shared semantic context for all functions */
     DiagBuf shared_diags;

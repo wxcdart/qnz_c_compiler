@@ -1,6 +1,8 @@
 #ifndef ZERO_CC_TYPES_SYMBOLS_H
 #define ZERO_CC_TYPES_SYMBOLS_H
 
+#include "zero_cc/isa_backend.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include "zero_cc/core/compiler_state.h"
@@ -44,6 +46,10 @@ typedef struct ZeroCCCompiler {
     int next_temp_id;                     /* Next temporary variable ID */
     uint16_t ir_next_label;               /* Next IR label index */
     SemContext *sem_ctx;                  /* Semantic context for type info */
+
+    /* ISA backend */
+    ZeroCCISA isa;                        /* Target ISA */
+    const ZeroCCISABackend *isa_backend;  /* ISA-specific codegen backend */
 
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */
