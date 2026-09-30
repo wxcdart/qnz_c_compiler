@@ -47,6 +47,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->had_error = true;
         return;
     }
+    c->sem_ctx = &shared_ctx;  /* Save for lowering */
     // Save the global scope pointer (root of scope chain)
     // Register standard library functions if any
 

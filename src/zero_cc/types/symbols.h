@@ -7,6 +7,7 @@
 #include "zero_cc/core/buffers.h"
 #include "zero_cc/types/token.h"
 #include "zero_cc/types/type_system.h"
+#include "zero_cc/semantic/expr.h"
 #include "../parser/regalloc.h"
 
 /* Compiler & Emitter Context */
@@ -42,6 +43,7 @@ typedef struct ZeroCCCompiler {
     RegAllocator regalloc;                /* Linear-scan register allocator */
     int next_temp_id;                     /* Next temporary variable ID */
     uint16_t ir_next_label;               /* Next IR label index */
+    SemContext *sem_ctx;                  /* Semantic context for type info */
 
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */

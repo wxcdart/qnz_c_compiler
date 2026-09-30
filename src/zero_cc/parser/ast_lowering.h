@@ -14,6 +14,7 @@
 #include "ir_emitter.h"
 #include "machine_emitter.h"
 #include "../types/global_vars.h"
+#include "../semantic/type.h"
 
 /* IR Emitter Context for state management (replaces static globals) */
 static IREmitterContext g_ir_emitter_ctx;
@@ -51,7 +52,37 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
         const char *var = node->s.str;
         ZeroCCSym *sym = zero_cc_find_local(c, var);
         if (sym) {
-            me_mov_mem_rax(c, sym->stack_offset);
+            if (c->last_expr_is_float) {
+                /* Check if destination is an integer type */
+                bool dest_is_int = (sym->type.tag == TYPE_INT8 || 
+                                    sym->type.tag == TYPE_UINT8 ||
+                                    sym->type.tag == TYPE_INT16 || 
+                                    sym->type.tag == TYPE_UINT16 ||
+                                    sym->type.tag == TYPE_INT32 || 
+                                    sym->type.tag == TYPE_UINT32 ||
+                                    sym->type.tag == TYPE_INT64 || 
+                                    sym->type.tag == TYPE_UINT64);
+                if (dest_is_int) {
+                    /* Convert float to int: cvttsd2si rax, xmm0 */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x2C);
+                    me_emit_u8(c, 0xC0);
+                    /* Store integer to stack */
+                    me_mov_mem_rax(c, sym->stack_offset);
+                } else {
+                    /* Float assignment: store xmm0 to [rbp - offset] */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x11);
+                    me_emit_u8(c, 0x85);
+                    me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd [rbp-offset], xmm0 */
+                }
+                c->last_expr_is_float = 0; /* Reset after store */
+            } else {
+                /* Integer assignment: store rax to stack */
+                me_mov_mem_rax(c, sym->stack_offset);
+            }
         }
     }
 }
@@ -289,6 +320,7 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
                 c->str_reloc_count++;
             }
+            c->last_expr_is_float = 1; /* Float literal in xmm0 */
             break;
         }
         case NODE_BOOL:
@@ -321,7 +353,18 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             const char *name = node->s.str;
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
-                me_mov_rax_mem(c, sym->stack_offset);
+                /* Check if the variable is a float type */
+                if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
+                    /* Load float from [rbp - offset] to xmm0 */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x10);
+                    me_emit_u8(c, 0x85);
+                    me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd xmm0, [rbp-offset] */
+                    c->last_expr_is_float = 1;
+                } else {
+                    me_mov_rax_mem(c, sym->stack_offset);
+                }
             } else {
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
@@ -340,111 +383,189 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         }
         case NODE_BINOP: {
-            /* For now, use integer arithmetic only */
-            /* Float arithmetic requires proper type tracking */
+            /* Evaluate left operand, save its type */
             lower_expr(c, arena, node->left);
-            me_push_rax(c);
+            bool left_is_float = c->last_expr_is_float;
+            
+            /* Save left operand: rax for int, xmm0 for float */
+            if (left_is_float) {
+                /* Save xmm0 to stack (float) - use [rsp] as temp */
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x11);
+                me_emit_u8(c, 0x04);
+                me_emit_u8(c, 0x24); /* movsd [rsp], xmm0 */
+            } else {
+                me_push_rax(c); /* Save rax for int */
+            }
+            
+            /* Evaluate right operand */
             lower_expr(c, arena, node->right);
-            me_pop_rcx(c);
-            switch (node->aux.op) {
-                case TK_PLUS:
-                    me_add_rax_rcx(c);
-                    break;
-                case TK_MINUS:
-                    me_sub_rcx_rax(c);
-                    me_mov_rax_rcx(c);
-                    break;
-                case TK_STAR:
-                    me_imul_rax_rcx(c);
-                    break;
-                case TK_SLASH: {
-                    me_push_rbx(c);
-                    me_mov_rbx_rax(c);
-                    me_mov_rax_rcx(c);
-                    me_cqo(c);
-                    me_idiv_rbx(c);
-                    me_pop_rbx(c);
-                    break;
+            bool right_is_float = c->last_expr_is_float;
+            
+            /* Perform arithmetic based on operand types */
+            if (left_is_float && right_is_float) {
+                /* Both floats: use SSE2 */
+                /* Load left operand from stack to xmm1 */
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x10);
+                me_emit_u8(c, 0x0C);
+                me_emit_u8(c, 0x24); /* movsd xmm1, [rsp] */
+                /* xmm0 has right operand, xmm1 has left operand */
+                switch (node->aux.op) {
+                    case TK_PLUS:
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x58);
+                        me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1 */
+                        break;
+                    case TK_MINUS:
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x5C);
+                        me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1 */
+                        break;
+                    case TK_STAR:
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x59);
+                        me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1 */
+                        break;
+                    case TK_SLASH:
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x5E);
+                        me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1 */
+                        break;
+                    default:
+                        /* For comparison operators, fall through to integer code */
+                        /* This is a limitation - float comparisons need separate handling */
+                        break;
                 }
-                case TK_PERCENT: {
-                    me_push_rbx(c);
-                    me_mov_rbx_rax(c);
-                    me_mov_rax_rcx(c);
-                    me_cqo(c);
-                    me_idiv_rbx(c);
-                    me_mov_rax_rdx(c);
-                    me_pop_rbx(c);
-                    break;
+                c->last_expr_is_float = 1; /* Result is float */
+            } else {
+                /* Integer arithmetic */
+                if (left_is_float) {
+                    /* Load left operand from stack to rcx */
+                    me_pop_rcx(c);
+                } else {
+                    me_pop_rcx(c);
                 }
-                case TK_AMP:
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x21);
-                    me_emit_u8(c, 0xC8);
-                    break;
-                case TK_PIPE:
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x09);
-                    me_emit_u8(c, 0xC8);
-                    break;
-                case TK_CARET:
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x31);
-                    me_emit_u8(c, 0xC8);
-                    break;
-                case TK_SHL:
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x89);
-                    me_emit_u8(c, 0xC1);
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0xD3);
-                    me_emit_u8(c, 0xE0);
-                    break;
-                case TK_SHR:
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x89);
-                    me_emit_u8(c, 0xC1);
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0xD3);
-                    me_emit_u8(c, 0xE8);
-                    break;
-                case TK_EQ:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x94);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                case TK_NE:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x95);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                case TK_LT:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x92);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                case TK_LE:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x96);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                case TK_GT:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x97);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                case TK_GE:
-                    me_cmp_rcx_rax(c);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x93);
-                    me_emit_u8(c, 0xC0);
-                    break;
-                default:
-                    break;
+                switch (node->aux.op) {
+                    case TK_PLUS:
+                        me_add_rax_rcx(c);
+                        break;
+                    case TK_MINUS:
+                        me_sub_rcx_rax(c);
+                        me_mov_rax_rcx(c);
+                        break;
+                    case TK_STAR:
+                        me_imul_rax_rcx(c);
+                        break;
+                    case TK_SLASH: {
+                        me_push_rbx(c);
+                        me_mov_rbx_rax(c);
+                        me_mov_rax_rcx(c);
+                        me_cqo(c);
+                        me_idiv_rbx(c);
+                        me_pop_rbx(c);
+                        break;
+                    }
+                    case TK_PERCENT: {
+                        me_push_rbx(c);
+                        me_mov_rbx_rax(c);
+                        me_mov_rax_rcx(c);
+                        me_cqo(c);
+                        me_idiv_rbx(c);
+                        me_mov_rax_rdx(c);
+                        me_pop_rbx(c);
+                        break;
+                    }
+                    case TK_AMP:
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x21);
+                        me_emit_u8(c, 0xC8);
+                        break;
+                    case TK_PIPE:
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x09);
+                        me_emit_u8(c, 0xC8);
+                        break;
+                    case TK_CARET:
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x31);
+                        me_emit_u8(c, 0xC8);
+                        break;
+                    case TK_SHL:
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x89);
+                        me_emit_u8(c, 0xC1);
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0xD3);
+                        me_emit_u8(c, 0xE0);
+                        break;
+                    case TK_SHR:
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x89);
+                        me_emit_u8(c, 0xC1);
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0xD3);
+                        me_emit_u8(c, 0xE8);
+                        break;
+                    case TK_EQ:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x94);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    case TK_NE:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x95);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    case TK_LT:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x92);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    case TK_LE:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x96);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    case TK_GT:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x97);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    case TK_GE:
+                        me_cmp_rcx_rax(c);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x93);
+                        me_emit_u8(c, 0xC0);
+                        break;
+                    default:
+                        break;
+                }
+            }
+            break;
+        }
+        case NODE_CAST: {
+            /* Evaluate the expression to be cast */
+            lower_expr(c, arena, node->left);
+            /* Check if we need to convert float to int */
+            if (c->last_expr_is_float) {
+                /* Convert float to int: cvttsd2si rax, xmm0 */
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x2C);
+                me_emit_u8(c, 0xC0);
+                c->last_expr_is_float = 0; /* Result is now integer */
             }
             break;
         }

@@ -220,6 +220,15 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     cn->left = first_expr;
                     return comp_ref;
                 }
+                /* It's a cast: create NODE_CAST with the expression */
+                ASTRef cast_ref = zero_cc_ast_alloc_node(arena, NODE_CAST);
+                ZeroCCASTNode *cast_node = zero_cc_ast_get(arena, cast_ref);
+                /* Parse the expression to be cast */
+                cast_node->left = parse_expr_ast_internal(c, arena);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++;
+                }
+                return cast_ref;
             }
             c->token_pos = cast_start;
         }
