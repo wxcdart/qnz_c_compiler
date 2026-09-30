@@ -228,7 +228,7 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 | 2 | String literal emission (`NODE_STRING` → `lea rax, [rip+rodata]`) | 1 day | ✅ |
 | 3 | `do … while` machine code (`NODE_DO_WHILE`) | 1 day | ✅ |
 | 4 | Ternary `?:` codegen (`NODE_TERNARY`) | 2 days | ✅ |
-| 5 | Member access `.` / `->` codegen (`NODE_MEMBER`) | 2 days | ✅ (with offsets) |
+| 5 | Member access `.` / `->` codegen (`NODE_MEMBER`) | 2 days | ❌ **Missing** |
 | 6 | Array subscript codegen (`NODE_INDEX`) | 1 day | ✅ (char/byte only) |
 | 7 | Cast codegen (`NODE_CAST`) | 1 day | ✅ (integers) |
 | 8 | `sizeof` constant folding | 1 day | ✅ |
