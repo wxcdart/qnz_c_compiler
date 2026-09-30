@@ -354,3 +354,38 @@ grep -rh "^#include" src/zero_cc/ | \
 - Working code
 - Minimal complexity
 - Clear migration path exists
+
+---
+
+## Implementation Status
+
+### Short-Term Recommendation: ✅ COMPLETED
+
+**Recommendation**: Keep current design with forward declaration pattern
+
+**Implementation**:
+- ✅ Forward declaration in `expressions/primary.h` (line 13)
+- ✅ Definition in `statements.h` (after including `expressions.h`)
+- ✅ All 70+ tests pass
+- ✅ No runtime overhead
+
+**Current Architecture**:
+```
+statements.h → expressions.h → primary.h → zero_cc_parse_stmt() (forward decl)
+statements.h → zero_cc_parse_stmt() (definition) → zero_cc_parse_expr()
+```
+
+### Long-Term Recommendation: ⏸️ NOT NEEDED
+
+**Recommendation**: Migrate to parser interface pattern (Option 1)
+
+**Trigger Conditions** (not yet met):
+- ❌ Adding two-pass architecture
+- ❌ Adding optimization passes
+- ❌ Need for better testability
+
+**Status**: Current design is working well. Migration only needed when adding new features.
+
+---
+
+*Document status: Short-term recommendation implemented, long-term migration optional*
