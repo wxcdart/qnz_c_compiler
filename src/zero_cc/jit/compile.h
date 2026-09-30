@@ -14,6 +14,8 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/parser/ir.h"
+#include "zero_cc/parser/regalloc.h"
+#include "zero_cc/parser/live_range.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
@@ -235,11 +237,20 @@ ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
             /* Reset IR buffer for this function */
             ir_reset();
             
-            /* Lower AST to machine code */
+            /* Pass 1: Lower AST to IR (instruction selection) */
             zero_cc_lower_ast(c, &arena, body);
             
-            /* Run register allocation (placeholder - full integration TBD) */
-            /* regalloc_allocate(&c->regalloc); */
+            /* Pass 2: Compute live ranges and allocate registers */
+            /* TODO: Enable when IR emission is working correctly */
+            /* LiveRangeAnalyzer lra;
+            live_range_init(&lra);
+            live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
+            live_range_compute(&lra, &c->regalloc);
+            regalloc_allocate(&c->regalloc);
+            live_range_free(&lra); */
+            
+            /* Pass 3: Generate machine code from IR using allocated registers */
+            /* (Machine code emission will be implemented in future) */
         } else {
             if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
             c->had_error = true;

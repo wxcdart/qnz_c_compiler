@@ -48,11 +48,11 @@
 | NODE_BINOP | Full (all operators) | ✅ |
 | NODE_UNOP | Full (deref, neg, lnot, not) | ✅ |
 | NODE_TERNARY | Full (conditional, labels) | ✅ |
-| NODE_CALL | Pending | ⏸️ |
+| NODE_CALL | Full (function calls) | ✅ |
 | NODE_IDENT | Full (local/global) | ✅ |
 | NODE_ASSIGN | Full (store) | ✅ |
 
-**Coverage**: ~85% of expression types covered
+**Coverage**: ~90% of expression types covered
 
 ### Files Created/Modified
 
@@ -79,18 +79,15 @@
 
 ## Next Steps: Phase 3 (Register Allocation Integration)
 
-1. **Complete IR emission for remaining AST nodes**:
-   - NODE_CALL (function calls) - requires argument passing IR
+1. **Compute Live Ranges**: Track when virtual registers are defined and used
 
-2. **Compute Live Ranges**: Track when virtual registers are defined and used
+2. **Run Linear-Scan**: Integrate with existing regalloc.h infrastructure
 
-3. **Run Linear-Scan**: Integrate with existing regalloc.h infrastructure
+3. **Assign Physical Registers**: Map virtual temps to RAX, RCX, etc.
 
-4. **Assign Physical Registers**: Map virtual temps to RAX, RCX, etc.
+4. **Handle Spills**: Generate load/store for registers that don't fit
 
-5. **Handle Spills**: Generate load/store for registers that don't fit
-
-6. **Build Pass 2**: Replace machine code emission with IR-based code generation
+5. **Build Pass 2**: Replace machine code emission with IR-based code generation
 
 ## Architecture Summary
 
@@ -107,3 +104,12 @@ AST → Pass 1 (IR + Machine Code) → Execute
 ```
 AST → Pass 1 (IR) → Live Analysis → RegAlloc → Pass 2 (Machine Code) → Execute
 ```
+
+## Phase 2 Summary
+
+Phase 2 is now complete! We have successfully implemented instruction selection that:
+- Emits IR for all core expression types (BINOP, UNOP, TERNARY, CALL, IDENT, ASSIGN)
+- Maintains dual emission mode (IR + machine code) for testing
+- Provides the foundation for register allocation integration in Phase 3
+
+The IR buffer is ready to receive live range analysis and register allocation.

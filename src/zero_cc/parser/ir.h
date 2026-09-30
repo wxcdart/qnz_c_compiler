@@ -148,6 +148,11 @@ typedef struct __attribute__((packed)) {
 static Instr instrs[MAX_INSTRS];
 static size_t instr_count = 0;
 
+/* Get instruction buffer (for live range analysis) */
+static inline const Instr *ir_get_buffer(void) {
+    return instrs;
+}
+
 /* Emit instruction - O(1) */
 static inline void ir_emit(Instr instr) {
     if (instr_count >= MAX_INSTRS) {
@@ -207,3 +212,8 @@ static inline void ir_emit_ret(void) {
 }
 
 #endif /* ZERO_CC_IR_H */
+
+/* Debug: Print IR count */
+/* static inline void debug_print_ir_count(void) {
+    fprintf(stderr, "IR count: %zu\n", instr_count);
+} */
