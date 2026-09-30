@@ -7,7 +7,7 @@
 #include <stdbool.h>
 
 #include "zero_cc/types_lexer.h"
-#include "zero_cc/parser.h"
+#include "zero_cc/parser.h"  /* ZeroCCCompiler, ASTRef */
 #include "zero_cc/expressions.h"
 
 /* Forward declaration */
