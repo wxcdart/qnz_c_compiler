@@ -800,6 +800,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x89);
                     zero_cc_emit_u8(&c->text_section, 0xC8);
+                    /* Emit IR for register allocation */
+                    ir_emit_sub(c->next_temp_id - 1, c->next_temp_id - 2, c->next_temp_id - 1);
                     break;
                 case TK_STAR:
                     // imul rax, rcx
@@ -807,6 +809,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x0F);
                     zero_cc_emit_u8(&c->text_section, 0xAF);
                     zero_cc_emit_u8(&c->text_section, 0xC1);
+                    /* Emit IR for register allocation */
+                    ir_emit_mul(c->next_temp_id - 1, c->next_temp_id - 2, c->next_temp_id - 1);
                     break;
                 case TK_SLASH:
                     // rcx (left) / rax (right) -> quotient in rax
@@ -823,6 +827,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0xF7);
                     zero_cc_emit_u8(&c->text_section, 0xFB);       // idiv rbx
                     zero_cc_emit_u8(&c->text_section, 0x5B);       // pop rbx
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_DIV, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_PERCENT:
                     // rcx (left) % rax (right) -> remainder in rdx, move to rax
@@ -842,24 +848,32 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x89);
                     zero_cc_emit_u8(&c->text_section, 0xD0);       // mov rax, rdx
                     zero_cc_emit_u8(&c->text_section, 0x5B);       // pop rbx
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_MOD, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_AMP:
                     // and rax, rcx
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x21);
                     zero_cc_emit_u8(&c->text_section, 0xC8);
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_AND, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_PIPE:
                     // or rax, rcx
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x09);
                     zero_cc_emit_u8(&c->text_section, 0xC8);
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_OR, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_CARET:
                     // xor rax, rcx
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0x31);
                     zero_cc_emit_u8(&c->text_section, 0xC8);
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_XOR, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_SHL:
                     // rcx (left) << rax (right: count in cl)
@@ -870,6 +884,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0xD3);
                     zero_cc_emit_u8(&c->text_section, 0xE0);       // shl rax, cl
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_SHL, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_SHR:
                     // rcx (left) >> rax (right: count in cl)
@@ -880,6 +896,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x48);
                     zero_cc_emit_u8(&c->text_section, 0xD3);
                     zero_cc_emit_u8(&c->text_section, 0xF8);       // sar rax, cl
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_SHR, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = 0, .label_idx = 0});
                     break;
                 case TK_EQ:
                 case TK_NE:
@@ -905,6 +923,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     zero_cc_emit_u8(&c->text_section, 0x0F);
                     zero_cc_emit_u8(&c->text_section, 0xB6);
                     zero_cc_emit_u8(&c->text_section, 0xC0);
+                    /* Emit IR for register allocation */
+                    ir_emit((Instr){.op = OP_CMP, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 2, .temp_src2 = c->next_temp_id - 1, .imm = node->aux.op, .label_idx = 0});
                     break;
                 default:
                     // Unsupported binary operator – emit zero.
@@ -941,6 +961,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0x8B);
                 zero_cc_emit_u8(&c->text_section, 0x00);
+                /* Emit IR for register allocation */
+                ir_emit((Instr){.op = OP_DEREF, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 1, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
             } else if (node->aux.op == TK_MINUS) {
                 /* Allocate temp for negation result */
                 int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
@@ -950,6 +972,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0xF7);
                 zero_cc_emit_u8(&c->text_section, 0xD8);
+                /* Emit IR for register allocation */
+                ir_emit((Instr){.op = OP_NEG, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 1, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
             } else if (node->aux.op == TK_BANG) {
                 /* Allocate temp for logical NOT result */
                 int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
@@ -966,6 +990,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x0F);
                 zero_cc_emit_u8(&c->text_section, 0xB6);
                 zero_cc_emit_u8(&c->text_section, 0xC0);
+                /* Emit IR for register allocation */
+                ir_emit((Instr){.op = OP_LNOT, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 1, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
             } else if (node->aux.op == TK_TILDE) {
                 /* Allocate temp for bitwise NOT result */
                 int temp __attribute__((unused)) = alloc_temp(c, REG_CLASS_GPR);
@@ -975,6 +1001,8 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0xF7);
                 zero_cc_emit_u8(&c->text_section, 0xD0);
+                /* Emit IR for register allocation */
+                ir_emit((Instr){.op = OP_NOT, .temp_dest = c->next_temp_id - 1, .temp_src1 = c->next_temp_id - 1, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
             } else if (node->flags == 0 && (node->aux.op == TK_INC || node->aux.op == TK_DEC)) {
                 // Handle prefix ++/-- on identifiers.
                 ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
