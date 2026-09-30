@@ -247,8 +247,6 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
 static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
 #define MAX_EPILOGUE_PATCHES 256
-static size_t epilogue_patches[MAX_EPILOGUE_PATCHES];
-static size_t epilogue_patch_count = 0;
 
 
 #endif /* ZERO_CC_PARSER_AST_DUMP_H */

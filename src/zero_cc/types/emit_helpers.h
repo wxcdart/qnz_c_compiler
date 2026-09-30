@@ -13,6 +13,9 @@
 static inline void zero_cc_emit_u8(ZeroCCBuffer *b, uint8_t byte) {
     zero_cc_buf_put_bytes(b, &byte, 1);
 }
+static inline void zero_cc_emit_u16(ZeroCCBuffer *b, uint16_t val) {
+    zero_cc_buf_put_bytes(b, &val, 2);
+}
 static inline void zero_cc_emit_u32(ZeroCCBuffer *b, uint32_t val) {
     zero_cc_buf_put_bytes(b, &val, 4);
 }
