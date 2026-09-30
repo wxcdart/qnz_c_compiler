@@ -1,6 +1,73 @@
 # Changelog
 
-## [Unreleased] - Sprint 3: Two-Pass Code Generation
+## [Unreleased] - Multi-ISA Backend & C11 Support
+
+### Added
+
+#### Virtual Register (VREG) System ✅
+- ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
+- Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)
+- Multi-ISA support (x86-64, aarch64, riscv64)
+- RISC-V special remapping (VREG_0 → a0/x10)
+- Documentation: `VREG.md`
+
+#### Backend Architecture
+- Unified backend interface (`zero_cc_backends.h`)
+- TLS backend (`tls_backend`) for `_Thread_local`
+- Atomic backend (`atomic_backend`) for `_Atomic`
+- ABI backend (`abi_backend`) for calling conventions
+- Pragma backend (`pragma_backend`) for `#pragma` directives
+- Modular design for cross-platform support (Linux/Windows/macOS/baremetal)
+
+#### Documentation
+- `TLS_IMPLEMENTATION_PLAN.md` - TLS and cross-platform backend plan
+- Updated `README.md` with backend architecture overview
+
+#### Bug Fixes
+- Fixed x86-64 load/store encoding (REX bits, displacement size)
+- Fixed subtraction lowering (dst = src1 - src2)
+- Fixed stack offset sign convention
+- Fixed jump patch position
+- Fixed push/pop REX prefix
+
+### Changed
+- Removed unused backend scaffolding (`backends/` directory)
+- Moved `zero_cc_set_tls_backend()` to `tls_backend.c`
+- Cleaned up unused struct members and declarations
+
+### Technical Details
+
+#### Platform-Specific TLS
+
+| Platform | C Library | TLS Access |
+|----------|-----------|------------|
+| Linux x86-64 | musl/glibc | `fs` segment |
+| Linux aarch64/riscv64 | musl/glibc | `x28`/`tp` register |
+| Windows x86-64 | UCRT | `gs` segment |
+| macOS x86-64/aarch64 | libc | `gs` segment / `x28` |
+| Baremetal | None | Custom TLSBlock |
+
+#### Backend Pattern
+
+All features follow the same pattern:
+1. Define backend interface in `zero_cc_backends.h`
+2. Add to `ZeroCCCompiler` struct
+3. Implement per-ISA (x86_64.c, aarch64.c, riscv.c)
+4. Use in lowering: `BE(c)->feature_op(c, ...)`
+
+### Planned Features (C11/C23)
+
+| Feature | Backend | Priority |
+|---------|---------|----------|
+| `_Atomic` | `atomic_backend` | High |
+| `_Alignas` / `_Alignof` | `abi_backend` | High |
+| `inline` semantics | `isa_backend` | Medium |
+| Complex numbers | `isa_backend` | Medium |
+| `#pragma pack` | `pragma_backend` | Low |
+
+---
+
+## [Previous] - Sprint 3: Two-Pass Code Generation
 
 ### Added
 
