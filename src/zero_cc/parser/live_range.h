@@ -209,6 +209,26 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
         
+        /* OP_CALL packs argument temps in temp_src1, temp_src2, and imm (temp_dest is arg_count) */
+        if (instr->op == OP_CALL) {
+            int arg_count = instr->temp_dest;
+            if (arg_count > 0 && instr->temp_src1 != 0xFF) {
+                live_range_add_use(lra, i, instr->temp_src1, false);
+            }
+            if (arg_count > 1 && instr->temp_src2 != 0xFF) {
+                live_range_add_use(lra, i, instr->temp_src2, false);
+            }
+            if (arg_count > 2) {
+                int t2 = (int)((instr->imm >> 0) & 0xFF);
+                live_range_add_use(lra, i, t2, false);
+            }
+            if (arg_count > 3) {
+                int t3 = (int)((instr->imm >> 8) & 0xFF);
+                live_range_add_use(lra, i, t3, false);
+            }
+            continue;
+        }
+
         /* Record destination temp (definition) - skip 0xFF (no temp) */
         if (instr->temp_dest != 0xFF) {
             live_range_add_use(lra, i, instr->temp_dest, true);

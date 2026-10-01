@@ -161,7 +161,6 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
     zero_cc_cpp_define_obj(cpp, "true", "1");
     zero_cc_cpp_define_obj(cpp, "false", "0");
-    zero_cc_cpp_define_obj(cpp, "va_list", "char*");
     /* Self-hosted atomic builtins for Milestone 3 */
     zero_cc_cpp_define_func2(cpp, "__atomic_load_n", "p", "m", "(0)" );
     zero_cc_cpp_define_func3(cpp, "__atomic_store_n", "p", "v", "m", "((void)0)" );
@@ -171,10 +170,11 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELEASE", "3");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQ_REL", "4");
-    zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
-    zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
-    zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "(ap = (char*)(&(last)) - 8)");
-    zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "(*(type*)(ap -= 8, ap + 8))");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "__builtin_va_start(ap, last)");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
+    zero_cc_cpp_define_func1(cpp, "__builtin_va_end", "ap", "((void)0)");
+    zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "__builtin_va_start(ap, last)");
+    zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "va_end", "ap", "((void)0)");
     zero_cc_cpp_define_func1(cpp, "__attribute__", "x", "");
     zero_cc_cpp_define_func1(cpp, "__attribute", "x", "");

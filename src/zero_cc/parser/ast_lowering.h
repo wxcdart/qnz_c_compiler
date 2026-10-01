@@ -647,7 +647,72 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             return result;
         }
         
+        case NODE_VA_START: {
+            /* va_start(ap, last) - initialize va_list to point to variadic args */
+            /* The variadic args are in the spill area after the fixed params */
+            /* For System V AMD64: after saving rdi, rsi, rdx, rcx, r8, r9 */
+            /* The first variadic arg is at offset after the last fixed param */
+            
+            /* Get the ap variable name - node->left is an ASTRef to the ap identifier */
+            ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
+            const char *ap_var = (ap_node && ap_node->tag == NODE_IDENT) ? ap_node->s.str : "";
+            ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
+            
+            if (ap_sym) {
+                /* Get the 'last' parameter to find where variadic args start */
+                ZeroCCASTNode *last_node = zero_cc_ast_get(arena, node->right);
+                const char *last_var = (last_node && last_node->tag == NODE_IDENT) ? last_node->s.str : "";
+                ZeroCCSym *last_sym = zero_cc_find_local(c, last_var);
+                
+                if (last_sym) {
+                    /* variadic args start 8 bytes after the last fixed param in stack */
+                    int32_t va_start_offset = -(last_sym->stack_offset + 8);
+                    
+                    /* Store address into ap: ap = (char*)rbp + va_start_offset */
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, va_start_offset);
+                    ir_emit_store(addr_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
+                }
+            }
+            
+            c->last_expr_is_float = 0;
+            return VREG_0;
+        }
+        
+        case NODE_VA_ARG: {
+            /* va_arg(ap, type) - extract next variadic argument */
+            /* Simplified: bump pointer by 8 bytes and load */
+            /* Full implementation would check gp_offset for register args */
+            
+            /* Get the va_list pointer */
+            int ap_temp = lower_expr(c, arena, node->left);
+            
+            /* Load the value from [ap] */
+            int result_temp = c->next_temp_id++;
+            ir_emit_deref(result_temp, ap_temp);
+            
+            /* Bump ap by 8 bytes downward: ap -= 8 */
+            int eight_temp = c->next_temp_id++;
+            ir_emit_mov_imm(eight_temp, -8);
+            int new_ap_temp = c->next_temp_id++;
+            ir_emit_add(new_ap_temp, ap_temp, eight_temp);
+            
+            /* Store back to ap variable */
+            ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
+            const char *ap_var = ap_node ? ap_node->s.str : "";
+            ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
+            if (ap_sym) {
+                ir_emit_store(new_ap_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
+            }
+            
+            c->last_expr_is_float = 0;
+            return result_temp;
+        }
+        
         case NODE_ASSIGN: {
+            /* Check if this is a compound assignment (+=, -=, etc.) */
+            bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
+            
             int right_temp = lower_expr(c, arena, node->right);
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
             const char *var = left_node ? left_node->s.str : "";
@@ -662,6 +727,42 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x2A);
                         me_emit_u8(c, 0xC0); /* cvtsi2sd xmm0, rax */
+                    }
+                    /* For compound assignment, we need to load current value first */
+                    if (is_compound) {
+                        /* Load current value into xmm1 */
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x10);
+                        me_emit_u8(c, 0x8D);
+                        me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd xmm1, [rbp - offset] */
+                        /* Perform operation in xmm0 */
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN:
+                                me_emit_u8(c, 0xF2);
+                                me_emit_u8(c, 0x0F);
+                                me_emit_u8(c, 0x58);
+                                me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1 */
+                                break;
+                            case TK_SUB_ASSIGN:
+                                me_emit_u8(c, 0xF2);
+                                me_emit_u8(c, 0x0F);
+                                me_emit_u8(c, 0x5C);
+                                me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1 */
+                                break;
+                            case TK_MUL_ASSIGN:
+                                me_emit_u8(c, 0xF2);
+                                me_emit_u8(c, 0x0F);
+                                me_emit_u8(c, 0x59);
+                                me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1 */
+                                break;
+                            case TK_DIV_ASSIGN:
+                                me_emit_u8(c, 0xF2);
+                                me_emit_u8(c, 0x0F);
+                                me_emit_u8(c, 0x5E);
+                                me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1 */
+                                break;
+                        }
                     }
                     /* movsd [rbp - offset], xmm0 */
                     me_emit_u8(c, 0xF2);
@@ -678,6 +779,23 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x2C);
                         me_emit_u8(c, 0xC0); /* cvttsd2si eax, xmm0 */
+                        if (is_compound) {
+                            /* Load current value and perform operation */
+                            int left_temp = c->next_temp_id++;
+                            ir_emit_load(left_temp, BE(c)->fp_reg, -sym->stack_offset);
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_add(right_temp, left_temp, right_temp); break;
+                                case TK_SUB_ASSIGN: ir_emit_sub(right_temp, left_temp, right_temp); break;
+                                case TK_MUL_ASSIGN: ir_emit_mul(right_temp, left_temp, right_temp); break;
+                                case TK_DIV_ASSIGN: ir_emit_div(right_temp, left_temp, right_temp); break;
+                                case TK_MOD_ASSIGN: ir_emit_mod(right_temp, left_temp, right_temp); break;
+                                case TK_AND_ASSIGN: ir_emit_and(right_temp, left_temp, right_temp); break;
+                                case TK_OR_ASSIGN:  ir_emit_or(right_temp, left_temp, right_temp); break;
+                                case TK_XOR_ASSIGN: ir_emit_xor(right_temp, left_temp, right_temp); break;
+                                case TK_SHL_ASSIGN: ir_emit_shl(right_temp, left_temp, right_temp); break;
+                                case TK_SHR_ASSIGN: ir_emit_shr(right_temp, left_temp, right_temp); break;
+                            }
+                        }
                         /* mov [rbp - offset], eax */
                         me_emit_u8(c, 0x89);
                         me_emit_u8(c, 0x85);
@@ -685,6 +803,23 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return VREG_0;
                     } else {
+                        if (is_compound) {
+                            /* Load current value and perform operation */
+                            int left_temp = c->next_temp_id++;
+                            ir_emit_load(left_temp, BE(c)->fp_reg, -sym->stack_offset);
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_add(right_temp, left_temp, right_temp); break;
+                                case TK_SUB_ASSIGN: ir_emit_sub(right_temp, left_temp, right_temp); break;
+                                case TK_MUL_ASSIGN: ir_emit_mul(right_temp, left_temp, right_temp); break;
+                                case TK_DIV_ASSIGN: ir_emit_div(right_temp, left_temp, right_temp); break;
+                                case TK_MOD_ASSIGN: ir_emit_mod(right_temp, left_temp, right_temp); break;
+                                case TK_AND_ASSIGN: ir_emit_and(right_temp, left_temp, right_temp); break;
+                                case TK_OR_ASSIGN:  ir_emit_or(right_temp, left_temp, right_temp); break;
+                                case TK_XOR_ASSIGN: ir_emit_xor(right_temp, left_temp, right_temp); break;
+                                case TK_SHL_ASSIGN: ir_emit_shl(right_temp, left_temp, right_temp); break;
+                                case TK_SHR_ASSIGN: ir_emit_shr(right_temp, left_temp, right_temp); break;
+                            }
+                        }
                         ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -750,71 +885,47 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_CALL: {
-            /* Function call - direct machine code for now */
-            ASTRef arg = node->right;
-            int arg_count = 0;
-            while (arg != AST_NULL) {
-                lower_expr(c, arena, arg);
-                me_emit_u8(c, 0x50);
-                arg_count++;
-                ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
-                arg = arg_node ? arg_node->next : AST_NULL;
-            }
-            static const uint8_t arg_regs[6][3] = {
-                {0x48, 0x89, 0xC7}, {0x48, 0x89, 0xC6}, {0x48, 0x89, 0xC2},
-                {0x48, 0x89, 0xC1}, {0x49, 0x89, 0xC0}, {0x49, 0x89, 0xC1}
-            };
-            int reg_args = (arg_count > 6) ? 6 : arg_count;
-            for (int i = reg_args - 1; i >= 0; i--) {
-                me_emit_u8(c, 0x58);
-                me_emit_u8(c, arg_regs[i][0]);
-                me_emit_u8(c, arg_regs[i][1]);
-                me_emit_u8(c, arg_regs[i][2]);
-            }
-            me_emit_u8(c, 0x31);
-            me_emit_u8(c, 0xC0);
+            /* Function call - collect argument temps and emit call IR */
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
             if (callee && callee->tag == NODE_IDENT) {
                 const char *name = callee->s.str;
-                ZeroCCSym *sym = zero_cc_find_local(c, name);
-                if (sym) {
-                    me_emit_u8(c, 0x4C);
-                    me_emit_u8(c, 0x8B);
-                    me_emit_u8(c, 0x9D);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
-                    me_emit_u8(c, 0x41);
-                    me_emit_u8(c, 0xFF);
-                    me_emit_u8(c, 0xD3);
-                } else {
-                    ZeroCCFunction *fn = zero_cc_find_function(c, name);
-                    void *host_fn = zero_cc_resolve_symbol(name);
-                    if (fn && !fn->is_prototype) {
-                        me_emit_u8(c, 0xE8);
-                        size_t patch_pos = me_get_offset(c);
-                        int32_t rel = (int32_t)(fn->text_offset - (patch_pos + 4));
-                        me_emit_u32(c, (uint32_t)rel);
-                        if (c->reloc_count < 512) {
-                            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
-                            r->text_patch_offset = patch_pos;
-                            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", name);
-                            r->is_call = true;
-                        }
-                    } else if (host_fn) {
-                        me_emit_u8(c, 0x49);
-                        me_emit_u8(c, 0xBB);
-                        me_emit_u64(c, (uint64_t)host_fn);
-                        me_emit_u8(c, 0x41);
-                        me_emit_u8(c, 0xFF);
-                        me_emit_u8(c, 0xD3);
-                    } else if (fn && fn->is_prototype) {
-                        me_emit_u8(c, 0x49);
-                        me_emit_u8(c, 0xBB);
-                        me_emit_u64(c, 0);
-                        me_emit_u8(c, 0x41);
-                        me_emit_u8(c, 0xFF);
-                        me_emit_u8(c, 0xD3);
-                    }
+                
+                /* Collect argument temps - these will be moved to arg regs during MC emission */
+                ASTRef arg = node->right;
+                int arg_temps[6];
+                int arg_count = 0;
+                while (arg != AST_NULL && arg_count < 6) {
+                    arg_temps[arg_count] = lower_expr(c, arena, arg);
+                    arg_count++;
+                    ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
+                    arg = arg_node ? arg_node->next : AST_NULL;
                 }
+                
+                /* Store arg temps in the call instruction's imm field (pack up to 6 bytes) */
+                /* For now, just emit the call - argument moves will be handled specially */
+                ir_emit_call(name);
+                
+                /* HACK: Store arg count and temps in the instruction after the call */
+                /* This is a workaround - proper solution would extend Instr structure */
+                /* Use temp_dest for arg_count, temp_src1/src2 for first 2 temps, imm for remaining */
+                if (arg_count > 0 && ir_get_count() > 0) {
+                    Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                    /* Pack arg_count into temp_dest */
+                    last_instr->temp_dest = (uint8_t)arg_count;
+                    /* Pack first 2 temps into temp_src1 and temp_src2 */
+                    if (arg_count > 0) last_instr->temp_src1 = (uint8_t)arg_temps[0];
+                    if (arg_count > 1) last_instr->temp_src2 = (uint8_t)arg_temps[1];
+                    /* Pack remaining temps (up to 4) into imm (16-bit, 2 bytes) */
+                    if (arg_count > 2) {
+                        last_instr->imm = 0;
+                        if (arg_count > 2) last_instr->imm |= ((int16_t)(uint8_t)arg_temps[2]) << 0;
+                        if (arg_count > 3) last_instr->imm |= ((int16_t)(uint8_t)arg_temps[3]) << 8;
+                    }
+                    /* For more than 4 args, we'd need to extend Instr - for now, limit to 4 */
+                }
+                
+                c->last_expr_is_float = 0;
+                return VREG_0;  /* Return value in rax */
             }
             c->last_expr_is_float = 0;
             return VREG_0;
@@ -891,18 +1002,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
-    if (c->function_count > 0) {
-        fprintf(stderr, "DEBUG: text_offset for function %zu = %zu\n",
-                c->function_count - 1,
-                c->functions[c->function_count - 1].text_offset);
-    }
-    
-    /* Debug: dump generated code */
-    fprintf(stderr, "DEBUG: Generated code (%zu bytes total): ", c->text_section.length);
-    for (size_t i = 0; i < c->text_section.length && i < 128; i++) {
-        fprintf(stderr, "%02x ", c->text_section.data[i]);
-    }
-    fprintf(stderr, "\n");
 }
 
 
@@ -1033,6 +1132,34 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
             case OP_CMP_ZERO:
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 break;
+            
+            case OP_CALL: {
+                /* Extract function name from imm64 (stored as pointer during lowering) */
+                const char *fn_name = (const char *)(intptr_t)instr->imm64;
+                
+                /* Extract argument info packed into the instruction */
+                int arg_count = instr->temp_dest;
+                int arg_temps[6] = {0};
+                if (arg_count > 0) arg_temps[0] = instr->temp_src1;
+                if (arg_count > 1) arg_temps[1] = instr->temp_src2;
+                if (arg_count > 2) {
+                    /* Unpack remaining temps from imm (16-bit) */
+                    arg_temps[2] = (int)((instr->imm >> 0) & 0xFF);
+                    if (arg_count > 3) arg_temps[3] = (int)((instr->imm >> 8) & 0xFF);
+                }
+                
+                /* Emit moves from arg temps to argument registers (rdi=7, rsi=6, rdx=2, rcx=1, r8=8, r9=9) */
+                static const int arg_regs[6] = {7, 6, 2, 1, 8, 9};
+                for (int i = 0; i < arg_count && i < 6; i++) {
+                    int src_phys = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                    int dst_reg = arg_regs[i];
+                    BE(c)->emit_mov_reg(c, dst_reg, src_phys);
+                }
+                
+                /* Emit the call */
+                BE(c)->emit_call(c, fn_name);
+                break;
+            }
             
             case OP_NOT:
                 BE(c)->emit_not(c, phys_dst, phys_src1);

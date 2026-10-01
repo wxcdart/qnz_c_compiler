@@ -34,6 +34,17 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - `TLS_IMPLEMENTATION_PLAN.md` - TLS and cross-platform backend plan
 - Updated `README.md` with backend architecture overview
 
+#### Variadic Functions & ABI Calling Convention ✅
+- Implemented `__builtin_va_start` and `__builtin_va_arg` builtins in preprocessor and parser (`NODE_VA_START`, `NODE_VA_ARG`).
+- Added semantic validation and type inference for variadic builtins in `visitor.c` and `expr.c`.
+- Emitted System V AMD64 register spill area for variadic parameter registers (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`).
+- Lowered `NODE_VA_START` using hardware `lea -offset(%rbp), %rax` pointing to the parameter spill area.
+- Lowered `NODE_VA_ARG` with stack pointer progression and dereferencing.
+- Fixed System V AMD64 argument register mappings in `ast_lowering.h` (`rdi=7, rsi=6, rdx=2, rcx=1, r8=8, r9=9`).
+- Fixed multi-argument call liveness tracking in `live_range.h` for packed arguments in `OP_CALL`.
+- Fixed external function indirect calls in `x86_64.c` with 64-bit `movabs` (`REX.W + 0xBB`) and dynamic relocation recording.
+- Synchronized semantic token identifiers (`EXPR_TK_*`) with lexer `ZeroCCTokType`.
+
 #### Bug Fixes
 - Fixed x86-64 load/store encoding (REX bits, displacement size)
 - Fixed subtraction lowering (dst = src1 - src2)
@@ -43,6 +54,8 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - Fixed NODE_INDEX lowering: implemented proper array indexing with `OP_LOAD_BYTE` for char element access
 - Fixed comparison operators (sete/setne/setl/setle/setg/setge): added zero-extension (movzx) after setcc instructions
 - Fixed live range analysis: conditional jumps now properly record temp_src1 as a use
+- Fixed phantom `NODE_DECL` semantic failure caused by enum shifts between header and object files
+- Fixed duplicate `x86_emit_call` definition in `src/zero_cc/isa/x86_64.c`
 
 ### Changed
 - Removed unused backend scaffolding (`backends/` directory)

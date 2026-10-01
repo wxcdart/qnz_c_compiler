@@ -1,7 +1,12 @@
 #include "expr.h"
+#include "../types/token.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+
+/* Token type constants for binary operators */
+#define TOK_SHL         81
+#define TOK_SHR         82
 
 /* Helper to report an error at an AST node location */
 static void expr_error(SemContext *ctx, const ZeroCCASTNode *node, const char *fmt, ...) {
@@ -134,7 +139,7 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
 
     switch (op) {
         case '&':
-        case EXPR_TK_AMP: {
+        case TK_AMP: {
             /* Address-of operator (&): operand must be an lvalue or function */
             if (!expr_is_lvalue(ctx, operand) && !type_is_function(op_type)) {
                 expr_error(ctx, node, "cannot take the address of an rvalue");
@@ -144,7 +149,7 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case '*':
-        case EXPR_TK_STAR: {
+        case TK_STAR: {
             /* Dereference operator (*): operand must be a pointer or array */
             if (type_is_pointer(op_type)) {
                 res = op_type->details.pointer.base;
@@ -157,9 +162,9 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case '+':
-        case EXPR_TK_PLUS:
+        case TK_PLUS:
         case '-':
-        case EXPR_TK_MINUS: {
+        case TK_MINUS: {
             /* Unary plus and minus: operand must be arithmetic */
             if (!type_is_arithmetic(op_type)) {
                 expr_error(ctx, node, "unary arithmetic operator requires arithmetic operand");
@@ -169,7 +174,7 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case '!':
-        case EXPR_TK_BANG: {
+        case TK_BANG: {
             /* Logical NOT: operand must be scalar (arithmetic or pointer) */
             if (!type_is_arithmetic(op_type) && !type_is_pointer(op_type)) {
                 expr_error(ctx, node, "logical NOT requires scalar operand");
@@ -179,7 +184,7 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case '~':
-        case EXPR_TK_TILDE: {
+        case TK_TILDE: {
             /* Bitwise NOT: operand must be integer */
             if (!type_is_integer(op_type)) {
                 expr_error(ctx, node, "bitwise NOT requires integer operand");
@@ -188,8 +193,8 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
             res = type_promote(ctx->perm_arena, op_type);
             break;
         }
-        case EXPR_TK_INC:
-        case EXPR_TK_DEC: {
+        case TK_INC:
+        case TK_DEC: {
             /* Increment and decrement (prefix and postfix): operand must be modifiable lvalue */
             if (!expr_is_lvalue(ctx, operand)) {
                 expr_error(ctx, node, "expression is not assignable");
@@ -284,16 +289,16 @@ TypeInfo *expr_handle_assignment(SemContext *ctx, ZeroCCASTNode *node) {
         /* Compound assignment: +=, -=, *=, etc. */
         uint32_t underlying_op = 0;
         switch (op) {
-            case EXPR_TK_ADD_ASSIGN: underlying_op = '+'; break;
-            case EXPR_TK_SUB_ASSIGN: underlying_op = '-'; break;
-            case EXPR_TK_MUL_ASSIGN: underlying_op = '*'; break;
-            case EXPR_TK_DIV_ASSIGN: underlying_op = '/'; break;
-            case EXPR_TK_MOD_ASSIGN: underlying_op = '%'; break;
-            case EXPR_TK_AND_ASSIGN: underlying_op = '&'; break;
-            case EXPR_TK_OR_ASSIGN:  underlying_op = '|'; break;
-            case EXPR_TK_XOR_ASSIGN: underlying_op = '^'; break;
-            case EXPR_TK_SHL_ASSIGN: underlying_op = EXPR_TK_SHL; break;
-            case EXPR_TK_SHR_ASSIGN: underlying_op = EXPR_TK_SHR; break;
+            case TK_ADD_ASSIGN: underlying_op = '+'; break;
+            case TK_SUB_ASSIGN: underlying_op = '-'; break;
+            case TK_MUL_ASSIGN: underlying_op = '*'; break;
+            case TK_DIV_ASSIGN: underlying_op = '/'; break;
+            case TK_MOD_ASSIGN: underlying_op = '%'; break;
+            case TK_AND_ASSIGN: underlying_op = '&'; break;
+            case TK_OR_ASSIGN:  underlying_op = '|'; break;
+            case TK_XOR_ASSIGN: underlying_op = '^'; break;
+            case TK_SHL_ASSIGN: underlying_op = TOK_SHL; break;
+            case TK_SHR_ASSIGN: underlying_op = TOK_SHR; break;
             default:
                 expr_error(ctx, node, "unknown compound assignment operator %u", op);
                 return NULL;
@@ -417,6 +422,67 @@ TypeInfo *expr_handle_cast(SemContext *ctx, ZeroCCASTNode *node) {
 
     expr_node_set_type(ctx, node, dst_t);
     return dst_t;
+}
+
+TypeInfo *expr_handle_va_arg(SemContext *ctx, ZeroCCASTNode *node) {
+    if (!ctx || !node) return NULL;
+
+    ZeroCCASTNode *ap_expr = expr_get_node(ctx, node->left);
+    if (!ap_expr) {
+        expr_error(ctx, node, "va_arg missing va_list argument");
+        return NULL;
+    }
+
+    /* First argument must be a va_list (pointer type) */
+    TypeInfo *ap_t = expr_handle_expression(ctx, ap_expr);
+    if (!ap_t) {
+        return NULL;
+    }
+
+    /* Accept pointer, array, or typedef that resolves to pointer */
+    /* For now, accept any type since va_list can be typedef'd */
+    /* A proper implementation would check if it's typedef'd to a pointer */
+
+    /* Get the target type from aux.extra (type tag) */
+    TypeInfo *target_t = NULL;
+    switch (node->aux.extra) {
+        case 1: target_t = type_int(ctx->perm_arena); break;    /* int */
+        case 2: target_t = type_char(ctx->perm_arena); break;   /* char */
+        case 3: target_t = type_double(ctx->perm_arena); break; /* double */
+        case 4: target_t = type_float(ctx->perm_arena); break;  /* float */
+        default: target_t = type_int(ctx->perm_arena); break;   /* default to int */
+    }
+
+    /* The result type is the target type */
+    expr_node_set_type(ctx, node, target_t);
+    return target_t;
+}
+
+TypeInfo *expr_handle_va_start(SemContext *ctx, ZeroCCASTNode *node) {
+    if (!ctx || !node) return NULL;
+
+    ZeroCCASTNode *ap_expr = expr_get_node(ctx, node->left);
+    if (!ap_expr) {
+        expr_error(ctx, node, "va_start missing va_list argument");
+        return NULL;
+    }
+
+    /* First argument must be a va_list (pointer type) */
+    TypeInfo *ap_t = expr_handle_expression(ctx, ap_expr);
+    if (!ap_t) {
+        return NULL;
+    }
+
+    /* Second argument is the last fixed parameter (used for context, not value) */
+    ZeroCCASTNode *last_expr = expr_get_node(ctx, node->right);
+    if (!last_expr) {
+        expr_error(ctx, node, "va_start missing last parameter");
+        return NULL;
+    }
+
+    /* The result type is void (it's a statement expression) */
+    expr_node_set_type(ctx, node, type_void(ctx->perm_arena));
+    return type_void(ctx->perm_arena);
 }
 
 TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
@@ -613,6 +679,12 @@ TypeInfo *expr_handle_expression(SemContext *ctx, ZeroCCASTNode *node) {
 
         case NODE_CAST:
             return expr_handle_cast(ctx, node);
+
+        case NODE_VA_START:
+            return expr_handle_va_start(ctx, node);
+
+        case NODE_VA_ARG:
+            return expr_handle_va_arg(ctx, node);
 
         case NODE_MEMBER:
             return expr_handle_member(ctx, node);

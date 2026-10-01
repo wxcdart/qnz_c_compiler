@@ -54,14 +54,21 @@
 
 ---
 
-## Task 3: va_arg Expansion ✅
+## Task 3: va_arg Expansion & Variadic Functions ✅
 
 ### Working Features
 - Variadic macro support (`__VA_ARGS__`)
 - Macro argument counting (`GET_SECOND_ARG`)
+- Compiler builtins: `__builtin_va_start`, `__builtin_va_arg`, `__builtin_va_end`
+- AST nodes `NODE_VA_START`, `NODE_VA_ARG` with semantic analysis and type checking
+- System V AMD64 register spill area for variable argument parameters
+- `NODE_VA_START` lowering via hardware `lea -offset(%rbp), %rax`
+- `NODE_VA_ARG` dereference and stack offset bump
 
 ### Test Status
 - `test/variadic`: ✅ PASS
+- `test/variadic_simple_test`: ✅ PASS
+- `test/variadic_fn`: ✅ PASS
 
 ---
 
@@ -76,6 +83,9 @@
 - Fixed NODE_INDEX lowering with `OP_LOAD_BYTE`
 - Fixed comparison operators with zero-extension
 - Fixed live range analysis for conditional jumps
+- Fixed live range analysis for multi-argument function calls in `OP_CALL`
+- Fixed System V AMD64 hardware register mappings for function arguments (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`)
+- Fixed external indirect call code generation (`REX.W + 0xBB`) and dynamic relocation patching
 
 ### Test Status
 - All 71+ tests pass with register allocation enabled

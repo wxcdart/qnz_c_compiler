@@ -219,6 +219,11 @@ static inline void ir_emit_ret(void) {
     ir_emit((Instr){.op = OP_RET, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }
 
+/* Emit function call - fn_name stored in imm64 as pointer during lowering */
+static inline void ir_emit_call(const char *fn_name) {
+    ir_emit((Instr){.op = OP_CALL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+}
+
 #endif /* ZERO_CC_IR_H */
 
 /* Debug: Print IR count */

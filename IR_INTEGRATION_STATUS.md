@@ -50,9 +50,24 @@ The IR-based codegen pipeline is in place but has integration issues that preven
 - Updated `live_range_scan_ir` to properly record temp uses for conditional jumps (OP_JE, OP_JNE, etc.)
 - This ensures condition temporaries remain live through branch evaluation
 
+### Multi-Argument Function Call Liveness
+- Updated `live_range_scan_ir` to unpack and record all argument temporaries passed to `OP_CALL`
+- Prevents early register reclamation and clobbering across multi-parameter function invocations
+
+### System V AMD64 Calling Convention
+- Mapped function argument registers to hardware encodings: `rdi=7`, `rsi=6`, `rdx=2`, `rcx=1`, `r8=8`, `r9=9`
+- Ensured argument register moves from temporaries are emitted prior to the call
+
+### Variadic Builtin Lowering
+- Lowered `NODE_VA_START` via `ir_emit_lea` to load the frame-relative address of the parameter spill area
+- Lowered `NODE_VA_ARG` with stack pointer adjustment and dereferencing
+
+### External Function Relocations
+- Fixed indirect calls to external functions via 64-bit `movabs` (`REX.W + 0xBB`)
+- Added relocation recording so external function pointers (e.g. `printf`) are resolved and patched dynamically at runtime
+
 ## Next Steps
 
-1. Implement clobber handling in live range analysis
-2. Fix register allocator to respect clobbered registers
-3. Complete the IR-based codegen conversion
-4. Add more comprehensive tests for arithmetic operations
+1. Implement clobber handling in live range analysis for DIV/MOD
+2. Implement small struct passing/return by value in registers (System V AMD64 eightbyte classification)
+3. Support floating-point argument passing via XMM registers in function calls

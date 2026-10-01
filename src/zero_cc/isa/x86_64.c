@@ -345,14 +345,41 @@ static size_t x86_emit_jge(ZeroCCCompiler *c, const char *label) {
     return patch_pos;
 }
 
-static void x86_emit_call(ZeroCCCompiler *c, const char *func_name) {
-    me_emit_u8(c, 0xE8);
-    me_emit_u32(c, 0);
-    (void)func_name;
-}
 
 static void x86_emit_ret(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xC3);
+}
+
+/* Function call - direct call with relative offset */
+static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
+    ZeroCCFunction *fn = zero_cc_find_function(c, fn_name);
+    if (fn && !fn->is_prototype) {
+        /* Direct call to known function: e8 rel32 */
+        me_emit_u8(c, 0xE8);
+        size_t patch_pos = me_get_offset(c);
+        int32_t rel = (int32_t)(fn->text_offset - (patch_pos + 4));
+        me_emit_u32(c, (uint32_t)rel);
+        if (c->reloc_count < 512) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = patch_pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
+            r->is_call = true;
+        }
+    } else {
+        /* Fallback: call via absolute address (will be patched for external functions) */
+        x86_rex(c, 1, 0, 0, 0);
+        me_emit_u8(c, 0xBB);
+        size_t patch_pos = me_get_offset(c);
+        me_emit_u64(c, 0);  /* Will be patched */
+        me_emit_u8(c, 0xFF);
+        me_emit_u8(c, 0xD3);  /* call rbx */
+        if (c->reloc_count < 512) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = patch_pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
+            r->is_call = false;
+        }
+    }
 }
 
 /* Floating point operations */

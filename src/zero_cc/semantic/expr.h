@@ -14,40 +14,42 @@
 extern "C" {
 #endif
 
-/* Token values matching ZeroCCTokType from types_lexer.h (without colliding with ZeroTypeTag) */
-#define EXPR_TK_ASSIGN       38
-#define EXPR_TK_PLUS         39
-#define EXPR_TK_MINUS        40
-#define EXPR_TK_STAR         41
-#define EXPR_TK_SLASH        42
-#define EXPR_TK_PERCENT      43
-#define EXPR_TK_AMP          44
-#define EXPR_TK_PIPE         45
-#define EXPR_TK_CARET        46
-#define EXPR_TK_TILDE        47
-#define EXPR_TK_BANG         48
-#define EXPR_TK_EQ           49
-#define EXPR_TK_NE           50
-#define EXPR_TK_LT           51
-#define EXPR_TK_LE           52
-#define EXPR_TK_GT           53
-#define EXPR_TK_GE           54
-#define EXPR_TK_LOGAND       55
-#define EXPR_TK_LOGOR        56
-#define EXPR_TK_SHL          57
-#define EXPR_TK_SHR          58
-#define EXPR_TK_INC          63
-#define EXPR_TK_DEC          64
-#define EXPR_TK_ADD_ASSIGN   65
-#define EXPR_TK_SUB_ASSIGN   66
-#define EXPR_TK_MUL_ASSIGN   67
-#define EXPR_TK_DIV_ASSIGN   68
-#define EXPR_TK_MOD_ASSIGN   69
-#define EXPR_TK_AND_ASSIGN   70
-#define EXPR_TK_OR_ASSIGN    71
-#define EXPR_TK_XOR_ASSIGN   72
-#define EXPR_TK_SHL_ASSIGN   73
-#define EXPR_TK_SHR_ASSIGN   74
+#include "../types/token.h"
+
+/* Token values matching ZeroCCTokType */
+#define EXPR_TK_ASSIGN       TK_ASSIGN
+#define EXPR_TK_PLUS         TK_PLUS
+#define EXPR_TK_MINUS        TK_MINUS
+#define EXPR_TK_STAR         TK_STAR
+#define EXPR_TK_SLASH        TK_SLASH
+#define EXPR_TK_PERCENT      TK_PERCENT
+#define EXPR_TK_AMP          TK_AMP
+#define EXPR_TK_PIPE         TK_PIPE
+#define EXPR_TK_CARET        TK_CARET
+#define EXPR_TK_TILDE        TK_TILDE
+#define EXPR_TK_BANG         TK_BANG
+#define EXPR_TK_EQ           TK_EQ
+#define EXPR_TK_NE           TK_NE
+#define EXPR_TK_LT           TK_LT
+#define EXPR_TK_LE           TK_LE
+#define EXPR_TK_GT           TK_GT
+#define EXPR_TK_GE           TK_GE
+#define EXPR_TK_LOGAND       TK_LOGAND
+#define EXPR_TK_LOGOR        TK_LOGOR
+#define EXPR_TK_SHL          TK_SHL
+#define EXPR_TK_SHR          TK_SHR
+#define EXPR_TK_INC          TK_INC
+#define EXPR_TK_DEC          TK_DEC
+#define EXPR_TK_ADD_ASSIGN   TK_ADD_ASSIGN
+#define EXPR_TK_SUB_ASSIGN   TK_SUB_ASSIGN
+#define EXPR_TK_MUL_ASSIGN   TK_MUL_ASSIGN
+#define EXPR_TK_DIV_ASSIGN   TK_DIV_ASSIGN
+#define EXPR_TK_MOD_ASSIGN   TK_MOD_ASSIGN
+#define EXPR_TK_AND_ASSIGN   TK_AND_ASSIGN
+#define EXPR_TK_OR_ASSIGN    TK_OR_ASSIGN
+#define EXPR_TK_XOR_ASSIGN   TK_XOR_ASSIGN
+#define EXPR_TK_SHL_ASSIGN   TK_SHL_ASSIGN
+#define EXPR_TK_SHR_ASSIGN   TK_SHR_ASSIGN
 
 /* Compatibility Aliases for AST Node Tags */
 #ifndef AST_INT_LITERAL
@@ -124,6 +126,8 @@ TypeInfo *expr_handle_binary(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_assignment(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_cast(SemContext *ctx, ZeroCCASTNode *node);
+TypeInfo *expr_handle_va_start(SemContext *ctx, ZeroCCASTNode *node);
+TypeInfo *expr_handle_va_arg(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_index(SemContext *ctx, ZeroCCASTNode *node);
 TypeInfo *expr_handle_ternary(SemContext *ctx, ZeroCCASTNode *node);

@@ -1,6 +1,7 @@
 #include "visitor.h"
 #include "stmt.h"
 #include "decl.h"
+#include "expr.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -211,6 +212,14 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_MEMBER: {
             (void)sem_analyze_ref(ctx, node->left);
+            break;
+        }
+        case NODE_VA_START: {
+            res = expr_handle_va_start(ctx, node);
+            break;
+        }
+        case NODE_VA_ARG: {
+            res = expr_handle_va_arg(ctx, node);
             break;
         }
 

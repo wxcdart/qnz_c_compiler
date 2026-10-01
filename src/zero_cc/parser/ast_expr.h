@@ -95,6 +95,63 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
         case TK_IDENT: {
             c->token_pos++;
+            /* Check for __builtin_va_arg(ap, type) - special variadic argument extraction */
+            if (strcmp(tok->str_val, "__builtin_va_arg") == 0) {
+                c->token_pos++; /* skip __builtin_va_arg */
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++; /* skip '(' */
+                
+                ASTRef va_arg_ref = zero_cc_ast_alloc_node(arena, NODE_VA_ARG);
+                ZeroCCASTNode *va_arg_node = zero_cc_ast_get(arena, va_arg_ref);
+                
+                /* Parse the va_list argument */
+                va_arg_node->left = parse_expr_ast_internal(c, arena);
+                
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++; /* skip ',' */
+                
+                /* Parse the type (e.g., int, double, char*) */
+                /* Store type tag in aux.extra for semantic analysis */
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                    va_arg_node->aux.extra = 0; /* Will resolve in semantic analysis */
+                    c->token_pos++;
+                } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) {
+                    va_arg_node->aux.extra = 1; /* int */
+                    c->token_pos++;
+                } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR) {
+                    va_arg_node->aux.extra = 2; /* char */
+                    c->token_pos++;
+                } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
+                    va_arg_node->aux.extra = 3; /* double */
+                    c->token_pos++;
+                } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT_KW) {
+                    va_arg_node->aux.extra = 4; /* float */
+                    c->token_pos++;
+                }
+                
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* skip ')' */
+                return va_arg_ref;
+            }
+            
+            /* Check for __builtin_va_start(ap, last) - special variadic start initialization */
+            if (strcmp(tok->str_val, "__builtin_va_start") == 0) {
+                c->token_pos++; /* skip __builtin_va_start */
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++; /* skip '(' */
+                
+                ASTRef va_start_ref = zero_cc_ast_alloc_node(arena, NODE_VA_START);
+                ZeroCCASTNode *va_start_node = zero_cc_ast_get(arena, va_start_ref);
+                
+                /* Parse the va_list argument (ap) */
+                va_start_node->left = parse_expr_ast_internal(c, arena);
+                
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++; /* skip ',' */
+                
+                /* Parse the last fixed argument */
+                va_start_node->right = parse_expr_ast_internal(c, arena);
+                
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* skip ')' */
+                
+                return va_start_ref;
+            }
+            
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->line = (uint32_t)tok->line;

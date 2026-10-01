@@ -185,9 +185,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
 
         // Parse function body into AST and lower to machine code
-ZeroCCASTArena arena;
-zero_cc_ast_arena_init(&arena, 1024);
-ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
+        ZeroCCASTArena arena;
+        zero_cc_ast_arena_init(&arena, 1024);
+        ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
         // Register previously compiled functions in the GLOBAL scope
         // Find the global scope (root of scope chain)
         Scope *global_scope_root = ctx->current_scope;
