@@ -275,15 +275,15 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 26 | TLS backend (system TLS with fs/gs segments) | 1 week | ✅ |
 | 27 | x86-64 encoding bug fixes | 3 days | ✅ |
 
-### Sprint 4 – Code generation depth (Weeks 14–18)
+### Sprint 4 – Code generation depth (Weeks 14–18) ✅
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 28 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week |
-| 29 | Struct return by value (hidden-pointer calling convention) | 1 week |
-| 30 | `va_arg` expansion | 1 week |
-| 31 | Linear-scan register allocator | 2 weeks |
-| 32 | Global variable storage emission (`.data` / `.bss`) | 3 days |
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 28 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week | ✅ |
+| 29 | Struct return by value (hidden-pointer calling convention) | 1 week | ✅ |
+| 30 | `va_arg` expansion | 1 week | ✅ |
+| 31 | Linear-scan register allocator | 2 weeks | 🟡 Partial |
+| 32 | Global variable storage emission (`.data` / `.bss`) | 3 days | ✅ |
 
 ---
 
