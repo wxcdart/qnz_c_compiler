@@ -60,6 +60,25 @@ typedef struct ZeroCCISABackend {
     void (*emit_load)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
     void (*emit_store)(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
     
+    /* Additional operations for IR-based codegen */
+    void (*emit_mov_reg)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_push_reg)(ZeroCCCompiler *c, int reg);
+    void (*emit_pop_reg)(ZeroCCCompiler *c, int reg);
+    void (*emit_add_imm)(ZeroCCCompiler *c, int dst_reg, int16_t imm);
+    void (*emit_sub_imm)(ZeroCCCompiler *c, int dst_reg, int16_t imm);
+    void (*emit_inc)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_dec)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_shr)(ZeroCCCompiler *c, int dst_reg, int src1, int src2);
+    void (*emit_setl)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_setle)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_setg)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_setge)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_sete)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_setne)(ZeroCCCompiler *c, int dst_reg);
+    void (*emit_deref)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
+    void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     /* Control flow */
     size_t (*emit_jmp)(ZeroCCCompiler *c, const char *label);
     size_t (*emit_jeq)(ZeroCCCompiler *c, const char *label);
@@ -90,8 +109,6 @@ typedef struct ZeroCCISABackend {
     
     /* Stack frame */
     void (*emit_stack_adjust)(ZeroCCCompiler *c, int32_t delta);
-    void (*emit_push_reg)(ZeroCCCompiler *c, int reg);
-    void (*emit_pop_reg)(ZeroCCCompiler *c, int reg);
     
     /* Labels */
     void (*emit_label)(ZeroCCCompiler *c, const char *name);

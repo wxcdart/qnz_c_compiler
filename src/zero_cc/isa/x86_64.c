@@ -487,6 +487,138 @@ static void x86_emit_pop_reg(ZeroCCCompiler *c, int reg) {
     me_emit_u8(c, 0x58 | (reg & 7));
 }
 
+/* add rax, imm */
+static void x86_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x83);
+    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, (uint8_t)imm);
+}
+
+/* sub rax, imm */
+static void x86_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x83);
+    me_emit_u8(c, 0xe8);
+    me_emit_u8(c, (uint8_t)imm);
+}
+
+/* inc rax */
+static void x86_emit_inc(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0xff);
+    me_emit_u8(c, 0xc0);
+}
+
+/* dec rax */
+static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0xff);
+    me_emit_u8(c, 0xc8);
+}
+
+/* shr rax, rbx */
+static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    (void)dst_reg; (void)src1; (void)src2; /* Always rax, rbx */
+    x86_rex(c, 1, 0, 0, 3); /* rax, rbx */
+    me_emit_u8(c, 0xd3);
+    x86_modrm(c, 3, 5, 3); /* shr rax, rbx */
+}
+
+/* setl al */
+static void x86_emit_setl(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x9c);
+    me_emit_u8(c, 0xc0);
+}
+
+/* setle al */
+static void x86_emit_setle(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x9e);
+    me_emit_u8(c, 0xc0);
+}
+
+/* setg al */
+static void x86_emit_setg(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x9f);
+    me_emit_u8(c, 0xc0);
+}
+
+/* setge al */
+static void x86_emit_setge(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x9d);
+    me_emit_u8(c, 0xc0);
+}
+
+/* sete al */
+static void x86_emit_sete(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x94);
+    me_emit_u8(c, 0xc0);
+}
+
+/* setne al */
+static void x86_emit_setne(ZeroCCCompiler *c, int dst_reg) {
+    (void)dst_reg; /* Always rax */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x95);
+    me_emit_u8(c, 0xc0);
+}
+
+/* deref: mov rax, [rax] */
+static void x86_emit_deref(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    (void)dst_reg; (void)src_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x8b);
+    me_emit_u8(c, 0x00);
+}
+
+/* cmp rax, 0 */
+static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
+    (void)src_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x3d);
+    me_emit_u8(c, 0x00);
+    me_emit_u32(c, 0);
+}
+
+/* not rax */
+static void x86_emit_not(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    (void)dst_reg; (void)src_reg; /* Always rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0xf7);
+    me_emit_u8(c, 0xd0);
+}
+
+/* lnot: !rax (test + sete + movzx) */
+static void x86_emit_lnot(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    (void)dst_reg; (void)src_reg; /* Always rax */
+    /* test rax, rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x85);
+    me_emit_u8(c, 0xc0);
+    /* sete al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x94);
+    me_emit_u8(c, 0xc0);
+    /* movzx rax, al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);
+}
+
 static void x86_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
     /* TODO: implement label emission with patching */
@@ -578,6 +710,24 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_stack_adjust = x86_emit_stack_adjust,
     .emit_push_reg = x86_emit_push_reg,
     .emit_pop_reg = x86_emit_pop_reg,
+    
+    /* Additional operations for IR-based codegen */
+    .emit_mov_reg = x86_mov_rr,
+    .emit_add_imm = x86_emit_add_imm,
+    .emit_sub_imm = x86_emit_sub_imm,
+    .emit_inc = x86_emit_inc,
+    .emit_dec = x86_emit_dec,
+    .emit_shr = x86_emit_shr,
+    .emit_setl = x86_emit_setl,
+    .emit_setle = x86_emit_setle,
+    .emit_setg = x86_emit_setg,
+    .emit_setge = x86_emit_setge,
+    .emit_sete = x86_emit_sete,
+    .emit_setne = x86_emit_setne,
+    .emit_deref = x86_emit_deref,
+    .emit_cmp_zero = x86_emit_cmp_zero,
+    .emit_not = x86_emit_not,
+    .emit_lnot = x86_emit_lnot,
     .emit_label = x86_emit_label,
 };
 

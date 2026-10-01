@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../types/vregs.h"
+
 /* Forward declaration to avoid circular includes */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 
@@ -278,6 +280,40 @@ static void regalloc_allocate(RegAllocator *ra) {
     }
     
     free(sorted);
+}
+
+/* Map register allocator index to VREG number (for x86-64) */
+static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
+static int regalloc_idx_to_vreg(int idx) {
+    /* System V AMD64 ABI register order: rax, rcx, rdx, rbx, rsi, rdi, r8-r15 */
+    /* Map to VREG numbers: 0, 1, 2, 3, 4, 5, 6-13 */
+    static const int idx_to_vreg[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13};
+    if (idx >= 0 && idx < 14) {
+        return idx_to_vreg[idx];
+    }
+    return 0;  /* Default to VREG_0 */
+}
+
+/* Get the physical register assigned to a temp ID */
+static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
+static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
+    if (!ra || temp_id == 0xFF) return VREG_0;  /* Default to VREG_0 */
+    
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        if (ra->intervals[i].temp_id == temp_id) {
+            if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
+                return VREG_0;  /* Spilled - use default */
+            }
+            return regalloc_idx_to_vreg(ra->intervals[i].assigned_reg);
+        }
+    }
+    return VREG_0;  /* Not found - use default */
+}
+
+/* Get the number of intervals (for debugging) */
+static size_t regalloc_get_interval_count(RegAllocator *ra) __attribute__((unused));
+static size_t regalloc_get_interval_count(RegAllocator *ra) {
+    return ra ? ra->interval_count : 0;
 }
 
 #endif /* ZERO_CC_PARSER_REGALLOC_H */
