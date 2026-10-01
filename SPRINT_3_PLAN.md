@@ -1,4 +1,4 @@
-# Sprint 3 – Code Generation Depth
+# Sprint 3 – Code Generation Depth (Complete) - See SPRINT_4_STATUS.md
 
 **Duration:** Weeks 9-13 (5 weeks)
 **Status:** 🚀 Starting

@@ -275,7 +275,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 26 | TLS backend (system TLS with fs/gs segments) | 1 week | ✅ |
 | 27 | x86-64 encoding bug fixes | 3 days | ✅ |
 
-### Sprint 4 – Code generation depth (Weeks 14–18) ✅
+### Sprint 4 – Code generation depth (Weeks 14–18) ✅ COMPLETE
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
