@@ -45,6 +45,14 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - Fixed external function indirect calls in `x86_64.c` with 64-bit `movabs` (`REX.W + 0xBB`) and dynamic relocation recording.
 - Synchronized semantic token identifiers (`EXPR_TK_*`) with lexer `ZeroCCTokType`.
 
+#### Floating-Point Calling Conventions & Mixed SSE Arguments ✅
+- Implemented System V AMD64 dual-cursor argument placement: integer arguments via GPRs (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`) and floating-point arguments via SSE registers (`xmm0`–`xmm7`).
+- Implemented caller-side float argument temporary spilling and reloading before call emission to protect float arguments against clobbering across argument expression evaluation.
+- Added vector register count tracking in `%al` before `call` execution (`mov al, <fp_reg_idx>`).
+- Implemented callee-side parameter saving for incoming `xmm0`–`xmm7` registers in function prologues with proper ModR/M register encoding.
+- Implemented `OP_CVTTSD2SI` opcode in the IR stream for float-to-integer conversion (`NODE_CAST`), ensuring conversions sequence correctly after function calls and IR-lowered expressions.
+- Added float return value passing in `xmm0` with caller-side return type inspection.
+
 #### Bug Fixes
 - Fixed x86-64 load/store encoding (REX bits, displacement size)
 - Fixed subtraction lowering (dst = src1 - src2)

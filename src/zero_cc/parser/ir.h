@@ -76,6 +76,7 @@ typedef enum {
     OP_SET_E,          /* sete al */
     OP_SET_NE,         /* setne al */
     OP_STACK_ALIGN,    /* sub rsp, imm8 */
+    OP_CVTTSD2SI,      /* cvttsd2si eax, xmm0 */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -132,6 +133,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SET_E: return "SET_E";
         case OP_SET_NE: return "SET_NE";
         case OP_STACK_ALIGN: return "STACK_ALIGN";
+        case OP_CVTTSD2SI: return "CVTTSD2SI";
         default: return "UNKNOWN";
     }
 }

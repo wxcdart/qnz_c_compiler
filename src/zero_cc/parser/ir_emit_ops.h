@@ -405,4 +405,17 @@ static inline void ir_emit_lnot(int temp_dest, int temp_src) {
     });
 }
 
+/* cvttsd2si: convert float/double (in xmm0 or temp_src) to int (in temp_dest) */
+static inline void ir_emit_cvttsd2si(int temp_dest, int temp_src) {
+    ir_emit((Instr){
+        .op = OP_CVTTSD2SI,
+        .temp_dest = (uint8_t)temp_dest,
+        .temp_src1 = (uint8_t)temp_src,
+        .temp_src2 = 0xFF,
+        .imm = 0,
+        .imm64 = 0,
+        .label_idx = 0
+    });
+}
+
 #endif /* ZERO_CC_PARSER_IR_EMIT_OPS_H */

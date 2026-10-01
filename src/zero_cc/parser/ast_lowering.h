@@ -636,13 +636,12 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         case NODE_CAST: {
             int result = lower_expr(c, arena, node->left);
-            /* Float to int conversion requires direct machine code */
+            /* Float to int conversion: emit OP_CVTTSD2SI in IR stream */
             if (c->last_expr_is_float) {
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x2C);
-                me_emit_u8(c, 0xC0);
+                int int_res_temp = c->next_temp_id++;
+                ir_emit_cvttsd2si(int_res_temp, result);
                 c->last_expr_is_float = 0;
+                return int_res_temp;
             }
             return result;
         }
@@ -885,45 +884,79 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_CALL: {
-            /* Function call - collect argument temps and emit call IR */
+            /* Function call - handle float args directly in machine code, int args via IR */
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
             if (callee && callee->tag == NODE_IDENT) {
                 const char *name = callee->s.str;
                 
-                /* Collect argument temps - these will be moved to arg regs during MC emission */
+                /* Collect argument temps for integer args only */
                 ASTRef arg = node->right;
-                int arg_temps[6];
-                int arg_count = 0;
-                while (arg != AST_NULL && arg_count < 6) {
-                    arg_temps[arg_count] = lower_expr(c, arena, arg);
-                    arg_count++;
+                int int_arg_temps[6];
+                int int_arg_count = 0;
+                int fp_reg_idx = 0;  /* Tracks which xmm register for next float arg */
+                int32_t fp_spill_offsets[8];
+                
+                while (arg != AST_NULL) {
+                    int temp = lower_expr(c, arena, arg);
+                    if (c->last_expr_is_float) {
+                        /* Float argument: value is in xmm0. Spill it to a stack slot NOW
+                         * so that subsequent argument evaluations (or calls) do not clobber it. */
+                        if (fp_reg_idx < 8) {
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            fp_spill_offsets[fp_reg_idx] = c->current_stack_frame;
+                            /* movsd [rbp - spill_offset], xmm0 */
+                            me_emit_u8(c, 0xF2);
+                            me_emit_u8(c, 0x0F);
+                            me_emit_u8(c, 0x11);
+                            me_emit_u8(c, 0x85);
+                            me_emit_u32(c, (uint32_t)(-fp_spill_offsets[fp_reg_idx]));
+                            fp_reg_idx++;
+                        }
+                    } else {
+                        /* Integer argument: collect for IR emission */
+                        if (int_arg_count < 6) {
+                            int_arg_temps[int_arg_count] = temp;
+                            int_arg_count++;
+                        }
+                    }
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     arg = arg_node ? arg_node->next : AST_NULL;
                 }
                 
-                /* Store arg temps in the call instruction's imm field (pack up to 6 bytes) */
-                /* For now, just emit the call - argument moves will be handled specially */
+                /* Emit IR call with only integer args */
                 ir_emit_call(name);
                 
-                /* HACK: Store arg count and temps in the instruction after the call */
-                /* This is a workaround - proper solution would extend Instr structure */
-                /* Use temp_dest for arg_count, temp_src1/src2 for first 2 temps, imm for remaining */
-                if (arg_count > 0 && ir_get_count() > 0) {
+                /* Pack integer arg info into the instruction */
+                if (ir_get_count() > 0) {
                     Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
-                    /* Pack arg_count into temp_dest */
-                    last_instr->temp_dest = (uint8_t)arg_count;
-                    /* Pack first 2 temps into temp_src1 and temp_src2 */
-                    if (arg_count > 0) last_instr->temp_src1 = (uint8_t)arg_temps[0];
-                    if (arg_count > 1) last_instr->temp_src2 = (uint8_t)arg_temps[1];
-                    /* Pack remaining temps (up to 4) into imm (16-bit, 2 bytes) */
-                    if (arg_count > 2) {
+                    last_instr->temp_dest = (uint8_t)int_arg_count;
+                    if (int_arg_count > 0) last_instr->temp_src1 = (uint8_t)int_arg_temps[0];
+                    if (int_arg_count > 1) last_instr->temp_src2 = (uint8_t)int_arg_temps[1];
+                    if (int_arg_count > 2) {
                         last_instr->imm = 0;
-                        if (arg_count > 2) last_instr->imm |= ((int16_t)(uint8_t)arg_temps[2]) << 0;
-                        if (arg_count > 3) last_instr->imm |= ((int16_t)(uint8_t)arg_temps[3]) << 8;
+                        if (int_arg_count > 2) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[2]) << 0;
+                        if (int_arg_count > 3) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[3]) << 8;
                     }
-                    /* For more than 4 args, we'd need to extend Instr - for now, limit to 4 */
+                    /* Store fp_reg_idx in label_idx for variadic %al handling */
+                    last_instr->label_idx = (uint16_t)fp_reg_idx;
                 }
                 
+                /* Record float spill offsets for this call */
+                if (g_ir_emitter_ctx.call_count < 64) {
+                    int cidx = g_ir_emitter_ctx.call_count++;
+                    g_ir_emitter_ctx.call_fp_spill_counts[cidx] = fp_reg_idx;
+                    for (int f = 0; f < fp_reg_idx && f < 8; f++) {
+                        g_ir_emitter_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
+                    }
+                }
+                
+                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
+                if (callee_fn && (callee_fn->return_type.tag == TYPE_FLOAT || callee_fn->return_type.tag == TYPE_DOUBLE)) {
+                    c->last_expr_is_float = 1;
+                    return VREG_F0;  /* Return value in xmm0 */
+                }
+
                 c->last_expr_is_float = 0;
                 return VREG_0;  /* Return value in rax */
             }
@@ -1019,6 +1052,7 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
     size_t **label_patches = label_count ? (size_t **)calloc(label_count, sizeof(size_t *)) : NULL;
     size_t *label_patch_counts = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
     size_t *label_patch_caps = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
+    int call_idx = 0;
 
     for (size_t i = 0; i < count; i++) {
         const Instr *instr = &instrs[i];
@@ -1133,11 +1167,17 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 break;
             
+            case OP_CVTTSD2SI:
+                if (BE(c)->emit_fp_cvtsi) {
+                    BE(c)->emit_fp_cvtsi(c, phys_dst, 0);  /* convert xmm0 to GPR phys_dst */
+                }
+                break;
+            
             case OP_CALL: {
                 /* Extract function name from imm64 (stored as pointer during lowering) */
                 const char *fn_name = (const char *)(intptr_t)instr->imm64;
                 
-                /* Extract argument info packed into the instruction */
+                /* Extract integer argument info packed into the instruction */
                 int arg_count = instr->temp_dest;
                 int arg_temps[6] = {0};
                 if (arg_count > 0) arg_temps[0] = instr->temp_src1;
@@ -1148,12 +1188,39 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                     if (arg_count > 3) arg_temps[3] = (int)((instr->imm >> 8) & 0xFF);
                 }
                 
-                /* Emit moves from arg temps to argument registers (rdi=7, rsi=6, rdx=2, rcx=1, r8=8, r9=9) */
-                static const int arg_regs[6] = {7, 6, 2, 1, 8, 9};
-                for (int i = 0; i < arg_count && i < 6; i++) {
+                /* Extract fp_reg_idx (number of float args) from label_idx */
+                int fp_reg_idx = (int)instr->label_idx;
+                
+                /* Emit moves for integer args to argument registers */
+                static const int int_arg_regs[6] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
+                int int_reg_idx = 0;
+                for (int i = 0; i < arg_count && int_reg_idx < 6; i++) {
                     int src_phys = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
-                    int dst_reg = arg_regs[i];
+                    int dst_reg = int_arg_regs[int_reg_idx];
                     BE(c)->emit_mov_reg(c, dst_reg, src_phys);
+                    int_reg_idx++;
+                }
+                
+                /* Load float arguments from spill slots into xmm0..xmmN */
+                if (call_idx < g_ir_emitter_ctx.call_count) {
+                    int fp_count = g_ir_emitter_ctx.call_fp_spill_counts[call_idx];
+                    for (int f = 0; f < fp_count && f < 8; f++) {
+                        int32_t spill_off = g_ir_emitter_ctx.call_fp_spills[call_idx][f];
+                        /* movsd xmm<f>, [rbp - spill_off] */
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x10);
+                        me_emit_u8(c, 0x85 | ((f & 7) << 3));
+                        me_emit_u32(c, (uint32_t)(-spill_off));
+                    }
+                    call_idx++;
+                }
+                
+                /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */
+                /* TODO: Check if function is variadic - for now emit for all calls */
+                if (fp_reg_idx > 0) {
+                    me_emit_u8(c, 0xB0);  /* mov al, imm8 */
+                    me_emit_u8(c, (uint8_t)fp_reg_idx);
                 }
                 
                 /* Emit the call */

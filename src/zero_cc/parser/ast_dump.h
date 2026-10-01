@@ -96,6 +96,10 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             zero_cc_ast_dump(arena, n->right, indent + 1);
             zero_cc_ast_dump(arena, n->aux.alt, indent + 1);
             break;
+        case NODE_CAST:
+            printf("Cast\n");
+            zero_cc_ast_dump(arena, n->left, indent + 1);
+            break;
         case NODE_MEMBER:
             printf("MemberAccess: %s%.*s\n", n->flags ? "->" : ".", (int)n->s.len, n->s.str ? n->s.str : "");
             zero_cc_ast_dump(arena, n->left, indent + 1);

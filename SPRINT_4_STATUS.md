@@ -19,14 +19,24 @@
 
 ### Working Features
 - Float variable storage and load from rodata
-- SSE2 instructions: `movsd`, `addsd`
-- Float-to-int conversion (`cvtsd2si`)
+- SSE2 instructions: `movsd`, `addsd`, `subsd`, `mulsd`, `divsd`
+- Float-to-int conversion (`cvtsd2si`, `cvttsd2si`) via `OP_CVTTSD2SI` in IR
 - Float comparisons (`ucomisd`)
+- System V AMD64 ABI Floating-Point Calling Conventions:
+  - Parallel register cursors: GPRs (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`) and SSE (`xmm0`-`xmm7`)
+  - Caller argument marshalling with float spilling to prevent clobbering across argument expressions
+  - Caller `%al` setup (count of vector registers used) for function calls
+  - Callee parameter prologue saving for incoming `xmm0`-`xmm7` parameters
+  - Double/float function returns in `xmm0` with caller return handling and cast lowering
 
 ### Test Status
 - `test/float_add`: ✅ PASS
 - `test/float_arithmetic`: ✅ PASS (2.5 + 3.0 = 5.0)
 - `test/float_assign`: ✅ PASS
+- `test/float_call`: ✅ PASS (mixed 4-arg call: `test_func(10, 2.5, 20, 3.5)`)
+- `test/float_call2`: ✅ PASS
+- `test/float_call3`: ✅ PASS
+- `test/float_call4`: ✅ PASS (`double` return with `(int)` cast)
 - `test/float_cast` series: ✅ PASS
 
 ---

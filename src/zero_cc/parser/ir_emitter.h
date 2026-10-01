@@ -50,6 +50,11 @@ typedef struct {
     
     size_t epilogue_patches[32];
     int epilogue_patch_count;
+    
+    /* Float argument spill offsets per call index */
+    int32_t call_fp_spills[64][8];
+    int call_fp_spill_counts[64];
+    int call_count;
 } IREmitterContext;
 
 /* Initialize IR emitter context */
@@ -60,6 +65,10 @@ static inline void ir_emitter_init(IREmitterContext *ctx) {
     ctx->label_count = 0;
     ctx->goto_patch_list_count = 0;
     ctx->epilogue_patch_count = 0;
+    ctx->call_count = 0;
+    for (int i = 0; i < 64; i++) {
+        ctx->call_fp_spill_counts[i] = 0;
+    }
     for (int i = 0; i < 16; i++) {
         ctx->break_patch_count[i] = 0;
         ctx->continue_patch_count[i] = 0;
