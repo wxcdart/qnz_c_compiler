@@ -64,6 +64,11 @@ typedef struct RegAllocator {
     size_t active_count;
     size_t active_capacity;
     
+    /* Clobbered registers at each instruction position */
+    bool *rax_clobbered;          /* True if rax is clobbered at instruction i */
+    bool *rdx_clobbered;          /* True if rdx is clobbered at instruction i */
+    size_t clobber_capacity;      /* Capacity of clobber arrays */
+    
     /* Free registers per class */
     bool gpr_free[GPR_COUNT];
     bool xmm_free[XMM_COUNT];
@@ -285,9 +290,8 @@ static void regalloc_allocate(RegAllocator *ra) {
 /* Map register allocator index to VREG number (for x86-64) */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
 static int regalloc_idx_to_vreg(int idx) {
-    /* System V AMD64 ABI register order: rax, rcx, rdx, rbx, rsi, rdi, r8-r15 */
-    /* Map to VREG numbers: 0, 1, 2, 3, 4, 5, 6-13 */
-    static const int idx_to_vreg[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13};
+    /* System V AMD64 ABI register order, excluding rsp/rbp which are reserved. */
+    static const int idx_to_vreg[] = {0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     if (idx >= 0 && idx < 14) {
         return idx_to_vreg[idx];
     }

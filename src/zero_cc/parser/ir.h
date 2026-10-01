@@ -68,9 +68,10 @@ typedef enum {
     OP_RET,            /* ret */
     OP_LEAVE,          /* leave */
 
-    /* Special (6) */
+    /* Special (7) */
     OP_LABEL,          /* label marker */
     OP_DEREF,          /* mov rax, [rax] */
+    OP_LOAD_BYTE,      /* movzx rax, byte ptr [rax] */
     OP_CMP_ZERO,       /* cmp rax, 0 */
     OP_SET_E,          /* sete al */
     OP_SET_NE,         /* setne al */
@@ -126,6 +127,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_LEAVE: return "LEAVE";
         case OP_LABEL: return "LABEL";
         case OP_DEREF: return "DEREF";
+        case OP_LOAD_BYTE: return "LOAD_BYTE";
         case OP_CMP_ZERO: return "CMP_ZERO";
         case OP_SET_E: return "SET_E";
         case OP_SET_NE: return "SET_NE";
@@ -141,6 +143,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  temp_src1; /* Source temp 1 (0-255, 0xFF if none) */
     uint8_t  temp_src2; /* Source temp 2 (0-255, 0xFF if none) */
     int16_t  imm;       /* Immediate value (-32768 to 32767) */
+    int64_t  imm64;     /* 64-bit immediate value */
     uint16_t label_idx; /* Label index for jumps (0-65535) */
 } Instr;
 
@@ -181,7 +184,7 @@ static inline Instr* ir_get(size_t idx) {
 
 /* Helper functions for common patterns */
 static inline void ir_emit_mov_imm(uint8_t temp_dest, int16_t imm) {
-    ir_emit((Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = imm, .label_idx = 0});
+    ir_emit((Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = imm, .imm64 = imm, .label_idx = 0});
 }
 
 static inline void ir_emit_add(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
@@ -206,6 +209,10 @@ static inline void ir_emit_jmp(uint16_t label_idx) {
 
 static inline void ir_emit_je(uint8_t temp_cond, uint16_t label_idx) {
     ir_emit((Instr){.op = OP_JE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
+}
+
+static inline void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx) {
+    ir_emit((Instr){.op = OP_JNE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
 }
 
 static inline void ir_emit_ret(void) {

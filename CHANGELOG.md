@@ -40,6 +40,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - Fixed stack offset sign convention
 - Fixed jump patch position
 - Fixed push/pop REX prefix
+- Fixed NODE_INDEX lowering: implemented proper array indexing with `OP_LOAD_BYTE` for char element access
+- Fixed comparison operators (sete/setne/setl/setle/setg/setge): added zero-extension (movzx) after setcc instructions
+- Fixed live range analysis: conditional jumps now properly record temp_src1 as a use
 
 ### Changed
 - Removed unused backend scaffolding (`backends/` directory)

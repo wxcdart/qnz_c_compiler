@@ -124,6 +124,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (c->function_count >= ZERO_CC_MAX_FUNCTIONS) return;
         ZeroCCFunction *fn = &c->functions[c->function_count++];
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
+        /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;

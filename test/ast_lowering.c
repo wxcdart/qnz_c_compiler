@@ -113,19 +113,19 @@ int test_early_return(void) {
 }
 
 int main(void) {
-    if (!test_arithmetic_and_return()) {
+if (!test_arithmetic_and_return()) {
         fprintf(stderr, "Arithmetic test FAILED\n");
         return 1;
     }
-    if (!test_if_else()) {
+if (!test_if_else()) {
         fprintf(stderr, "If-else test FAILED\n");
         return 1;
     }
-    if (!test_while_loop()) {
+if (!test_while_loop()) {
         fprintf(stderr, "While loop test FAILED\n");
         return 1;
     }
-    if (!test_early_return()) {
+if (!test_early_return()) {
         fprintf(stderr, "Early return test FAILED\n");
         return 1;
     }

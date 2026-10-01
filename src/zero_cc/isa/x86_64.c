@@ -157,10 +157,25 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
         x86_mov_rr(c, X86_R11, divisor);  /* keep divisor out of rax/rdx */
         divisor = X86_R11;
     }
+    /* Save rdx if it holds a live temp that is not the result register. */
+    bool save_rdx = (dst != X86_RDX && src1 != X86_RDX && src2 != X86_RDX && divisor != X86_RDX);
+    bool save_rax = (dst != X86_RAX && src1 != X86_RAX && src2 != X86_RAX && divisor != X86_RAX);
+    
+    if (save_rdx) me_emit_u8(c, 0x52);  /* push rdx */
+    if (save_rax) me_emit_u8(c, 0x50);  /* push rax */
+    
     x86_mov_rr(c, X86_RAX, src1);
     x86_emit_cqo(c);
     x86_emit_idiv(c, divisor);
-    x86_mov_rr(c, dst, want_rem ? X86_RDX : X86_RAX);
+    
+    /* Move result to dst before restoring */
+    if (dst != X86_RAX && dst != X86_RDX) {
+        x86_mov_rr(c, dst, want_rem ? X86_RDX : X86_RAX);
+    }
+    /* If dst is rax or rdx, result is already there */
+    
+    if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */
+    if (save_rax) me_emit_u8(c, 0x58);  /* pop rax */
 }
 
 static void x86_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -222,8 +237,15 @@ static size_t x86_emit_jmp(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0xE9);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);  /* placeholder for rel32 patch */
-    /* TODO: record relocation */
-    (void)label;
+    /* Record this patch for later resolution */
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -232,7 +254,14 @@ static size_t x86_emit_jeq(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x84);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -241,7 +270,14 @@ static size_t x86_emit_jne(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x85);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -250,7 +286,14 @@ static size_t x86_emit_jlt(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x8C);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -259,7 +302,14 @@ static size_t x86_emit_jle(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x8E);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -268,7 +318,14 @@ static size_t x86_emit_jgt(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x8F);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -277,7 +334,14 @@ static size_t x86_emit_jge(ZeroCCCompiler *c, const char *label) {
     me_emit_u8(c, 0x8D);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
     me_emit_u32(c, 0);
-    (void)label;
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
     return patch_pos;
 }
 
@@ -327,7 +391,7 @@ static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
     
     me_emit_u8(c, 0xF2);
     me_emit_u8(c, 0x0F);
-    me_emit_u8(c, 0x10);
+    me_emit_u8(c, 0x10);  /* movsd xmm, m64 */
     me_emit_u8(c, 0x05);  /* RIP-relative */
     size_t patch_pos = me_get_offset(c);
     me_emit_u32(c, 0);
@@ -335,9 +399,11 @@ static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
         c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
         c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+        c->str_relocs[c->str_reloc_count].dst_reg = dst_reg;
         c->str_reloc_count++;
     }
-    (void)dst_reg;  /* For now, always loads to xmm0 - TODO: handle other regs */
+    /* Emit REX prefix for dst_reg after relocation is patched */
+    x86_rex(c, 0, 0, 0, dst_reg >> 3);
 }
 
 static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -402,22 +468,24 @@ static void x86_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
-    /* xorps with sign bit mask, or use subsd from zero */
+    /* xorps with sign bit mask: xorpd dst, [mask] */
+    /* First move src to dst if different */
     if (dst != src) {
         x86_rex(c, 0, 0, 0, src >> 3);
         me_emit_u8(c, 0xF2);
         me_emit_u8(c, 0x0F);
-        me_emit_u8(c, 0x10);
+        me_emit_u8(c, 0x10);  /* movsd */
         x86_modrm(c, 3, dst & 7, src & 7);
     }
-    /* Use xorps with sign bit: xorpd xmm, [mask] */
+    /* Use xorpd with sign bit: xorpd xmm_dst, [neg_mask] */
     static const double neg_mask = -0.0;
     size_t off = c->rodata_section.length;
     zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&neg_mask, sizeof(neg_mask));
     me_emit_u8(c, 0x66);
     me_emit_u8(c, 0x0F);
-    me_emit_u8(c, 0x54);  /* xorpd */
-    me_emit_u8(c, 0x05);
+    me_emit_u8(c, 0x54);  /* xorpd xmm, m128 */
+    x86_rex(c, 0, 0, 0, dst >> 3);
+    me_emit_u8(c, 0x05);  /* RIP-relative */
     size_t p = me_get_offset(c);
     me_emit_u32(c, 0);
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
@@ -425,8 +493,6 @@ static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
         c->str_relocs[c->str_reloc_count].rodata_offset = off;
         c->str_reloc_count++;
     }
-    x86_rex(c, 0, 0, 0, dst >> 3);
-    (void)dst; (void)src;
 }
 
 static void x86_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -529,60 +595,86 @@ static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
     x86_modrm(c, 3, 5, 3); /* shr rax, rbx */
 }
 
-/* setl al */
+/* setl al, zero-extend to rax */
 static void x86_emit_setl(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9c);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* setl al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* setle al */
+/* setle al, zero-extend to rax */
 static void x86_emit_setle(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9e);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* setle al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* setg al */
+/* setg al, zero-extend to rax */
 static void x86_emit_setg(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9f);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* setg al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* setge al */
+/* setge al, zero-extend to rax */
 static void x86_emit_setge(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9d);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* setge al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* sete al */
+/* sete al, zero-extend to rax */
 static void x86_emit_sete(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x94);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* sete al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* setne al */
+/* setne al, zero-extend to rax */
 static void x86_emit_setne(ZeroCCCompiler *c, int dst_reg) {
     (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x95);
-    me_emit_u8(c, 0xc0);
+    me_emit_u8(c, 0xc0);  /* setne al */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    me_emit_u8(c, 0xc0);  /* movzx rax, al */
 }
 
-/* deref: mov rax, [rax] */
+/* deref: mov dst, [src] */
 static void x86_emit_deref(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    (void)dst_reg; (void)src_reg; /* Always rax */
-    me_emit_u8(c, 0x48);
-    me_emit_u8(c, 0x8b);
-    me_emit_u8(c, 0x00);
+    /* mov dst, [src] - register indirect addressing */
+    x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
+    me_emit_u8(c, 0x8B);
+    x86_modrm(c, 0, dst_reg & 7, src_reg & 7);
+}
+
+/* load_byte: movzx dst, byte ptr [src] */
+static void x86_emit_load_byte(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xB6);
+    x86_modrm(c, 0, dst_reg & 7, src_reg & 7);
 }
 
 /* cmp rax, 0 */
@@ -620,8 +712,13 @@ static void x86_emit_lnot(ZeroCCCompiler *c, int dst_reg, int src_reg) {
 }
 
 static void x86_emit_label(ZeroCCCompiler *c, const char *name) {
-    (void)c; (void)name;
-    /* TODO: implement label emission with patching */
+    /* Record label position for jump patching */
+    if (c->label_count < 32) {
+        c->labels[c->label_count].name = name;
+        c->labels[c->label_count].offset = me_get_offset(c);
+        c->labels[c->label_count].patch_count = 0;
+        c->label_count++;
+    }
 }
 
 static void x86_emit_test(ZeroCCCompiler *c, int src1, int src2) {
@@ -632,6 +729,20 @@ static void x86_emit_test(ZeroCCCompiler *c, int src1, int src2) {
 static void x86_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
     /* lea dst, [base + offset] */
     x86_rm(c, 0x8D, dst, base, offset);
+}
+
+/* Resolve all recorded label patches */
+static void x86_resolve_labels(ZeroCCCompiler *c) {
+    for (int i = 0; i < c->label_count; i++) {
+        size_t target = c->labels[i].offset;
+        for (int j = 0; j < c->labels[i].patch_count; j++) {
+            size_t patch_offset = c->labels[i].patches[j];
+            int32_t rel = (int32_t)(target - (patch_offset + 4));
+            if (patch_offset + 4 <= c->text_section.length) {
+                me_patch_u32(c, patch_offset, (uint32_t)rel);
+            }
+        }
+    }
 }
 
 /* patch_offset is the position of the rel32 field (as returned by emit_j*) */
@@ -675,6 +786,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_idiv = x86_emit_idiv,
     .emit_lea = x86_emit_lea,
     .patch_jmp = x86_patch_jmp,
+    .resolve_labels = x86_resolve_labels,
     
     /* VREG mapping */
     .get_int_reg = x86_get_int_reg,
@@ -725,6 +837,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_sete = x86_emit_sete,
     .emit_setne = x86_emit_setne,
     .emit_deref = x86_emit_deref,
+    .emit_load_byte = x86_emit_load_byte,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,

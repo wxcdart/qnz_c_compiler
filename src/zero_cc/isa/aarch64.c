@@ -366,6 +366,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_idiv = aarch64_emit_idiv,
     .emit_lea = aarch64_emit_lea,
     .patch_jmp = aarch64_patch_jmp,
+    .resolve_labels = NULL,  /* No label resolution needed for now */
     
     /* VREG mapping */
     .get_int_reg = aarch64_get_int_reg,

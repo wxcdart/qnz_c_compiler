@@ -47,6 +47,15 @@ typedef struct ZeroCCCompiler {
     uint16_t ir_next_label;               /* Next IR label index */
     SemContext *sem_ctx;                  /* Semantic context for type info */
 
+    /* Label resolution for jump patching */
+    struct {
+        const char *name;
+        size_t offset;
+        size_t patches[16];
+        int patch_count;
+    } labels[32];
+    int label_count;
+
     /* ISA backend */
     ZeroCCISA isa;                        /* Target ISA */
     const ZeroCCISABackend *isa_backend;  /* ISA-specific codegen backend */

@@ -13,8 +13,6 @@ EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/
 
 all: $(TESTS)
 
-	$(CC) $(CFLAGS) -c $< -o $@
-
 $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h src/zero_cc/keywords.inc
 	$(CC) $(CFLAGS) -c $< -o $@
 

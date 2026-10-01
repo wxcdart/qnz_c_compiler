@@ -244,7 +244,7 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
  * ======================================================================
  */
 
-static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
 #define MAX_EPILOGUE_PATCHES 256
 

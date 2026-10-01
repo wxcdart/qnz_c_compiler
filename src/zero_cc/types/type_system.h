@@ -104,6 +104,7 @@ typedef struct {
 typedef struct {
     size_t text_patch_offset;
     size_t rodata_offset;
+    int dst_reg;  /* Destination register for FP immediate loads */
 } ZeroCCStringReloc;
 
 

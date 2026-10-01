@@ -9,6 +9,9 @@
 #include "ir.h"
 #include "regalloc.h"
 
+/* Forward declarations to avoid circular includes */
+typedef struct RegAllocator RegAllocator;
+
 /*
  * Live Range Analysis for Two-Pass Code Generation
  * 
@@ -33,6 +36,11 @@ typedef struct LiveRangeAnalyzer {
     size_t *temp_def_pos;       /* Definition position per temp */
     size_t *temp_live_end;      /* Last use position per temp */
     size_t temp_capacity;       /* Capacity of temp arrays */
+    
+    /* Clobber tracking per instruction */
+    bool *rax_clobbered;        /* True if rax is clobbered at instruction i */
+    bool *rdx_clobbered;        /* True if rdx is clobbered at instruction i */
+    size_t clobber_capacity;    /* Capacity of clobber arrays */
 } LiveRangeAnalyzer;
 
 /* Initialize live range analyzer */
@@ -47,6 +55,10 @@ static void live_range_init(LiveRangeAnalyzer *lra) {
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
     lra->temp_capacity = 0;
+    
+    lra->rax_clobbered = NULL;
+    lra->rdx_clobbered = NULL;
+    lra->clobber_capacity = 0;
 }
 
 /* Free live range analyzer */
@@ -57,10 +69,47 @@ static void live_range_free(LiveRangeAnalyzer *lra) {
     free(lra->uses);
     free(lra->temp_def_pos);
     free(lra->temp_live_end);
+    free(lra->rax_clobbered);
+    free(lra->rdx_clobbered);
     
     lra->uses = NULL;
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
+    lra->rax_clobbered = NULL;
+    lra->rdx_clobbered = NULL;
+}
+
+/* Mark a register as clobbered at a given instruction */
+static void live_range_mark_clobber(LiveRangeAnalyzer *lra, size_t instr_index, int reg_id) __attribute__((unused));
+static void live_range_mark_clobber(LiveRangeAnalyzer *lra, size_t instr_index, int reg_id) {
+    if (!lra) return;
+    
+    /* Expand clobber arrays if needed */
+    if (instr_index >= lra->clobber_capacity) {
+        size_t new_cap = lra->clobber_capacity ? lra->clobber_capacity * 2 : 128;
+        while (new_cap <= instr_index) new_cap *= 2;
+        
+        bool *new_rax = realloc(lra->rax_clobbered, new_cap * sizeof(bool));
+        bool *new_rdx = realloc(lra->rdx_clobbered, new_cap * sizeof(bool));
+        if (!new_rax || !new_rdx) return;
+        
+        lra->rax_clobbered = new_rax;
+        lra->rdx_clobbered = new_rdx;
+        lra->clobber_capacity = new_cap;
+        
+        /* Initialize new entries to false */
+        for (size_t i = lra->clobber_capacity / 2; i < new_cap; i++) {
+            lra->rax_clobbered[i] = false;
+            lra->rdx_clobbered[i] = false;
+        }
+    }
+    
+    /* Mark the register as clobbered */
+    if (reg_id == 0) {  /* rax */
+        lra->rax_clobbered[instr_index] = true;
+    } else if (reg_id == 2) {  /* rdx */
+        lra->rdx_clobbered[instr_index] = true;
+    }
 }
 
 /* Add a temp use/def */
@@ -155,11 +204,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
     for (size_t i = 0; i < instr_count; i++) {
         const Instr *instr = &instrs[i];
         
-        /* Skip labels and jumps (they don't use temps) */
-        if (instr->op == OP_LABEL || instr->op == OP_JMP || 
-            instr->op == OP_JE || instr->op == OP_JNE ||
-            instr->op == OP_JL || instr->op == OP_JLE ||
-            instr->op == OP_JG) {
+        /* Skip labels and unconditional jumps (they don't use temps) */
+        if (instr->op == OP_LABEL || instr->op == OP_JMP) {
             continue;
         }
         
@@ -174,6 +220,22 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         }
         if (instr->temp_src2 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src2, false);
+        }
+        
+        /* DIV/MOD clobbers rax and rdx - extend live ranges of temps 0 and 2
+         * Temp 0 is typically assigned to rax, temp 2 to rdx.
+         * Extending their live ranges to the DIV instruction reserves
+         * these registers for the DIV and prevents other temps from using them.
+         * Also mark rax and rdx as clobbered so the register allocator knows
+         * not to assign other temps to these registers during DIV. */
+        if (instr->op == OP_DIV || instr->op == OP_MOD) {
+            /* Extend rax (temp 0) live range to DIV instruction */
+            live_range_add_use(lra, i, 0, false);  /* rax use at DIV */
+            /* Extend rdx (temp 2) live range to DIV instruction */
+            live_range_add_use(lra, i, 2, false);  /* rdx use at DIV */
+            /* Mark rax and rdx as clobbered at instruction i */
+            live_range_mark_clobber(lra, i, 0);  /* rax clobbered */
+            live_range_mark_clobber(lra, i, 2);  /* rdx clobbered */
         }
     }
 }

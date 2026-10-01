@@ -15,11 +15,12 @@
 
 /* mov [rbp - offset], rax (store) */
 static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
+    (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_MOV_MEM_RAX,
         .temp_dest = 0xFF,
         .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = (uint8_t)fp_reg,
+        .temp_src2 = 0xFF,  /* Frame pointer marker */
         .imm = offset,
         .imm64 = 0,
         .label_idx = 0
@@ -28,10 +29,11 @@ static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
 
 /* mov rax, [rbp - offset] (load) */
 static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
+    (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_MOV_RAX_MEM,
         .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)fp_reg,
+        .temp_src1 = 0xFF,  /* Frame pointer marker */
         .temp_src2 = 0xFF,
         .imm = offset,
         .imm64 = 0,
@@ -342,6 +344,19 @@ static inline void ir_emit_setne(int temp_dest) {
 static inline void ir_emit_deref(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_DEREF,
+        .temp_dest = (uint8_t)temp_dest,
+        .temp_src1 = (uint8_t)temp_src,
+        .temp_src2 = 0xFF,
+        .imm = 0,
+        .imm64 = 0,
+        .label_idx = 0
+    });
+}
+
+/* load_byte: movzx dst, byte ptr [src] */
+static inline void ir_emit_load_byte(int temp_dest, int temp_src) {
+    ir_emit((Instr){
+        .op = OP_LOAD_BYTE,
         .temp_dest = (uint8_t)temp_dest,
         .temp_src1 = (uint8_t)temp_src,
         .temp_src2 = 0xFF,

@@ -397,6 +397,7 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
+    .resolve_labels = NULL,  /* No label resolution needed for now */
     
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
@@ -718,6 +719,7 @@ const ZeroCCISABackend riscv32_backend = {
     .emit_idiv = riscv32_emit_idiv,
     .emit_lea = riscv32_emit_lea,
     .patch_jmp = riscv32_patch_jmp,
+    .resolve_labels = NULL,  /* No label resolution needed for now */
     
     /* VREG mapping */
     .get_int_reg = riscv_get_int_reg,

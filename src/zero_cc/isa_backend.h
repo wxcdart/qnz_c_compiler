@@ -55,6 +55,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_idiv)(ZeroCCCompiler *c, int src);
     void (*emit_lea)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
+    void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */
     
     /* Load/store */
     void (*emit_load)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
@@ -76,6 +77,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_sete)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_setne)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_deref)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_load_byte)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
     void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);

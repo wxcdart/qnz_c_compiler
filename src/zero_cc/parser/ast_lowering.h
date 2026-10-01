@@ -12,6 +12,7 @@
 #include "../types_lexer.h"
 #include "../parser.h"
 #include "ir_emitter.h"
+#include "ir_emit_ops.h"
 #include "machine_emitter.h"
 #include "../isa_backend.h"
 #include "../types/vregs.h"
@@ -40,7 +41,8 @@ static IREmitterContext g_ir_emitter_ctx;
  * ========================================================================= */
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+static void emit_ir_to_machine_code(ZeroCCCompiler *c);
 
 /* =========================================================================
  * Statement Handlers
@@ -57,48 +59,50 @@ static void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
 
 static void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node) {
-        lower_expr(c, arena, node->left);
+        (void)lower_expr(c, arena, node->left);  /* Result not used */
     }
 }
 
 static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     if (node->left != AST_NULL) {
-        lower_expr(c, arena, node->left);
+        int result_temp = lower_expr(c, arena, node->left);
         const char *var = node->s.str;
         ZeroCCSym *sym = zero_cc_find_local(c, var);
         if (sym) {
-            if (c->last_expr_is_float) {
-                /* Check if destination is an integer type */
-                bool dest_is_int = (sym->type.tag == TYPE_INT8 || 
-                                    sym->type.tag == TYPE_UINT8 ||
-                                    sym->type.tag == TYPE_INT16 || 
-                                    sym->type.tag == TYPE_UINT16 ||
-                                    sym->type.tag == TYPE_INT32 || 
-                                    sym->type.tag == TYPE_UINT32 ||
-                                    sym->type.tag == TYPE_INT64 || 
-                                    sym->type.tag == TYPE_UINT64);
-                if (dest_is_int) {
-                    /* Convert float to int: cvttsd2si rax, xmm0 */
+            bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+            if (target_is_float) {
+                if (!c->last_expr_is_float) {
+                    /* Convert int (in rax / result_temp) to float in xmm0 */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x48);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x2A);
+                    me_emit_u8(c, 0xC0); /* cvtsi2sd xmm0, rax */
+                }
+                /* Float assignment: store xmm0 to [rbp - offset] */
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x11);
+                me_emit_u8(c, 0x85);
+                me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd [rbp-offset], xmm0 */
+            } else {
+                if (c->last_expr_is_float) {
+                    /* Convert float (in xmm0) to int (in eax) */
                     me_emit_u8(c, 0xF2);
                     me_emit_u8(c, 0x0F);
                     me_emit_u8(c, 0x2C);
-                    me_emit_u8(c, 0xC0);
-                    /* Store integer to stack */
-                    BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
-                } else {
-                    /* Float assignment: store xmm0 to [rbp - offset] */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x11);
+                    me_emit_u8(c, 0xC0); /* cvttsd2si eax, xmm0 */
+                    /* mov [rbp - offset], eax */
+                    me_emit_u8(c, 0x89);
                     me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd [rbp-offset], xmm0 */
+                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                } else {
+                    /* Integer assignment: use IR store */
+                    ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
                 }
-                c->last_expr_is_float = 0; /* Reset after store */
-            } else {
-                /* Integer assignment: store rax to stack */
-                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
             }
+            c->last_expr_is_float = 0;
         }
     }
 }
@@ -109,58 +113,66 @@ static void lower_stmt_static_assert(ZeroCCCompiler *c, ZeroCCASTArena *arena, Z
     }
 }
 
+/* Synthetic epilogue label used by return statements */
+static uint16_t g_ir_epilogue_label = 0;
+
 static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node && node->left != AST_NULL) {
-        lower_expr(c, arena, node->left);
+        int result_temp = lower_expr(c, arena, node->left);
+        /* Ensure result is in rax (VREG_0) for return */
+        if (!c->last_expr_is_float) {
+            /* Move result to rax if not already there - emit IR */
+            int result_reg = regalloc_get_reg_for_temp(&c->regalloc, result_temp);
+            if (result_reg != VREG_0) {
+                ir_emit_mov_reg(VREG_0, result_temp);
+            }
+        }
+        /* Float result is already in xmm0, no move needed */
     }
-    me_emit_u8(c, 0xE9);
-    size_t patch_pos = me_get_offset(c);
-    me_emit_u32(c, 0);
-    if (g_ir_emitter_ctx.epilogue_patch_count < 32) {
-        g_ir_emitter_ctx.epilogue_patches[g_ir_emitter_ctx.epilogue_patch_count++] = patch_pos;
-    }
+    ir_emit_jmp(g_ir_epilogue_label);
+}
+
+/* Emit return jumps after IR-to-MC */
+static void emit_return_jumps(ZeroCCCompiler *c) {
+    (void)c;
 }
 
 static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
-    lower_expr(c, arena, node->left);
-    BE(c)->emit_test(c, VREG_0, VREG_0);
-    size_t else_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
+    int cond_temp = lower_expr(c, arena, node->left);
+    uint16_t else_label = c->ir_next_label++;
+    uint16_t end_label = c->ir_next_label++;
+    ir_emit_je((uint8_t)cond_temp, else_label);
     lower_node(c, arena, node->right);
+    ir_emit_jmp(end_label);
+    ir_emit_label(else_label);
     if (node->aux.alt != AST_NULL) {
-        size_t end_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
         lower_node(c, arena, node->aux.alt);
-        BE(c)->patch_jmp(c, end_patch, me_get_offset(c));
-    } else {
-        BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
     }
+    ir_emit_label(end_label);
 }
 
 static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
-    size_t loop_start = me_get_offset(c);
-    ir_emitter_enter_loop(&g_ir_emitter_ctx, loop_start);
-    lower_expr(c, arena, node->left);
-    BE(c)->emit_test(c, VREG_0, VREG_0);
-    size_t exit_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
+    uint16_t loop_start = c->ir_next_label++;
+    uint16_t loop_exit = c->ir_next_label++;
+    ir_emit_label(loop_start);
+    int cond_temp = lower_expr(c, arena, node->left);
+    ir_emit_je((uint8_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
-    size_t back_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-    BE(c)->patch_jmp(c, exit_patch, me_get_offset(c));
-    BE(c)->patch_jmp(c, back_patch, loop_start);
-    ir_emitter_exit_loop(&g_ir_emitter_ctx);
+    ir_emit_jmp(loop_start);
+    ir_emit_label(loop_exit);
 }
 
 static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
-    size_t loop_start = me_get_offset(c);
-    ir_emitter_enter_loop(&g_ir_emitter_ctx, loop_start);
+    uint16_t loop_start = c->ir_next_label++;
+    uint16_t loop_exit = c->ir_next_label++;
+    ir_emit_label(loop_start);
     lower_node(c, arena, node->right);
-    lower_expr(c, arena, node->left);
-    BE(c)->emit_test(c, VREG_0, VREG_0);
-    size_t back_patch = BE(c)->emit_jne(c, ""); /* TODO: label */;
-    BE(c)->patch_jmp(c, back_patch, loop_start);
-    ir_emitter_exit_loop(&g_ir_emitter_ctx);
+    int cond_temp = lower_expr(c, arena, node->left);
+    ir_emit_jne((uint8_t)cond_temp, loop_start);
+    ir_emit_label(loop_exit);
 }
 
 static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -168,29 +180,21 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
     }
-    size_t loop_start = me_get_offset(c);
-    ir_emitter_enter_loop(&g_ir_emitter_ctx, loop_start);
+    uint16_t loop_start = c->ir_next_label++;
+    uint16_t loop_exit = c->ir_next_label++;
+    ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
-        lower_expr(c, arena, node->right);
-    } else {
-        BE(c)->emit_xor(c, VREG_0, VREG_0, VREG_0);
-        me_emit_u8(c, 0x48);
-        me_emit_u8(c, 0x83);
-        me_emit_u8(c, 0xC0);
-        me_emit_u8(c, 0x00);
+        int cond_temp = lower_expr(c, arena, node->right);
+        ir_emit_je((uint8_t)cond_temp, loop_exit);
     }
-    BE(c)->emit_test(c, VREG_0, VREG_0);
-    size_t exit_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
     }
     if (node->aux.step != AST_NULL) {
         lower_expr(c, arena, node->aux.step);
     }
-    size_t back_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-    BE(c)->patch_jmp(c, back_patch, loop_start);
-    BE(c)->patch_jmp(c, exit_patch, me_get_offset(c));
-    ir_emitter_exit_loop(&g_ir_emitter_ctx);
+    ir_emit_jmp(loop_start);
+    ir_emit_label(loop_exit);
 }
 
 static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -225,9 +229,9 @@ static void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     /* Patch any pending gotos to this label */
     for (int i = 0; i < g_ir_emitter_ctx.goto_patch_count[idx]; i++) {
         size_t patch_pos = g_ir_emitter_ctx.goto_patch_list[idx][i];
-        int32_t rel = (int32_t)(g_ir_emitter_ctx.label_table[idx].position - (patch_pos + 4));
-        memcpy((uint8_t*)patch_pos, &rel, 4);
+        BE(c)->patch_jmp(c, patch_pos, g_ir_emitter_ctx.label_table[idx].position);
     }
+    g_ir_emitter_ctx.goto_patch_count[idx] = 0;
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
     }
@@ -241,11 +245,15 @@ static void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute
         BE(c)->patch_jmp(c, patch, g_ir_emitter_ctx.label_table[idx].position);
     } else {
         size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        if (g_ir_emitter_ctx.goto_patch_list_count < 256) {
-            g_ir_emitter_ctx.goto_patch_list[g_ir_emitter_ctx.goto_patch_list_count] = (size_t*)malloc(sizeof(size_t) * 16);
-            g_ir_emitter_ctx.goto_patch_list[g_ir_emitter_ctx.goto_patch_list_count][0] = patch;
-            g_ir_emitter_ctx.goto_patch_count[g_ir_emitter_ctx.goto_patch_list_count] = 1;
-            g_ir_emitter_ctx.goto_patch_list_count++;
+        idx = ir_emitter_add_label(&g_ir_emitter_ctx, node->s.str, 0);
+        if (idx >= 0) {
+            if (!g_ir_emitter_ctx.goto_patch_list[idx]) {
+                g_ir_emitter_ctx.goto_patch_list[idx] = (size_t*)malloc(sizeof(size_t) * 16);
+                g_ir_emitter_ctx.goto_patch_count[idx] = 0;
+            }
+            if (g_ir_emitter_ctx.goto_patch_list[idx] && g_ir_emitter_ctx.goto_patch_count[idx] < 16) {
+                g_ir_emitter_ctx.goto_patch_list[idx][g_ir_emitter_ctx.goto_patch_count[idx]++] = patch;
+            }
         }
     }
 }
@@ -313,15 +321,44 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
  * Expression Lowering
  * ========================================================================= */
 
-static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
-    if (ref == AST_NULL) return;
+/* =========================================================================
+ * Expression Lowering (IR-Based)
+ * ========================================================================= */
+
+/* 
+ * IR-based expression lowering
+ * Returns: temp ID containing the result (0xFF if no result)
+ * Sets c->last_expr_is_float for float results
+ */
+static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return 0xFF;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
-    if (!node) return;
+    if (!node) return 0xFF;
+    
     switch (node->tag) {
-        case NODE_INT:
-            BE(c)->emit_mov_imm(c, VREG_0, node->int_val);
-            break;
+        case NODE_INT: {
+            int temp = c->next_temp_id++;
+            ir_emit_mov_imm(temp, node->int_val);
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+        
+        case NODE_BOOL: {
+            int temp = c->next_temp_id++;
+            ir_emit_mov_imm(temp, node->int_val);
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+        
+        case NODE_NULLPTR: {
+            int temp = c->next_temp_id++;
+            ir_emit_mov_imm(temp, 0);
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+        
         case NODE_FLOAT: {
+            /* Float literals require rodata and direct machine code */
             double val = node->float_val;
             size_t rodata_offset = c->rodata_section.length;
             zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&val, sizeof(val));
@@ -336,15 +373,10 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
                 c->str_reloc_count++;
             }
-            c->last_expr_is_float = 1; /* Float literal in xmm0 */
-            break;
+            c->last_expr_is_float = 1;
+            return VREG_F0;
         }
-        case NODE_BOOL:
-            BE(c)->emit_mov_imm(c, VREG_0, node->int_val);
-            break;
-        case NODE_NULLPTR:
-            BE(c)->emit_xor(c, VREG_0, VREG_0, VREG_0);
-            break;
+        
         case NODE_STRING: {
             if (node->s.str) {
                 size_t len = strlen(node->s.str);
@@ -363,27 +395,34 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->str_reloc_count++;
                 }
             }
-            break;
+            c->last_expr_is_float = 0;
+            return VREG_0;
         }
+        
         case NODE_IDENT: {
             const char *name = node->s.str;
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
-                /* Check if the variable is a float type */
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
-                    /* Load float from [rbp - offset] to xmm0 */
+                    /* Float load requires direct machine code */
                     me_emit_u8(c, 0xF2);
                     me_emit_u8(c, 0x0F);
                     me_emit_u8(c, 0x10);
                     me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd xmm0, [rbp-offset] */
+                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
                     c->last_expr_is_float = 1;
+                    return VREG_F0;
                 } else {
-                    BE(c)->emit_load(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                    int temp = c->next_temp_id++;
+                    ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return temp;
                 }
             } else {
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
+                    int temp = c->next_temp_id++;
+                    /* Global load requires direct machine code with relocation */
                     me_emit_u8(c, 0x48);
                     me_emit_u8(c, 0xB8);
                     me_emit_u64(c, 0);
@@ -394,188 +433,152 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", name);
                         r->is_call = false;
                     }
+                    c->last_expr_is_float = 0;
+                    return temp;
                 }
+                return 0xFF;
             }
-            break;
         }
+        
         case NODE_BINOP: {
-            /* Evaluate left operand, save its type */
-            lower_expr(c, arena, node->left);
+            /* Evaluate left operand first - result lands in xmm0 for floats */
+            int left_temp = lower_expr(c, arena, node->left);
             bool left_is_float = c->last_expr_is_float;
-            
-            /* Save left operand: rax for int, xmm0 for float */
+
+            /* For float operands: spill xmm0 (= left) to stack NOW, before
+             * evaluating right, which would otherwise overwrite xmm0.
+             * Use an %rbp-relative stack slot within the allocated frame
+             * rather than red-zone [rsp-8] so it is safe across nested calls. */
+            int32_t spill_offset = 0;
             if (left_is_float) {
-                /* Save xmm0 to stack (float) - use [rsp] as temp */
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                spill_offset = c->current_stack_frame;
+
+                /* movsd [rbp - spill_offset], xmm0 */
                 me_emit_u8(c, 0xF2);
                 me_emit_u8(c, 0x0F);
                 me_emit_u8(c, 0x11);
-                me_emit_u8(c, 0x04);
-                me_emit_u8(c, 0x24); /* movsd [rsp], xmm0 */
-            } else {
-                BE(c)->emit_push_reg(c, VREG_0); /* Save rax for int */
+                me_emit_u8(c, 0x85);
+                me_emit_u32(c, (uint32_t)(-spill_offset));
             }
-            
-            /* Evaluate right operand */
-            lower_expr(c, arena, node->right);
+
+            /* Evaluate right operand - result lands in xmm0 for floats */
+            int right_temp = lower_expr(c, arena, node->right);
             bool right_is_float = c->last_expr_is_float;
-            
-            /* Perform arithmetic based on operand types */
+
+            /* Float arithmetic requires direct machine code */
             if (left_is_float && right_is_float) {
-                /* Both floats: use SSE2 */
-                /* Load left operand from stack to xmm1 */
+                /* At this point: xmm0 = right
+                 * Reload left and set up: xmm0 = left, xmm1 = right
+                 * so that "xmm0 op xmm1" gives "left op right" for all ops. */
+
+                /* movsd xmm1, xmm0   -- xmm1 = right */
                 me_emit_u8(c, 0xF2);
                 me_emit_u8(c, 0x0F);
                 me_emit_u8(c, 0x10);
-                me_emit_u8(c, 0x0C);
-                me_emit_u8(c, 0x24); /* movsd xmm1, [rsp] */
-                /* xmm0 has right operand, xmm1 has left operand */
+                me_emit_u8(c, 0xC8); /* movsd xmm1, xmm0 */
+
+                /* movsd xmm0, [rbp - spill_offset] -- xmm0 = left (reloaded) */
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x10);
+                me_emit_u8(c, 0x85);
+                me_emit_u32(c, (uint32_t)(-spill_offset));
+
+                /* Perform: xmm0 = left op right */
                 switch (node->aux.op) {
                     case TK_PLUS:
                         me_emit_u8(c, 0xF2);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x58);
-                        me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1 */
+                        me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1  (left + right) */
                         break;
                     case TK_MINUS:
                         me_emit_u8(c, 0xF2);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x5C);
-                        me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1 */
+                        me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1  (left - right) */
                         break;
                     case TK_STAR:
                         me_emit_u8(c, 0xF2);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x59);
-                        me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1 */
+                        me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1  (left * right) */
                         break;
                     case TK_SLASH:
                         me_emit_u8(c, 0xF2);
                         me_emit_u8(c, 0x0F);
                         me_emit_u8(c, 0x5E);
-                        me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1 */
-                        break;
-                    default:
-                        /* For comparison operators, fall through to integer code */
-                        /* This is a limitation - float comparisons need separate handling */
-                        break;
-                }
-                c->last_expr_is_float = 1; /* Result is float */
-            } else {
-                /* Integer arithmetic */
-                                if (left_is_float) {
-                    /* Load left operand from stack to rcx */
-                    BE(c)->emit_pop_reg(c, VREG_1);
-                } else {
-                    BE(c)->emit_pop_reg(c, VREG_1);
-                }
-                                switch (node->aux.op) {
-                    case TK_PLUS:
-                        BE(c)->emit_add(c, VREG_0, VREG_0, VREG_1);
-                        break;
-                    case TK_MINUS:
-                        /* RAX = RCX - RAX (left - right) */
-                        BE(c)->emit_sub(c, VREG_0, VREG_1, VREG_0);
-                        break;
-                    case TK_STAR:
-                        BE(c)->emit_mul(c, VREG_0, VREG_0, VREG_1);
-                        break;
-                    case TK_SLASH: {
-                        /* Division: RAX = RCX / RAX (left / right) */
-                        BE(c)->emit_div(c, VREG_0, VREG_1, VREG_0);
-                        break;
-                    }
-                    case TK_PERCENT: {
-                        /* Modulo: RAX = RCX % RAX (left % right) */
-                        BE(c)->emit_mod(c, VREG_0, VREG_1, VREG_0);
-                        break;
-                    }
-                    case TK_AMP:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x21);
-                        me_emit_u8(c, 0xC8);
-                        break;
-                    case TK_PIPE:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x09);
-                        me_emit_u8(c, 0xC8);
-                        break;
-                    case TK_CARET:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x31);
-                        me_emit_u8(c, 0xC8);
-                        break;
-                    case TK_SHL:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x89);
-                        me_emit_u8(c, 0xC1);
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0xD3);
-                        me_emit_u8(c, 0xE0);
-                        break;
-                    case TK_SHR:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x89);
-                        me_emit_u8(c, 0xC1);
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0xD3);
-                        me_emit_u8(c, 0xE8);
-                        break;
-                    case TK_EQ:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x94);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_NE:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x95);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_LT:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x92);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_LE:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x96);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_GT:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x97);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_GE:
-                        BE(c)->emit_cmp(c, VREG_1, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x93);
-                        me_emit_u8(c, 0xC0);
+                        me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1  (left / right) */
                         break;
                     default:
                         break;
                 }
+                c->last_expr_is_float = 1;
+                return VREG_F0;
             }
-            break;
-        }
-        case NODE_CAST: {
-            /* Evaluate the expression to be cast */
-            lower_expr(c, arena, node->left);
-            /* Check if we need to convert float to int */
-            if (c->last_expr_is_float) {
-                /* Convert float to int: cvttsd2si rax, xmm0 */
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x2C);
-                me_emit_u8(c, 0xC0);
-                c->last_expr_is_float = 0; /* Result is now integer */
+            
+            /* Integer arithmetic - use IR */
+            int result_temp = c->next_temp_id++;
+            switch (node->aux.op) {
+                case TK_PLUS:
+                    ir_emit_add(result_temp, left_temp, right_temp);
+                    break;
+                case TK_MINUS:
+                    ir_emit_sub(result_temp, left_temp, right_temp);
+                    break;
+                case TK_STAR:
+                    ir_emit_mul(result_temp, left_temp, right_temp);
+                    break;
+                case TK_SLASH:
+                    ir_emit_div(result_temp, left_temp, right_temp);
+                    break;
+                case TK_PERCENT:
+                    ir_emit_mod(result_temp, left_temp, right_temp);
+                    break;
+                case TK_AMP:
+                    ir_emit_and(result_temp, left_temp, right_temp);
+                    break;
+                case TK_PIPE:
+                    ir_emit_or(result_temp, left_temp, right_temp);
+                    break;
+                case TK_CARET:
+                    ir_emit_xor(result_temp, left_temp, right_temp);
+                    break;
+                case TK_SHL:
+                    ir_emit_shl(result_temp, left_temp, right_temp);
+                    break;
+                case TK_SHR:
+                    ir_emit_shr(result_temp, left_temp, right_temp);
+                    break;
+                case TK_EQ:
+                case TK_NE:
+                case TK_LT:
+                case TK_LE:
+                case TK_GT:
+                case TK_GE: {
+                    /* Comparison: emit cmp + setcc */
+                    ir_emit_cmp(left_temp, right_temp);
+                    switch (node->aux.op) {
+                        case TK_EQ: ir_emit_sete(result_temp); break;
+                        case TK_NE: ir_emit_setne(result_temp); break;
+                        case TK_LT: ir_emit_setl(result_temp); break;
+                        case TK_LE: ir_emit_setle(result_temp); break;
+                        case TK_GT: ir_emit_setg(result_temp); break;
+                        case TK_GE: ir_emit_setge(result_temp); break;
+                        default: break;
+                    }
+                    break;
+                }
+                default:
+                    ir_emit_mov_reg(result_temp, left_temp);
+                    break;
             }
-            break;
+            c->last_expr_is_float = 0;
+            return result_temp;
         }
+        
         case NODE_UNOP: {
             if (node->aux.op == TK_INC || node->aux.op == TK_DEC) {
                 ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
@@ -583,135 +586,171 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     const char *var = operand->s.str;
                     ZeroCCSym *sym = zero_cc_find_local(c, var);
                     if (sym) {
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x8B);
-                        me_emit_u8(c, 0x85);
-                        me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                        int val_temp = c->next_temp_id++;
+                        int one_temp = c->next_temp_id++;
+                        int res_temp = c->next_temp_id++;
+
+                        /* Load current variable value from stack */
+                        ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        /* Constant 1 */
+                        ir_emit_mov_imm(one_temp, 1);
+                        /* res = val +/- 1 */
                         if (node->aux.op == TK_INC) {
-                            me_emit_u8(c, 0x48);
-                            me_emit_u8(c, 0xFF);
-                            me_emit_u8(c, 0xC0);
+                            ir_emit_add(res_temp, val_temp, one_temp);
                         } else {
-                            me_emit_u8(c, 0x48);
-                            me_emit_u8(c, 0xFF);
-                            me_emit_u8(c, 0xC8);
+                            ir_emit_sub(res_temp, val_temp, one_temp);
                         }
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x89);
-                        me_emit_u8(c, 0x85);
-                        me_emit_u32(c, (uint32_t)(-sym->stack_offset));
-                    }
-                } else {
-                    lower_expr(c, arena, node->left);
-                    if (node->aux.op == TK_INC) {
-                        me_emit_u8(c, 0xFF);
-                        me_emit_u8(c, 0xC0);
-                    } else {
-                        me_emit_u8(c, 0xFF);
-                        me_emit_u8(c, 0xC8);
+                        /* Store new value back to stack */
+                        ir_emit_store(res_temp, BE(c)->fp_reg, -sym->stack_offset);
+
+                        c->last_expr_is_float = 0;
+                        return res_temp;
                     }
                 }
-            } else {
-                lower_expr(c, arena, node->left);
-                switch (node->aux.op) {
-                    case TK_STAR:
-                        BE(c)->emit_load(c, VREG_0, VREG_0, 0); /* mov rax, [rax] */
-                        break;
-                    case TK_MINUS:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0xF7);
-                        me_emit_u8(c, 0xD8);
-                        break;
-                    case TK_BANG:
-                        BE(c)->emit_test(c, VREG_0, VREG_0);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x94);
-                        me_emit_u8(c, 0xC0);
-                        break;
-                    case TK_TILDE:
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0xF7);
-                        me_emit_u8(c, 0xD8);
-                        break;
-                    default:
-                        break;
-                }
+                return 0xFF;
             }
-            break;
+            
+            int operand_temp = lower_expr(c, arena, node->left);
+            int result_temp = c->next_temp_id++;
+            
+            switch (node->aux.op) {
+                case TK_STAR:  /* Dereference */
+                    ir_emit_deref(result_temp, operand_temp);
+                    break;
+                case TK_MINUS:  /* Negation */
+                    ir_emit_neg(result_temp, operand_temp);
+                    break;
+                case TK_BANG:  /* Logical NOT */
+                    ir_emit_lnot(result_temp, operand_temp);
+                    break;
+                case TK_TILDE:  /* Bitwise NOT */
+                    ir_emit_not(result_temp, operand_temp);
+                    break;
+                default:
+                    ir_emit_mov_reg(result_temp, operand_temp);
+                    break;
+            }
+            c->last_expr_is_float = 0;
+            return result_temp;
         }
+        
+        case NODE_CAST: {
+            int result = lower_expr(c, arena, node->left);
+            /* Float to int conversion requires direct machine code */
+            if (c->last_expr_is_float) {
+                me_emit_u8(c, 0xF2);
+                me_emit_u8(c, 0x0F);
+                me_emit_u8(c, 0x2C);
+                me_emit_u8(c, 0xC0);
+                c->last_expr_is_float = 0;
+            }
+            return result;
+        }
+        
         case NODE_ASSIGN: {
-            lower_expr(c, arena, node->right);
+            int right_temp = lower_expr(c, arena, node->right);
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
-                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+                if (target_is_float) {
+                    if (!c->last_expr_is_float) {
+                        /* Convert int to float in xmm0 */
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x48);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x2A);
+                        me_emit_u8(c, 0xC0); /* cvtsi2sd xmm0, rax */
+                    }
+                    /* movsd [rbp - offset], xmm0 */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x11);
+                    me_emit_u8(c, 0x85);
+                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                    c->last_expr_is_float = 1;
+                    return VREG_F0;
+                } else {
+                    if (c->last_expr_is_float) {
+                        /* Convert float to int in eax */
+                        me_emit_u8(c, 0xF2);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x2C);
+                        me_emit_u8(c, 0xC0); /* cvttsd2si eax, xmm0 */
+                        /* mov [rbp - offset], eax */
+                        me_emit_u8(c, 0x89);
+                        me_emit_u8(c, 0x85);
+                        me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                        c->last_expr_is_float = 0;
+                        return VREG_0;
+                    } else {
+                        ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        c->last_expr_is_float = 0;
+                        return right_temp;
+                    }
+                }
             }
-            break;
-        }
-        case NODE_TERNARY: {
-            lower_expr(c, arena, node->left);
-            BE(c)->emit_test(c, VREG_0, VREG_0);
-            size_t else_patch = BE(c)->emit_jeq(c, ""); /* TODO: label */;
-            lower_expr(c, arena, node->right);
-            size_t end_patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-            BE(c)->patch_jmp(c, else_patch, me_get_offset(c));
-            lower_expr(c, arena, node->aux.alt);
-            BE(c)->patch_jmp(c, end_patch, me_get_offset(c));
-            break;
-        }
-        case NODE_COMPOUND_LIT:
-            if (node->left != AST_NULL) {
-                lower_expr(c, arena, node->left);
-            }
-            break;
-        case NODE_INDEX: {
-            lower_expr(c, arena, node->left);
-            me_emit_u8(c, 0x48);
-            me_emit_u8(c, 0x89);
-            me_emit_u8(c, 0xC2);
-            lower_expr(c, arena, node->right);
-            me_emit_u8(c, 0x48);
-            me_emit_u8(c, 0x01);
-            me_emit_u8(c, 0xD0);
-            me_emit_u8(c, 0x48);
-            me_emit_u8(c, 0x0F);
-            me_emit_u8(c, 0xB6);
-            me_emit_u8(c, 0x00);
-            break;
-        }
-        case NODE_MEMBER: {
-            /* Evaluate base expression (struct/union/pointer) */
-            lower_expr(c, arena, node->left);
-            /* rax now has the base address */
-            
-            /* Get member offset from aux.extra (set during semantic analysis) */
-            int32_t offset = (int32_t)node->aux.extra;
-            
-            /* Add offset to base address: mov rax, [rax + offset] */
-            if (offset == 0) {
-                /* No offset: just dereference */
-                me_emit_u8(c, 0x48);
-                me_emit_u8(c, 0x8B);
-                me_emit_u8(c, 0x00); /* mov rax, [rax] */
-            } else if (offset >= -128 && offset <= 127) {
-                /* 8-bit displacement: mov rax, [rax + disp8] */
-                me_emit_u8(c, 0x48);
-                me_emit_u8(c, 0x8B);
-                me_emit_u8(c, 0x40); /* mov rax, [rax + disp8] */
-                me_emit_u8(c, (uint8_t)offset);
-            } else {
-                /* 32-bit displacement: mov rax, [rax + disp32] */
-                me_emit_u8(c, 0x48);
-                me_emit_u8(c, 0x8B);
-                me_emit_u8(c, 0x80); /* mov rax, [rax + disp32] */
-                me_emit_u32(c, offset);
-            }
-            /* Result is in rax, not float */
             c->last_expr_is_float = 0;
-            break;
+            return right_temp;
         }
+        
+        case NODE_TERNARY: {
+            /* Ternary (cond ? then : else) using standard IR */
+            int cond_temp = lower_expr(c, arena, node->left);
+            int res_temp = c->next_temp_id++;
+            uint16_t else_label = c->ir_next_label++;
+            uint16_t end_label = c->ir_next_label++;
+
+            ir_emit_je((uint8_t)cond_temp, else_label);
+
+            int then_temp = lower_expr(c, arena, node->right);
+            ir_emit_mov_reg(res_temp, then_temp);
+            ir_emit_jmp(end_label);
+
+            ir_emit_label(else_label);
+            int else_temp = lower_expr(c, arena, node->aux.alt);
+            ir_emit_mov_reg(res_temp, else_temp);
+
+            ir_emit_label(end_label);
+            c->last_expr_is_float = 0;
+            return res_temp;
+        }
+        
+        case NODE_COMPOUND_LIT: {
+            if (node->left != AST_NULL) {
+                return lower_expr(c, arena, node->left);
+            }
+            return 0xFF;
+        }
+        
+        case NODE_INDEX: {
+            /* Array indexing: base[index] */
+            /* For char arrays (element_size = 1), address = base + index */
+            int array_temp = lower_expr(c, arena, node->left);
+            int index_temp = lower_expr(c, arena, node->right);
+            
+            int addr_temp = c->next_temp_id++;
+            int result_temp = c->next_temp_id++;
+            ir_emit_add(addr_temp, array_temp, index_temp);  /* addr = base + index */
+            /* Load byte with zero extension: movzx result, byte ptr [addr] */
+            ir_emit_load_byte(result_temp, addr_temp);
+            
+            c->last_expr_is_float = 0;
+            return result_temp;
+        }
+        
+        case NODE_MEMBER: {
+            int base_temp = lower_expr(c, arena, node->left);
+            int32_t offset = (int32_t)node->aux.extra;
+            int result_temp = c->next_temp_id++;
+            ir_emit_load(result_temp, base_temp, offset);
+            c->last_expr_is_float = 0;
+            return result_temp;
+        }
+        
         case NODE_CALL: {
+            /* Function call - direct machine code for now */
             ASTRef arg = node->right;
             int arg_count = 0;
             while (arg != AST_NULL) {
@@ -777,12 +816,15 @@ static void lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
             }
-            break;
+            c->last_expr_is_float = 0;
+            return VREG_0;
         }
+        
         default:
-            break;
+            return 0xFF;
     }
 }
+
 
 /* =========================================================================
  * Main Entry Point
@@ -797,11 +839,49 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     c->next_temp_id = 0;
     c->ir_next_label = 0;
     
-    /* Lower AST to machine code */
-    lower_node(c, arena, root);
+    /* Reset IR buffer */
+    ir_reset();
+    g_ir_epilogue_label = c->ir_next_label++;
     
-    /* Patch epilogue jumps */
+    /* Don't reset text section - accumulate all function code */
+    /* c->text_section.length = 0; */
+    
+    /* NOTE: The function prologue is emitted in compile.h before calling this
+     * function. emit_prologue() is NOT called here to avoid a double prologue. */
+    
+    /* Lower AST to IR (instruction selection) */
+    lower_node(c, arena, root);
+    ir_emit_label(g_ir_epilogue_label);
+    
+    /* Compute live ranges and allocate registers */
+    LiveRangeAnalyzer lra;
+    live_range_init(&lra);
+    live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
+    live_range_compute(&lra, &c->regalloc);
+    regalloc_allocate(&c->regalloc);
+    live_range_free(&lra);
+    
+    /* Debug: print interval details */
+    for (size_t i = 0; i < c->regalloc.interval_count && i < 10; i++) {
+    }
+    
+    /* Emit machine code from IR with allocated registers */
+    emit_ir_to_machine_code(c);
+    
+    /* Emit return jumps after IR-to-MC */
+    emit_return_jumps(c);
+    
+    /* Resolve all label patches */
+    if (BE(c)->resolve_labels) {
+        BE(c)->resolve_labels(c);
+    }
+    
+    /* Patch epilogue jumps - target is the epilogue (before leave/ret) */
     size_t epilogue_target = me_get_offset(c);
+    
+    /* Emit epilogue */
+    me_emit_leave(c);
+    BE(c)->emit_ret(c);
     for (int i = 0; i < g_ir_emitter_ctx.epilogue_patch_count; i++) {
         size_t patch_pos = g_ir_emitter_ctx.epilogue_patches[i];
         int32_t rel = (int32_t)(epilogue_target - (patch_pos + 4));
@@ -809,9 +889,227 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
     g_ir_emitter_ctx.epilogue_patch_count = 0;
     
-    /* Emit epilogue */
-    me_emit_leave(c);
-    BE(c)->emit_ret(c);
+    /* text_offset was already set in compile.h BEFORE the prologue was emitted,
+     * so fn->text_offset correctly points to the function's first byte. */
+    if (c->function_count > 0) {
+        fprintf(stderr, "DEBUG: text_offset for function %zu = %zu\n",
+                c->function_count - 1,
+                c->functions[c->function_count - 1].text_offset);
+    }
+    
+    /* Debug: dump generated code */
+    fprintf(stderr, "DEBUG: Generated code (%zu bytes total): ", c->text_section.length);
+    for (size_t i = 0; i < c->text_section.length && i < 128; i++) {
+        fprintf(stderr, "%02x ", c->text_section.data[i]);
+    }
+    fprintf(stderr, "\n");
+}
+
+
+/* =========================================================================
+ * IR to Machine Code Emission
+ * ========================================================================= */
+
+/* Emit machine code from IR with allocated registers */
+static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
+    const Instr *instrs = ir_get_buffer();
+    size_t count = ir_get_count();
+    size_t label_count = c->ir_next_label;
+    bool *label_defined = label_count ? (bool *)calloc(label_count, sizeof(bool)) : NULL;
+    size_t *label_offsets = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
+    size_t **label_patches = label_count ? (size_t **)calloc(label_count, sizeof(size_t *)) : NULL;
+    size_t *label_patch_counts = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
+    size_t *label_patch_caps = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
+
+    for (size_t i = 0; i < count; i++) {
+        const Instr *instr = &instrs[i];
+
+        /* Frame pointer (0xFF) should NOT be allocated - use actual FP register */
+        int phys_dst = (instr->temp_dest == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+        int phys_src1 = (instr->temp_src1 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
+        int phys_src2 = (instr->temp_src2 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
+
+        switch (instr->op) {
+            case OP_MOV_IMM:
+                BE(c)->emit_mov_imm(c, phys_dst, instr->imm64);
+                break;
+            
+            case OP_MOV_MEM_RAX:
+                BE(c)->emit_store(c, phys_src1, phys_src2, instr->imm);
+                break;
+            
+            case OP_MOV_RAX_MEM:
+                BE(c)->emit_load(c, phys_dst, phys_src1, instr->imm);
+                break;
+            
+            case OP_MOV_RAX_RBX:
+                BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
+                break;
+            
+            case OP_LEA_RAX_MEM:
+                BE(c)->emit_lea(c, phys_dst, phys_src1, instr->imm);
+                break;
+            
+            case OP_ADD:
+                BE(c)->emit_add(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_SUB:
+                BE(c)->emit_sub(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_MUL:
+                BE(c)->emit_mul(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_DIV:
+                BE(c)->emit_div(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_MOD:
+                BE(c)->emit_mod(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_AND:
+                BE(c)->emit_and(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_OR:
+                BE(c)->emit_or(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_XOR:
+                BE(c)->emit_xor(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_SHL:
+                BE(c)->emit_shl(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_SHR:
+                BE(c)->emit_shr(c, phys_dst, phys_src1, phys_src2);
+                break;
+            
+            case OP_CMP:
+                BE(c)->emit_cmp(c, phys_src1, phys_src2);
+                break;
+            
+            case OP_TEST:
+                BE(c)->emit_test(c, phys_src1, phys_src2);
+                break;
+            
+            case OP_SETL:
+                BE(c)->emit_setl(c, phys_dst);
+                break;
+            
+            case OP_SETLE:
+                BE(c)->emit_setle(c, phys_dst);
+                break;
+            
+            case OP_SETG:
+                BE(c)->emit_setg(c, phys_dst);
+                break;
+            
+            case OP_SETGE:
+                BE(c)->emit_setge(c, phys_dst);
+                break;
+            
+            case OP_SET_E:
+                BE(c)->emit_sete(c, phys_dst);
+                break;
+            
+            case OP_SET_NE:
+                BE(c)->emit_setne(c, phys_dst);
+                break;
+            
+            case OP_DEREF:
+                BE(c)->emit_deref(c, phys_dst, phys_src1);
+                break;
+            
+            case OP_LOAD_BYTE:
+                BE(c)->emit_load_byte(c, phys_dst, phys_src1);
+                break;
+            
+            case OP_CMP_ZERO:
+                BE(c)->emit_cmp_zero(c, phys_src1);
+                break;
+            
+            case OP_NOT:
+                BE(c)->emit_not(c, phys_dst, phys_src1);
+                break;
+            
+            case OP_LNOT:
+                BE(c)->emit_lnot(c, phys_dst, phys_src1);
+                break;
+
+            case OP_LABEL:
+                if (instr->label_idx < label_count) {
+                    size_t label_idx = instr->label_idx;
+                    label_defined[label_idx] = true;
+                    label_offsets[label_idx] = me_get_offset(c);
+                    for (size_t j = 0; j < label_patch_counts[label_idx]; j++) {
+                        BE(c)->patch_jmp(c, label_patches[label_idx][j], label_offsets[label_idx]);
+                    }
+                    label_patch_counts[label_idx] = 0;
+                }
+                break;
+
+            case OP_JMP:
+            case OP_JE:
+            case OP_JNE:
+            case OP_JL:
+            case OP_JLE:
+            case OP_JG: {
+                size_t patch_pos = 0;
+                switch (instr->op) {
+                    case OP_JMP: patch_pos = BE(c)->emit_jmp(c, ""); break;
+                    case OP_JE:
+                        BE(c)->emit_test(c, phys_src1, phys_src1);
+                        patch_pos = BE(c)->emit_jeq(c, "");
+                        break;
+                    case OP_JNE:
+                        BE(c)->emit_test(c, phys_src1, phys_src1);
+                        patch_pos = BE(c)->emit_jne(c, "");
+                        break;
+                    case OP_JL:  patch_pos = BE(c)->emit_jlt(c, ""); break;
+                    case OP_JLE: patch_pos = BE(c)->emit_jle(c, ""); break;
+                    case OP_JG:  patch_pos = BE(c)->emit_jgt(c, ""); break;
+                    default: break;
+                }
+                if (instr->label_idx < label_count) {
+                    size_t label_idx = instr->label_idx;
+                    if (label_defined[label_idx]) {
+                        BE(c)->patch_jmp(c, patch_pos, label_offsets[label_idx]);
+                    } else {
+                        if (label_patch_counts[label_idx] >= label_patch_caps[label_idx]) {
+                            size_t new_cap = label_patch_caps[label_idx] ? label_patch_caps[label_idx] * 2 : 4;
+                            size_t *new_patches = (size_t *)realloc(label_patches[label_idx], new_cap * sizeof(size_t));
+                            if (new_patches) {
+                                label_patches[label_idx] = new_patches;
+                                label_patch_caps[label_idx] = new_cap;
+                            }
+                        }
+                        if (label_patches[label_idx] && label_patch_counts[label_idx] < label_patch_caps[label_idx]) {
+                            label_patches[label_idx][label_patch_counts[label_idx]++] = patch_pos;
+                        }
+                    }
+                }
+                break;
+            }
+            
+            default:
+                break;
+        }
+    }
+
+    for (size_t i = 0; i < label_count; i++) {
+        free(label_patches ? label_patches[i] : NULL);
+    }
+    free(label_defined);
+    free(label_offsets);
+    free(label_patches);
+    free(label_patch_counts);
+    free(label_patch_caps);
 }
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_H */
