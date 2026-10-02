@@ -560,124 +560,103 @@ static void x86_emit_pop_reg(ZeroCCCompiler *c, int reg) {
     me_emit_u8(c, 0x58 | (reg & 7));
 }
 
-/* add rax, imm */
+/* add dst_reg, imm */
 static void x86_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
-    (void)dst_reg; /* Always rax */
-    me_emit_u8(c, 0x48);
-    me_emit_u8(c, 0x83);
-    me_emit_u8(c, 0xc0);
-    me_emit_u8(c, (uint8_t)imm);
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+    if (imm >= -128 && imm <= 127) {
+        me_emit_u8(c, 0x83);
+        x86_modrm(c, 3, 0, dst_reg & 7);
+        me_emit_u8(c, (uint8_t)imm);
+    } else {
+        me_emit_u8(c, 0x81);
+        x86_modrm(c, 3, 0, dst_reg & 7);
+        me_emit_u32(c, (uint32_t)(int32_t)imm);
+    }
 }
 
-/* sub rax, imm */
+/* sub dst_reg, imm */
 static void x86_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
-    (void)dst_reg; /* Always rax */
-    me_emit_u8(c, 0x48);
-    me_emit_u8(c, 0x83);
-    me_emit_u8(c, 0xe8);
-    me_emit_u8(c, (uint8_t)imm);
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+    if (imm >= -128 && imm <= 127) {
+        me_emit_u8(c, 0x83);
+        x86_modrm(c, 3, 5, dst_reg & 7);
+        me_emit_u8(c, (uint8_t)imm);
+    } else {
+        me_emit_u8(c, 0x81);
+        x86_modrm(c, 3, 5, dst_reg & 7);
+        me_emit_u32(c, (uint32_t)(int32_t)imm);
+    }
 }
 
-/* inc rax */
+/* inc dst_reg */
 static void x86_emit_inc(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
-    me_emit_u8(c, 0x48);
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
     me_emit_u8(c, 0xff);
-    me_emit_u8(c, 0xc0);
+    x86_modrm(c, 3, 0, dst_reg & 7);
 }
 
-/* dec rax */
+/* dec dst_reg */
 static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
-    me_emit_u8(c, 0x48);
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
     me_emit_u8(c, 0xff);
-    me_emit_u8(c, 0xc8);
+    x86_modrm(c, 3, 1, dst_reg & 7);
 }
 
-/* shr rax, rbx */
+/* shr dst_reg, cl (dst = src1 >> src2) */
 static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    (void)dst_reg; (void)src1; (void)src2; /* Always rax, rbx */
-    x86_rex(c, 1, 0, 0, 3); /* rax, rbx */
+    if (src2 != 1 /* rcx */) {
+        x86_mov_rr(c, 1, src2);
+    }
+    if (dst_reg != src1) {
+        x86_mov_rr(c, dst_reg, src1);
+    }
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
     me_emit_u8(c, 0xd3);
-    x86_modrm(c, 3, 5, 3); /* shr rax, rbx */
+    x86_modrm(c, 3, 5, dst_reg & 7); /* shr dst_reg, cl */
 }
 
-/* setl al, zero-extend to rax */
+/* Generic condition code setting into dst_reg (zero-extended to 64-bit) */
+static void x86_emit_setcc(ZeroCCCompiler *c, int dst_reg, uint8_t cond_byte) {
+    /* setcc dst8 */
+    me_emit_u8(c, 0x40 | ((dst_reg >> 3) & 1));
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, cond_byte);
+    x86_modrm(c, 3, 0, dst_reg & 7);
+    /* movzx dst64, dst8 */
+    x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (dst_reg >> 3) & 1);
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0xb6);
+    x86_modrm(c, 3, dst_reg & 7, dst_reg & 7);
+}
+
+/* setl dst_reg */
 static void x86_emit_setl(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x9c);
-    me_emit_u8(c, 0xc0);  /* setl al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x9c);
 }
 
-/* setle al, zero-extend to rax */
+/* setle dst_reg */
 static void x86_emit_setle(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x9e);
-    me_emit_u8(c, 0xc0);  /* setle al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x9e);
 }
 
-/* setg al, zero-extend to rax */
+/* setg dst_reg */
 static void x86_emit_setg(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x9f);
-    me_emit_u8(c, 0xc0);  /* setg al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x9f);
 }
 
-/* setge al, zero-extend to rax */
+/* setge dst_reg */
 static void x86_emit_setge(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x9d);
-    me_emit_u8(c, 0xc0);  /* setge al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x9d);
 }
 
-/* sete al, zero-extend to rax */
+/* sete dst_reg */
 static void x86_emit_sete(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x94);
-    me_emit_u8(c, 0xc0);  /* sete al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x94);
 }
 
-/* setne al, zero-extend to rax */
+/* setne dst_reg */
 static void x86_emit_setne(ZeroCCCompiler *c, int dst_reg) {
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x95);
-    me_emit_u8(c, 0xc0);  /* setne al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);  /* movzx rax, al */
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_emit_setcc(c, dst_reg, 0x95);
 }
 
 /* deref: mov dst, [src] */
@@ -696,50 +675,25 @@ static void x86_emit_load_byte(ZeroCCCompiler *c, int dst_reg, int src_reg) {
     x86_modrm(c, 0, dst_reg & 7, src_reg & 7);
 }
 
-/* cmp rax, 0 */
+/* cmp src_reg, 0 */
 static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
-    if (src_reg != 0) {
-        x86_mov_rr(c, 0, src_reg);
-    }
-    me_emit_u8(c, 0x48);
-    me_emit_u8(c, 0x3d);
-    me_emit_u8(c, 0x00);
-    me_emit_u32(c, 0);
+    x86_alu(c, 0x85, src_reg, src_reg);  /* test src_reg, src_reg */
 }
 
-/* not rax */
+/* not dst_reg */
 static void x86_emit_not(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    if (src_reg != 0) {
-        x86_mov_rr(c, 0, src_reg);
+    if (dst_reg != src_reg) {
+        x86_mov_rr(c, dst_reg, src_reg);
     }
-    me_emit_u8(c, 0x48);
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
     me_emit_u8(c, 0xf7);
-    me_emit_u8(c, 0xd0);
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_modrm(c, 3, 2, dst_reg & 7);
 }
 
-/* lnot: !rax (test + sete + movzx) */
+/* lnot: !src_reg */
 static void x86_emit_lnot(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    if (src_reg != 0) {
-        x86_mov_rr(c, 0, src_reg);
-    }
-    /* test rax, rax */
-    me_emit_u8(c, 0x48);
-    me_emit_u8(c, 0x85);
-    me_emit_u8(c, 0xc0);
-    /* sete al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0x94);
-    me_emit_u8(c, 0xc0);
-    /* movzx rax, al */
-    me_emit_u8(c, 0x0f);
-    me_emit_u8(c, 0xb6);
-    me_emit_u8(c, 0xc0);
-    if (dst_reg != 0) {
-        x86_mov_rr(c, dst_reg, 0);
-    }
+    x86_alu(c, 0x85, src_reg, src_reg);  /* test src_reg, src_reg */
+    x86_emit_sete(c, dst_reg);
 }
 
 static void x86_emit_label(ZeroCCCompiler *c, const char *name) {
