@@ -7,4 +7,4 @@
 #include <errno.h>
 #include "lexer.h"
 #include "types_lexer.h"
-#include "keywords.inc"
+#include "lexer/keywords.inc"

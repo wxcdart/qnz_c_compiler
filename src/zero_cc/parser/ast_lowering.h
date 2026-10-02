@@ -19,7 +19,7 @@
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
 #include "../utils/arena.h"
-#include "../abi_classify.h"
+#include "abi_classify.h"
 
 /* Helper: Get current function's return type (last function added to compiler) */
 static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {

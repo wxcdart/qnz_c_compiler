@@ -15,8 +15,8 @@
 #include "zero_cc/types/global_vars.h"
 #include "../isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
-#include "zero_cc/statements/static_assert.h"
-#include "zero_cc/statements/definitions.h"
+#include "zero_cc/parser/static_assert.h"
+#include "zero_cc/parser/definitions.h"
 
 /* Forward declaration */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);

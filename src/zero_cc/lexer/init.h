@@ -2,7 +2,7 @@
 #ifndef ZERO_CC_LEXER_INIT_H
 #define ZERO_CC_LEXER_INIT_H
 
-#include "../keywords.inc"
+#include "keywords.inc"
 
 /* Initialize lexer with source and filename */
 static inline void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename) {

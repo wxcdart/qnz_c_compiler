@@ -84,6 +84,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - **Header Layout Unification**:
   - Eliminated duplicate `src/zero_cc/zero_cc.h`.
   - Established `include/zero_cc.h` as the single canonical public entry point for ZeroCC with full architecture documentation.
+  - Eliminated redundant `src/zero_cc/statements/` directory; moved `definitions.h` and `static_assert.h` into `src/zero_cc/parser/`.
+  - Eliminated orphaned `src/zero_cc/arch/` directory; consolidated `arm64_emitter.h` into `src/zero_cc/isa/`.
+  - Moved loose root files into their respective subsystems: `keywords.inc` into `src/zero_cc/lexer/` and `abi_classify.h` into `src/zero_cc/parser/`.
   - Removed duplicate `ZeroCCCompiler` forward declaration in `src/zero_cc/parser.h`.
   - Clean include dependency graph verified under `-Wall -Wextra`.
 - **Standardized Error Reporting with Caret Formatting**:

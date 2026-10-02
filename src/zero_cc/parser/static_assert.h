@@ -1,8 +1,7 @@
-/* statements/static_assert.h — Static assertion handler (Sprint 5.5 Task 40)
- * Extracted from the legacy control.h during architecture cleanup.
+/* parser/static_assert.h — Static assertion handler
  * Only depends on const_eval.h and types_lexer.h — no machine code emission. */
-#ifndef ZERO_CC_STATEMENTS_STATIC_ASSERT_H
-#define ZERO_CC_STATEMENTS_STATIC_ASSERT_H
+#ifndef ZERO_CC_PARSER_STATIC_ASSERT_H
+#define ZERO_CC_PARSER_STATIC_ASSERT_H
 
 #include "zero_cc/types_lexer.h"
 #include "zero_cc/parser/const_eval.h"

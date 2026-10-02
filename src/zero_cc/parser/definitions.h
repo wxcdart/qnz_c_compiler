@@ -1,6 +1,6 @@
 /* Type Definitions: typedef struct, typedef enum, standalone enum, scalar typedef */
-#ifndef ZERO_CC_STATEMENTS_DEFINITIONS_H
-#define ZERO_CC_STATEMENTS_DEFINITIONS_H
+#ifndef ZERO_CC_PARSER_DEFINITIONS_H
+#define ZERO_CC_PARSER_DEFINITIONS_H
 
 #include "zero_cc/types_lexer.h"
 #include "zero_cc/parser/const_eval.h"
