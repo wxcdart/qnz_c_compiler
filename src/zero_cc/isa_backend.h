@@ -85,6 +85,11 @@ typedef struct ZeroCCISABackend {
     void (*emit_store_32)(ZeroCCCompiler *c, int src_reg, int base_reg);
     void (*emit_store_64)(ZeroCCCompiler *c, int src_reg, int base_reg);
     void (*emit_vla_alloc)(ZeroCCCompiler *c, int dst_reg, int size_reg);
+    void (*emit_atomic_xadd)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width);
+    void (*emit_atomic_cmpxchg)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width);
+    void (*emit_atomic_cmpxchg_bool)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width);
+    void (*emit_atomic_xchg)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width);
+    void (*emit_mfence)(ZeroCCCompiler *c);
     void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
     void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);

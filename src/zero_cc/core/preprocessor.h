@@ -161,10 +161,7 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
     zero_cc_cpp_define_obj(cpp, "true", "1");
     zero_cc_cpp_define_obj(cpp, "false", "0");
-    /* Self-hosted atomic builtins for Milestone 3 */
-    zero_cc_cpp_define_func2(cpp, "__atomic_load_n", "p", "m", "(0)" );
-    zero_cc_cpp_define_func3(cpp, "__atomic_store_n", "p", "v", "m", "((void)0)" );
-    zero_cc_cpp_define_func3(cpp, "__atomic_add_fetch", "p", "v", "m", "(0)" );
+    /* Atomic memory orders */
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");

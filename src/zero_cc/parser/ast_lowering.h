@@ -628,6 +628,32 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     const char *var = operand->s.str;
                     ZeroCCSym *sym = zero_cc_find_local(c, var);
                     if (sym) {
+                        if (sym->is_atomic || sym->type.is_atomic) {
+                            int addr_temp = c->next_temp_id++;
+                            ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                            int delta_temp = c->next_temp_id++;
+                            int width = (sym->type.size > 0) ? (int)sym->type.size : 4;
+                            if (node->aux.op == TK_INC) {
+                                ir_emit_mov_imm(delta_temp, 1);
+                            } else {
+                                ir_emit_mov_imm(delta_temp, -1);
+                            }
+                            int old_temp = c->next_temp_id++;
+                            ir_emit_atomic_xadd(old_temp, addr_temp, delta_temp, width);
+                            c->last_expr_is_float = 0;
+                            if (node->flags == 1) {
+                                /* Postfix x++ / x--: return old value */
+                                return old_temp;
+                            } else {
+                                /* Prefix ++x / --x: return new value (old + 1 / -1) */
+                                int new_temp = c->next_temp_id++;
+                                int step_temp = c->next_temp_id++;
+                                ir_emit_mov_imm(step_temp, (node->aux.op == TK_INC) ? 1 : -1);
+                                ir_emit_add(new_temp, old_temp, step_temp);
+                                return new_temp;
+                            }
+                        }
+
                         int val_temp = c->next_temp_id++;
                         int one_temp = c->next_temp_id++;
                         int res_temp = c->next_temp_id++;
@@ -1047,6 +1073,32 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return VREG_0;
                     } else {
+                        if (sym && (sym->is_atomic || sym->type.is_atomic)) {
+                            int addr_temp = c->next_temp_id++;
+                            ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                            int width = (sym->type.size > 0) ? (int)sym->type.size : 4;
+                            if (is_compound && (node->aux.op == TK_ADD_ASSIGN || node->aux.op == TK_SUB_ASSIGN)) {
+                                int delta_temp = right_temp;
+                                if (node->aux.op == TK_SUB_ASSIGN) {
+                                    delta_temp = c->next_temp_id++;
+                                    ir_emit_neg(delta_temp, right_temp);
+                                }
+                                int delta_copy = c->next_temp_id++;
+                                ir_emit_mov_reg(delta_copy, delta_temp);
+                                int old_temp = c->next_temp_id++;
+                                ir_emit_atomic_xadd(old_temp, addr_temp, delta_temp, width);
+                                int new_temp = c->next_temp_id++;
+                                ir_emit_add(new_temp, old_temp, delta_copy);
+                                c->last_expr_is_float = 0;
+                                return new_temp;
+                            } else if (!is_compound) {
+                                int old_temp = c->next_temp_id++;
+                                ir_emit_atomic_xchg(old_temp, addr_temp, right_temp, width);
+                                c->last_expr_is_float = 0;
+                                return right_temp;
+                            }
+                        }
+
                         if (is_compound) {
                             /* Load current value and perform operation */
                             int left_temp = c->next_temp_id++;
@@ -1281,6 +1333,146 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
             if (callee && callee->tag == NODE_IDENT) {
                 const char *name = callee->s.str;
+
+                /* Intercept atomic builtins */
+                if (strcmp(name, "__sync_fetch_and_add") == 0 || strcmp(name, "__atomic_fetch_add") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_atomic_xadd(res_temp, ptr_temp, val_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_add_and_fetch") == 0 || strcmp(name, "__atomic_add_fetch") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int val_copy = c->next_temp_id++;
+                    ir_emit_mov_reg(val_copy, val_temp);
+                    int old_temp = c->next_temp_id++;
+                    ir_emit_atomic_xadd(old_temp, ptr_temp, val_temp, 4);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_add(res_temp, old_temp, val_copy);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_fetch_and_sub") == 0 || strcmp(name, "__atomic_fetch_sub") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int neg_temp = c->next_temp_id++;
+                    ir_emit_neg(neg_temp, val_temp);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_atomic_xadd(res_temp, ptr_temp, neg_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_sub_and_fetch") == 0 || strcmp(name, "__atomic_sub_fetch") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int val_copy = c->next_temp_id++;
+                    ir_emit_mov_reg(val_copy, val_temp);
+                    int neg_temp = c->next_temp_id++;
+                    ir_emit_neg(neg_temp, val_temp);
+                    int old_temp = c->next_temp_id++;
+                    ir_emit_atomic_xadd(old_temp, ptr_temp, neg_temp, 4);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_sub(res_temp, old_temp, val_copy);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_val_compare_and_swap") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int old_temp = lower_expr(c, arena, arg1);
+                    int new_temp = lower_expr(c, arena, arg2);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_atomic_cmpxchg(res_temp, ptr_temp, old_temp, new_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int old_temp = lower_expr(c, arena, arg1);
+                    int new_temp = lower_expr(c, arena, arg2);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_atomic_cmpxchg_bool(res_temp, ptr_temp, old_temp, new_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_lock_test_and_set") == 0 || strcmp(name, "__atomic_exchange_n") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_atomic_xchg(res_temp, ptr_temp, val_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__sync_lock_release") == 0) {
+                    ASTRef arg0 = node->right;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int zero_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(zero_temp, 0);
+                    ir_emit_store_32(zero_temp, ptr_temp);
+                    c->last_expr_is_float = 0;
+                    return zero_temp;
+                }
+                if (strcmp(name, "__sync_synchronize") == 0) {
+                    ir_emit_mfence();
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(res_temp, 0);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__atomic_load_n") == 0) {
+                    ASTRef arg0 = node->right;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int res_temp = c->next_temp_id++;
+                    ir_emit_load_32(res_temp, ptr_temp);
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+                if (strcmp(name, "__atomic_store_n") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int val_temp = lower_expr(c, arena, arg1);
+                    int dummy_res = c->next_temp_id++;
+                    ir_emit_atomic_xchg(dummy_res, ptr_temp, val_temp, 4);
+                    c->last_expr_is_float = 0;
+                    return dummy_res;
+                }
+                if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
+                    ASTRef arg0 = node->right;
+                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
+                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
+                    int ptr_temp = lower_expr(c, arena, arg0);
+                    int exp_ptr_temp = lower_expr(c, arena, arg1);
+                    int exp_val_temp = c->next_temp_id++;
+                    ir_emit_load_32(exp_val_temp, exp_ptr_temp);
+                    int desired_temp = lower_expr(c, arena, arg2);
+                    int actual_old = c->next_temp_id++;
+                    ir_emit_atomic_cmpxchg(actual_old, ptr_temp, exp_val_temp, desired_temp, 4);
+                    ir_emit_store_32(actual_old, exp_ptr_temp);
+                    int bool_res = c->next_temp_id++;
+                    ir_emit_cmp(actual_old, exp_val_temp);
+                    ir_emit_sete(bool_res);
+                    c->last_expr_is_float = 0;
+                    return bool_res;
+                }
                 
                 /* Collect argument temps for integer args only */
                 ASTRef arg = node->right;
@@ -1492,6 +1684,12 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
             case OP_SUB:
                 BE(c)->emit_sub(c, phys_dst, phys_src1, phys_src2);
                 break;
+
+            case OP_NEG:
+                if (BE(c)->emit_neg) {
+                    BE(c)->emit_neg(c, phys_dst, phys_src1);
+                }
+                break;
             
             case OP_MUL:
                 BE(c)->emit_mul(c, phys_dst, phys_src1, phys_src2);
@@ -1620,6 +1818,40 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
             case OP_VLA_ALLOC:
                 if (BE(c)->emit_vla_alloc) {
                     BE(c)->emit_vla_alloc(c, phys_dst, phys_src1);
+                }
+                break;
+
+            case OP_ATOMIC_XADD:
+                if (BE(c)->emit_atomic_xadd) {
+                    BE(c)->emit_atomic_xadd(c, phys_dst, phys_src1, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+
+            case OP_ATOMIC_CMPXCHG: {
+                int phys_expected = (instr->label_idx == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                if (BE(c)->emit_atomic_cmpxchg) {
+                    BE(c)->emit_atomic_cmpxchg(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+            }
+
+            case OP_ATOMIC_CMPXCHG_BOOL: {
+                int phys_expected = (instr->label_idx == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                if (BE(c)->emit_atomic_cmpxchg_bool) {
+                    BE(c)->emit_atomic_cmpxchg_bool(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+            }
+
+            case OP_ATOMIC_XCHG:
+                if (BE(c)->emit_atomic_xchg) {
+                    BE(c)->emit_atomic_xchg(c, phys_dst, phys_src1, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+
+            case OP_MFENCE:
+                if (BE(c)->emit_mfence) {
+                    BE(c)->emit_mfence(c);
                 }
                 break;
 

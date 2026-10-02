@@ -395,16 +395,29 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 c->token_pos++;
             }
         }
-        /* Check _Atomic(T) */
-        if (type_tok == TK_ATOMIC && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-            c->token_pos++;
-            if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+        /* Check _Atomic(T) or _Atomic T */
+        bool is_atomic = (type_tok == TK_ATOMIC);
+        if (type_tok == TK_ATOMIC) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+                if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                    type_tok = c->tokens[c->token_pos].type;
+                    type_start_pos = c->token_pos;
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++;
+                }
+            } else if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
                 type_tok = c->tokens[c->token_pos].type;
+                type_start_pos = c->token_pos;
                 c->token_pos++;
             }
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
-                c->token_pos++;
-            }
+        }
+        /* Also allow type _Atomic x; */
+        while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_ATOMIC || c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+            if (c->tokens[c->token_pos].type == TK_ATOMIC) is_atomic = true;
+            c->token_pos++;
         }
 
         /* Pointer asterisks */
@@ -635,6 +648,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     decl_type = tdef ? *tdef : zero_cc_type_int64();
                 }
                 if (is_ptr) decl_type = zero_cc_type_ptr(&decl_type);
+                decl_type.is_atomic = is_atomic;
 
                 TypeInfo *decl_ti = NULL;
                 if (is_vla) {
@@ -656,8 +670,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
 
                 ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
-                if (sym && is_vla) {
-                    sym->is_vla = true;
+                if (sym) {
+                    if (is_vla) sym->is_vla = true;
+                    if (is_atomic) sym->is_atomic = true;
                 }
 
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);

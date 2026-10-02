@@ -257,6 +257,14 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             live_range_mark_clobber(lra, i, 0);  /* rax clobbered */
             live_range_mark_clobber(lra, i, 2);  /* rdx clobbered */
         }
+
+        if (instr->op == OP_ATOMIC_CMPXCHG || instr->op == OP_ATOMIC_CMPXCHG_BOOL) {
+            if (instr->label_idx != 0xFF) {
+                live_range_add_use(lra, i, instr->label_idx, false);
+            }
+            live_range_add_use(lra, i, 0, false);
+            live_range_mark_clobber(lra, i, 0);
+        }
     }
 }
 

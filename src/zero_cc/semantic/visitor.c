@@ -110,6 +110,10 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 Symbol *sym = scope_lookup(ctx->current_scope, ident_name);
                 if (sym) {
                     res = sym->type;
+                } else if (strncmp(ident_name, "__builtin_", 10) == 0 ||
+                           strncmp(ident_name, "__sync_", 7) == 0 ||
+                           strncmp(ident_name, "__atomic_", 9) == 0) {
+                    res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
                 } else {
                     sem_node_error(ctx, node, "use of undeclared identifier '%s'", ident_name);
                 }

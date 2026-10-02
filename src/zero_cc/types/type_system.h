@@ -83,6 +83,7 @@ typedef struct {
     bool is_param;
     int param_reg_idx;
     bool is_vla;
+    bool is_atomic;
 } ZeroCCSym;
 
 /* Function Definition Record */

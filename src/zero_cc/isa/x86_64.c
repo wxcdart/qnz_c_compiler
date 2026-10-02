@@ -745,6 +745,114 @@ static void x86_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
     x86_mov_rr(c, dst_reg, X86_RSP);
 }
 
+static void x86_emit_atomic_xadd(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    /* lock prefix: 0xF0 */
+    me_emit_u8(c, 0xF0);
+    if (width == 2) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (val_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    if (width == 1) {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xC0);
+    } else {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xC1);
+    }
+    int mod = ((addr_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, val_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+
+    /* After xadd, val_reg holds the old value. Move to dst_reg if different */
+    if (dst_reg != val_reg) {
+        x86_mov_rr(c, dst_reg, val_reg);
+    }
+}
+
+static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width) {
+    if (expected_reg != X86_RAX) {
+        x86_mov_rr(c, X86_RAX, expected_reg);
+    }
+    /* lock prefix: 0xF0 */
+    me_emit_u8(c, 0xF0);
+    if (width == 2) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (desired_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    if (width == 1) {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB0);
+    } else {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB1);
+    }
+    int mod = ((addr_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, desired_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+
+    /* Old value from memory is in RAX */
+    if (dst_reg != X86_RAX) {
+        x86_mov_rr(c, dst_reg, X86_RAX);
+    }
+}
+
+static void x86_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width) {
+    if (expected_reg != X86_RAX) {
+        x86_mov_rr(c, X86_RAX, expected_reg);
+    }
+    /* lock prefix: 0xF0 */
+    me_emit_u8(c, 0xF0);
+    if (width == 2) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (desired_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    if (width == 1) {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB0);
+    } else {
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB1);
+    }
+    int mod = ((addr_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, desired_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+
+    /* sete al: 0F 94 C0 */
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x94);
+    me_emit_u8(c, 0xC0);
+    /* movzx eax, al: 0F B6 C0 */
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xB6);
+    me_emit_u8(c, 0xC0);
+
+    if (dst_reg != X86_RAX) {
+        x86_mov_rr(c, dst_reg, X86_RAX);
+    }
+}
+
+static void x86_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    if (width == 2) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (val_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    if (width == 1) {
+        me_emit_u8(c, 0x86);
+    } else {
+        me_emit_u8(c, 0x87);
+    }
+    int mod = ((addr_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, val_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+
+    if (dst_reg != val_reg) {
+        x86_mov_rr(c, dst_reg, val_reg);
+    }
+}
+
+static void x86_emit_mfence(ZeroCCCompiler *c) {
+    /* mfence: 0F AE F0 */
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xAE);
+    me_emit_u8(c, 0xF0);
+}
+
 /* cmp src_reg, 0 */
 static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
     x86_alu(c, 0x85, src_reg, src_reg);  /* test src_reg, src_reg */
@@ -976,6 +1084,11 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_store_32 = x86_emit_store_32,
     .emit_store_64 = x86_emit_store_64,
     .emit_vla_alloc = x86_emit_vla_alloc,
+    .emit_atomic_xadd = x86_emit_atomic_xadd,
+    .emit_atomic_cmpxchg = x86_emit_atomic_cmpxchg,
+    .emit_atomic_cmpxchg_bool = x86_emit_atomic_cmpxchg_bool,
+    .emit_atomic_xchg = x86_emit_atomic_xchg,
+    .emit_mfence = x86_emit_mfence,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,

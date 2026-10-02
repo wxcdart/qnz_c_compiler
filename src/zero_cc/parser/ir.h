@@ -85,6 +85,11 @@ typedef enum {
     OP_STORE_32,       /* mov dword ptr [addr], src */
     OP_STORE_64,       /* mov qword ptr [addr], src */
     OP_VLA_ALLOC,      /* sub rsp, size; mov dst, rsp */
+    OP_ATOMIC_XADD,         /* lock xadd [addr], val */
+    OP_ATOMIC_CMPXCHG,      /* lock cmpxchg [addr], desired (rax=expected) -> val */
+    OP_ATOMIC_CMPXCHG_BOOL, /* lock cmpxchg [addr], desired (rax=expected) -> bool */
+    OP_ATOMIC_XCHG,         /* xchg [addr], val */
+    OP_MFENCE,              /* mfence */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -150,6 +155,11 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_STORE_32: return "STORE_32";
         case OP_STORE_64: return "STORE_64";
         case OP_VLA_ALLOC: return "VLA_ALLOC";
+        case OP_ATOMIC_XADD: return "ATOMIC_XADD";
+        case OP_ATOMIC_CMPXCHG: return "ATOMIC_CMPXCHG";
+        case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
+        case OP_ATOMIC_XCHG: return "ATOMIC_XCHG";
+        case OP_MFENCE: return "MFENCE";
         default: return "UNKNOWN";
     }
 }
@@ -278,6 +288,26 @@ static inline void ir_emit_store_64(uint8_t temp_val, uint8_t temp_addr) {
 
 static inline void ir_emit_vla_alloc(uint8_t temp_dest, uint8_t temp_size) {
     ir_emit((Instr){.op = OP_VLA_ALLOC, .temp_dest = temp_dest, .temp_src1 = temp_size, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_atomic_xadd(uint8_t temp_dest, uint8_t temp_addr, uint8_t temp_val, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_XADD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+}
+
+static inline void ir_emit_atomic_cmpxchg(uint8_t temp_dest, uint8_t temp_addr, uint8_t temp_expected, uint8_t temp_desired, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_CMPXCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
+}
+
+static inline void ir_emit_atomic_cmpxchg_bool(uint8_t temp_dest, uint8_t temp_addr, uint8_t temp_expected, uint8_t temp_desired, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
+}
+
+static inline void ir_emit_atomic_xchg(uint8_t temp_dest, uint8_t temp_addr, uint8_t temp_val, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_XCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+}
+
+static inline void ir_emit_mfence(void) {
+    ir_emit((Instr){.op = OP_MFENCE, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */
