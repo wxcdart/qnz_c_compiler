@@ -39,7 +39,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 4** | Codegen depth (SSE2 FP arithmetic & calling conv, struct return by value, `va_arg`) | ✅ Complete | 105/105 pass |
 | **Frontier 1 & 2** | Sealed backend abstraction leaks, full SSE2 FP ABI, generalised x86-64 emission | ✅ Complete | **111/111 pass** |
 | **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields ✅, VLAs, atomics) | 🟡 In Progress | **112/112 pass** |
-| **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X | 📅 Scheduled | — |
+| **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X, diagnostic & header sanitization | ✅ Complete | 109/109 pass |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
@@ -177,7 +177,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| Error messages with source location | 🟡 | Line/column tracked; caret formatting planned in Sprint 5.5 Task 44 |
+| Error messages with source location | ✅ | Standard file:line:col caret formatting implemented in diagnostics.c (Sprint 5.5 Task 44) |
 | Macro expansion notes | ❌ | Planned in Sprint 6 |
 | Warning vs. error distinction | ❌ | All diagnostics currently treated as hard errors; planned in Sprint 6 Task 45 |
 
@@ -293,7 +293,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 41 | **Test Suite Restructuring & Harness Modernization**: Organize 108 flat tests into structured categories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`); implement unified runner with timing, pass/fail counts, and TAP/JUnit output | 3 days | ✅ |
 | 42 | **Memory Leak & Sanitizer Audit**: Clean run of entire test suite under AddressSanitizer (`-fsanitize=address,undefined`) and Valgrind; fix AST arena and string buffer leaks | 4 days | ✅ |
 | 43 | **JIT W^X Memory Hardening**: Transition from `PROT_READ|PROT_WRITE|PROT_EXEC` to strict W^X (`mprotect` write-then-execute) for security and real-world OS compliance | 2 days | ✅ |
-| 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, unify `include/` vs `src/` layout (eliminate duplicate `src/zero_cc/zero_cc.h`), eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | |
+| 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, unify `include/` vs `src/` layout (eliminate duplicate `src/zero_cc/zero_cc.h`), eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | ✅ |
 
 ---
 
@@ -355,9 +355,9 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ## Immediate Next Actions
 
-### Current Focus: Sprint 5.5 – Codebase Hardening, Cleanup & Sanitization
+### Current Focus: Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance
 
-Sprints 0.5 through 5 and Sprint 5.5 Tasks 40, 41, 42, & 43 are complete with all 109 test suites passing cleanly:
+Sprints 0.5 through 5 and all of Sprint 5.5 (Tasks 40–44) are complete with all 109 test suites passing cleanly:
 
 1. **Sprint 5 Type System**: Complete (Bit-fields, anonymous structs/unions, VLAs, `_Atomic`, `const`/`volatile`).
 2. **Task 40: Architecture Cleanup & Legacy Pipeline Elimination** — ✅ Complete:
@@ -376,9 +376,13 @@ Sprints 0.5 through 5 and Sprint 5.5 Tasks 40, 41, 42, & 43 are complete with al
    - Strict W^X memory partitioning between executable code (`.text` + `.rodata`) and mutable data (`.data`).
    - `mprotect` write-then-execute transition (`zero_mmap_make_rx`), with native cross-platform adapter (`VirtualProtect` on Windows).
    - Dedicated security test (`test/jit/jit_wx_test.c`) verifying write faults on RX code pages.
-6. **Next: Task 44 — Diagnostic & Header Sanitization**: Clean up header dependencies, unify `include/` vs `src/` layout (eliminate duplicate `src/zero_cc/zero_cc.h`), eliminate redundant includes, and standardize error reporting with file:line:col caret formatting.
+6. **Task 44: Diagnostic & Header Sanitization** — ✅ Complete:
+   - Unified `include/` vs `src/` layout, eliminating duplicate `src/zero_cc/zero_cc.h`.
+   - Purged redundant includes and forward declarations.
+   - Standardized diagnostic error reporting with `file:line:col: error: ...` and caret formatting (`^`).
+7. **Next: Sprint 6 Task 45 — Rich Diagnostics & Warning/Error Distinction**: Warning vs error distinction, multi-source caret snippets, macro expansion notes.
 
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-02.*
-*Updated with Sprint 5.5 Tasks 40, 41, 42 & 43 completion and Sprint 8 (Two-Pass IR & Optimization Pipeline).*
+*Updated with Sprint 5.5 completion (Tasks 40–44) and Sprint 6 roadmap.*

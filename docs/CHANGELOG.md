@@ -80,6 +80,20 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Verifies JIT compilation and execution in W^X-hardened memory.
   - 109/109 tests passing cleanly across `make test`, `make asan`, and `make valgrind`.
 
+#### Sprint 5.5 — Task 44: Diagnostic & Header Sanitization ✅
+- **Header Layout Unification**:
+  - Eliminated duplicate `src/zero_cc/zero_cc.h`.
+  - Established `include/zero_cc.h` as the single canonical public entry point for ZeroCC with full architecture documentation.
+  - Removed duplicate `ZeroCCCompiler` forward declaration in `src/zero_cc/parser.h`.
+  - Clean include dependency graph verified under `-Wall -Wextra`.
+- **Standardized Error Reporting with Caret Formatting**:
+  - Enhanced `DiagEntry` and `DiagBuf` in `diagnostics.h` and `diagnostics.c` to track source filenames (defaulting to `<stdin>`).
+  - Standardized diagnostic printing via `diag_print_stream` and `semantic_print_diagnostics` to follow the standard `file:line:col: error: <msg>` format.
+  - Implemented column-aligned caret indicator (`^`) positioned directly below the offending token for clear visual diagnostics.
+- **Sprint 5.5 Completion**:
+  - All 5 tasks of Sprint 5.5 (Tasks 40–44) complete.
+  - 109/109 tests passing under `make test`, `make asan`, and `make valgrind`.
+
 #### Virtual Register (VREG) System ✅
 - ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
 - Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)

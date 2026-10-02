@@ -29,9 +29,5 @@ bool semantic_analyze(ZeroCCASTArena *ast_arena,
 }
 
 void semantic_print_diagnostics(const DiagBuf *diags, FILE *out) {
-    if (!diags || !out) return;
-    for (size_t i = 0; i < diags->count; ++i) {
-        const DiagEntry *e = &diags->entries[i];
-        fprintf(out, "%u:%u: %s\n", e->line, e->col, e->msg ? e->msg : "");
-    }
+    diag_print_stream(diags, out);
 }

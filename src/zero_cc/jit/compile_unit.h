@@ -98,6 +98,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     /* Create shared semantic context for all functions */
     DiagBuf shared_diags;
     diag_init(&shared_diags, tmp);
+    if (c->tokens && c->token_count > 0 && c->tokens[0].filename) {
+        diag_set_file(&shared_diags, c->tokens[0].filename);
+    }
     SemContext shared_ctx;
     if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL)) {
         c->had_error = true;

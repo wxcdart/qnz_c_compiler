@@ -11,8 +11,6 @@ typedef struct SemContext SemContext;
 extern "C" {
 #endif
 
-typedef struct ZeroCCCompiler ZeroCCCompiler;
-
 /* 32-bit thin pointer into the AST Arena */
 typedef uint32_t ASTRef;
 #define AST_NULL 0
