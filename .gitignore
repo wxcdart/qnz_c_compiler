@@ -1,14 +1,10 @@
+# Build output directory
+/build/
+
+# Object files & executables
 *.o
 *.exe
-test_results.xml
-# ignore compiled test binaries in all subdirectories
-test/**
-!test/**/
-!test/**/*.c
-!test/**/*.h
-src/zero_cc/backends/setters.o
-src/zero_cc/tls_backend_static.o
-
 .obj
 
+# Temporary/editor files
 text.ext

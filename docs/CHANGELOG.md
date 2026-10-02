@@ -44,12 +44,11 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Millisecond-precision per-test timing and pass/fail tracking.
   - Colorized terminal output with category badges and failure details (stdout/stderr captures).
   - Test Anything Protocol (TAP v13) output mode (`--tap`).
-  - Standard JUnit XML output mode (`--junit <file>`) for CI/CD integration.
   - Category filtering (`--category <cat>`) and per-test execution support.
 - **Enhanced Makefile Targets**:
   - `make test` runs the unified runner across all 108 tests.
   - `make test-unit`, `make test-semantic`, `make test-abi`, `make test-jit` for focused testing.
-  - `make test-tap` and `make test-junit` for automation pipelines.
+  - `make test-tap` for automation pipelines.
   - Automatic directory creation (`@mkdir -p $(dir $@)`) for all test binaries.
 
 #### Sprint 5.5 — Task 42: Memory Leak & Sanitizer Audit ✅
@@ -110,6 +109,19 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Updated include paths across compiler subsystems (`parser`, `semantic`, `jit`) and all unit/semantic test suites.
   - Updated `Makefile` object targets (`EXTRA_OBJS`) and header dependency wildcards (`$(wildcard src/zero_cc/common/*.h)`).
   - 109/109 tests passing cleanly with zero memory leaks across `make test`, `make asan`, and `make valgrind`.
+
+#### Out-of-Source Build Architecture (`build/`) ✅
+- **Dedicated Build Directory**:
+  - Migrated build system to an out-of-source structure isolating all intermediate artifacts to `build/`:
+    - `build/obj/` for compiler object files (`.o`).
+    - `build/test/` for categorized test binaries (`unit/`, `semantic/`, `abi/`, `jit/`).
+  - Purged all legacy orphaned `.o` and `.exe` binaries from repository root and source trees.
+  - Atomic cleanup: `make clean` now simply performs `rm -rf $(BUILD_DIR)`.
+- **Harness & Runner Modernization**:
+  - Removed Java JUnit XML reporting from `tools/test_runner.py` and `Makefile`.
+  - Updated `test_runner.py` to auto-discover compiled binaries in `build/test/` with transparent fallback to `test/`.
+  - Simplified `.gitignore` by ignoring `/build/`, eliminating complex source exclusion globs.
+
 
 
 #### Virtual Register (VREG) System ✅

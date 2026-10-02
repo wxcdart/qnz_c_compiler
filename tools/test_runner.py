@@ -2,7 +2,7 @@
 """
 ZeroCC Unified Test Runner
 Supports structured categories (unit, jit, abi, semantic), per-test timing,
-pass/fail tracking, TAP (Test Anything Protocol v13), and JUnit XML reporting.
+pass/fail tracking, and TAP (Test Anything Protocol v13).
 """
 
 import argparse
@@ -10,8 +10,6 @@ import os
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
 
 # ANSI color codes
 GREEN = "\033[32m"
@@ -45,7 +43,7 @@ class TestResult:
 
 
 def find_test_binaries(root_dir, category=None):
-    """Find compiled test executables across categories."""
+    """Find compiled test executables across categories in build/test or test."""
     categories = ["unit", "semantic", "abi", "jit"]
     if category:
         if category not in categories:
@@ -53,9 +51,12 @@ def find_test_binaries(root_dir, category=None):
             sys.exit(1)
         categories = [category]
 
+    build_test_dir = os.path.join(root_dir, "build", "test")
+    base_dir = build_test_dir if os.path.isdir(build_test_dir) else os.path.join(root_dir, "test")
+
     found = []
     for cat in categories:
-        cat_dir = os.path.join(root_dir, "test", cat)
+        cat_dir = os.path.join(base_dir, cat)
         if not os.path.isdir(cat_dir):
             continue
         for entry in sorted(os.listdir(cat_dir)):
@@ -146,60 +147,11 @@ def write_tap_report(results, total_duration_s):
             print("  ...")
 
 
-def write_junit_xml(results, total_duration_s, filepath):
-    total_tests = len(results)
-    failures = sum(1 for r in results if not r.passed)
-
-    suite = ET.Element(
-        "testsuite",
-        name="ZeroCC Test Suite",
-        tests=str(total_tests),
-        failures=str(failures),
-        errors="0",
-        skipped="0",
-        time=f"{total_duration_s:.3f}",
-    )
-
-    for r in results:
-        case = ET.SubElement(
-            suite,
-            "testcase",
-            classname=f"zerocc.{r.category}",
-            name=r.name.split("/")[-1],
-            time=f"{r.duration_ms / 1000.0:.4f}",
-        )
-        if not r.passed:
-            failure_type = "Timeout" if "TIMEOUT" in r.error_msg else "AssertionFailure"
-            fail_elem = ET.SubElement(
-                case,
-                "failure",
-                message=r.error_msg or f"Exit code {r.returncode}",
-                type=failure_type,
-            )
-            content = []
-            if r.error_msg:
-                content.append(r.error_msg)
-            if r.stderr.strip():
-                content.append("--- STDERR ---")
-                content.append(r.stderr.strip())
-            if r.stdout.strip():
-                content.append("--- STDOUT ---")
-                content.append(r.stdout.strip())
-            fail_elem.text = "\n".join(content)
-
-    xml_str = ET.tostring(suite, encoding="utf-8")
-    pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(pretty_xml)
-
-
 def main():
     parser = argparse.ArgumentParser(description="ZeroCC Unified Test Runner")
     parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit"],
                         help="Run only tests from a specific category")
     parser.add_argument("--tap", action="store_true", help="Output in TAP v13 format")
-    parser.add_argument("--junit", metavar="FILE", help="Generate JUnit XML report at FILE")
     parser.add_argument("--valgrind", action="store_true", help="Run tests under Valgrind memcheck")
     parser.add_argument("--timeout", type=int, default=10, help="Per-test timeout in seconds (default: 10)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print stdout/stderr for passed tests")
@@ -211,17 +163,27 @@ def main():
     test_items = []
     if args.tests:
         for t in args.tests:
-            # Can be "test/jit/basic", "jit/basic", or "basic"
+            # Can be "test/jit/basic", "build/test/jit/basic", "jit/basic", or "basic"
             path = t
             if not os.path.exists(path):
-                # Try finding under test/*
-                for cat in ["unit", "semantic", "abi", "jit"]:
-                    cand = os.path.join(root_dir, "test", cat, os.path.basename(t))
-                    if os.path.isfile(cand):
-                        path = cand
+                # Try finding under build/test/* or test/*
+                for base in [os.path.join(root_dir, "build", "test"), os.path.join(root_dir, "test")]:
+                    for cat in ["unit", "semantic", "abi", "jit"]:
+                        cand = os.path.join(base, cat, os.path.basename(t))
+                        if os.path.isfile(cand):
+                            path = cand
+                            break
+                    if os.path.isfile(path):
                         break
             if os.path.isfile(path):
-                rel = os.path.relpath(path, os.path.join(root_dir, "test"))
+                # Determine category and relative name
+                rel = None
+                for base in [os.path.join(root_dir, "build", "test"), os.path.join(root_dir, "test")]:
+                    if path.startswith(base):
+                        rel = os.path.relpath(path, base)
+                        break
+                if not rel:
+                    rel = os.path.basename(path)
                 cat = rel.split(os.sep)[0] if os.sep in rel else "custom"
                 test_items.append((rel, path, cat))
             else:
@@ -267,11 +229,6 @@ def main():
 
     if args.tap:
         write_tap_report(results, total_duration_s)
-
-    if args.junit:
-        write_junit_xml(results, total_duration_s, args.junit)
-        if not args.tap:
-            print(f"\nJUnit report written to {args.junit}")
 
     if not args.tap:
         print()
