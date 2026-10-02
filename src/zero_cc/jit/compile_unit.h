@@ -16,6 +16,55 @@
 #include "../isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
 #include "../isa_backend.h"
+#include "zero_cc/statements.h"
+#include "zero_cc/statements/definitions.h"
+
+/* Forward declaration */
+static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
+/* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
+/* Returns true if a top-level declaration was consumed, false otherwise */
+static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
+    if (c->token_pos >= c->token_count) return false;
+    
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+    
+    /* Typedef: check next token for struct/union/enum vs scalar */
+    if (t == TK_TYPEDEF) {
+        if (c->token_pos + 1 < c->token_count && 
+            (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
+             c->tokens[c->token_pos + 1].type == TK_UNION)) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_ENUM) {
+            zero_cc_stmt_typedef_enum(c);
+            return true;
+        } else {
+            zero_cc_stmt_typedef_scalar(c);
+            return true;
+        }
+    }
+    
+    /* Standalone Enum Declaration */
+    if (t == TK_ENUM) {
+        zero_cc_stmt_enum(c);
+        return true;
+    }
+    
+    /* Struct/Union definition */
+    if (t == TK_STRUCT || t == TK_UNION) {
+        if (c->token_pos + 1 < c->token_count && 
+            (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+             (c->tokens[c->token_pos + 1].type == TK_IDENT &&
+              c->token_pos + 2 < c->token_count && c->tokens[c->token_pos + 2].type == TK_LBRACE))) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        }
+        /* If not a struct/union definition, it's a variable declaration */
+        return false;
+    }
+    
+    return false;
+}
 
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
@@ -204,6 +253,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         }
 
         size_t prev_pos = c->token_pos;
+        /* Try to compile top-level declarations (typedef struct, etc.) first */
+        if (zero_cc_compile_top_level_decl(c)) {
+            continue;
+        }
         /* Top level functions */
         zero_cc_compile_function(c, &shared_ctx, perm);
         if (c->had_error) break;

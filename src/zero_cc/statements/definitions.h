@@ -135,11 +135,16 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                         snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
                         c->token_pos++;
                         size_t elem_count = 1;
+                        bool is_flexible = false;
                         if (c->tokens[c->token_pos].type == TK_LBRACKET) {
                             c->token_pos++;
                             if (c->tokens[c->token_pos].type == TK_NUM) {
                                 elem_count = (size_t)c->tokens[c->token_pos].num_val;
                                 c->token_pos++;
+                            } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                /* Flexible array member: empty brackets [] */
+                                is_flexible = true;
+                                elem_count = 0;
                             }
                             if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                         }
@@ -147,8 +152,9 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                             ZeroCCStructMember *m = &st.members[st.member_count++];
                             snprintf(m->name, sizeof(m->name), "%s", mname);
                             m->offset = is_union ? 0 : current_offset;
-                            m->size = base_size * elem_count;
+                            m->size = is_flexible ? 0 : (base_size * elem_count);
                             m->align = effective_align;
+                            m->is_flexible = is_flexible;
                             if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                             else if (mt == TK_SHORT) m->tag = TYPE_INT16;
                             else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
@@ -158,7 +164,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                             if (is_ptr) m->tag = TYPE_PTR;
                             if (is_union) {
                                 if (m->size > max_size) max_size = m->size;
-                            } else {
+                            } else if (!is_flexible) {
                                 current_offset += m->size;
                             }
                         }

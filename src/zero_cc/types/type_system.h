@@ -36,6 +36,7 @@ typedef struct ZeroCCStructMember {
     size_t offset;
     size_t align;
     struct ZeroCCType *base;
+    bool is_flexible;  /* True for flexible array member (FAM) */
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {

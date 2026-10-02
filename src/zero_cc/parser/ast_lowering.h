@@ -312,6 +312,10 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             break;
         case NODE_DECL:
             lower_stmt_decl(c, arena, node);
+            /* If this is a function definition (has body in right), lower the body */
+            if (node->right != AST_NULL) {
+                lower_stmt_block(c, arena, node->right);
+            }
             break;
         case NODE_STATIC_ASSERT:
             lower_stmt_static_assert(c, arena, node);
