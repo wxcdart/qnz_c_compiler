@@ -52,6 +52,34 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - `make test-tap` and `make test-junit` for automation pipelines.
   - Automatic directory creation (`@mkdir -p $(dir $@)`) for all test binaries.
 
+#### Sprint 5.5 — Task 42: Memory Leak & Sanitizer Audit ✅
+- **Complete ASan + UBSan + LSan Cleanliness**: All test suites execute with zero leaks and zero memory errors under AddressSanitizer and UndefinedBehaviorSanitizer.
+- **Resource Lifecycle Fixes**:
+  - Fixed preprocessor macro expansion loop leaks in `zero_cc_cpp_destroy` and freed preprocessor structures in `zero_cc_preprocess_ext`.
+  - Added `regalloc_destroy` to reclaim register interval and clobber structures.
+  - Reclaimed per-function AST arenas immediately upon compilation completion.
+  - Implemented thread-local type pool (`zero_cc_type_alloc_base` / `zero_cc_type_pool_free`) to prevent base type leaks during recursive type construction.
+  - Fixed stack-use-after-return in semantic binary operator promotions for decayed pointer types.
+  - Cleaned up string buffer and compiler context allocations across test drivers.
+- **Dedicated Sanitizer & Valgrind Targets**:
+  - Added `make asan`, `make test-asan`, `make valgrind`, and `make test-valgrind` targets.
+  - Verified 100% clean passes under Valgrind 3.22.0 (0 errors, 0 leaks across all test suites).
+
+#### Sprint 5.5 — Task 43: JIT W^X Memory Hardening ✅
+- **Strict Write-XOR-Execute Enforcement**:
+  - Eliminated dangerous combined RWX memory mappings in JIT execution engine (`execution.h`).
+  - Implemented page-aligned memory partitioning between executable code (`.text` + `.rodata`) and mutable data (`.data` / globals).
+  - Code pages transition strictly from `PROT_READ | PROT_WRITE` during emission to `PROT_READ | PROT_EXEC` (no write) before execution via `mprotect`.
+  - Mutable data pages remain `PROT_READ | PROT_WRITE` (never executable).
+- **Cross-Platform Virtual Memory Adapter (`mmap_adapter.h`)**:
+  - Dynamically queries system page size (`sysconf(_SC_PAGESIZE)` on POSIX, `GetSystemInfo` on Windows).
+  - Clean abstraction for `zero_mmap_alloc_rw`, `zero_mmap_make_rx`, `zero_mmap_make_ro`, and `zero_mmap_free`.
+  - Native Windows support using `VirtualAlloc`, `VirtualProtect`, and `VirtualFree`.
+- **W^X Invariant Verification Test (`test/jit/jit_wx_test.c`)**:
+  - Verifies that writes to RX code pages reliably fault (`SIGSEGV` / `SIGBUS`).
+  - Verifies JIT compilation and execution in W^X-hardened memory.
+  - 109/109 tests passing cleanly across `make test`, `make asan`, and `make valgrind`.
+
 #### Virtual Register (VREG) System ✅
 - ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
 - Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)
