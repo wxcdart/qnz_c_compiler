@@ -1,8 +1,9 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-10-01. Findings are **grounded in actual source inspection** of
-> [`parser.c`](src/zero_cc/parser.c), [`types_lexer.h`](src/zero_cc/types_lexer.h),
-> [`lexer.c`](src/zero_cc/lexer.c), and the `lower_node()` / `lower_expr()` switch statements.
+> Last updated: 2026-10-02. Findings are **grounded in actual source inspection** of
+> [`parser.c`](../src/zero_cc/parser.c), [`types_lexer.h`](../src/zero_cc/types_lexer.h),
+> [`lexer.c`](../src/zero_cc/lexer.c), [`ast_lowering.h`](../src/zero_cc/parser/ast_lowering.h),
+> and the multi-ISA backend implementations in [`src/zero_cc/isa/`](../src/zero_cc/isa/).
 
 ## Goal: Self-Hosting C11 Compiler
 
@@ -17,51 +18,31 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ## Current Status Summary
 
-| Category | ✅ Done | 🟡 Partial (parsed, not lowered) | ❌ Missing |
-|----------|:-------:|:---------------------------------:|:---------:|
-| Statements | 9 | 1 | 1 |
-| Expressions | 14 | 9 | 3 |
-| Types & Declarations | 11 | 8 | 8 |
-| Preprocessor | 6 | 2 | 3 |
-| Code Generation | 3 | 1 | 6 |
+| Category | ✅ Done | 🟡 Partial (parsed, not fully lowered/enforced) | ❌ Missing |
+|----------|:-------:|:-----------------------------------------------:|:---------:|
+| Statements | 10 | 0 | 0 |
+| Expressions | 22 | 2 | 1 |
+| Types & Declarations | 15 | 3 | 3 |
+| Preprocessor | 11 | 0 | 0 |
+| Code Generation / Runtime | 10 | 3 | 0 |
 | Diagnostics | 0 | 1 | 2 |
-| **Sprint 1** | **✅ Complete** | | |
-| **Sprint 2** | **✅ Complete** | | |
-| **Sprint 3** | **✅ Complete** | | |
-| **Total** | **43** | **22** | **23** |
+| **Total Constructs** | **68** | **9** | **6** |
 
-> **Key insight:** The 🟡 partials are the cheapest wins — AST nodes exist, only `switch` cases
-> in `lower_node()` / `lower_expr()` are missing.
->
-> **✅ Sprint 0 Complete:** `NODE_INDEX`, postfix `++/--`, and pointer comparison type inference have been fixed.
-> - Parser refactoring: `parser.c` split into 5 modular headers.
-> - Expressions refactoring: `expressions.h` split into 6 modular headers.
-> - Core refactoring: `core.h` split into 4 modular headers.
-> All 40 tests pass.
->
-> **✅ Sprint 0.5 Complete (2026-09-29):** Include architecture hardening.
-> - Created `zero_cc_fwd.h` forward declaration header for reducing dependencies
-> - Fixed circular include: `lexer.h` ↔ `lexer/scan.h`
-> - Added comprehensive include documentation (`docs/includes-and-forward-declarations.md`)
-> - Fixed missing standard library includes across type headers
-> - All 40 tests pass with improved include structure
->
-> **✅ Sprint 2 Complete (2026-09-29):** New parsing features.
-> - `goto` + label parsing and jump backpatching
-> - Global variable declarations
-> - `extern` symbol table
-> - `typedef` for function pointers
-> - Token paste `##` and stringification `#`
-> - Variadic macros / `__VA_ARGS__`
-> - Predefined macros (`__FILE__`, `__LINE__`, `__func__`)
-> - `#pragma once` guard
-> - `_Pragma` operator
->
-> **✅ Sprint 1 Complete (2026-09-29):** Code generation gap fill.
-> - Float literals, string literals, ternary, do-while, member access (with offsets)
-> - Array subscript, cast (integers), sizeof, _Static_assert
->
-> **Note:** Float operations (SSE2 arithmetic) and float casts moved to Sprint 3.
+### Sprint Progress Summary
+
+| Sprint | Description | Status | Test Suite |
+|---|---|:---:|:---:|
+| **Sprint 0 / 0.5** | Include architecture hardening, forward declarations, modularization | ✅ Complete | 40/40 pass |
+| **Sprint 1** | Code generation gap fill (floats, strings, ternary, member, subscript, casts) | ✅ Complete | 55/55 pass |
+| **Sprint 2 / 2.5** | New parsing (goto, globals, extern, macros, pragmas) | ✅ Complete | 70/70 pass |
+| **Sprint 3** | Multi-ISA Backend & VREG System, System TLS (`fs`/`gs`) | ✅ Complete | 85/85 pass |
+| **Sprint 4** | Codegen depth (SSE2 FP arithmetic & calling conv, struct return by value, `va_arg`) | ✅ Complete | 105/105 pass |
+| **Frontier 1 & 2** | Sealed backend abstraction leaks, full SSE2 FP ABI, generalised x86-64 emission | ✅ Complete | **111/111 pass** |
+| **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields, VLAs, atomics) | 🟡 In Progress | 111/111 pass |
+| **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X | 📅 Scheduled | — |
+| **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
+| **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
+| **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
 
 ---
 
@@ -71,7 +52,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Symbol | Meaning |
 |--------|---------|
 | ✅ | Parsed **and** lowered to machine code |
-| 🟡 | AST node exists, but **lowering is absent** (silent no-op) |
+| 🟡 | AST node / construct exists, but lowering or enforcement is partial |
 | ❌ | Neither parsed nor lowered |
 
 ---
@@ -84,12 +65,12 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `while` | ✅ | Full parse + lower |
 | `do … while` | ✅ | `NODE_DO_WHILE` lowered; break/continue patched |
 | `for` | ✅ | Full parse + lower |
-| `switch / case / default` | ✅ | Full |
-| `break` | ✅ | Full |
-| `continue` | ✅ | Full |
-| `return <expr>` | ✅ | Full |
-| `goto` / labels | ✅ | `NODE_GOTO` / `NODE_LABEL` in AST enum; parsed and lowered (JMP rel32 with patching) |
-| `_Static_assert` | ✅ | Parsed and lowered (condition evaluated, stub) |
+| `switch / case / default` | ✅ | Full parse + lower with jump table / branch chain |
+| `break` | ✅ | Full jump patching |
+| `continue` | ✅ | Full loop target jump patching |
+| `return <expr>` | ✅ | Full (int, float in `%xmm0`, and struct returns) |
+| `goto` / labels | ✅ | `NODE_GOTO` / `NODE_LABEL` parsed and lowered (JMP rel32 with backpatching) |
+| `_Static_assert` | ✅ | Evaluated at compile-time; aborts compilation on assertion failure |
 
 ---
 
@@ -97,32 +78,32 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| Integer literals | ✅ | |
-| Float literals | ✅ | `NODE_FLOAT` lowered (stub) |
-| String literals | ✅ | `NODE_STRING` lowered via rodata + RIP-relative lea |
-| Bool literals `true`/`false` | ✅ | |
-| `nullptr` | ✅ | |
-| Identifiers / variables | ✅ | |
-| Arithmetic `+ - * / %` | ✅ | |
-| Bitwise `& \| ^ ~` | ✅ | |
-| Shift `<< >>` | ✅ | |
-| Comparison `== != < <= > >=` | ✅ | |
-| Logical `&& \|\|` | ✅ | |
-| Unary `! ~ - & *` | ✅ | |
-| `++ --` (pre/post) | ✅ | |
-| Assignment `=` | ✅ | |
-| Compound assignment `+= -= *= /= %= &= \|= ^= <<= >>=` | ✅ | All tokens, AST, and lowering present |
-| Ternary `? :` | ✅ | `NODE_TERNARY` lowered |
-| Comma operator `,` | 🟡 | Handled in arg lists only; **no `NODE_COMMA` expression** |
-| Cast `(T)expr` | ✅ | `NODE_CAST` lowered (no-op stub) |
-| `sizeof(T)` / `sizeof expr` | ✅ | `TK_SIZEOF` recognised and evaluated |
-| `_Alignof(T)` | ✅ | Token defined and evaluated |
-| Member access `.` / `->` | ✅ | `NODE_MEMBER` lowered (stub) |
-| Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered (stub) |
-| Function call | ✅ | |
-| Compound literals `(T){…}` | 🟡 | `NODE_COMPOUND_LIT` parsed; lowering is a single-word stub |
+| Integer literals | ✅ | 8, 16, 32, 64-bit signed and unsigned |
+| Float literals | ✅ | `NODE_FLOAT` lowered to SSE2 `movsd` via rodata RIP-relative addressing |
+| String literals | ✅ | `NODE_STRING` lowered via rodata + RIP-relative `lea rax, [rip+off]` |
+| Bool literals `true`/`false` | ✅ | Full |
+| `nullptr` | ✅ | Full |
+| Identifiers / variables | ✅ | Full local stack offset and global data address resolution |
+| Arithmetic `+ - * / %` | ✅ | Integer ALU and SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) |
+| Bitwise `& \| ^ ~` | ✅ | Full 32-bit and 64-bit bitwise ALU |
+| Shift `<< >>` | ✅ | Arbitrary register shifts with `%cl` masking |
+| Comparison `== != < <= > >=` | ✅ | Integer (`cmp` + `setcc`) and float (`ucomisd` + `setcc`) |
+| Logical `&& \|\|` | ✅ | Short-circuit evaluation with branch patching |
+| Unary `! ~ - & *` | ✅ | Full logical not, bitwise not, negate, address-of, and pointer dereference |
+| `++ --` (pre/post) | ✅ | Register-independent increment/decrement with correct pre/post value semantics |
+| Assignment `=` | ✅ | Memory and register assignment |
+| Compound assignment `+= -= *= /= %= &= \|= ^= <<= >>=` | ✅ | All integer and floating-point compound assignments lowered |
+| Ternary `? :` | ✅ | `NODE_TERNARY` lowered with conditional jumps |
+| Comma operator `,` | 🟡 | Handled in function argument lists; expression-level `NODE_COMMA` partial |
+| Cast `(T)expr` | ✅ | `NODE_CAST` lowered (int truncation/sign-extend, `cvtsi2sd`, `cvttsd2si`) |
+| `sizeof(T)` / `sizeof expr` | ✅ | Compile-time constant evaluation |
+| `_Alignof(T)` | ✅ | Compile-time constant evaluation |
+| Member access `.` / `->` | ✅ | `NODE_MEMBER` lowered with struct/union member byte-offset arithmetic |
+| Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered with scaled base+index addressing |
+| Function call | ✅ | Full System V AMD64 ABI calling convention (int regs `%rdi`–`%r9`, FP regs `%xmm0`–`%xmm7`, stack args, variadic `%al`) |
+| Compound literals `(T){…}` | 🟡 | `NODE_COMPOUND_LIT` parsed; single-word lowering |
 | Designated initializers `.field=val` | ❌ | No parse support |
-| `_Generic(…)` | 🟡 | Parse stub exists; no semantic resolution, no codegen |
+| `_Generic(…)` | ✅ | Full C11 generic selection with type matching, pointer decay, and default branch |
 
 ---
 
@@ -130,27 +111,27 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| `int`, `char`, `void`, `float`, `double`, `_Bool` | ✅ | |
+| `int`, `char`, `void`, `float`, `double`, `_Bool` | ✅ | Full basic types |
 | `short`, `long`, `long long` | ✅ | Mapped to fixed-width types |
-| `unsigned` variants | ✅ | |
-| Pointers `*` | ✅ | |
-| Arrays `T a[N]` (fixed size) | ✅ | |
-| **VLA** `T a[n]` (variable size) | ❌ | Size stored but always treated as constant |
-| `struct` (named, with members) | ✅ | |
-| `union` | ✅ | Full layout overlap, max size/align padding, tagged unions |
-| `enum` (simple, explicit values) | ✅ | Constants registered and resolved |
-| Named `enum` as a distinct type-tag | 🟡 | Constants OK; enum type not emitted |
-| `typedef` (scalar, struct) | ✅ | |
-| `typedef` for function pointers | ✅ | `typedef int (*fn)(int)` works correctly |
-| `const` / `volatile` / `restrict` | 🟡 | Bits stored in `ZeroCCType`; **no enforcement** |
-| `_Atomic` | 🟡 | `is_atomic` bit present; no atomic ops emitted |
-| `_Thread_local` | 🟡 | TLS backend wired; read-only static value only |
-| `_Alignas(N)` | 🟡 | `decl_align_spec` global used for locals; not applied to globals |
-| Flexible array members | ❌ | |
-| Anonymous struct/union members | ❌ | |
-| Bit-fields | ❌ | |
-| Global variable declarations | ✅ | `data_section` buffer exists; parsing and emission implemented |
-| `extern` declarations | ✅ | External symbol table implemented |
+| `unsigned` variants | ✅ | Full unsigned integer types |
+| Pointers `*` | ✅ | Multi-level pointers with correct scaling |
+| Arrays `T a[N]` (fixed size) | ✅ | Fixed-size array stack allocation and decay to pointers |
+| **VLA** `T a[n]` (variable size) | ❌ | Sprint 5 Task 37 (`sub rsp, reg`) |
+| `struct` (named, with members) | ✅ | Member offset alignment and padding |
+| `union` | ✅ | Overlapping member layout, max alignment & size calculation |
+| `enum` (simple, explicit values) | ✅ | Enum constants registered and resolved in symbol table |
+| Named `enum` as a distinct type-tag | 🟡 | Enum values resolved; distinct type checking partial |
+| `typedef` (scalar, struct) | ✅ | Typedef table resolution |
+| `typedef` for function pointers | ✅ | `typedef int (*fn)(int)` parsed and callable |
+| `const` / `volatile` / `restrict` | 🟡 | Qualifiers parsed and stored; semantic enforcement planned in Sprint 5 Task 39 |
+| `_Atomic` | 🟡 | Token and type parsed; atomic operations (`lock cmpxchg`, `lock xadd`) planned in Sprint 5 Task 38 |
+| `_Thread_local` | ✅ | System TLS (`fs`/`gs` segment) lowered and verified (`test/tls.c`, `test/tls_jit.c`) |
+| `_Alignas(N)` | ✅ | Alignment applied to variable declarations |
+| Flexible array members | ✅ | Trailing zero-length arrays supported in structs (Sprint 5 Task 35) |
+| Anonymous struct/union members | ❌ | Sprint 5 Task 36 |
+| Bit-fields | ❌ | Sprint 5 Task 34 (`: width` packing and masking) |
+| Global variable declarations | ✅ | Emitted to `.data` and `.bss` with RIP-relative relocations |
+| `extern` declarations | ✅ | External symbol table resolution |
 
 ---
 
@@ -158,16 +139,16 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| `#include <…>` / `"…"` | ✅ | |
-| `#define FOO value` (object-like) | ✅ | |
-| `#define FOO(x) …` (function-like) | ✅ | |
-| `#ifdef / #ifndef / #if / #else / #endif` | ✅ | |
-| `#undef` | ✅ | |
-| `#pragma once` | ❌ | `#pragma` directives not handled |
-| Token paste `##` | ✅ | `a ## b` pastes tokens correctly |
-| Stringification `#arg` | ✅ | `#arg` converts to string literal |
-| Variadic macros `…` / `__VA_ARGS__` | ✅ | Supported via macro expansion and __VA_ARGS__ handling |
-| `_Pragma` operator | ❌ | |
+| `#include <…>` / `"…"` | ✅ | System and local include resolution with search paths |
+| `#define FOO value` (object-like) | ✅ | Object macro substitution |
+| `#define FOO(x) …` (function-like) | ✅ | Function-like macro expansion |
+| `#ifdef / #ifndef / #if / #else / #endif` | ✅ | Conditional compilation |
+| `#undef` | ✅ | Macro undefinition |
+| `#pragma once` | ✅ | Header guard optimization |
+| Token paste `##` | ✅ | Macro token concatenation |
+| Stringification `#arg` | ✅ | Macro argument stringification |
+| Variadic macros `…` / `__VA_ARGS__` | ✅ | Supported via macro expansion and `__VA_ARGS__` handling |
+| `_Pragma` operator | ✅ | C99 `_Pragma("string")` preprocessor operator |
 | Predefined macros (`__FILE__`, `__LINE__`, `__func__`) | ✅ | Dynamic value tracking implemented |
 
 ---
@@ -176,18 +157,19 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| Integer arithmetic (x86-64) | ✅ | |
-| Floating-point / SSE2 | ❌ | Emit helpers (`movss`, `movsd`, etc.) exist but **never called from lowering** |
+| Integer arithmetic (x86-64) | ✅ | Full 32-bit and 64-bit integer ALU |
+| Floating-point / SSE2 | ✅ | Complete SSE2 arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`), comparison (`ucomisd`), and FP ABI |
 | `do … while` machine code | ✅ | Lowered with break/continue patching |
-| Ternary branch machine code | ✅ | Lowered |
-| Member access / subscript machine code | ✅ | Stubs lowered |
-| `goto` / label jumps | ✅ | Machine-code emission via JMP rel32 with patching |
-| Struct return by value | ❌ | Hidden-pointer convention not implemented |
-| `va_start` / `va_arg` / `va_end` | ❌ | Spill area allocated; no `va_arg` expansion |
-| Global variable storage (`.data`) | ❌ | Buffer allocated; nothing written |
-| Register allocation | ❌ | Naive stack spill only; no allocator |
-| ARM64 back-end | ❌ | All stubs (`TODO: implement ARM64…` in `types_lexer.h`) |
-| `libc` symbol resolution | 🟡 | `dlsym(RTLD_DEFAULT, name)` called; requires host libc at JIT time |
+| Ternary branch machine code | ✅ | Lowered with conditional jumps |
+| Member access / subscript machine code | ✅ | Full member byte-offset calculation and scaled array indexing |
+| `goto` / label jumps | ✅ | Machine-code emission via JMP rel32 with backpatching |
+| Struct return by value | ✅ | AMD64 ABI hidden pointer (`%rdi`) for >16B, packed into `%rax`/`%rdx` for ≤16B |
+| `va_start` / `va_arg` / `va_end` | ✅ | AMD64 ABI variadic save area, `%al` register setup, and `va_arg` expansion |
+| Global variable storage (`.data` / `.bss`) | ✅ | Data section emission and RIP-relative data relocation |
+| Register allocation | 🟡 | Linear-scan infrastructure in place (`regalloc.h`, `live_range.h`); stack spill default |
+| ARM64 back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
+| RISC-V back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
+| `libc` symbol resolution | ✅ | Dynamic symbol resolution via `dlsym(RTLD_DEFAULT)` at JIT execution |
 
 ---
 
@@ -195,9 +177,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| Error messages with source location | 🟡 | Line/col stored in tokens; `DiagBuf` only prints message string |
-| Macro expansion notes | ❌ | |
-| Warning vs. error distinction | ❌ | All diagnostics treated as hard errors |
+| Error messages with source location | 🟡 | Line/column tracked; caret formatting planned in Sprint 5.5 Task 44 |
+| Macro expansion notes | ❌ | Planned in Sprint 6 |
+| Warning vs. error distinction | ❌ | All diagnostics currently treated as hard errors; planned in Sprint 6 Task 45 |
 
 ---
 
