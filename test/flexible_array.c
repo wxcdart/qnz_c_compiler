@@ -6,6 +6,7 @@ int main(void) {
     const char *src = 
         "struct flex { int len; char data[]; };\n"
         "int main(void) {\n"
+        "    if (sizeof(struct flex) != 4) return 10;\n"
         "    struct flex f;\n"
         "    f.len = 5;\n"
         "    return f.len;\n"

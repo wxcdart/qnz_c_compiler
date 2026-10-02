@@ -386,29 +386,23 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
 static void x86_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* movsd xmm, [base + offset] */
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x10);
-    x86_rex(c, 0, 0, 0, (base_reg >> 3) | ((dst_reg >> 3) << 1));
-    if (offset == 0 && base_reg != 5 && base_reg != 13) {
-        x86_modrm(c, 0, dst_reg & 7, base_reg & 7);
-    } else {
-        x86_modrm(c, 1, dst_reg & 7, base_reg & 7);
-        me_emit_u32(c, (uint32_t)offset);
-    }
+    x86_modrm(c, 2, dst_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    me_emit_u32(c, (uint32_t)offset);
 }
 
 static void x86_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
     /* movsd [base + offset], xmm */
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x11);
-    x86_rex(c, 0, 0, 0, (base_reg >> 3) | ((src_reg >> 3) << 1));
-    if (offset == 0 && base_reg != 5 && base_reg != 13) {
-        x86_modrm(c, 0, src_reg & 7, base_reg & 7);
-    } else {
-        x86_modrm(c, 1, src_reg & 7, base_reg & 7);
-        me_emit_u32(c, (uint32_t)offset);
-    }
+    x86_modrm(c, 2, src_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    me_emit_u32(c, (uint32_t)offset);
 }
 
 static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
@@ -433,17 +427,15 @@ static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
     x86_rex(c, 0, 0, 0, dst_reg >> 3);
 }
 
+static void x86_emit_fp_mov(ZeroCCCompiler *c, int dst, int src);
+
 static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* addsd dst, src2 (dst = src1 + src2) */
     if (dst != src1) {
-        x86_rex(c, 0, 0, 0, src1 >> 3);
-        me_emit_u8(c, 0xF2);
-        me_emit_u8(c, 0x0F);
-        me_emit_u8(c, 0x10);  /* movsd */
-        x86_modrm(c, 3, dst & 7, src1 & 7);
+        x86_emit_fp_mov(c, dst, src1);
     }
-    x86_rex(c, 0, 0, 0, src2 >> 3);
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x58);  /* addsd */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -451,14 +443,10 @@ static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
     if (dst != src1) {
-        x86_rex(c, 0, 0, 0, src1 >> 3);
-        me_emit_u8(c, 0xF2);
-        me_emit_u8(c, 0x0F);
-        me_emit_u8(c, 0x10);
-        x86_modrm(c, 3, dst & 7, src1 & 7);
+        x86_emit_fp_mov(c, dst, src1);
     }
-    x86_rex(c, 0, 0, 0, src2 >> 3);
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x5C);  /* subsd */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -466,14 +454,10 @@ static void x86_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
     if (dst != src1) {
-        x86_rex(c, 0, 0, 0, src1 >> 3);
-        me_emit_u8(c, 0xF2);
-        me_emit_u8(c, 0x0F);
-        me_emit_u8(c, 0x10);
-        x86_modrm(c, 3, dst & 7, src1 & 7);
+        x86_emit_fp_mov(c, dst, src1);
     }
-    x86_rex(c, 0, 0, 0, src2 >> 3);
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x59);  /* mulsd */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -481,14 +465,10 @@ static void x86_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
     if (dst != src1) {
-        x86_rex(c, 0, 0, 0, src1 >> 3);
-        me_emit_u8(c, 0xF2);
-        me_emit_u8(c, 0x0F);
-        me_emit_u8(c, 0x10);
-        x86_modrm(c, 3, dst & 7, src1 & 7);
+        x86_emit_fp_mov(c, dst, src1);
     }
-    x86_rex(c, 0, 0, 0, src2 >> 3);
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x5E);  /* divsd */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -531,18 +511,18 @@ static void x86_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
 }
 
 static void x86_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
-    /* cvttsd2si reg, xmm */
-    x86_rex(c, 1, 0, 0, (int_dst >> 3) | ((fp_src >> 3) << 1));
+    /* cvttsd2si reg, xmm: F2 REX.W 0F 2C /r */
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 1, (int_dst >> 3) & 1, 0, (fp_src >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x2C);
     x86_modrm(c, 3, int_dst & 7, fp_src & 7);
 }
 
 static void x86_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
-    /* cvtsi2sd xmm, reg */
-    x86_rex(c, 1, 0, 0, (int_src >> 3) | ((fp_dst >> 3) << 1));
+    /* cvtsi2sd xmm, reg: F2 REX.W 0F 2A /r */
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 1, (fp_dst >> 3) & 1, 0, (int_src >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x2A);
     x86_modrm(c, 3, fp_dst & 7, int_src & 7);
@@ -550,8 +530,8 @@ static void x86_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
 
 static void x86_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
-    x86_rex(c, 0, 0, 0, (src >> 3) | ((dst >> 3) << 1));
     me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x10);  /* movsd */
     x86_modrm(c, 3, dst & 7, src & 7);
@@ -782,6 +762,82 @@ static void x86_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
     x86_rm(c, 0x8D, dst, base, offset);
 }
 
+/* RIP-relative addressing for string literals */
+static void x86_emit_lea_rip(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
+    x86_rex(c, 1, (dst_reg >> 3) & 1, 0, 0);
+    me_emit_u8(c, 0x8D);
+    x86_modrm(c, 0, dst_reg & 7, 5);  /* Mod=00, R/M=5 (RIP-relative) */
+    size_t patch_pos = me_get_offset(c);
+    me_emit_u32(c, 0);
+    if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+        c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+        c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+        c->str_relocs[c->str_reloc_count].dst_reg = dst_reg;
+        c->str_reloc_count++;
+    }
+}
+
+/* Parameter spilling: integer register to stack */
+static void x86_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
+    /* mov [rbp - offset], reg */
+    static const uint8_t save_int_regs[6][3] = {
+        {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi (reg 7) */
+        {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi (reg 6) */
+        {0x48, 0x89, 0x95}, /* mov [rbp - offset], rdx (reg 2) */
+        {0x48, 0x89, 0x8D}, /* mov [rbp - offset], rcx (reg 1) */
+        {0x4C, 0x89, 0x85}, /* mov [rbp - offset], r8  (reg 8) */
+        {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  (reg 9) */
+    };
+    int reg = reg_idx;
+    if (reg >= 0 && reg < 6) {
+        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][0]);
+        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][1]);
+        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][2]);
+        zero_cc_emit_u32(&c->text_section, (uint32_t)(-offset));
+    }
+}
+
+/* Parameter spilling: float register (XMM) to stack */
+static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
+    /* movsd [rbp - offset], xmmN */
+    if (reg_idx >= 0 && reg_idx < 8) {
+        zero_cc_emit_u8(&c->text_section, 0xF2);
+        zero_cc_emit_u8(&c->text_section, 0x0F);
+        zero_cc_emit_u8(&c->text_section, 0x11);
+        zero_cc_emit_u8(&c->text_section, 0x85 | ((reg_idx & 7) << 3));
+        zero_cc_emit_u32(&c->text_section, (uint32_t)(-offset));
+    }
+}
+
+/* Variadic spill: spill remaining integer registers for va_start */
+static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int int_reg_idx) {
+    (void)int_reg_idx;
+    static const uint8_t save_int_regs[6][3] = {
+        {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi */
+        {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi */
+        {0x48, 0x89, 0x95}, /* mov [rbp - offset], rdx */
+        {0x48, 0x89, 0x8D}, /* mov [rbp - offset], rcx */
+        {0x4C, 0x89, 0x85}, /* mov [rbp - offset], r8  */
+        {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  */
+    };
+    for (size_t p = param_count; p < 6; p++) {
+        c->current_stack_frame += 8;
+        int32_t spill_offset = c->current_stack_frame;
+        zero_cc_emit_u8(&c->text_section, save_int_regs[p][0]);
+        zero_cc_emit_u8(&c->text_section, save_int_regs[p][1]);
+        zero_cc_emit_u8(&c->text_section, save_int_regs[p][2]);
+        zero_cc_emit_u32(&c->text_section, (uint32_t)(-spill_offset));
+    }
+}
+
+/* Variadic AL setup: set %al to number of SSE registers used */
+static void x86_emit_variadic_al_setup(ZeroCCCompiler *c, int num_fp_args) {
+    if (num_fp_args > 0) {
+        zero_cc_emit_u8(&c->text_section, 0xB0);  /* mov al, imm8 */
+        zero_cc_emit_u8(&c->text_section, (uint8_t)num_fp_args);
+    }
+}
+
 /* Resolve all recorded label patches */
 static void x86_resolve_labels(ZeroCCCompiler *c) {
     for (int i = 0; i < c->label_count; i++) {
@@ -893,6 +949,12 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,
     .emit_label = x86_emit_label,
+    
+    .emit_param_save_int = x86_emit_param_save_int,
+    .emit_param_save_fp = x86_emit_param_save_fp,
+    .emit_variadic_spill = x86_emit_variadic_spill,
+    .emit_variadic_al_setup = x86_emit_variadic_al_setup,
+    .emit_lea_rip = x86_emit_lea_rip,
 };
 
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {

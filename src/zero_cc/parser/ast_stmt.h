@@ -509,7 +509,6 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                            c->tokens[c->token_pos].type != TK_RBRACE &&
                            c->tokens[c->token_pos].type != TK_EOF) {
                         ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
-                        fprintf(stderr, "[DEBUG parse_stmt_ast] token_pos=%zu, returned s=%u\n", c->token_pos, (unsigned)s);
                         if (s != AST_NULL) {
                             if (head == AST_NULL) {
                                 head = s;
@@ -519,8 +518,6 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                 if (tail_node) tail_node->next = s;
                                 tail = s;
                             }
-                        } else {
-                            fprintf(stderr, "[DEBUG] zero_cc_parse_stmt_ast returned AST_NULL at token_pos=%zu, token=%d str='%s'\n", c->token_pos, c->tokens[c->token_pos].type, c->tokens[c->token_pos].str_val);
                         }
                     }
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {

@@ -15,7 +15,6 @@
 #include "zero_cc/types/global_vars.h"
 #include "../isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
-#include "../isa_backend.h"
 #include "zero_cc/statements.h"
 #include "zero_cc/statements/definitions.h"
 

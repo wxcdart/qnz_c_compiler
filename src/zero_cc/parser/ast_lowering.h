@@ -83,29 +83,22 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
             if (target_is_float) {
                 if (!c->last_expr_is_float) {
                     /* Convert int (in rax / result_temp) to float in xmm0 */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x2A);
-                    me_emit_u8(c, 0xC0); /* cvtsi2sd xmm0, rax */
+                    if (BE(c)->emit_fp_cvtsf) {
+                        BE(c)->emit_fp_cvtsf(c, 0, 0); /* xmm0, rax */
+                    }
                 }
                 /* Float assignment: store xmm0 to [rbp - offset] */
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x11);
-                me_emit_u8(c, 0x85);
-                me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd [rbp-offset], xmm0 */
+                if (BE(c)->emit_store_fp) {
+                    BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                }
             } else {
                 if (c->last_expr_is_float) {
                     /* Convert float (in xmm0) to int (in eax) */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x2C);
-                    me_emit_u8(c, 0xC0); /* cvttsd2si eax, xmm0 */
+                    if (BE(c)->emit_fp_cvtsi) {
+                        BE(c)->emit_fp_cvtsi(c, 0, 0); /* eax, xmm0 */
+                    }
                     /* mov [rbp - offset], eax */
-                    me_emit_u8(c, 0x89);
-                    me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                    BE(c)->emit_store(c, 0, BE(c)->fp_reg, -sym->stack_offset);
                 } else {
                     /* Integer or struct assignment: use IR store */
                     ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
@@ -311,10 +304,11 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             lower_stmt_expr(c, arena, node);
             break;
         case NODE_DECL:
-            lower_stmt_decl(c, arena, node);
             /* If this is a function definition (has body in right), lower the body */
             if (node->right != AST_NULL) {
                 lower_stmt_block(c, arena, node->right);
+            } else {
+                lower_stmt_decl(c, arena, node);
             }
             break;
         case NODE_STATIC_ASSERT:
@@ -399,20 +393,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_FLOAT: {
-            /* Float literals require rodata and direct machine code */
+            /* Float literals load via backend emit_load_fp_imm */
             double val = node->float_val;
-            size_t rodata_offset = c->rodata_section.length;
-            zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&val, sizeof(val));
-            me_emit_u8(c, 0xF2);
-            me_emit_u8(c, 0x0F);
-            me_emit_u8(c, 0x10);
-            me_emit_u8(c, 0x05);
-            size_t patch_pos = me_get_offset(c);
-            me_emit_u32(c, 0);
-            if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
-                c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
-                c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
-                c->str_reloc_count++;
+            if (BE(c)->emit_load_fp_imm) {
+                BE(c)->emit_load_fp_imm(c, 0, val);
             }
             c->last_expr_is_float = 1;
             return VREG_F0;
@@ -425,15 +409,8 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
                 uint8_t zero = 0;
                 zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
-                me_emit_u8(c, 0x48);
-                me_emit_u8(c, 0x8D);
-                me_emit_u8(c, 0x05);
-                size_t patch_pos = me_get_offset(c);
-                me_emit_u32(c, 0);
-                if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
-                    c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
-                    c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
-                    c->str_reloc_count++;
+                if (BE(c)->emit_lea_rip) {
+                    BE(c)->emit_lea_rip(c, 0, rodata_offset);
                 }
             }
             c->last_expr_is_float = 0;
@@ -445,12 +422,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
-                    /* Float load requires direct machine code */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x10);
-                    me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                    /* Float load via backend emit_load_fp */
+                    if (BE(c)->emit_load_fp) {
+                        BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                    }
                     c->last_expr_is_float = 1;
                     return VREG_F0;
                 } else {
@@ -464,9 +439,7 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (gv) {
                     int temp = c->next_temp_id++;
                     /* Global load requires direct machine code with relocation */
-                    me_emit_u8(c, 0x48);
-                    me_emit_u8(c, 0xB8);
-                    me_emit_u64(c, 0);
+                    BE(c)->emit_mov_imm(c, 0, 0);
                     size_t patch_pos = me_get_offset(c) - 8;
                     if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
                         ZeroCCReloc *r = &c->relocs[c->reloc_count++];
@@ -497,11 +470,9 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 spill_offset = c->current_stack_frame;
 
                 /* movsd [rbp - spill_offset], xmm0 */
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x11);
-                me_emit_u8(c, 0x85);
-                me_emit_u32(c, (uint32_t)(-spill_offset));
+                if (BE(c)->emit_store_fp) {
+                    BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -spill_offset);
+                }
             }
 
             /* Evaluate right operand - result lands in xmm0 for floats */
@@ -515,43 +486,28 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                  * so that "xmm0 op xmm1" gives "left op right" for all ops. */
 
                 /* movsd xmm1, xmm0   -- xmm1 = right */
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x10);
-                me_emit_u8(c, 0xC8); /* movsd xmm1, xmm0 */
+                if (BE(c)->emit_fp_mov) {
+                    BE(c)->emit_fp_mov(c, 1, 0);
+                }
 
                 /* movsd xmm0, [rbp - spill_offset] -- xmm0 = left (reloaded) */
-                me_emit_u8(c, 0xF2);
-                me_emit_u8(c, 0x0F);
-                me_emit_u8(c, 0x10);
-                me_emit_u8(c, 0x85);
-                me_emit_u32(c, (uint32_t)(-spill_offset));
+                if (BE(c)->emit_load_fp) {
+                    BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -spill_offset);
+                }
 
                 /* Perform: xmm0 = left op right */
                 switch (node->aux.op) {
                     case TK_PLUS:
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x58);
-                        me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1  (left + right) */
+                        if (BE(c)->emit_fp_add) BE(c)->emit_fp_add(c, 0, 0, 1);
                         break;
                     case TK_MINUS:
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x5C);
-                        me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1  (left - right) */
+                        if (BE(c)->emit_fp_sub) BE(c)->emit_fp_sub(c, 0, 0, 1);
                         break;
                     case TK_STAR:
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x59);
-                        me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1  (left * right) */
+                        if (BE(c)->emit_fp_mul) BE(c)->emit_fp_mul(c, 0, 0, 1);
                         break;
                     case TK_SLASH:
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x5E);
-                        me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1  (left / right) */
+                        if (BE(c)->emit_fp_div) BE(c)->emit_fp_div(c, 0, 0, 1);
                         break;
                     default:
                         break;
@@ -779,11 +735,9 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 
                 if (c->last_expr_is_float) {
                     /* Float value in xmm0 - store to [rbp + total_offset] */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x11);
-                    me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)total_offset);
+                    if (BE(c)->emit_store_fp) {
+                        BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, total_offset);
+                    }
                 } else {
                     /* Integer/pointer value in GPR - use IR store */
                     ir_emit_store(right_temp, BE(c)->fp_reg, total_offset);
@@ -799,63 +753,44 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (target_is_float) {
                     if (!c->last_expr_is_float) {
                         /* Convert int to float in xmm0 */
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x48);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x2A);
-                        me_emit_u8(c, 0xC0); /* cvtsi2sd xmm0, rax */
+                        if (BE(c)->emit_fp_cvtsf) {
+                            BE(c)->emit_fp_cvtsf(c, 0, 0); /* cvtsi2sd xmm0, rax */
+                        }
                     }
                     /* For compound assignment, we need to load current value first */
                     if (is_compound) {
                         /* Load current value into xmm1 */
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x10);
-                        me_emit_u8(c, 0x8D);
-                        me_emit_u32(c, (uint32_t)(-sym->stack_offset)); /* movsd xmm1, [rbp - offset] */
+                        if (BE(c)->emit_load_fp) {
+                            BE(c)->emit_load_fp(c, 1, BE(c)->fp_reg, -sym->stack_offset);
+                        }
                         /* Perform operation in xmm0 */
                         switch (node->aux.op) {
                             case TK_ADD_ASSIGN:
-                                me_emit_u8(c, 0xF2);
-                                me_emit_u8(c, 0x0F);
-                                me_emit_u8(c, 0x58);
-                                me_emit_u8(c, 0xC1); /* addsd xmm0, xmm1 */
+                                if (BE(c)->emit_fp_add) BE(c)->emit_fp_add(c, 0, 0, 1);
                                 break;
                             case TK_SUB_ASSIGN:
-                                me_emit_u8(c, 0xF2);
-                                me_emit_u8(c, 0x0F);
-                                me_emit_u8(c, 0x5C);
-                                me_emit_u8(c, 0xC1); /* subsd xmm0, xmm1 */
+                                if (BE(c)->emit_fp_sub) BE(c)->emit_fp_sub(c, 0, 0, 1);
                                 break;
                             case TK_MUL_ASSIGN:
-                                me_emit_u8(c, 0xF2);
-                                me_emit_u8(c, 0x0F);
-                                me_emit_u8(c, 0x59);
-                                me_emit_u8(c, 0xC1); /* mulsd xmm0, xmm1 */
+                                if (BE(c)->emit_fp_mul) BE(c)->emit_fp_mul(c, 0, 0, 1);
                                 break;
                             case TK_DIV_ASSIGN:
-                                me_emit_u8(c, 0xF2);
-                                me_emit_u8(c, 0x0F);
-                                me_emit_u8(c, 0x5E);
-                                me_emit_u8(c, 0xC1); /* divsd xmm0, xmm1 */
+                                if (BE(c)->emit_fp_div) BE(c)->emit_fp_div(c, 0, 0, 1);
                                 break;
                         }
                     }
                     /* movsd [rbp - offset], xmm0 */
-                    me_emit_u8(c, 0xF2);
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x11);
-                    me_emit_u8(c, 0x85);
-                    me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                    if (BE(c)->emit_store_fp) {
+                        BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                    }
                     c->last_expr_is_float = 1;
                     return VREG_F0;
                 } else {
                     if (c->last_expr_is_float) {
                         /* Convert float to int in eax */
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x2C);
-                        me_emit_u8(c, 0xC0); /* cvttsd2si eax, xmm0 */
+                        if (BE(c)->emit_fp_cvtsi) {
+                            BE(c)->emit_fp_cvtsi(c, 0, 0); /* cvttsd2si eax, xmm0 */
+                        }
                         if (is_compound) {
                             /* Load current value and perform operation */
                             int left_temp = c->next_temp_id++;
@@ -874,9 +809,7 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                         }
                         /* mov [rbp - offset], eax */
-                        me_emit_u8(c, 0x89);
-                        me_emit_u8(c, 0x85);
-                        me_emit_u32(c, (uint32_t)(-sym->stack_offset));
+                        BE(c)->emit_store(c, 0, BE(c)->fp_reg, -sym->stack_offset);
                         c->last_expr_is_float = 0;
                         return VREG_0;
                     } else {
@@ -1000,11 +933,9 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             c->current_stack_frame += 8;
                             fp_spill_offsets[fp_reg_idx] = c->current_stack_frame;
                             /* movsd [rbp - spill_offset], xmm0 */
-                            me_emit_u8(c, 0xF2);
-                            me_emit_u8(c, 0x0F);
-                            me_emit_u8(c, 0x11);
-                            me_emit_u8(c, 0x85);
-                            me_emit_u32(c, (uint32_t)(-fp_spill_offsets[fp_reg_idx]));
+                            if (BE(c)->emit_store_fp) {
+                                BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -fp_spill_offsets[fp_reg_idx]);
+                            }
                             fp_reg_idx++;
                         }
                     } else {
@@ -1321,20 +1252,17 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                     for (int f = 0; f < fp_count && f < 8; f++) {
                         int32_t spill_off = g_ir_emitter_ctx.call_fp_spills[call_idx][f];
                         /* movsd xmm<f>, [rbp - spill_off] */
-                        me_emit_u8(c, 0xF2);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x10);
-                        me_emit_u8(c, 0x85 | ((f & 7) << 3));
-                        me_emit_u32(c, (uint32_t)(-spill_off));
+                        if (BE(c)->emit_load_fp) {
+                            BE(c)->emit_load_fp(c, f, BE(c)->fp_reg, -spill_off);
+                        }
                     }
                     call_idx++;
                 }
                 
                 /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */
                 /* TODO: Check if function is variadic - for now emit for all calls */
-                if (fp_reg_idx > 0) {
-                    me_emit_u8(c, 0xB0);  /* mov al, imm8 */
-                    me_emit_u8(c, (uint8_t)fp_reg_idx);
+                if (BE(c)->emit_variadic_al_setup) {
+                    BE(c)->emit_variadic_al_setup(c, fp_reg_idx);
                 }
                 
                 /* Emit the call */

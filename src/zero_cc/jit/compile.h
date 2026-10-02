@@ -185,27 +185,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         ir_reset();
 
         /* Function Prologue */
-        zero_cc_emit_u8(&c->text_section, 0x55);          /* push rbp */
-        zero_cc_emit_u8(&c->text_section, 0x48);          /* mov rbp, rsp */
-        zero_cc_emit_u8(&c->text_section, 0x89);
-        zero_cc_emit_u8(&c->text_section, 0xE5);
-        zero_cc_emit_u8(&c->text_section, 0x48);          /* sub rsp, 256 */
-        zero_cc_emit_u8(&c->text_section, 0x81);
-        zero_cc_emit_u8(&c->text_section, 0xEC);
-        zero_cc_emit_u32(&c->text_section, 256);
+        BE(c)->emit_prologue(c, 256);
 
         /* Save parameter registers to stack */
-        /* Integer arg regs: rdi(7), rsi(6), rdx(2), rcx(1), r8(8), r9(9) */
-        /* Float arg regs: xmm0-xmm7 */
-        static const uint8_t save_int_regs[6][3] = {
-            {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi */
-            {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi */
-            {0x48, 0x89, 0x95}, /* mov [rbp - offset], rdx */
-            {0x48, 0x89, 0x8D}, /* mov [rbp - offset], rcx */
-            {0x4C, 0x89, 0x85}, /* mov [rbp - offset], r8  */
-            {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  */
-        };
-
         /* Track which xmm register to use for float params (independent of int regs) */
         int xmm_reg_idx = 0;
         /* Track which integer register to use for int params (independent of float regs) */
@@ -218,32 +200,22 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             bool is_fp = (param_types[p].tag == TYPE_FLOAT || param_types[p].tag == TYPE_DOUBLE);
             
             if (is_fp && xmm_reg_idx < 8) {
-                /* Save from xmm register: movsd [rbp - offset], xmmN */
-                zero_cc_emit_u8(&c->text_section, 0xF2);
-                zero_cc_emit_u8(&c->text_section, 0x0F);
-                zero_cc_emit_u8(&c->text_section, 0x11);
-                zero_cc_emit_u8(&c->text_section, 0x85 | ((xmm_reg_idx & 7) << 3));
-                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                if (BE(c)->emit_param_save_fp) {
+                    BE(c)->emit_param_save_fp(c, xmm_reg_idx, sym->stack_offset);
+                }
                 xmm_reg_idx++;
             } else if (!is_fp && int_reg_idx < 6) {
-                /* Save from integer register (based on int param order, not overall param index) */
-                zero_cc_emit_u8(&c->text_section, save_int_regs[int_reg_idx][0]);
-                zero_cc_emit_u8(&c->text_section, save_int_regs[int_reg_idx][1]);
-                zero_cc_emit_u8(&c->text_section, save_int_regs[int_reg_idx][2]);
-                zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
+                if (BE(c)->emit_param_save_int) {
+                    BE(c)->emit_param_save_int(c, int_reg_idx, sym->stack_offset);
+                }
                 int_reg_idx++;
             }
         }
 
         /* Variadic spill area: spill remaining integer registers for va_start */
         if (is_variadic_fn) {
-            for (size_t p = param_count; p < 6; p++) {
-                c->current_stack_frame += 8;
-                int32_t spill_offset = c->current_stack_frame;
-                zero_cc_emit_u8(&c->text_section, save_int_regs[p][0]);
-                zero_cc_emit_u8(&c->text_section, save_int_regs[p][1]);
-                zero_cc_emit_u8(&c->text_section, save_int_regs[p][2]);
-                zero_cc_emit_u32(&c->text_section, (uint32_t)(-spill_offset));
+            if (BE(c)->emit_variadic_spill) {
+                BE(c)->emit_variadic_spill(c, param_count, int_reg_idx);
             }
         }
 
