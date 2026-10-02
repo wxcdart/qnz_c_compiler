@@ -291,34 +291,50 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 33 | `union` proper layout (overlapping members) | 3 days | ✅ |
-| 34 | Bit-fields | 1 week | |
-| 35 | Flexible array members | 2 days |
-| 36 | Anonymous struct/union members | 3 days |
-| 37 | VLA (dynamic stack allocation) | 1 week |
-| 38 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week |
-| 39 | `const` / `volatile` semantic enforcement | 3 days |
+| 33 | `union` proper layout (overlapping members) | 3 days | ✅ Complete |
+| 34 | Bit-fields (`: width` bit-packing & mask/shift operations) | 1 week | |
+| 35 | Flexible array members (trailing zero-length struct arrays) | 2 days | ✅ Complete |
+| 36 | Anonymous struct/union members | 3 days | |
+| 37 | VLA (dynamic stack allocation) | 1 week | |
+| 38 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week | |
+| 39 | `const` / `volatile` semantic enforcement | 3 days | |
 
 ---
 
-### Sprint 6 – Diagnostics, Testing & CI (Weeks 22–24)
+### Sprint 5.5 – Codebase Hardening, Cleanup & Sanitization (Weeks 22–23)
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 40 | Rich diagnostics: `file:line:col: error: …` format | 1 week |
-| 41 | Warning vs. error distinction | 2 days |
-| 42 | Regression test suite (bootstrap from TCC corpus) | 2 weeks |
-| 43 | GitHub Actions CI (`make clean && make test`) | 1 day |
+> **Strategic Priority**: Clean up technical debt, sanitize memory, and structure the test harness before subjecting ZeroCC to heavy industrial test suites (GCC torture & Csmith).
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 40 | **Architecture Cleanup & Dead Code Elimination**: Remove legacy stubs, unify `compile.h`/`ast_lowering.h` pathways, and eliminate remaining hacky fallbacks | 4 days | |
+| 41 | **Test Suite Restructuring & Harness Modernization**: Organize 111 flat tests into structured categories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`); implement unified runner with timing, pass/fail counts, and TAP/JUnit output | 3 days | |
+| 42 | **Memory Leak & Sanitizer Audit**: Clean run of entire test suite under AddressSanitizer (`-fsanitize=address,undefined`) and Valgrind; fix AST arena and string buffer leaks | 4 days | |
+| 43 | **JIT W^X Memory Hardening**: Transition from `PROT_READ|PROT_WRITE|PROT_EXEC` to strict W^X (`mprotect` write-then-execute) for security and real-world OS compliance | 2 days | |
+| 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | |
 
 ---
 
-### Sprint 7 – Cross-platform (Weeks 25–27)
+### Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance (Weeks 24–26)
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 44 | ARM64 backend (complete TODOs in `types_lexer.h`) | 3 weeks |
-| 45 | PE/COFF backend (Windows) | 3 weeks |
-| 46 | `STATIC=1` make flag for static binaries | 3 days |
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 45 | Rich diagnostics: `file:line:col: error: …` format and warning vs error distinction | 1 week | |
+| 46 | GCC C-Torture integration (run `gcc.c-torture/execute` ~1,500 tests against ZeroCC JIT) | 1 week | |
+| 47 | Differential Fuzzing: Csmith & yarpgen harness comparing ZeroCC execution results vs GCC/Clang | 1 week | |
+| 48 | Regression test suite (bootstrap from TCC corpus) | 1 week | |
+| 49 | GitHub Actions CI (`make clean && make test` + ASan/UBSan matrix) | 2 days | |
+
+---
+
+### Sprint 7 – Cross-platform & Multi-Architecture Expansion (Weeks 27–29)
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 50 | ARM64 backend (complete TODOs in `types_lexer.h` and `isa/aarch64.c`) | 3 weeks | |
+| 51 | RISC-V 64 backend completion | 2 weeks | |
+| 52 | PE/COFF backend (Windows) | 3 weeks | |
+| 53 | `STATIC=1` make flag for static binaries | 3 days | |
 
 ---
 
@@ -330,11 +346,12 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 1–3 | **Sprint 1** – lower_node/lower_expr gap fill (float, string, ternary, member, subscript) ✅ |
 | 4–7 | **Sprint 2** – New parsing (goto, globals, extern, macros) ✅ |
 | 8–12 | **Sprint 3** – Multi-ISA Backend & VREG System ✅ |
-| 13–18 | **Sprint 4** – Codegen depth (FP, structs, va_arg, register alloc) |
-| 19–21 | **Sprint 5** – Type system completeness |
-| 22–24 | **Sprint 6** – Diagnostics, tests, CI |
-| 25–27 | **Sprint 7** – Cross-platform backends |
-| 28 | Final release, docs, tag `v1.0` |
+| 13–18 | **Sprint 4** – Codegen depth (FP, structs, va_arg, register alloc) ✅ |
+| 19–21 | **Sprint 5** – Type system completeness (Bit-fields, VLAs, Atomic) |
+| 22–23 | **Sprint 5.5** – Codebase Hardening, Cleanup & Sanitization (ASan, W^X, Test Harness) |
+| 24–26 | **Sprint 6** – Industrial Testing & Conformance (GCC Torture, Csmith Fuzzing) |
+| 27–29 | **Sprint 7** – Cross-platform backends (AArch64, RISC-V, Windows) |
+| 30 | Final release, docs, tag `v1.0` |
 
 ---
 
