@@ -1675,6 +1675,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         me_patch_u32(c, patch_pos, (uint32_t)rel);
     }
     g_ir_emitter_ctx.epilogue_patch_count = 0;
+    regalloc_destroy(&c->regalloc);
     
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */

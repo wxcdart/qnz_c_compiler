@@ -25,12 +25,17 @@ void arena_destroy(Arena *arena) {
 }
 
 void *arena_alloc(Arena *arena, size_t size) {
-    if (!arena) return NULL;
+    if (!arena || size > (size_t)1024 * 1024 * 1024) return NULL;
     size_t aligned = align8(size);
     if (arena->offset + aligned > arena->capacity) {
         /* Optional: grow the buffer (simple reallocation) */
         size_t new_cap = arena->capacity * 2;
-        while (new_cap < arena->offset + aligned) new_cap *= 2;
+        if (new_cap == 0) new_cap = 1024;
+        while (new_cap < arena->offset + aligned) {
+            size_t next_cap = new_cap * 2;
+            if (next_cap <= new_cap) return NULL; /* overflow guard */
+            new_cap = next_cap;
+        }
         uint8_t *new_buf = (uint8_t *)realloc(arena->buffer, new_cap);
         if (!new_buf) return NULL;
         arena->buffer = new_buf;

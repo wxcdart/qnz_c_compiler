@@ -33,9 +33,9 @@ static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
     if (cpp->hash_next) free(cpp->hash_next);
     for (size_t i = 0; i < cpp->include_dirs.count; i++) {
         if (cpp->include_dirs.paths[i]) free(cpp->include_dirs.paths[i]);
+    }
     for (size_t i = 0; i < cpp->once_file_count; i++) {
         if (cpp->once_files[i]) free(cpp->once_files[i]);
-    }
     }
 }
 
@@ -1149,6 +1149,7 @@ static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs
     ZeroCCBuffer out;
     zero_cc_buf_init(&out, 4096);
     zero_cc_cpp_process_text(cpp, source, &out);
+    zero_cc_cpp_destroy(cpp);
     free(cpp);
     return out.data;
 }

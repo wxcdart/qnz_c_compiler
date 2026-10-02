@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,7 +88,9 @@ struct TypeInfo {
 
 /** Allocate a new TypeInfo from the permanent arena */
 static inline TypeInfo *type_new(Arena *perm) {
-    return (TypeInfo *)arena_alloc(perm, sizeof(TypeInfo));
+    TypeInfo *t = (TypeInfo *)arena_alloc(perm, sizeof(TypeInfo));
+    if (t) memset(t, 0, sizeof(TypeInfo));
+    return t;
 }
 
 /* Canonical primitive type accessors/constructors */

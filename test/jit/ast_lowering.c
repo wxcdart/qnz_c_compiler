@@ -2,6 +2,15 @@
 #include <stdlib.h>
 #include "zero_cc.h"
 
+static void cleanup_comp(ZeroCCCompiler *comp) {
+    if (!comp) return;
+    zero_cc_buf_free(&comp->text_section);
+    zero_cc_buf_free(&comp->rodata_section);
+    zero_cc_buf_free(&comp->data_section);
+    free(comp->tokens);
+    free(comp);
+}
+
 int test_arithmetic_and_return(void) {
     const char *src =
         "int main(void) {\n"
@@ -17,9 +26,11 @@ int test_arithmetic_and_return(void) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Arithmetic test compile error: %s\n", comp->error_msg);
+        cleanup_comp(comp);
         return 0;
     }
     int res = zero_cc_execute_jit(comp, NULL);
+    cleanup_comp(comp);
     // 10 + 3*2 - (10/3) = 10 + 6 - 3 = 13
     if (res != 13) {
         fprintf(stderr, "Arithmetic test expected 13, got %d\n", res);
@@ -50,6 +61,7 @@ int test_if_else(void) {
         return 0;
     }
     int res = zero_cc_execute_jit(comp, NULL);
+    cleanup_comp(comp);
     if (res != 100) {
         fprintf(stderr, "If-else test expected 100, got %d\n", res);
         return 0;
@@ -75,9 +87,11 @@ int test_while_loop(void) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "While loop test compile error: %s\n", comp->error_msg);
+        cleanup_comp(comp);
         return 0;
     }
     int res = zero_cc_execute_jit(comp, NULL);
+    cleanup_comp(comp);
     // 1 + 2 + 3 + 4 + 5 = 15
     if (res != 15) {
         fprintf(stderr, "While loop test expected 15, got %d\n", res);
@@ -102,9 +116,11 @@ int test_early_return(void) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Early return test compile error: %s\n", comp->error_msg);
+        cleanup_comp(comp);
         return 0;
     }
     int res = zero_cc_execute_jit(comp, NULL);
+    cleanup_comp(comp);
     if (res != 77) {
         fprintf(stderr, "Early return test expected 77, got %d\n", res);
         return 0;

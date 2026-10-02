@@ -19,5 +19,10 @@ int main(void) {
     }
     int result = zero_cc_execute_jit(comp, NULL);
     printf("Compound literal JIT result: %d (expected 42)\n", result);
+    zero_cc_buf_free(&comp->text_section);
+    zero_cc_buf_free(&comp->rodata_section);
+    zero_cc_buf_free(&comp->data_section);
+    free(comp->tokens);
+    free(comp);
     return result == 42 ? 0 : 1;
 }

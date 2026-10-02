@@ -9,7 +9,7 @@ LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
 EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
 
-.PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap test-junit benchmark
+.PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap test-junit benchmark asan asan-unit
 
 all: $(TESTS)
 
@@ -46,12 +46,28 @@ src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/de
 src/zero_cc/semantic.o: src/zero_cc/semantic.c src/zero_cc/semantic.h src/zero_cc/semantic/visitor.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
+src/zero_cc/%.o: src/zero_cc/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+.SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
+
 test/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
+	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(LDFLAGS) -o $@
 
 test: all
 	@python3 tools/test_runner.py
+
+asan: CFLAGS += -fsanitize=address,undefined -g
+asan: LDFLAGS += -fsanitize=address,undefined
+asan: all
+	@python3 tools/test_runner.py
+
+asan-unit: CFLAGS += -fsanitize=address,undefined -g
+asan-unit: LDFLAGS += -fsanitize=address,undefined
+asan-unit: all
+	@python3 tools/test_runner.py --category unit
 
 test-unit: all
 	@python3 tools/test_runner.py --category unit

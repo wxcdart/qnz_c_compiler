@@ -180,9 +180,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_bitfield = false;
                     m->tag = is_ptr ? TYPE_PTR : (inner_is_union ? TYPE_UNION : TYPE_STRUCT);
                     if (!is_ptr) {
-                        ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                        *b = inner_type;
-                        m->base = b;
+                        m->base = zero_cc_type_alloc_base(&inner_type);
                     }
                     if (m->size > max_size) max_size = m->size;
                 }
@@ -198,9 +196,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_bitfield = false;
                     m->tag = is_ptr ? TYPE_PTR : (inner_is_union ? TYPE_UNION : TYPE_STRUCT);
                     if (!is_ptr) {
-                        ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                        *b = inner_type;
-                        m->base = b;
+                        m->base = zero_cc_type_alloc_base(&inner_type);
                     }
                     if (!is_flexible) {
                         current_offset += m->size;
@@ -383,19 +379,17 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                         else m->tag = TYPE_STRUCT;
                         if (td && !is_ptr) {
-                            ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                            *b = *td;
-                            m->base = b;
+                            m->base = zero_cc_type_alloc_base(td);
                         }
                     }
                     else m->tag = TYPE_INT32;
                     if (is_ptr) {
                         m->tag = TYPE_PTR;
-                        ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                        memset(b, 0, sizeof(ZeroCCType));
-                        b->is_const = member_is_const;
-                        b->is_volatile = member_is_volatile;
-                        m->base = b;
+                        ZeroCCType dummy;
+                        memset(&dummy, 0, sizeof(dummy));
+                        dummy.is_const = member_is_const;
+                        dummy.is_volatile = member_is_volatile;
+                        m->base = zero_cc_type_alloc_base(&dummy);
                     }
                     if (m->size > max_size) max_size = m->size;
                 }
@@ -498,19 +492,17 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                             else m->tag = TYPE_STRUCT;
                             if (td && !is_ptr) {
-                                ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                                *b = *td;
-                                m->base = b;
+                                m->base = zero_cc_type_alloc_base(td);
                             }
                         }
                         else m->tag = TYPE_INT32;
                         if (is_ptr) {
                             m->tag = TYPE_PTR;
-                            ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-                            memset(b, 0, sizeof(ZeroCCType));
-                            b->is_const = member_is_const;
-                            b->is_volatile = member_is_volatile;
-                            m->base = b;
+                            ZeroCCType dummy;
+                            memset(&dummy, 0, sizeof(dummy));
+                            dummy.is_const = member_is_const;
+                            dummy.is_volatile = member_is_volatile;
+                            m->base = zero_cc_type_alloc_base(&dummy);
                         }
                         if (!is_flexible) {
                             current_offset += m->size;

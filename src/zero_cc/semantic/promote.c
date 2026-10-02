@@ -322,31 +322,17 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
 
     /* Decay array and function types to pointers for operands */
     const TypeInfo *lp = l;
-    TypeInfo decay_l;
     if (l->kind == TYPE_KIND_ARRAY) {
-        decay_l.kind = TYPE_KIND_POINTER;
-        decay_l.modifiers = TYPE_MOD_NONE;
-        decay_l.details.pointer.base = l->details.array.base;
-        lp = &decay_l;
+        lp = type_pointer_to(perm, l->details.array.base);
     } else if (l->kind == TYPE_KIND_FUNCTION) {
-        decay_l.kind = TYPE_KIND_POINTER;
-        decay_l.modifiers = TYPE_MOD_NONE;
-        decay_l.details.pointer.base = (TypeInfo *)l;
-        lp = &decay_l;
+        lp = type_pointer_to(perm, (TypeInfo *)l);
     }
 
     const TypeInfo *rp = r;
-    TypeInfo decay_r;
     if (r->kind == TYPE_KIND_ARRAY) {
-        decay_r.kind = TYPE_KIND_POINTER;
-        decay_r.modifiers = TYPE_MOD_NONE;
-        decay_r.details.pointer.base = r->details.array.base;
-        rp = &decay_r;
+        rp = type_pointer_to(perm, r->details.array.base);
     } else if (r->kind == TYPE_KIND_FUNCTION) {
-        decay_r.kind = TYPE_KIND_POINTER;
-        decay_r.modifiers = TYPE_MOD_NONE;
-        decay_r.details.pointer.base = (TypeInfo *)r;
-        rp = &decay_r;
+        rp = type_pointer_to(perm, (TypeInfo *)r);
     }
 
     bool is_plus = (op == '+' || op == TOK_PLUS || op == PROMOTE_OP_ADD);

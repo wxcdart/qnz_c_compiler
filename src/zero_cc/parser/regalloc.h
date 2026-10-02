@@ -81,28 +81,32 @@ typedef struct RegAllocator {
     size_t instruction_count;
 } RegAllocator;
 
+/* Destroy and free register allocator allocations */
+static void regalloc_destroy(RegAllocator *ra) __attribute__((unused));
+static void regalloc_destroy(RegAllocator *ra) {
+    if (!ra) return;
+    free(ra->intervals);
+    free(ra->active);
+    free(ra->rax_clobbered);
+    free(ra->rdx_clobbered);
+    ra->intervals = NULL;
+    ra->active = NULL;
+    ra->rax_clobbered = NULL;
+    ra->rdx_clobbered = NULL;
+    ra->interval_count = 0;
+    ra->interval_capacity = 0;
+    ra->active_count = 0;
+    ra->active_capacity = 0;
+    ra->clobber_capacity = 0;
+}
+
 /* Initialize register allocator */
 static void regalloc_init(RegAllocator *ra) __attribute__((unused));
 static void regalloc_init(RegAllocator *ra) {
     if (!ra) return;
-    
-    
-    /* Free old intervals */
-    free(ra->intervals);
-    free(ra->active);
-    
-    ra->intervals = NULL;
-    ra->interval_count = 0;
-    ra->interval_capacity = 0;
-    
-    ra->active = NULL;
-    ra->active_count = 0;
-    ra->active_capacity = 0;
-    
+    regalloc_destroy(ra);
     ra->next_spill_slot = 0;
     ra->instruction_count = 0;
-    
-    /* Initialize all registers as free */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
 }

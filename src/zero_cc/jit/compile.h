@@ -334,8 +334,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         scope_leave(&ctx->current_scope);
         ctx->current_scope = global_scope_root;
         ctx->current_fn_ret_type = NULL;
-// Consume closing brace if present
+        ctx->ast_arena = NULL;
+        zero_cc_ast_arena_free(&arena);
 
+        // Consume closing brace if present
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
     }
 }

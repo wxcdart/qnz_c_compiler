@@ -74,13 +74,19 @@ static inline ZeroCCType zero_cc_type_user(int user_idx, size_t size, size_t ali
     t.align = align ? align : 16;
     return t;
 }
+typedef struct ZeroCCTypeNode {
+    struct ZeroCCTypeNode *next;
+    ZeroCCType type;
+} ZeroCCTypeNode;
+
+void zero_cc_type_pool_free(void);
+ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base);
+
 static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_PTR; t.size = 8; t.align = 8;
     if (base) {
-        ZeroCCType *heap_base = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-        *heap_base = *base;
-        t.base = heap_base;
+        t.base = zero_cc_type_alloc_base(base);
     } else {
         t.base = NULL;
     }
@@ -92,9 +98,7 @@ static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
     memset(&t, 0, sizeof(t));
     t.tag = TYPE_ARRAY;
     if (base) {
-        ZeroCCType *heap_base = (ZeroCCType *)malloc(sizeof(ZeroCCType));
-        *heap_base = *base;
-        t.base = heap_base;
+        t.base = zero_cc_type_alloc_base(base);
         if (length > 0) {
             t.size = base->size * length;
         } else {

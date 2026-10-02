@@ -67,6 +67,7 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
 
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
+    zero_cc_type_pool_free();
     zero_cc_buf_init(&c->text_section, 4096);
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
@@ -78,6 +79,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     if (!perm || !tmp) {
         fprintf(stderr, "zero_cc: arena allocation failed\n");
         c->had_error = true;
+        zero_cc_type_pool_free();
         return;
     }
     c->reloc_count = 0;
@@ -99,6 +101,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     SemContext shared_ctx;
     if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL)) {
         c->had_error = true;
+        zero_cc_type_pool_free();
         return;
     }
     c->sem_ctx = &shared_ctx;  /* Save for lowering */
@@ -266,8 +269,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     sem_context_destroy(&shared_ctx);
     arena_destroy(tmp);
     arena_destroy(perm);
+    zero_cc_type_pool_free();
     // End of compilation
-    }
+}
 
 
 #endif /* ZERO_CC_JIT_COMPILE_UNIT_H */
