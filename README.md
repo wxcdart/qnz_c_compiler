@@ -24,16 +24,15 @@ zero_cc/
 │   └─ zero_cc/           # Implementation
 │       ├─ core.h
 │       ├─ types_lexer.h
-│       ├─ expressions.h
-│       ├─ statements.h
+│       ├─ parser/        # AST parser, lowering, IR, and const eval
+│       ├─ statements/    # Type definition & static assert handlers
 │       ├─ isa/           # Backend implementations
 │       │   ├─ x86_64.c
 │       │   ├─ aarch64.c
 │       │   └─ riscv.c
 │       ├─ types/         # Type definitions
 │       │   └─ vregs.h    # Virtual register definitions
-│       ├─ parser/        # Parser headers
-│       └─ jit/           # JIT compilation
+│       └─ jit/           # JIT compilation & ELF emission
 ├─ test/
 │   └─ *.c               # Test cases
 ├─ LICENSE               # MIT license

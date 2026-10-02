@@ -15,6 +15,25 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ### Added
 
+#### Sprint 5.5 — Task 40: Architecture Cleanup & Legacy Pipeline Elimination ✅
+- **Eliminated Legacy Single-Pass Pipeline**: Fully removed the deprecated single-pass expression and statement parsers that performed ad-hoc x86-64 machine code emission (~3,700 lines eliminated).
+- **Unified Pipeline Architecture**: ZeroCC now strictly operates on a clean **AST → Semantic Analysis → IR → Backend Emission** path for all statements, expressions, and functions.
+- **Pure Utility Extraction (`const_eval.h`)**:
+  - Extracted compile-time integer constant evaluation (`zero_cc_eval_const_expr`, recursive descent arithmetic / logic evaluators).
+  - Extracted type inference and member lookup (`zero_cc_type_of_*`, `zero_cc_type_find_member`).
+  - Extracted type name parsing for casts and operators (`zero_cc_parse_type_name`, `zero_cc_parse_type_name_at_pos`).
+  - Extracted compile-time `sizeof` and `_Alignof` folding (`eval_sizeof`, `eval_alignof`).
+- **Static Assertion Extraction (`static_assert.h`)**:
+  - Extracted `zero_cc_stmt_static_assert` from legacy control flow handlers into a dedicated, non-emitting header.
+- **Removed Deprecated Headers & Sources**:
+  - Deleted `src/zero_cc/expressions.h` and `src/zero_cc/expressions/{primary,unary,binary,ternary,visitor}.h`.
+  - Deleted `src/zero_cc/statements.h`, `src/zero_cc/statements.c`, and `src/zero_cc/statements/{control,variables}.h`.
+  - Purged obsolete `#include` references from `include/zero_cc.h` and `src/zero_cc/zero_cc.h`.
+- **Build System & Test Suite Cleanup**:
+  - Updated `Makefile` to remove `statements.o` and legacy expression header dependencies.
+  - Purged 8 scratch/stepping-stone debug test files (`test/flexible_array_debug*.c`) and 39 orphaned test binaries.
+  - Clean build with zero warnings under `-Wall -Wextra` across all 108 test suites.
+
 #### Virtual Register (VREG) System ✅
 - ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
 - Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)
