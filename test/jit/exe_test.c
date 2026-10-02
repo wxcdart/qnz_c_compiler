@@ -34,6 +34,7 @@ int main(void) {
         } else if (pid > 0) {
             int status;
             waitpid(pid, &status, 0);
+            unlink(outfile);
             if (WIFEXITED(status)) {
                 int exit_code = WEXITSTATUS(status);
                 printf("Program exited with code %d\n", exit_code);
@@ -54,6 +55,7 @@ int main(void) {
             }
         } else {
             perror("fork");
+            unlink(outfile);
             free(comp->tokens);
             zero_cc_buf_free(&comp->text_section);
             zero_cc_buf_free(&comp->rodata_section);

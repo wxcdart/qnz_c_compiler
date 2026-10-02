@@ -28,6 +28,7 @@ int main(void) {
         fprintf(stderr, "Failed to emit ELF object\n");
     }
     /* Cleanup */
+    unlink(outfile);
     zero_cc_buf_free(&comp->text_section);
     zero_cc_buf_free(&comp->rodata_section);
     zero_cc_buf_free(&comp->data_section);
