@@ -124,7 +124,29 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         /* Operators / Expressions */
         case NODE_UNOP: {
             TypeInfo *operand_type = sem_analyze_ref(ctx, node->left);
-            res = operand_type;
+            if (operand_type) {
+                uint32_t op = node->aux.op;
+                if (op == '&' || op == TK_AMP) {
+                    res = type_pointer_to(ctx->perm_arena, operand_type);
+                } else if (op == '*' || op == TK_STAR) {
+                    if (type_is_pointer(operand_type)) {
+                        res = operand_type->details.pointer.base;
+                    } else if (type_is_array(operand_type)) {
+                        res = operand_type->details.array.base;
+                    } else {
+                        res = operand_type;
+                    }
+                } else if (op == '!' || op == TK_BANG) {
+                    res = type_int(ctx->perm_arena);
+                } else if (op == TK_INC || op == TK_DEC) {
+                    if ((operand_type->modifiers & TYPE_MOD_CONST) != 0) {
+                        sem_node_error(ctx, node, "cannot modify const-qualified operand");
+                    }
+                    res = operand_type;
+                } else {
+                    res = operand_type;
+                }
+            }
             break;
         }
         case NODE_BINOP: {
@@ -160,6 +182,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             TypeInfo *lt = sem_analyze_ref(ctx, node->left);
             TypeInfo *rt = sem_analyze_ref(ctx, node->right);
             if (lt && rt) {
+                if ((lt->modifiers & TYPE_MOD_CONST) != 0) {
+                    sem_node_error(ctx, node, "cannot assign to const-qualified variable");
+                }
                 if (!type_compatible_assign(lt, rt)) {
                     sem_node_error(ctx, node, "incompatible types in assignment");
                 }

@@ -21,30 +21,32 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     if (t.size > 1024) {
         return type_int(perm);
     }
+    TypeInfo *ti = NULL;
     switch (t.tag) {
-        case TYPE_VOID: return type_void(perm);
-        case TYPE_BOOL: return type_bool(perm);
+        case TYPE_VOID: ti = type_void(perm); break;
+        case TYPE_BOOL: ti = type_bool(perm); break;
         case TYPE_INT8:
-        case TYPE_UINT8: return type_char(perm);
+        case TYPE_UINT8: ti = type_char(perm); break;
         case TYPE_INT16:
-        case TYPE_UINT16: return type_short(perm);
+        case TYPE_UINT16: ti = type_short(perm); break;
         case TYPE_INT32:
-        case TYPE_UINT32: return type_int(perm);
+        case TYPE_UINT32: ti = type_int(perm); break;
         case TYPE_INT64:
-        case TYPE_UINT64: return type_long(perm);
-        case TYPE_FLOAT: return type_float(perm);
-        case TYPE_DOUBLE: return type_double(perm);
+        case TYPE_UINT64: ti = type_long(perm); break;
+        case TYPE_FLOAT: ti = type_float(perm); break;
+        case TYPE_DOUBLE: ti = type_double(perm); break;
         case TYPE_PTR: {
             // FIX: Guard against NULL base pointer (incomplete types like FILE*)
             if (!t.base) {
-                return type_pointer_to(perm, type_void(perm));
+                ti = type_pointer_to(perm, type_void(perm));
+            } else {
+                TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
+                ti = type_pointer_to(perm, base);
             }
-            TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
-            return type_pointer_to(perm, base);
+            break;
         }
         case TYPE_ARRAY: {
             // FIX: Guard against NULL base pointer
-            TypeInfo *ti;
             if (!t.base) {
                 ti = type_array_of(perm, type_void(perm), t.array_len);
             } else {
@@ -52,11 +54,11 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                 ti = type_array_of(perm, base, t.array_len);
             }
             if (ti) ti->details.array.is_vla = t.is_vla;
-            return ti;
+            break;
         }
         case TYPE_STRUCT:
         case TYPE_UNION: {
-            TypeInfo *ti = type_new(perm);
+            ti = type_new(perm);
             ti->kind = (t.tag == TYPE_UNION) ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
             if (t.struct_name[0] != '\0') {
                 size_t tlen = strlen(t.struct_name);
@@ -89,6 +91,11 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     mt.base = NULL;
                 }
                 TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
+                if (mti) {
+                    if (t.members[i].is_const) mti->modifiers |= TYPE_MOD_CONST;
+                    if (t.members[i].is_volatile) mti->modifiers |= TYPE_MOD_VOLATILE;
+                    if (t.members[i].is_atomic) mti->modifiers |= TYPE_MOD_ATOMIC;
+                }
                 const char *fname = name_copy ? name_copy : t.members[i].name;
                 if (t.members[i].is_bitfield) {
                     type_add_bitfield(perm, ti, fname, t.members[i].offset, mti,
@@ -97,10 +104,16 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     type_add_field(perm, ti, fname, t.members[i].offset, mti);
                 }
             }
-            return ti;
+            break;
         }
-        default: return type_int(perm);
+        default: ti = type_int(perm); break;
     }
+    if (ti) {
+        if (t.is_const) ti->modifiers |= TYPE_MOD_CONST;
+        if (t.is_volatile) ti->modifiers |= TYPE_MOD_VOLATILE;
+        if (t.is_atomic) ti->modifiers |= TYPE_MOD_ATOMIC;
+    }
+    return ti;
 }
 
 

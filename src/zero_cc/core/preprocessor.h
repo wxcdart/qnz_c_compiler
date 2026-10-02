@@ -176,12 +176,14 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_func1(cpp, "__attribute__", "x", "");
     zero_cc_cpp_define_func1(cpp, "__attribute", "x", "");
     zero_cc_cpp_define_obj(cpp, "__extension__", "");
-    zero_cc_cpp_define_obj(cpp, "__restrict", "");
-    zero_cc_cpp_define_obj(cpp, "__restrict__", "");
+    zero_cc_cpp_define_obj(cpp, "__restrict", "restrict");
+    zero_cc_cpp_define_obj(cpp, "__restrict__", "restrict");
     zero_cc_cpp_define_obj(cpp, "__inline__", "inline");
     zero_cc_cpp_define_obj(cpp, "__inline", "inline");
-    zero_cc_cpp_define_obj(cpp, "__volatile__", "");
-    zero_cc_cpp_define_obj(cpp, "volatile", "");
+    zero_cc_cpp_define_obj(cpp, "__volatile__", "volatile");
+    zero_cc_cpp_define_obj(cpp, "__volatile", "volatile");
+    zero_cc_cpp_define_obj(cpp, "__const", "const");
+    zero_cc_cpp_define_obj(cpp, "__const__", "const");
     zero_cc_cpp_define_func3(cpp, "__builtin_memcpy", "dest", "src", "n", "memcpy(dest, src, n)");
     zero_cc_cpp_define_func1(cpp, "__builtin_memset", "s", "memset(s, 0, 0)");
 #if defined(ZERO_CC_TARGET_X86_64)

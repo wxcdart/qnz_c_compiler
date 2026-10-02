@@ -19,7 +19,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
-           c->tokens[c->token_pos].type == TK_NORETURN ||
+           c->tokens[c->token_pos].type == TK_NORETURN || c->tokens[c->token_pos].type == TK_CONST ||
+           c->tokens[c->token_pos].type == TK_VOLATILE ||
            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0)) {
         if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
         c->token_pos++;
@@ -90,50 +91,89 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             is_variadic_fn = true;
             c->token_pos++;
-        } else if (c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
-            c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
-            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
-            c->tokens[c->token_pos].type == TK_FLOAT_KW ||
-            c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
-            c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
-            c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
-            ZeroCCTokType ptt = c->tokens[c->token_pos].type;
-            const char *ptname = c->tokens[c->token_pos].str_val;
-            ZeroCCType *pfound = zero_cc_find_typedef(c, ptname);
-            if (!pfound) pfound = zero_cc_find_struct(c, ptname);
-            c->token_pos++;
-            if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
-                ptname = c->tokens[c->token_pos].str_val;
-                pfound = zero_cc_find_struct(c, ptname);
-                if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+        } else {
+            bool p_is_const = false;
+            bool p_is_volatile = false;
+            while (c->tokens[c->token_pos].type == TK_CONST ||
+                   c->tokens[c->token_pos].type == TK_VOLATILE ||
+                   c->tokens[c->token_pos].type == TK_RESTRICT) {
+                if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
                 c->token_pos++;
             }
-            bool is_ptr = false;
-            while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
-                if (param_count < 8) {
-                    snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
-                    if (pfound) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(pfound) : *pfound;
-                        snprintf(param_types[param_count].struct_name, sizeof(param_types[param_count].struct_name), "%s", ptname);
-                    } else if (ptt == TK_FLOAT_KW) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_float();
-                    } else if (ptt == TK_DOUBLE_KW) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_double();
-                    } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_char();
-                    } else if (ptt == TK_SHORT) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int16();
-                    } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int();
-                    } else if (ptt == TK_LONG) {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int64();
-                    } else {
-                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int64();
-                    }
-                    param_count++;
-                }
+            if (c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
+                c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
+                c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+                c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+                c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
+                c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
+                ZeroCCTokType ptt = c->tokens[c->token_pos].type;
+                const char *ptname = c->tokens[c->token_pos].str_val;
+                ZeroCCType *pfound = zero_cc_find_typedef(c, ptname);
+                if (!pfound) pfound = zero_cc_find_struct(c, ptname);
                 c->token_pos++;
+                if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
+                    ptname = c->tokens[c->token_pos].str_val;
+                    pfound = zero_cc_find_struct(c, ptname);
+                    if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+                    c->token_pos++;
+                }
+                while (c->tokens[c->token_pos].type == TK_CONST ||
+                       c->tokens[c->token_pos].type == TK_VOLATILE ||
+                       c->tokens[c->token_pos].type == TK_RESTRICT) {
+                    if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+                    if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
+                    c->token_pos++;
+                }
+                bool is_ptr = false;
+                bool p_ptr_is_const = false;
+                bool p_ptr_is_volatile = false;
+                while (c->tokens[c->token_pos].type == TK_STAR) {
+                    is_ptr = true;
+                    c->token_pos++;
+                    while (c->tokens[c->token_pos].type == TK_CONST ||
+                           c->tokens[c->token_pos].type == TK_VOLATILE ||
+                           c->tokens[c->token_pos].type == TK_RESTRICT) {
+                        if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_is_const = true;
+                        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_is_volatile = true;
+                        c->token_pos++;
+                    }
+                }
+                if (c->tokens[c->token_pos].type == TK_IDENT) {
+                    if (param_count < 8) {
+                        snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
+                        ZeroCCType pt;
+                        if (pfound) {
+                            pt = *pfound;
+                            snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
+                        } else if (ptt == TK_FLOAT_KW) {
+                            pt = zero_cc_type_float();
+                        } else if (ptt == TK_DOUBLE_KW) {
+                            pt = zero_cc_type_double();
+                        } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
+                            pt = zero_cc_type_char();
+                        } else if (ptt == TK_SHORT) {
+                            pt = zero_cc_type_int16();
+                        } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+                            pt = zero_cc_type_int();
+                        } else if (ptt == TK_LONG) {
+                            pt = zero_cc_type_int64();
+                        } else {
+                            pt = zero_cc_type_int64();
+                        }
+                        pt.is_const = p_is_const;
+                        pt.is_volatile = p_is_volatile;
+                        if (is_ptr) {
+                            pt = zero_cc_type_ptr(&pt);
+                            pt.is_const = p_ptr_is_const;
+                            pt.is_volatile = p_ptr_is_volatile;
+                        }
+                        param_types[param_count] = pt;
+                        param_count++;
+                    }
+                    c->token_pos++;
+                }
             }
         }
         if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;

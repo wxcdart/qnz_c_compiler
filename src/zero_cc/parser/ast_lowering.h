@@ -628,6 +628,11 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     const char *var = operand->s.str;
                     ZeroCCSym *sym = zero_cc_find_local(c, var);
                     if (sym) {
+                        if (sym->is_const || sym->type.is_const) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "cannot modify const-qualified variable '%s'", var);
+                            return 0xFF;
+                        }
                         if (sym->is_atomic || sym->type.is_atomic) {
                             int addr_temp = c->next_temp_id++;
                             ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
@@ -818,6 +823,29 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         fprintf(stderr, "ERROR: Undefined local variable '%s' in struct assignment\n", base_node->s.str);
                         return 0xFF;
                     }
+                    if (sym->is_const || sym->type.is_const) {
+                        c->had_error = 1;
+                        snprintf(c->error_msg, sizeof(c->error_msg), "cannot assign to member of const-qualified struct '%s'", base_node->s.str);
+                        return 0xFF;
+                    }
+                    if (c->sem_ctx && left_node->aux.extra > 0) {
+                        TypeInfo *ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(left_node->aux.extra - 1));
+                        if (ti && (ti->modifiers & TYPE_MOD_CONST)) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg), "cannot assign to const-qualified member");
+                            return 0xFF;
+                        }
+                    }
+                    for (size_t m_i = 0; m_i < sym->type.member_count; m_i++) {
+                        if (sym->type.members[m_i].offset == (size_t)member_offset) {
+                            if (sym->type.members[m_i].is_const) {
+                                c->had_error = 1;
+                                snprintf(c->error_msg, sizeof(c->error_msg), "cannot assign to const-qualified member '%s'", sym->type.members[m_i].name);
+                                return 0xFF;
+                            }
+                            break;
+                        }
+                    }
                     base_stack_offset = -sym->stack_offset;
                 } else {
                     fprintf(stderr, "ERROR: Unsupported base expression in struct member assignment\n");
@@ -1005,10 +1033,31 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 0;
                 return right_temp;
             }
-            
+
+            if (left_node && left_node->tag == NODE_UNOP && (left_node->aux.op == '*' || left_node->aux.op == TK_STAR)) {
+                ZeroCCASTNode *inner = zero_cc_ast_get(arena, left_node->left);
+                if (inner && inner->tag == NODE_IDENT) {
+                    ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                    if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->is_const) {
+                        c->had_error = 1;
+                        snprintf(c->error_msg, sizeof(c->error_msg), "cannot assign to const-qualified pointer target '%s'", inner->s.str);
+                        return 0xFF;
+                    }
+                }
+                int ptr_temp = lower_expr(c, arena, left_node->left);
+                ir_emit_store_64(right_temp, ptr_temp);
+                c->last_expr_is_float = 0;
+                return right_temp;
+            }
+
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
+                if (sym->is_const || sym->type.is_const) {
+                    c->had_error = 1;
+                    snprintf(c->error_msg, sizeof(c->error_msg), "cannot assign to const-qualified variable '%s'", var);
+                    return 0xFF;
+                }
                 bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                 if (target_is_float) {
                     if (!c->last_expr_is_float) {

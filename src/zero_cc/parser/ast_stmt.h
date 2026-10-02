@@ -358,16 +358,30 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
     }
 
     /* Variable Declaration or Typedef Declaration */
-    /* Skip alignment & storage specifiers */
+    /* Parse alignment, storage specifiers & type qualifiers */
+    bool is_const = false;
+    bool is_volatile = false;
+    bool is_atomic = false;
+
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_ALIGNAS ||
             c->tokens[c->token_pos].type == TK_CONSTEXPR ||
             c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_RESTRICT ||
             c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_EXTERN ||
             c->tokens[c->token_pos].type == TK_THREAD_LOCAL ||
             c->tokens[c->token_pos].type == TK_REGISTER)) {
-        if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
+        if (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_CONSTEXPR) {
+            is_const = true;
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_VOLATILE) {
+            is_volatile = true;
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_RESTRICT) {
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
             c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 c->token_pos++;
@@ -396,8 +410,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             }
         }
         /* Check _Atomic(T) or _Atomic T */
-        bool is_atomic = (type_tok == TK_ATOMIC);
         if (type_tok == TK_ATOMIC) {
+            is_atomic = true;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 c->token_pos++;
                 if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
@@ -414,17 +428,31 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 c->token_pos++;
             }
         }
-        /* Also allow type _Atomic x; */
-        while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_ATOMIC || c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+        /* Also allow type _Atomic, const, volatile x; */
+        while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_ATOMIC ||
+                                                 c->tokens[c->token_pos].type == TK_CONST ||
+                                                 c->tokens[c->token_pos].type == TK_VOLATILE ||
+                                                 c->tokens[c->token_pos].type == TK_RESTRICT)) {
             if (c->tokens[c->token_pos].type == TK_ATOMIC) is_atomic = true;
+            if (c->tokens[c->token_pos].type == TK_CONST) is_const = true;
+            if (c->tokens[c->token_pos].type == TK_VOLATILE) is_volatile = true;
             c->token_pos++;
         }
 
-        /* Pointer asterisks */
+        /* Pointer asterisks and pointer qualifiers */
         bool is_ptr = false;
+        bool ptr_is_const = false;
+        bool ptr_is_volatile = false;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
             is_ptr = true;
             c->token_pos++;
+            while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_CONST ||
+                                                     c->tokens[c->token_pos].type == TK_VOLATILE ||
+                                                     c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                if (c->tokens[c->token_pos].type == TK_CONST) ptr_is_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) ptr_is_volatile = true;
+                c->token_pos++;
+            }
         }
 
         /* Check for identifier name */
@@ -462,16 +490,44 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                             break;
                         }
                     }
-                    /* Parse parameter declaration: type specifier + optional pointer + identifier */
+                    /* Parse parameter declaration: qualifiers + type specifier + optional pointer + identifier */
+                    bool param_is_const = false;
+                    bool param_is_volatile = false;
+                    while (c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_CONST ||
+                            c->tokens[c->token_pos].type == TK_VOLATILE ||
+                            c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                        if (c->tokens[c->token_pos].type == TK_CONST) param_is_const = true;
+                        if (c->tokens[c->token_pos].type == TK_VOLATILE) param_is_volatile = true;
+                        c->token_pos++;
+                    }
                     ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
                     if (!is_type_specifier(c, param_type_tok)) {
                         break; // error
                     }
                     c->token_pos++;
+                    while (c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_CONST ||
+                            c->tokens[c->token_pos].type == TK_VOLATILE ||
+                            c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                        if (c->tokens[c->token_pos].type == TK_CONST) param_is_const = true;
+                        if (c->tokens[c->token_pos].type == TK_VOLATILE) param_is_volatile = true;
+                        c->token_pos++;
+                    }
                     bool param_is_ptr = false;
+                    bool param_ptr_is_const = false;
+                    bool param_ptr_is_volatile = false;
                     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
                         param_is_ptr = true;
                         c->token_pos++;
+                        while (c->token_pos < c->token_count &&
+                               (c->tokens[c->token_pos].type == TK_CONST ||
+                                c->tokens[c->token_pos].type == TK_VOLATILE ||
+                                c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                            if (c->tokens[c->token_pos].type == TK_CONST) param_ptr_is_const = true;
+                            if (c->tokens[c->token_pos].type == TK_VOLATILE) param_ptr_is_volatile = true;
+                            c->token_pos++;
+                        }
                     }
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                         const char *pname = c->tokens[c->token_pos].str_val;
@@ -502,7 +558,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         else if (param_type_tok == TK_DOUBLE_KW) ptype = zero_cc_type_double();
                         else if (param_type_tok == TK_VOID) ptype = zero_cc_type_void();
                         else ptype = zero_cc_type_int64();
-                        if (param_is_ptr) ptype = zero_cc_type_ptr(&ptype);
+                        ptype.is_const = param_is_const;
+                        ptype.is_volatile = param_is_volatile;
+                        if (param_is_ptr) {
+                            ptype = zero_cc_type_ptr(&ptype);
+                            ptype.is_const = param_ptr_is_const;
+                            ptype.is_volatile = param_ptr_is_volatile;
+                        }
                         TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
                         decl_node_set_type(ctx, p_node, ptype_ti);
                         if (param_head == AST_NULL) {
@@ -647,8 +709,14 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[type_start_pos].str_val);
                     decl_type = tdef ? *tdef : zero_cc_type_int64();
                 }
-                if (is_ptr) decl_type = zero_cc_type_ptr(&decl_type);
+                decl_type.is_const = is_const;
+                decl_type.is_volatile = is_volatile;
                 decl_type.is_atomic = is_atomic;
+                if (is_ptr) {
+                    decl_type = zero_cc_type_ptr(&decl_type);
+                    decl_type.is_const = ptr_is_const;
+                    decl_type.is_volatile = ptr_is_volatile;
+                }
 
                 TypeInfo *decl_ti = NULL;
                 if (is_vla) {
@@ -659,12 +727,20 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     decl_type.align = 8;
                     TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
                     decl_ti = type_array_of(ctx->perm_arena, elem_ti, 0);
-                    if (decl_ti) decl_ti->details.array.is_vla = true;
+                    if (decl_ti) {
+                        decl_ti->details.array.is_vla = true;
+                        if (elem_type.is_const) decl_ti->modifiers |= TYPE_MOD_CONST;
+                        if (elem_type.is_volatile) decl_ti->modifiers |= TYPE_MOD_VOLATILE;
+                    }
                 } else if (is_array) {
                     ZeroCCType elem_type = decl_type;
                     decl_type = zero_cc_type_array(&elem_type, fixed_count);
                     TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
                     decl_ti = type_array_of(ctx->perm_arena, elem_ti, fixed_count);
+                    if (decl_ti) {
+                        if (elem_type.is_const) decl_ti->modifiers |= TYPE_MOD_CONST;
+                        if (elem_type.is_volatile) decl_ti->modifiers |= TYPE_MOD_VOLATILE;
+                    }
                 } else {
                     decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
                 }
@@ -673,6 +749,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 if (sym) {
                     if (is_vla) sym->is_vla = true;
                     if (is_atomic) sym->is_atomic = true;
+                    if (decl_type.is_const) sym->is_const = true;
+                    if (decl_type.is_volatile) sym->is_volatile = true;
                 }
 
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);

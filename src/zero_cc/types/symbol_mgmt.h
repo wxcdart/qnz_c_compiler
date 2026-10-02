@@ -43,6 +43,8 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     sym->param_reg_idx = -1;
     sym->is_vla = type.is_vla;
     sym->is_atomic = type.is_atomic;
+    sym->is_const = type.is_const;
+    sym->is_volatile = type.is_volatile;
     decl_align_spec = 0;
     return sym;
 }

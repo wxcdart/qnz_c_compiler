@@ -41,6 +41,9 @@ typedef struct ZeroCCStructMember {
     uint8_t bit_offset;/* Bit offset within storage unit (0..63) */
     uint8_t bit_width; /* Bit-field width in bits (1..64) */
     bool is_signed;    /* Signed vs unsigned bit-field */
+    bool is_const;
+    bool is_volatile;
+    bool is_atomic;
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {
@@ -84,6 +87,8 @@ typedef struct {
     int param_reg_idx;
     bool is_vla;
     bool is_atomic;
+    bool is_const;
+    bool is_volatile;
 } ZeroCCSym;
 
 /* Function Definition Record */

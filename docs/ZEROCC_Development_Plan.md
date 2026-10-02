@@ -123,7 +123,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Named `enum` as a distinct type-tag | 🟡 | Enum values resolved; distinct type checking partial |
 | `typedef` (scalar, struct) | ✅ | Typedef table resolution |
 | `typedef` for function pointers | ✅ | `typedef int (*fn)(int)` parsed and callable |
-| `const` / `volatile` / `restrict` | 🟡 | Qualifiers parsed and stored; semantic enforcement planned in Sprint 5 Task 39 |
+| `const` / `volatile` / `restrict` | ✅ | Syntactic parsing, qualifier preservation, and semantic enforcement on variables, pointers, members, and structs (Sprint 5 Task 39, `test/const_volatile_test.c`) |
 | `_Atomic` | ✅ | C11 `_Atomic` type, atomic ops (`lock cmpxchg`, `lock xadd`, `xchg`), and GCC/C11 `__sync`/`__atomic` builtins (Sprint 5 Task 38, `test/atomic_test.c`) |
 | `_Thread_local` | ✅ | System TLS (`fs`/`gs` segment) lowered and verified (`test/tls.c`, `test/tls_jit.c`) |
 | `_Alignas(N)` | ✅ | Alignment applied to variable declarations |
@@ -357,13 +357,13 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ### Current Focus: Sprint 5 – Type System Completeness
 
-Sprints 0.5 through 4 are complete with all 115 test suites passing cleanly. The immediate focus is completing the C99 type system:
+Sprints 0.5 through 5 are complete with all 116 test suites passing cleanly. The C99 type system is now feature-complete:
 
 1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union) — ✅ Complete (`test/bitfield_test.c`)
 2. **Task 36: Anonymous struct / union members** — ✅ Complete (`test/anon_struct_test.c`)
 3. **Task 37: Variable Length Arrays (VLAs)** — ✅ Complete (`test/vla_test.c`)
 4. **Task 38: `_Atomic` operations** — ✅ Complete (`test/atomic_test.c`)
-5. **Task 39: `const` / `volatile` semantic enforcement** (NEXT)
+5. **Task 39: `const` / `volatile` semantic enforcement** — ✅ Complete (`test/const_volatile_test.c`). Sprint 5 is now 100% complete!
 
 ---
 

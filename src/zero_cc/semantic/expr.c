@@ -557,6 +557,23 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         member_t = type_int(ctx->perm_arena);
     }
 
+    if (struct_t && (struct_t->modifiers & TYPE_MOD_CONST)) {
+        if (member_t && (member_t->modifiers & TYPE_MOD_CONST) == 0) {
+            TypeInfo *qualified_member = type_new(ctx->perm_arena);
+            *qualified_member = *member_t;
+            qualified_member->modifiers |= TYPE_MOD_CONST;
+            member_t = qualified_member;
+        }
+    }
+    if (struct_t && (struct_t->modifiers & TYPE_MOD_VOLATILE)) {
+        if (member_t && (member_t->modifiers & TYPE_MOD_VOLATILE) == 0) {
+            TypeInfo *qualified_member = type_new(ctx->perm_arena);
+            *qualified_member = *member_t;
+            qualified_member->modifiers |= TYPE_MOD_VOLATILE;
+            member_t = qualified_member;
+        }
+    }
+
     /* Store member offset in node->aux.alt for codegen (aux.extra used for type info) */
     node->aux.alt = (uint32_t)member_offset;
 

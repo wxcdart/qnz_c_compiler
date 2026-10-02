@@ -210,6 +210,18 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             continue;
         }
 
+        bool member_is_const = false;
+        bool member_is_volatile = false;
+        bool member_is_atomic = false;
+        while (c->tokens[c->token_pos].type == TK_CONST ||
+               c->tokens[c->token_pos].type == TK_VOLATILE ||
+               c->tokens[c->token_pos].type == TK_RESTRICT) {
+            if (c->tokens[c->token_pos].type == TK_CONST) member_is_const = true;
+            if (c->tokens[c->token_pos].type == TK_VOLATILE) member_is_volatile = true;
+            c->token_pos++;
+        }
+        mt = c->tokens[c->token_pos].type;
+
         if (mt == TK_IDENT || mt == TK_INT || mt == TK_CHAR || mt == TK_VOID ||
             mt == TK_FLOAT_KW || mt == TK_DOUBLE_KW || mt == TK_BOOL_KW ||
             mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG || mt == TK_ATOMIC) {
@@ -219,6 +231,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 snprintf(type_ident, sizeof(type_ident), "%s", c->tokens[c->token_pos].str_val);
             }
             if (mt == TK_ATOMIC) {
+                member_is_atomic = true;
                 c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_LPAREN) {
                     c->token_pos++;
@@ -272,10 +285,28 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 else if (c->tokens[c->token_pos].type == TK_LONG) { mt = TK_LONG; c->token_pos++; }
                 else { mt = TK_INT; }
             }
+            while (c->tokens[c->token_pos].type == TK_CONST ||
+                   c->tokens[c->token_pos].type == TK_VOLATILE ||
+                   c->tokens[c->token_pos].type == TK_RESTRICT ||
+                   c->tokens[c->token_pos].type == TK_ATOMIC) {
+                if (c->tokens[c->token_pos].type == TK_CONST) member_is_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) member_is_volatile = true;
+                if (c->tokens[c->token_pos].type == TK_ATOMIC) member_is_atomic = true;
+                c->token_pos++;
+            }
             bool is_ptr = false;
+            bool member_ptr_is_const = false;
+            bool member_ptr_is_volatile = false;
             while (c->tokens[c->token_pos].type == TK_STAR) {
                 is_ptr = true;
                 c->token_pos++;
+                while (c->tokens[c->token_pos].type == TK_CONST ||
+                       c->tokens[c->token_pos].type == TK_VOLATILE ||
+                       c->tokens[c->token_pos].type == TK_RESTRICT) {
+                    if (c->tokens[c->token_pos].type == TK_CONST) member_ptr_is_const = true;
+                    if (c->tokens[c->token_pos].type == TK_VOLATILE) member_ptr_is_volatile = true;
+                    c->token_pos++;
+                }
             }
             size_t base_align = 8, base_size = 8;
             if (mt == TK_CHAR || mt == TK_BOOL_KW) { base_align = 1; base_size = 1; }
@@ -338,6 +369,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->bit_offset = 0;
                     m->bit_width = is_bitfield ? bit_width : (uint8_t)(base_size * 8);
                     m->is_signed = !is_unsigned;
+                    m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
+                    m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
+                    m->is_atomic = member_is_atomic;
                     if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                     else if (mt == TK_SHORT) m->tag = TYPE_INT16;
                     else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
@@ -354,7 +388,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                     }
                     else m->tag = TYPE_INT32;
-                    if (is_ptr) m->tag = TYPE_PTR;
+                    if (is_ptr) {
+                        m->tag = TYPE_PTR;
+                        ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
+                        memset(b, 0, sizeof(ZeroCCType));
+                        b->is_const = member_is_const;
+                        b->is_volatile = member_is_volatile;
+                        m->base = b;
+                    }
                     if (m->size > max_size) max_size = m->size;
                 }
             } else {
@@ -384,6 +425,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->bit_offset = m_bit_off;
                                 m->bit_width = bit_width;
                                 m->is_signed = !is_unsigned;
+                                m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
+                                m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
+                                m->is_atomic = member_is_atomic;
                                 if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = TYPE_INT16;
                                 else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
@@ -411,6 +455,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->bit_offset = 0;
                                 m->bit_width = bit_width;
                                 m->is_signed = !is_unsigned;
+                                m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
+                                m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
+                                m->is_atomic = member_is_atomic;
                                 if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = TYPE_INT16;
                                 else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
@@ -437,6 +484,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->bit_offset = 0;
                         m->bit_width = 0;
                         m->is_signed = !is_unsigned;
+                        m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
+                        m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
+                        m->is_atomic = member_is_atomic;
                         if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = TYPE_INT16;
                         else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
@@ -453,7 +503,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                         }
                         else m->tag = TYPE_INT32;
-                        if (is_ptr) m->tag = TYPE_PTR;
+                        if (is_ptr) {
+                            m->tag = TYPE_PTR;
+                            ZeroCCType *b = (ZeroCCType *)malloc(sizeof(ZeroCCType));
+                            memset(b, 0, sizeof(ZeroCCType));
+                            b->is_const = member_is_const;
+                            b->is_volatile = member_is_volatile;
+                            m->base = b;
+                        }
                         if (!is_flexible) {
                             current_offset += m->size;
                         }
