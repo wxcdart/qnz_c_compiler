@@ -1,23 +1,12 @@
-/* Statement Parser - Modular Headers */
+/* statements.h — Legacy Statement Parser API: REMOVED (Sprint 5.5 Task 40)
+ *
+ * The legacy single-pass statement compiler has been eliminated.
+ * All compilation goes through the AST/IR pipeline.
+ *
+ * For type registration (typedef/struct/enum): include zero_cc/statements/definitions.h
+ * For _Static_assert:                          include zero_cc/statements/static_assert.h
+ * For constant expression evaluation:          include zero_cc/parser/const_eval.h
+ */
 #ifndef ZERO_CC_STATEMENTS_H
 #define ZERO_CC_STATEMENTS_H
-
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#include "zero_cc/types_lexer.h"
-#include "zero_cc/parser.h"  /* ZeroCCCompiler, ASTRef */
-#include "zero_cc/expressions.h"
-
-/* Forward declaration */
-typedef struct ZeroCCCompiler ZeroCCCompiler;
-
-/* Forward declarations for expression parsing functions used by statements */
-void zero_cc_parse_expr(ZeroCCCompiler *c);
-int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c);
-
-/* Main statement parser */
-void zero_cc_parse_stmt(ZeroCCCompiler *c);
-
 #endif /* ZERO_CC_STATEMENTS_H */

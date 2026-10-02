@@ -2,7 +2,8 @@
 #ifndef ZERO_CC_STATEMENTS_DEFINITIONS_H
 #define ZERO_CC_STATEMENTS_DEFINITIONS_H
 
-#include "zero_cc/statements.h"
+#include "zero_cc/types_lexer.h"
+#include "zero_cc/parser/const_eval.h"
 
 /* Forward declaration */
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union);

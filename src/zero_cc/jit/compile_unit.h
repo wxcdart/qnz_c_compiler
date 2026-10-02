@@ -15,7 +15,7 @@
 #include "zero_cc/types/global_vars.h"
 #include "../isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
-#include "zero_cc/statements.h"
+#include "zero_cc/statements/static_assert.h"
 #include "zero_cc/statements/definitions.h"
 
 /* Forward declaration */
@@ -110,12 +110,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             ((c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) &&
              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
               (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE)))) {
-            zero_cc_parse_stmt(c);
+            zero_cc_compile_top_level_decl(c);
             if (c->had_error) break;
             continue;
         }
         if (c->tokens[c->token_pos].type == TK_STATIC_ASSERT) {
-            zero_cc_parse_stmt(c);
+            zero_cc_stmt_static_assert(c);
             if (c->had_error) break;
             continue;
         }

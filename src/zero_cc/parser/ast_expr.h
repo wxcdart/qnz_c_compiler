@@ -10,7 +10,7 @@
 
 #include "../types_lexer.h"
 #include "../parser.h"
-#include "../expressions.h"
+#include "const_eval.h"
 
 /* Forward declaration for statement parsing */
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx);
