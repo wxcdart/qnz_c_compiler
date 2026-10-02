@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon
+CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon -g
 LDFLAGS ?=
 TEST_SRCS = $(wildcard test/*/*.c)
 TESTS = $(TEST_SRCS:.c=)
