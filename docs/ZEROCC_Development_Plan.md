@@ -338,6 +338,21 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
+### Sprint 8 – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (Weeks 30–33)
+
+> **Strategic Priority**: Transition from direct AST-to-machine-code lowering to a full Two-Pass IR architecture with linear-scan register allocation and multi-tier optimization passes (-O0 through -O3), drawing high-throughput design patterns from LuaJIT's linear IR and folding engine. Reference: [`docs/2_pass_plan.md`](2_pass_plan.md) and [`docs/TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md).
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 54 | **Complete Pass 1 (AST → IR)**: Expand `ir_emit_ops.h` and migrate remaining AST statement/expression nodes to IR; eliminate dual-emission pathway | 1 week | 🟡 Partial |
+| 55 | **Register Allocator Hardening**: Fix live-interval computation in `live_range.h`; robust linear-scan assignment with callee/caller register spilling in `regalloc.h` | 1 week | 🟡 Partial |
+| 56 | **Pass 2 Machine Code Emission**: Complete `emit_ir_to_machine_code()` using target `isa_backend.h` interfaces (x86-64, AArch64, RISC-V) | 1 week | |
+| 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | |
+| 58 | **Loop & Control-Flow Optimizations (-O3)**: Loop-invariant code motion (LICM), strength reduction (multiplication to shifts/adds), and branch simplification | 1 week | |
+| 59 | **Optimization Benchmarking & Differential Verification**: Benchmark compilation speed and execution throughput against GCC/Clang across optimization levels (-O0 to -O3) | 3 days | |
+
+---
+
 ## Timeline Overview
 
 | Week | Work |
@@ -351,31 +366,24 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 22–23 | **Sprint 5.5** – Codebase Hardening, Cleanup & Sanitization (ASan, W^X, Test Harness) |
 | 24–26 | **Sprint 6** – Industrial Testing & Conformance (GCC Torture, Csmith Fuzzing) |
 | 27–29 | **Sprint 7** – Cross-platform backends (AArch64, RISC-V, Windows) |
-| 30 | Final release, docs, tag `v1.0` |
+| 30–33 | **Sprint 8** – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (-O0 to -O3) |
+| 34 | Final release, docs, tag `v1.0` |
 
 ---
 
 ## Immediate Next Actions
 
-### What's Next: Sprint 1 - Code Generation Gap Fill
+### Current Focus: Sprint 5 – Type System Completeness
 
-The include architecture is now solid. The next work focuses on filling in the missing `lower_node()` and `lower_expr()` cases.
+Sprints 0.5 through 4 are complete with all 111 test suites passing cleanly. The immediate focus is completing the C99 type system:
 
-1. **Float literal emission** (`NODE_FLOAT` → `movsd` from rodata) - 1 day
-2. **String literal emission** (`NODE_STRING` → `lea rax, [rip+rodata]`) - 1 day  
-3. **`do … while` machine code** (`NODE_DO_WHILE`) - 1 day
-4. **Ternary `?:` codegen** (`NODE_TERNARY`) - 2 days
-5. **Member access `.` / `->` codegen** (`NODE_MEMBER`) - 2 days
-6. **Array subscript codegen** (`NODE_INDEX`) - 1 day
-7. **Cast codegen** (`NODE_CAST`) - 1 day
-8. **Fix `_Static_assert`** to actually abort on failure - 1 day
-
-**Recommended workflow:**
-- Open `src/zero_cc/parser.c` at `lower_expr()` and add cases
-- Run `make clean && make test` after each case to confirm no regressions
-- Commit incrementally: `"feat: fill lower_expr for NODE_FLOAT"`, etc.
+1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union)
+2. **Task 36: Anonymous struct / union members**
+3. **Task 37: Variable Length Arrays (VLAs)** (dynamic stack allocation via `sub rsp, reg`)
+4. **Task 38: `_Atomic` operations** (`lock cmpxchg`, `lock xadd`)
+5. **Task 39: `const` / `volatile` semantic enforcement**
 
 ---
 
-*Prepared by Antigravity AI Assistant — grounded in source inspection 2026-09-26.*
-*Include architecture audit completed 2026-09-29.*
+*Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-02.*
+*Updated with Sprint 5.5 (Codebase Hardening) and Sprint 8 (Two-Pass IR & Optimization Pipeline).*
