@@ -9,7 +9,10 @@ LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
 EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
 
-.PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap test-junit benchmark asan asan-unit
+.PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap test-junit benchmark \
+	asan asan-unit asan-semantic asan-abi asan-jit \
+	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
+	valgrind test-valgrind
 
 all: $(TESTS)
 
@@ -68,6 +71,33 @@ asan-unit: CFLAGS += -fsanitize=address,undefined -g
 asan-unit: LDFLAGS += -fsanitize=address,undefined
 asan-unit: all
 	@python3 tools/test_runner.py --category unit
+
+asan-semantic: CFLAGS += -fsanitize=address,undefined -g
+asan-semantic: LDFLAGS += -fsanitize=address,undefined
+asan-semantic: all
+	@python3 tools/test_runner.py --category semantic
+
+asan-abi: CFLAGS += -fsanitize=address,undefined -g
+asan-abi: LDFLAGS += -fsanitize=address,undefined
+asan-abi: all
+	@python3 tools/test_runner.py --category abi
+
+asan-jit: CFLAGS += -fsanitize=address,undefined -g
+asan-jit: LDFLAGS += -fsanitize=address,undefined
+asan-jit: all
+	@python3 tools/test_runner.py --category jit
+
+test-asan: asan
+test-asan-unit: asan-unit
+test-asan-semantic: asan-semantic
+test-asan-abi: asan-abi
+test-asan-jit: asan-jit
+
+valgrind: all
+	@which valgrind > /dev/null 2>&1 || (echo "Error: valgrind is not installed on this system." && exit 1)
+	@python3 tools/test_runner.py --valgrind
+
+test-valgrind: valgrind
 
 test-unit: all
 	@python3 tools/test_runner.py --category unit

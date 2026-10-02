@@ -70,15 +70,20 @@ def find_test_binaries(root_dir, category=None):
     return found
 
 
-def run_single_test(name, path, category, timeout_sec=10):
+def run_single_test(name, path, category, timeout_sec=10, use_valgrind=False):
     start = time.perf_counter()
     try:
+        cmd = [path]
+        effective_timeout = timeout_sec
+        if use_valgrind:
+            cmd = ["valgrind", "--leak-check=full", "--error-exitcode=1", "-q", path]
+            effective_timeout = timeout_sec * 5
         proc = subprocess.run(
-            [path],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_sec,
+            timeout=effective_timeout,
         )
         duration_ms = (time.perf_counter() - start) * 1000.0
         passed = proc.returncode == 0
@@ -195,6 +200,7 @@ def main():
                         help="Run only tests from a specific category")
     parser.add_argument("--tap", action="store_true", help="Output in TAP v13 format")
     parser.add_argument("--junit", metavar="FILE", help="Generate JUnit XML report at FILE")
+    parser.add_argument("--valgrind", action="store_true", help="Run tests under Valgrind memcheck")
     parser.add_argument("--timeout", type=int, default=10, help="Per-test timeout in seconds (default: 10)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print stdout/stderr for passed tests")
     parser.add_argument("tests", nargs="*", help="Optional specific test executables to run")
@@ -236,7 +242,7 @@ def main():
     overall_start = time.perf_counter()
 
     for name, path, category in test_items:
-        res = run_single_test(name, path, category, timeout_sec=args.timeout)
+        res = run_single_test(name, path, category, timeout_sec=args.timeout, use_valgrind=args.valgrind)
         results.append(res)
 
         if not args.tap:
