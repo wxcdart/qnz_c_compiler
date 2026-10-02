@@ -606,7 +606,20 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 return 0xFF;
             }
-            
+
+            if (node->aux.op == '&' || node->aux.op == TK_AMP) {
+                ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
+                if (operand && operand->tag == NODE_IDENT) {
+                    ZeroCCSym *sym = zero_cc_find_local(c, operand->s.str);
+                    if (sym) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                }
+            }
+
             int operand_temp = lower_expr(c, arena, node->left);
             int result_temp = c->next_temp_id++;
             
@@ -713,12 +726,17 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
             
             if (left_node && left_node->tag == NODE_MEMBER) {
-                /* Struct member assignment: left_node->left is base, left_node->aux.alt is offset */
-                ZeroCCASTNode *base_node = zero_cc_ast_get(arena, left_node->left);
-                int32_t member_offset = (int32_t)left_node->aux.alt;
+                /* Struct member assignment: traverse chain of member accesses */
+                int32_t member_offset = 0;
+                ZeroCCASTNode *curr = left_node;
+                while (curr && curr->tag == NODE_MEMBER) {
+                    member_offset += (int32_t)curr->aux.alt;
+                    curr = zero_cc_ast_get(arena, curr->left);
+                }
+                ZeroCCASTNode *base_node = curr;
+                int32_t base_stack_offset = 0;
                 
                 // Find the base variable's stack offset if it's a local identifier
-                int32_t base_stack_offset = 0;
                 if (base_node && base_node->tag == NODE_IDENT) {
                     ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
                     if (!sym) {
@@ -974,8 +992,13 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         case NODE_MEMBER: {
             /* Load member value from memory (Rvalue context) */
-            int32_t member_offset = (int32_t)node->aux.alt;
-            ZeroCCASTNode *base_node = zero_cc_ast_get(arena, node->left);
+            int32_t member_offset = 0;
+            ZeroCCASTNode *curr = node;
+            while (curr && curr->tag == NODE_MEMBER) {
+                member_offset += (int32_t)curr->aux.alt;
+                curr = zero_cc_ast_get(arena, curr->left);
+            }
+            ZeroCCASTNode *base_node = curr;
             int32_t base_stack_offset = 0;
             
             if (base_node && base_node->tag == NODE_IDENT) {
@@ -986,7 +1009,6 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             
             int32_t total_offset = base_stack_offset + member_offset;
-            
             int val_temp = c->next_temp_id++;
             ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
 

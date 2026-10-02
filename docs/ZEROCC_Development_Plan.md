@@ -128,7 +128,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `_Thread_local` | ✅ | System TLS (`fs`/`gs` segment) lowered and verified (`test/tls.c`, `test/tls_jit.c`) |
 | `_Alignas(N)` | ✅ | Alignment applied to variable declarations |
 | Flexible array members | ✅ | Trailing zero-length arrays supported in structs (Sprint 5 Task 35) |
-| Anonymous struct/union members | ❌ | Sprint 5 Task 36 |
+| Anonymous struct/union members | ✅ | C99/C11 recursive flattening, direct member access & nested bit-fields (Sprint 5 Task 36, `test/anon_struct_test.c`) |
 | Bit-fields | ✅ | C99 bit-fields (`: width`) with storage-unit packing, masking, sign-extension, and compound assignment (Sprint 5 Task 34, `test/bitfield_test.c`) |
 | Global variable declarations | ✅ | Emitted to `.data` and `.bss` with RIP-relative relocations |
 | `extern` declarations | ✅ | External symbol table resolution |
@@ -360,8 +360,8 @@ Extended pragma directive support for better compatibility with real-world C cod
 Sprints 0.5 through 4 are complete with all 112 test suites passing cleanly. The immediate focus is completing the C99 type system:
 
 1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union) — ✅ Complete (`test/bitfield_test.c`)
-2. **Task 36: Anonymous struct / union members** (NEXT)
-3. **Task 37: Variable Length Arrays (VLAs)** (dynamic stack allocation via `sub rsp, reg`)
+2. **Task 36: Anonymous struct / union members** — ✅ Complete (`test/anon_struct_test.c`)
+3. **Task 37: Variable Length Arrays (VLAs)** (NEXT — dynamic stack allocation via `sub rsp, reg`)
 4. **Task 38: `_Atomic` operations** (`lock cmpxchg`, `lock xadd`)
 5. **Task 39: `const` / `volatile` semantic enforcement**
 

@@ -54,7 +54,18 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_UNION: {
             TypeInfo *ti = type_new(perm);
             ti->kind = (t.tag == TYPE_UNION) ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
-            ti->details.record.tag = t.struct_name;
+            if (t.struct_name[0] != '\0') {
+                size_t tlen = strlen(t.struct_name);
+                char *tag_copy = (char *)arena_alloc(perm, tlen + 1);
+                if (tag_copy) {
+                    memcpy(tag_copy, t.struct_name, tlen + 1);
+                    ti->details.record.tag = tag_copy;
+                } else {
+                    ti->details.record.tag = NULL;
+                }
+            } else {
+                ti->details.record.tag = NULL;
+            }
             ti->details.record.size = t.size;
             ti->details.record.align = t.align;
             for (size_t i = 0; i < t.member_count; i++) {
@@ -64,11 +75,15 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     memcpy(name_copy, t.members[i].name, nlen + 1);
                 }
                 ZeroCCType mt;
-                memset(&mt, 0, sizeof(mt));
-                mt.tag = t.members[i].tag;
-                mt.size = t.members[i].size;
-                mt.align = t.members[i].align;
-                mt.base = t.members[i].base;
+                if (t.members[i].base) {
+                    mt = *t.members[i].base;
+                } else {
+                    memset(&mt, 0, sizeof(mt));
+                    mt.tag = t.members[i].tag;
+                    mt.size = t.members[i].size;
+                    mt.align = t.members[i].align;
+                    mt.base = NULL;
+                }
                 TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
                 const char *fname = name_copy ? name_copy : t.members[i].name;
                 if (t.members[i].is_bitfield) {
