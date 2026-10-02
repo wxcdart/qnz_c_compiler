@@ -205,7 +205,7 @@ static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
 static void aarch64_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
     /* Use literal pool or mov immediate for float */
     /* For now, store to memory and load */
-    (void)dst_reg; (void)value;
+    (void)c; (void)dst_reg; (void)value;
 }
 
 static void aarch64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -278,7 +278,7 @@ static void aarch64_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
 }
 
-static void aarch64_emit_fp_sqrt(ZeroCCCompiler *c, int dst, int src) {
+static inline void aarch64_emit_fp_sqrt(ZeroCCCompiler *c, int dst, int src) {
     /* fsqrt dD, dN */
     arm64_emit_u32(c, 0x4E200400 | (src << 5) | dst | 0x00180000);
 }
@@ -290,7 +290,7 @@ static size_t aarch64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t t
     int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
     
     if (patch_offset + 4 <= c->text_section.length) {
-        uint8_t *buf = c->text_section.data;
+        uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
         *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
     }
@@ -329,6 +329,7 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
      * ARM64 udiv/sdiv don't provide remainder directly
      * Use: tmp = src1 / src2; dst = src1 - tmp * src2
      * For simplicity, use the same approach as div but with msub */
+    (void)src1;
     /* msub dst, src2, tmp, src1 */
     arm64_emit_u32(c, 0x9B007C00 | ((src2 & 0x1F) << 16) | ((10 & 0x1F) << 10) | (dst & 0x1F));
     /* This is a simplified implementation - real implementation would be more complex */

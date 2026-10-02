@@ -148,7 +148,7 @@ static void riscv64_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
 static void riscv64_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* Use slt/sltu to set a temporary register, or just use branch directly */
     /* For now, we'll use conditional branches directly */
-    (void)src1; (void)src2;
+    (void)c; (void)src1; (void)src2;
 }
 
 static void riscv64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
@@ -246,7 +246,7 @@ static void riscv64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
 
 static void riscv64_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
     /* Use literal pool - store to memory and load */
-    (void)dst_reg; (void)value;
+    (void)c; (void)dst_reg; (void)value;
 }
 
 static void riscv64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -326,7 +326,7 @@ static void riscv64_emit_label(ZeroCCCompiler *c, const char *name) {
 static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
     int32_t rel = (int32_t)(target_offset - patch_offset);
     if (patch_offset + 4 <= c->text_section.length) {
-        uint8_t *buf = c->text_section.data;
+        uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
         *insn = (*insn & 0xFFF000FF) | ((rel & 0xFFFFF) << 12);
     }
@@ -584,7 +584,7 @@ static void riscv32_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
 }
 
 static void riscv32_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
-    (void)dst_reg; (void)value;
+    (void)c; (void)dst_reg; (void)value;
 }
 
 static void riscv32_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -656,7 +656,7 @@ static void riscv32_emit_label(ZeroCCCompiler *c, const char *name) {
 static size_t riscv32_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
     int32_t rel = (int32_t)(target_offset - patch_offset);
     if (patch_offset + 4 <= c->text_section.length) {
-        uint8_t *buf = c->text_section.data;
+        uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
         *insn = (*insn & 0xFFF000FF) | ((rel & 0xFFFFF) << 12);
     }
