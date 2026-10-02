@@ -7,7 +7,7 @@ TESTS = $(TEST_SRCS:.c=)
 
 LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
-EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/statements.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
+EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
 
 .PHONY: all test clean golden_test
 
@@ -18,7 +18,6 @@ $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h 
 
 PARSER_HEADERS = src/zero_cc/parser.h src/zero_cc/types_lexer.h \
 	$(wildcard src/zero_cc/parser/*.h) \
-	$(wildcard src/zero_cc/expressions/*.h) \
 	$(wildcard src/zero_cc/types/*.h) \
 	$(wildcard src/zero_cc/jit/*.h)
 
@@ -46,11 +45,6 @@ src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/de
 	$(CC) $(CFLAGS) -c $< -o $@
 src/zero_cc/semantic.o: src/zero_cc/semantic.c src/zero_cc/semantic.h src/zero_cc/semantic/visitor.h
 	$(CC) $(CFLAGS) -c $< -o $@
-
-STATEMENTS_HEADERS = src/zero_cc/statements.h $(wildcard src/zero_cc/statements/*.h)
-src/zero_cc/statements.o: src/zero_cc/statements.c $(STATEMENTS_HEADERS)
-	$(CC) $(CFLAGS) -c $< -o $@
-
 
 test/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
 	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@
