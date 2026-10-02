@@ -33,8 +33,6 @@
 #include "zero_cc/core.h"
 #include "zero_cc/types_lexer.h"
 #include "zero_cc/parser.h"
-#include "zero_cc/expressions.h"
-#include "zero_cc/statements.h"
 #include "zero_cc/jit_linker.h"
 
 
