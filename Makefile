@@ -9,9 +9,9 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 TEST_SRCS = $(wildcard test/*/*.c)
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
-LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer.o
-PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser.o
-TLS_OBJ = $(OBJ_DIR)/src/zero_cc/tls_backend.o
+LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
+PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser/parser.o
+TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
 EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/common/hash_table_tpht.o \
 	src/zero_cc/semantic/diagnostics.o \
@@ -22,7 +22,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/semantic/visitor.o \
 	src/zero_cc/semantic/expr.o \
 	src/zero_cc/semantic/decl.o \
-	src/zero_cc/semantic.o \
+	src/zero_cc/semantic/semantic.o \
 	src/zero_cc/common/arena.o \
 	src/zero_cc/parser/ir.o \
 	src/zero_cc/isa/x86_64.o \
@@ -36,21 +36,21 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 
 all: $(TESTS)
 
-PARSER_HEADERS = src/zero_cc/parser.h src/zero_cc/types_lexer.h \
+PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/parser/*.h) \
 	$(wildcard src/zero_cc/types/*.h) \
 	$(wildcard src/zero_cc/jit/*.h) \
 	$(wildcard src/zero_cc/common/*.h)
 
-$(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h src/zero_cc/lexer/keywords.inc
+$(LEXER_OBJ): src/zero_cc/lexer/lexer.c src/zero_cc/lexer/lexer.h src/zero_cc/types/types.h src/zero_cc/lexer/keywords.inc
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(PARSER_OBJ): src/zero_cc/parser.c $(PARSER_HEADERS)
+$(PARSER_OBJ): src/zero_cc/parser/parser.c $(PARSER_HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TLS_OBJ): src/zero_cc/tls_backend.c
+$(TLS_OBJ): src/zero_cc/jit/tls_backend.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -86,7 +86,7 @@ $(OBJ_DIR)/src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic.o: src/zero_cc/semantic.c src/zero_cc/semantic.h src/zero_cc/semantic/visitor.h
+$(OBJ_DIR)/src/zero_cc/semantic/semantic.o: src/zero_cc/semantic/semantic.c src/zero_cc/semantic/semantic.h src/zero_cc/semantic/visitor.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

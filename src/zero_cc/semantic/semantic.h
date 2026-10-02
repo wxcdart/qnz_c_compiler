@@ -2,9 +2,9 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-#include "common/arena.h"
-#include "parser.h"
-#include "semantic/diagnostics.h"
+#include "../common/arena.h"
+#include "../parser/parser.h"
+#include "diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -29,9 +29,9 @@
 #define ZERO_CC_H
 
 /* Direct sub-headers for zero_cc */
-#include "zero_cc/core.h"
-#include "zero_cc/types_lexer.h"
-#include "zero_cc/parser.h"
-#include "zero_cc/jit_linker.h"
+#include "zero_cc/core/core.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/jit/jit_linker.h"
 
 #endif /* ZERO_CC_H */

@@ -11,8 +11,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#include "zero_cc/core.h"
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/core/core.h"
+#include "zero_cc/types/types.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"

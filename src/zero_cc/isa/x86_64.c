@@ -1,4 +1,4 @@
-#include "../isa_backend.h"
+#include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
 #include <string.h>
 

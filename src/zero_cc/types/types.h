@@ -19,15 +19,15 @@
  *  types defined in earlier includes.
  *  ==========================================================================*/
 
-#ifndef ZERO_CC_TYPES_LEXER_H
-#define ZERO_CC_TYPES_LEXER_H
+#ifndef ZERO_CC_TYPES_H
+#define ZERO_CC_TYPES_H
 
-#include "types/token.h"
-#include "types/type_system.h"
-#include "types/symbols.h"
-#include "types/type_funcs.h"
-#include "types/registry.h"
-#include "types/emit_helpers.h"
-#include "types/symbol_mgmt.h"
+#include "token.h"
+#include "type_system.h"
+#include "symbols.h"
+#include "type_funcs.h"
+#include "registry.h"
+#include "emit_helpers.h"
+#include "symbol_mgmt.h"
 
-#endif /* ZERO_CC_TYPES_LEXER_H */
+#endif /* ZERO_CC_TYPES_H */

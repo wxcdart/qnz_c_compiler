@@ -13,7 +13,7 @@ typedef struct ZeroCCAtomicBackend ZeroCCAtomicBackend;
 typedef struct ZeroCCGenericBackend ZeroCCGenericBackend;
 typedef struct ZeroCCStdlibBackend ZeroCCStdlibBackend;
 typedef struct ZeroCCDiagBackend   ZeroCCDiagBackend;
-#include "zero_cc/zero_cc_backends.h"
+#include "zero_cc/jit/backends.h"
 
 typedef enum {
     TK_EOF = 0,

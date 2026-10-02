@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types_lexer.h"
+#include "../types/types.h"
 #include "../types/registry.h"
 
 /* Forward declarations for recursive functions */

@@ -6,5 +6,5 @@
 #include <limits.h>
 #include <errno.h>
 #include "lexer.h"
-#include "types_lexer.h"
-#include "lexer/keywords.inc"
+#include "../types/types.h"
+#include "keywords.inc"

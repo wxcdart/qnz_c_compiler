@@ -120,7 +120,22 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 - **Harness & Runner Modernization**:
   - Removed Java JUnit XML reporting from `tools/test_runner.py` and `Makefile`.
   - Updated `test_runner.py` to auto-discover compiled binaries in `build/test/` with transparent fallback to `test/`.
-  - Simplified `.gitignore` by ignoring `/build/`, eliminating complex source exclusion globs.
+#### Pure Subsystem Encapsulation (`src/zero_cc/`) ✅
+- **Complete Elimination of Loose Files**:
+  - Relocated all 12 loose implementation and façade files in `src/zero_cc/` into their matching subsystem directories:
+    - `lexer.c`, `lexer.h` → `src/zero_cc/lexer/`
+    - `parser.c`, `parser.h` → `src/zero_cc/parser/`
+    - `semantic.c`, `semantic.h` → `src/zero_cc/semantic/`
+    - `core.h` → `src/zero_cc/core/core.h`
+    - `types_lexer.h` → `src/zero_cc/types/types.h`
+    - `jit_linker.h` → `src/zero_cc/jit/jit_linker.h`
+    - `isa_backend.h` → `src/zero_cc/isa/isa_backend.h`
+    - `tls_backend.c`, `zero_cc_backends.h` → `src/zero_cc/jit/` (`tls_backend.c`, `backends.h`)
+  - `src/zero_cc/` now contains **zero loose files** and consists strictly of 8 self-contained subsystem directories: `common/`, `core/`, `isa/`, `jit/`, `lexer/`, `parser/`, `semantic/`, `types/`.
+- **Public API & Harness Alignment**:
+  - Updated `include/zero_cc.h` and all internal include paths to reference clean subsystem paths.
+  - All 109 tests compile with 0 warnings and pass cleanly across `make test` and `make asan`.
+
 
 
 

@@ -8,9 +8,9 @@
 #ifndef ZERO_CC_CORE_H
 #define ZERO_CC_CORE_H
 
-#include "core/utils.h"
-#include "core/buffers.h"
-#include "core/compiler_state.h"
-#include "core/preprocessor.h"
+#include "utils.h"
+#include "buffers.h"
+#include "compiler_state.h"
+#include "preprocessor.h"
 
 #endif /* ZERO_CC_CORE_H */

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../common/arena.h"
-#include "../parser.h"
+#include "../parser/parser.h"
 #include "diagnostics.h"
 #include "scope.h"
 #include "type.h"

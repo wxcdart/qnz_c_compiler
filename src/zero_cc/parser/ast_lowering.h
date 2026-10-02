@@ -9,12 +9,12 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types_lexer.h"
-#include "../parser.h"
+#include "../types/types.h"
+#include "parser.h"
 #include "ir_emitter.h"
 #include "ir_emit_ops.h"
 #include "machine_emitter.h"
-#include "../isa_backend.h"
+#include "../isa/isa_backend.h"
 #include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"

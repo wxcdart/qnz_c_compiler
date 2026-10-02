@@ -3,7 +3,7 @@
 #ifndef ZERO_CC_PARSER_STATIC_ASSERT_H
 #define ZERO_CC_PARSER_STATIC_ASSERT_H
 
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/types/types.h"
 #include "zero_cc/parser/const_eval.h"
 
 /* Handle _Static_assert(expr, "message"); */

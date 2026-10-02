@@ -2,8 +2,8 @@
 #include <assert.h>
 #include <string.h>
 #include "zero_cc/common/arena.h"
-#include "zero_cc/parser.h"
-#include "zero_cc/semantic.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/semantic/semantic.h"
 #include "zero_cc/semantic/type.h"
 
 int main(void) {

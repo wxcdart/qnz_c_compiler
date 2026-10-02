@@ -1,7 +1,7 @@
 #ifndef ZERO_CC_TYPES_SYMBOLS_H
 #define ZERO_CC_TYPES_SYMBOLS_H
 
-#include "../isa_backend.h"
+#include "../isa/isa_backend.h"
 
 #include <stddef.h>
 #include <stdint.h>

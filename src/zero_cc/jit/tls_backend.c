@@ -11,8 +11,8 @@
    - Address-of: lea rax, [fs:offset]
 */
 
-#include "zero_cc_backends.h"
-#include "zero_cc/types_lexer.h"
+#include "backends.h"
+#include "../types/types.h"
 #include <string.h>
 
 /* Forward declaration */

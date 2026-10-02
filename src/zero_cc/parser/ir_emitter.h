@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/types/types.h"
 #include "ir.h"
 #include "regalloc.h"
 #include "live_range.h"

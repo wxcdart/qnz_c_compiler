@@ -5,15 +5,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "zero_cc/core.h"
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/core/core.h"
+#include "zero_cc/types/types.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
-#include "../isa_backend.h"
+#include "../isa/isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
 #include "zero_cc/parser/definitions.h"

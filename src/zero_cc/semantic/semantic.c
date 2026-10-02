@@ -1,5 +1,5 @@
 #include "semantic.h"
-#include "semantic/visitor.h"
+#include "visitor.h"
 #include <stdio.h>
 
 bool semantic_analyze(ZeroCCASTArena *ast_arena,

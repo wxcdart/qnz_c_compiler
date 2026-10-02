@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/types/types.h"
 
 /* Forward declarations */
 typedef struct ZeroCCCompiler ZeroCCCompiler;

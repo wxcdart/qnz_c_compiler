@@ -2,7 +2,7 @@
 #ifndef ZERO_CC_PARSER_DEFINITIONS_H
 #define ZERO_CC_PARSER_DEFINITIONS_H
 
-#include "zero_cc/types_lexer.h"
+#include "zero_cc/types/types.h"
 #include "zero_cc/parser/const_eval.h"
 
 /* Forward declaration */

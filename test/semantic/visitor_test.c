@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <string.h>
 #include "zero_cc/common/arena.h"
-#include "zero_cc/parser.h"
+#include "zero_cc/parser/parser.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"

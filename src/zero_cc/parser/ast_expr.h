@@ -8,8 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types_lexer.h"
-#include "../parser.h"
+#include "../types/types.h"
+#include "parser.h"
 #include "const_eval.h"
 
 /* Forward declaration for statement parsing */
