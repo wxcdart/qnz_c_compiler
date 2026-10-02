@@ -400,7 +400,7 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
             }
         }
         if (sym) {
-            bool sym_is_direct_struct = (sym->type.tag == TYPE_STRUCT);
+            bool sym_is_direct_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION);
             if (sym_is_direct_struct) {
                 /* lea rax, [rbp - offset] */
                 zero_cc_emit_u8(&c->text_section, 0x48);
@@ -517,7 +517,7 @@ static inline void zero_cc_parse_primary(ZeroCCCompiler *c) {
 
                     /* Find struct definition */
                     ZeroCCType *st = NULL;
-                    if (sym->type.tag == TYPE_STRUCT) {
+                    if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
                         st = &sym->type;
                     } else if (sym->type.tag == TYPE_PTR && sym->type.base) {
                         st = sym->type.base;

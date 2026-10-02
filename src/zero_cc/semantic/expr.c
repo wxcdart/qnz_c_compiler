@@ -541,8 +541,8 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         member_t = type_int(ctx->perm_arena);
     }
 
-    /* Store member offset in node->aux.extra for codegen */
-    node->aux.extra = (uint32_t)member_offset;
+    /* Store member offset in node->aux.alt for codegen (aux.extra used for type info) */
+    node->aux.alt = (uint32_t)member_offset;
 
     expr_node_set_type(ctx, node, member_t);
     return member_t;

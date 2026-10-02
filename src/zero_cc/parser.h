@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 typedef struct ZeroCCCompiler ZeroCCCompiler;
+typedef struct SemContext SemContext;
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,7 +108,7 @@ static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) 
 
 /* Parser Functions using 32-bit AST Arena */
 ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx);
 
 /* AST Pretty-Printer / Dumper for debugging and testing */
 void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent);

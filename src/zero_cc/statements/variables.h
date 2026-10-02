@@ -9,7 +9,7 @@ static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t 
     (void)decl_align_spec; /* unused for now */
     const char *tname = c->tokens[c->token_pos].str_val;
     ZeroCCType *found_type = zero_cc_find_typedef(c, tname);
-    if (found_type || t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
+    if (found_type || t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT || t == TK_UNION ||
         t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG || t == TK_AUTO || t == TK_ATOMIC) {
         bool is_auto = (t == TK_AUTO);
@@ -74,6 +74,15 @@ static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t 
             }
             if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
             return;
+        }
+
+        if (decl_type_tok == TK_STRUCT || decl_type_tok == TK_UNION) {
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                tname = c->tokens[c->token_pos].str_val;
+                found_type = zero_cc_find_struct(c, tname);
+                if (!found_type) found_type = zero_cc_find_typedef(c, tname);
+                c->token_pos++;
+            }
         }
 
         bool is_ptr = false;
@@ -161,7 +170,7 @@ static inline void zero_cc_stmt_decl(ZeroCCCompiler *c, ZeroCCTokType t, size_t 
                         zero_cc_emit_u8(&c->text_section, 0x89);
                         zero_cc_emit_u8(&c->text_section, 0x85);
                         zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
-                        if (sym->type.tag == TYPE_STRUCT && sym->type.size > 8) {
+                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8) {
                             int32_t off2 = (int32_t)sym->stack_offset - 8;
                             zero_cc_emit_u8(&c->text_section, 0x48);
                             zero_cc_emit_u8(&c->text_section, 0x89);
@@ -283,7 +292,7 @@ static inline void zero_cc_stmt_var_assign(ZeroCCCompiler *c, char *var_name, Ze
             zero_cc_emit_u8(&c->text_section, 0x89);
             zero_cc_emit_u8(&c->text_section, 0x85);
             zero_cc_emit_u32(&c->text_section, (uint32_t)(-sym->stack_offset));
-            if (sym->type.tag == TYPE_STRUCT && sym->type.size > 8) {
+            if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8) {
                 int32_t off2 = (int32_t)sym->stack_offset - 8;
                 zero_cc_emit_u8(&c->text_section, 0x48);
                 zero_cc_emit_u8(&c->text_section, 0x89);
@@ -310,7 +319,7 @@ static inline void zero_cc_stmt_member_assign(ZeroCCCompiler *c, char *ptr_name,
             ZeroCCSym *sym = zero_cc_find_local(c, ptr_name);
             if (sym) {
                 ZeroCCType *st = NULL;
-                if (sym->type.tag == TYPE_STRUCT) st = &sym->type;
+                if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) st = &sym->type;
                 else if (sym->type.tag == TYPE_PTR && sym->type.base) st = sym->type.base;
                 if (!st) st = zero_cc_find_struct(c, sym->type.struct_name);
                 if (!st) st = zero_cc_find_typedef(c, sym->type.struct_name);

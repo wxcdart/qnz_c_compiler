@@ -48,6 +48,15 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 #### Floating-Point Calling Conventions & Mixed SSE Arguments ✅
 - Implemented System V AMD64 dual-cursor argument placement: integer arguments via GPRs (`rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`) and floating-point arguments via SSE registers (`xmm0`–`xmm7`).
 - Implemented caller-side float argument temporary spilling and reloading before call emission to protect float arguments against clobbering across argument expression evaluation.
+
+#### Sprint 5 — Task 33: Union Layout & Overlapping Members ✅
+- Implemented `TYPE_UNION` support across the type system and symbol tables.
+- All union members placed at byte offset 0 (`m->offset = 0`), enabling proper memory overlap across scalar and compound types.
+- Union total size calculated as `max(member.size)` padded up to `max(member.align)`.
+- Fixed default member alignment calculation in `definitions.h` (`member_align = 0`) to prevent unannotated members from forcing 8-byte alignment.
+- Added compile-time constant folding for `TK_SIZEOF` and `TK_ALIGNOF` in `parse_unary_ast` (`ast_expr.h`), resolving AST parser infinite loops.
+- Added `STATEMENTS_HEADERS` dependency to `Makefile` for robust incremental builds of `statements.o`.
+- Created comprehensive JIT validation suite in `test/union_jit.c`.
 - Added vector register count tracking in `%al` before `call` execution (`mov al, <fp_reg_idx>`).
 - Implemented callee-side parameter saving for incoming `xmm0`–`xmm7` registers in function prologues with proper ModR/M register encoding.
 - Implemented `OP_CVTTSD2SI` opcode in the IR stream for float-to-integer conversion (`NODE_CAST`), ensuring conversions sequence correctly after function calls and IR-lowered expressions.

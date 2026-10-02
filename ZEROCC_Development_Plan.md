@@ -137,7 +137,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Arrays `T a[N]` (fixed size) | ✅ | |
 | **VLA** `T a[n]` (variable size) | ❌ | Size stored but always treated as constant |
 | `struct` (named, with members) | ✅ | |
-| `union` | 🟡 | Token recognised; treated same as struct — no layout overlap |
+| `union` | ✅ | Full layout overlap, max size/align padding, tagged unions |
 | `enum` (simple, explicit values) | ✅ | Constants registered and resolved |
 | Named `enum` as a distinct type-tag | 🟡 | Constants OK; enum type not emitted |
 | `typedef` (scalar, struct) | ✅ | |
@@ -289,10 +289,10 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ### Sprint 5 – Type system completeness (Weeks 19–21)
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 33 | `union` proper layout (overlapping members) | 3 days |
-| 34 | Bit-fields | 1 week |
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 33 | `union` proper layout (overlapping members) | 3 days | ✅ |
+| 34 | Bit-fields | 1 week | |
 | 35 | Flexible array members | 2 days |
 | 36 | Anonymous struct/union members | 3 days |
 | 37 | VLA (dynamic stack allocation) | 1 week |

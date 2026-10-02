@@ -37,6 +37,9 @@
 - `test/float_call2`: ✅ PASS
 - `test/float_call3`: ✅ PASS
 - `test/float_call4`: ✅ PASS (`double` return with `(int)` cast)
+- `test/float_call5`: ✅ PASS
+- `test/float_call6`: ✅ PASS
+- `test/float_printf`: ✅ PASS
 - `test/float_cast` series: ✅ PASS
 
 ---
@@ -49,6 +52,7 @@
 - Large structs (>16 bytes) via hidden pointer
 
 ### Test Status
+- `test/struct_return_9_16_jit`: ✅ PASS (12-byte struct return across RAX+RDX)
 - `test/struct_by_value`: ✅ PASS
 - `test/struct_by_value_1byte`: ✅ PASS
 - `test/struct_by_value_2byte`: ✅ PASS

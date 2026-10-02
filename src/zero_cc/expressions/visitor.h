@@ -27,11 +27,26 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         c->token_pos++;
     }
     ZeroCCType ty;
-    // Parse type specifiers
-    // We'll handle a few specific cases for the test
-    if (c->tokens[c->token_pos].type == TK_IDENT) {
+    if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            const char *name = c->tokens[c->token_pos].str_val;
+            ZeroCCType *st = zero_cc_find_struct(c, name);
+            if (!st) st = zero_cc_find_typedef(c, name);
+            if (st) ty = *st;
+            else ty = zero_cc_type_int64();
+            c->token_pos++;
+        } else {
+            ty = zero_cc_type_int64();
+        }
+    } else if (c->tokens[c->token_pos].type == TK_IDENT) {
         const char *name = c->tokens[c->token_pos].str_val;
-        if (strcmp(name, "int") == 0) {
+        ZeroCCType *tdef = zero_cc_find_typedef(c, name);
+        if (!tdef) tdef = zero_cc_find_struct(c, name);
+        if (tdef) {
+            ty = *tdef;
+            c->token_pos++;
+        } else if (strcmp(name, "int") == 0) {
             ty = zero_cc_type_int();
             c->token_pos++;
         } else if (strcmp(name, "char") == 0) {
@@ -46,15 +61,6 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
                 ty = zero_cc_type_int64(); // assume long is 64-bit
                 c->token_pos++;
             }
-        } else if (strcmp(name, "S") == 0) {
-            // lookup typedef S
-            ZeroCCType *tdef = zero_cc_find_typedef(c, "S");
-            if (tdef) {
-                ty = *tdef;
-            } else {
-                ty = zero_cc_type_int64(); // fallback
-            }
-            c->token_pos++;
         } else if (strcmp(name, "y") == 0) {
             // lookup local variable y
             ZeroCCSym *sym = zero_cc_find_local(c, "y");
@@ -136,7 +142,7 @@ static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType 
     if (base.tag == TYPE_PTR && base.base) {
         base = *base.base;
     }
-    if (base.tag != TYPE_STRUCT) {
+    if (base.tag != TYPE_STRUCT && base.tag != TYPE_UNION) {
         return zero_cc_type_int();
     }
     for (size_t i = 0; i < base.member_count; i++) {
@@ -160,7 +166,19 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
 {
     ZeroCCType ty;
     ZeroCCTokType t = c->tokens[*pos].type;
-    if (t == TK_IDENT) {
+    if (t == TK_STRUCT || t == TK_UNION) {
+        (*pos)++;
+        if (c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            ZeroCCType *st = zero_cc_find_struct(c, name);
+            if (!st) st = zero_cc_find_typedef(c, name);
+            if (st) ty = *st;
+            else ty = zero_cc_type_int64();
+            (*pos)++;
+        } else {
+            ty = zero_cc_type_int64();
+        }
+    } else if (t == TK_IDENT) {
         const char *name = c->tokens[*pos].str_val;
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);

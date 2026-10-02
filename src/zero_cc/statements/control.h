@@ -35,7 +35,7 @@ static inline void zero_cc_stmt_return(ZeroCCCompiler *c) {
         /* Check if returning a struct variable: return sym; */
         if (c->tokens[c->token_pos].type == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_SEMI) {
             ZeroCCSym *sym = zero_cc_find_local(c, c->tokens[c->token_pos].str_val);
-            if (sym && sym->type.tag == TYPE_STRUCT) {
+            if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
                 c->token_pos++;
                 /* mov rax, [rbp - sym_offset] */
                 zero_cc_emit_u8(&c->text_section, 0x48);

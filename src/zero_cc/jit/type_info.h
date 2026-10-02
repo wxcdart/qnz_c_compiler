@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <string.h>
+
 #include "zero_cc/core.h"
 #include "zero_cc/types_lexer.h"
 #include "zero_cc/semantic/decl.h"
@@ -48,12 +50,28 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
             return type_array_of(perm, base, t.array_len);
         }
-        case TYPE_STRUCT: {
+        case TYPE_STRUCT:
+        case TYPE_UNION: {
             TypeInfo *ti = type_new(perm);
-            ti->kind = TYPE_KIND_STRUCT;
+            ti->kind = (t.tag == TYPE_UNION) ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
             ti->details.record.tag = t.struct_name;
             ti->details.record.size = t.size;
             ti->details.record.align = t.align;
+            for (size_t i = 0; i < t.member_count; i++) {
+                size_t nlen = strlen(t.members[i].name);
+                char *name_copy = (char *)arena_alloc(perm, nlen + 1);
+                if (name_copy) {
+                    memcpy(name_copy, t.members[i].name, nlen + 1);
+                }
+                ZeroCCType mt;
+                memset(&mt, 0, sizeof(mt));
+                mt.tag = t.members[i].tag;
+                mt.size = t.members[i].size;
+                mt.align = t.members[i].align;
+                mt.base = t.members[i].base;
+                TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
+                type_add_field(perm, ti, name_copy ? name_copy : t.members[i].name, t.members[i].offset, mti);
+            }
             return ti;
         }
         default: return type_int(perm);

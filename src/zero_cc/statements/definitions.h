@@ -5,10 +5,15 @@
 #include "zero_cc/statements.h"
 
 /* Forward declaration */
-/* Typedef Struct Definition */
+/* Typedef or Standalone Struct/Union Definition */
 static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
-    c->token_pos++; /* consume TK_TYPEDEF */
-    if (c->tokens[c->token_pos].type == TK_STRUCT) {
+    bool is_typedef = false;
+    if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
+        is_typedef = true;
+        c->token_pos++; /* consume TK_TYPEDEF */
+    }
+    bool is_union = (c->tokens[c->token_pos].type == TK_UNION);
+    if (c->tokens[c->token_pos].type == TK_STRUCT || is_union) {
         c->token_pos++;
         char st_name[128] = "";
         if (c->tokens[c->token_pos].type == TK_IDENT) {
@@ -18,12 +23,13 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
         if (c->tokens[c->token_pos].type == TK_LBRACE) {
             c->token_pos++;
             ZeroCCType st; memset(&st, 0, sizeof(st));
-            st.tag = TYPE_STRUCT;
+            st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
             snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
             size_t current_offset = 0;
+            size_t max_size = 0;
             st.align = 1;
             while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
-                size_t member_align = 8;
+                size_t member_align = 0;
                 if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
                     c->token_pos++;
                     if (c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -121,7 +127,9 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                     if (is_ptr) { base_align = 8; base_size = 8; }
                     size_t effective_align = member_align > base_align ? member_align : base_align;
                     if (effective_align > st.align) st.align = effective_align;
-                    current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
+                    if (!is_union) {
+                        current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
+                    }
                     if (c->tokens[c->token_pos].type == TK_IDENT) {
                         char mname[128];
                         snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
@@ -138,7 +146,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                         if (st.member_count < 32) {
                             ZeroCCStructMember *m = &st.members[st.member_count++];
                             snprintf(m->name, sizeof(m->name), "%s", mname);
-                            m->offset = current_offset;
+                            m->offset = is_union ? 0 : current_offset;
                             m->size = base_size * elem_count;
                             m->align = effective_align;
                             if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
@@ -148,21 +156,34 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                             else if (mt == TK_IDENT) m->tag = TYPE_STRUCT;
                             else m->tag = TYPE_INT32;
                             if (is_ptr) m->tag = TYPE_PTR;
-                            current_offset += m->size;
+                            if (is_union) {
+                                if (m->size > max_size) max_size = m->size;
+                            } else {
+                                current_offset += m->size;
+                            }
                         }
                     }
                 }
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
             }
-            st.size = (current_offset + st.align - 1) & ~(st.align - 1);
+            if (is_union) {
+                st.size = (max_size + st.align - 1) & ~(st.align - 1);
+            } else {
+                st.size = (current_offset + st.align - 1) & ~(st.align - 1);
+            }
             if (st.align == 0) st.align = 1;
             if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+            if (st_name[0] != '\0') {
+                zero_cc_register_struct(c, st_name, st);
+            }
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
                 zero_cc_register_struct(c, alias, st);
-                zero_cc_register_typedef(c, alias, st);
+                if (is_typedef) {
+                    zero_cc_register_typedef(c, alias, st);
+                }
             }
             if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
             return;

@@ -47,6 +47,10 @@ src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/de
 src/zero_cc/semantic.o: src/zero_cc/semantic.c src/zero_cc/semantic.h src/zero_cc/semantic/visitor.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
+STATEMENTS_HEADERS = src/zero_cc/statements.h $(wildcard src/zero_cc/statements/*.h)
+src/zero_cc/statements.o: src/zero_cc/statements.c $(STATEMENTS_HEADERS)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 
 test/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
 	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) -o $@

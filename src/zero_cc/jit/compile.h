@@ -27,7 +27,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 
     /* Return type */
     ZeroCCType fn_ret_type = zero_cc_type_int();
-    if (c->tokens[c->token_pos].type == TK_STRUCT) {
+    if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             ZeroCCType *st = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
@@ -55,10 +55,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn_ret_type = zero_cc_type_void();
         c->token_pos++;
     } else if (c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_SIGNED ||
-               c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_LONG) {
+               c->tokens[c->token_pos].type == TK_UNSIGNED) {
         fn_ret_type = zero_cc_type_int();
-        c->token_pos++;
-    }
+        c->token_pos++; }
+    else if (c->tokens[c->token_pos].type == TK_LONG) {
+        fn_ret_type = zero_cc_type_int64();
+        c->token_pos++; }
     while (c->tokens[c->token_pos].type == TK_STAR) {
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
         c->token_pos++;
@@ -90,7 +92,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             c->token_pos++;
         } else if (c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
             c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
-            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+            c->tokens[c->token_pos].type == TK_FLOAT_KW ||
             c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
@@ -99,6 +102,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             ZeroCCType *pfound = zero_cc_find_typedef(c, ptname);
             if (!pfound) pfound = zero_cc_find_struct(c, ptname);
             c->token_pos++;
+            if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
+                ptname = c->tokens[c->token_pos].str_val;
+                pfound = zero_cc_find_struct(c, ptname);
+                if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+                c->token_pos++;
+            }
             bool is_ptr = false;
             while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
             if (c->tokens[c->token_pos].type == TK_IDENT) {
@@ -115,6 +124,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_char();
                     } else if (ptt == TK_SHORT) {
                         param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int16();
+                    } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int();
+                    } else if (ptt == TK_LONG) {
+                        param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int64();
                     } else {
                         param_types[param_count] = is_ptr ? zero_cc_type_ptr(NULL) : zero_cc_type_int64();
                     }
@@ -136,7 +149,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->text_offset = 0;
             fn->param_count = param_count;
             fn->return_type = fn_ret_type;
-            fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT);
+            fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION);
             fn->ret_struct_sz = fn_ret_type.size;
             fn->is_variadic = is_variadic_fn;
             fn->noreturn = fn_noreturn;
@@ -154,11 +167,16 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->text_offset = c->text_section.length;
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;
-        fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT);
+        fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION);
         fn->ret_struct_sz = fn_ret_type.size;
         fn->is_variadic = is_variadic_fn;
         fn->noreturn = fn_noreturn;
         fn->is_prototype = false;
+        /* Copy parameter types and names to function struct */
+        for (size_t i = 0; i < param_count && i < 8; i++) {
+            fn->param_types[i] = param_types[i];
+            snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
+        }
 
         c->local_count = 0;
         c->current_stack_frame = 16;
@@ -232,7 +250,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         // Parse function body into AST and lower to machine code
         ZeroCCASTArena arena;
         zero_cc_ast_arena_init(&arena, 1024);
-        ASTRef body = zero_cc_parse_stmt_ast(c, &arena);
+        ASTRef body = zero_cc_parse_stmt_ast(c, &arena, ctx);
         // Register previously compiled functions in the GLOBAL scope
         // Find the global scope (root of scope chain)
         Scope *global_scope_root = ctx->current_scope;

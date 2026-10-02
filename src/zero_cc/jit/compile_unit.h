@@ -58,7 +58,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     // Register standard library functions if any
 
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
-        if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
+        if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
+            ((c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) &&
+             (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+              (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE)))) {
             zero_cc_parse_stmt(c);
             if (c->had_error) break;
             continue;
@@ -103,7 +106,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
-            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_IDENT) {
+            c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+            c->tokens[c->token_pos].type == TK_IDENT) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
             /* Check for static keyword */

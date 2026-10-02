@@ -13,7 +13,7 @@
 #include "../expressions.h"
 
 /* Forward declaration for statement parsing */
-ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx);
 
 /* Helper: Check if token is a primary expression */
 static inline bool is_primary_token(ZeroCCTokType t) {
@@ -389,6 +389,34 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
     /* Switch for unary operators */
     switch (t) {
+        case TK_SIZEOF: {
+            size_t pos = c->token_pos;
+            pos++; /* consume TK_SIZEOF */
+            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) pos++;
+            ZeroCCType ty = zero_cc_type_of_equality(c, &pos);
+            if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+            c->token_pos = pos;
+            size_t sz = ty.size;
+            
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->int_val = (int64_t)sz;
+            return ref;
+        }
+        case TK_ALIGNOF: {
+            size_t pos = c->token_pos;
+            pos++; /* consume TK_ALIGNOF */
+            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) pos++;
+            ZeroCCType ty = zero_cc_type_of_equality(c, &pos);
+            if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+            c->token_pos = pos;
+            size_t align = ty.align ? ty.align : 1;
+            
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->int_val = (int64_t)align;
+            return ref;
+        }
         case TK_PLUS:
         case TK_MINUS:
         case TK_BANG:
@@ -656,7 +684,7 @@ static void skip_c23_attributes(ZeroCCCompiler *c) {
 }
 
 static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t) {
-    if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
+    if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT || t == TK_UNION ||
         t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG ||
         t == TK_AUTO || t == TK_ATOMIC) {
@@ -665,7 +693,7 @@ static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t) {
     if (t == TK_IDENT && c->token_pos < c->token_count) {
         const char *tname = c->tokens[c->token_pos].allocated_str ? 
                             c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-        if (zero_cc_find_typedef(c, tname) != NULL) {
+        if (zero_cc_find_typedef(c, tname) != NULL || zero_cc_find_struct(c, tname) != NULL) {
             return true;
         }
     }

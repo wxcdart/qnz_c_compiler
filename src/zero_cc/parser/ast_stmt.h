@@ -10,10 +10,12 @@
 
 #include "../types_lexer.h"
 #include "../parser.h"
+#include "../jit/type_info.h"
+#include "../semantic/decl.h"
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
-ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
+ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx) {
     if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
 
     skip_c23_attributes(c);
@@ -43,7 +45,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         while (c->token_pos < c->token_count &&
                c->tokens[c->token_pos].type != TK_RBRACE &&
                c->tokens[c->token_pos].type != TK_EOF) {
-            ASTRef s = zero_cc_parse_stmt_ast(c, arena);
+            ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
             if (s != AST_NULL) {
                 if (head == AST_NULL) {
                     head = s;
@@ -98,12 +100,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->token_pos++;
         }
 
-        ASTRef then_stmt = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef then_stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         ASTRef else_stmt = AST_NULL;
 
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELSE) {
             c->token_pos++;
-            else_stmt = zero_cc_parse_stmt_ast(c, arena);
+            else_stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         }
 
         in = zero_cc_ast_get(arena, if_ref);
@@ -131,7 +133,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->token_pos++;
         }
 
-        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena, ctx);
         wn = zero_cc_ast_get(arena, while_ref);
         if (wn) {
             wn->left = cond;
@@ -148,7 +150,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         dn->line = line;
         dn->col = col;
 
-        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena, ctx);
         ASTRef cond = AST_NULL;
 
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_WHILE) {
@@ -187,7 +189,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         /* 1. Init */
         ASTRef init_stmt = AST_NULL;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) {
-            init_stmt = zero_cc_parse_stmt_ast(c, arena);
+            init_stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
             c->token_pos++;
         }
@@ -211,7 +213,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         }
 
         /* 4. Body */
-        ASTRef body_stmt = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef body_stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
 
         fn = zero_cc_ast_get(arena, for_ref);
         if (fn) {
@@ -238,7 +240,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
             c->token_pos++;
         }
-        ASTRef body = zero_cc_parse_stmt_ast(c, arena);
+        ASTRef body = zero_cc_parse_stmt_ast(c, arena, ctx);
 
         sn = zero_cc_ast_get(arena, sw_ref);
         if (sn) {
@@ -265,7 +267,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->tokens[c->token_pos].type != TK_CASE &&
             c->tokens[c->token_pos].type != TK_DEFAULT &&
             c->tokens[c->token_pos].type != TK_RBRACE) {
-            stmt = zero_cc_parse_stmt_ast(c, arena);
+            stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         }
         cn = zero_cc_ast_get(arena, case_ref);
         if (cn) {
@@ -291,7 +293,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->tokens[c->token_pos].type != TK_CASE &&
             c->tokens[c->token_pos].type != TK_DEFAULT &&
             c->tokens[c->token_pos].type != TK_RBRACE) {
-            stmt = zero_cc_parse_stmt_ast(c, arena);
+            stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         }
         dn = zero_cc_ast_get(arena, def_ref);
         if (dn) {
@@ -387,6 +389,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
         c->token_pos++;
+        if (type_tok == TK_STRUCT || type_tok == TK_UNION) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                type_start_pos = c->token_pos;
+                c->token_pos++;
+            }
+        }
         /* Check _Atomic(T) */
         if (type_tok == TK_ATOMIC && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
             c->token_pos++;
@@ -462,7 +470,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                         p_node->col = c->tokens[c->token_pos].col;
                         p_node->s.str = pname;
                         p_node->s.len = strlen(pname);
-                        /* Store parameter type info in aux.extra as ZeroCCType for now */
+                        /* Store parameter type info */
                         ZeroCCType ptype;
                         if (param_type_tok == TK_CHAR || param_type_tok == TK_BOOL_KW) ptype = zero_cc_type_char();
                         else if (param_type_tok == TK_SHORT) ptype = zero_cc_type_int16();
@@ -472,7 +480,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                         else if (param_type_tok == TK_VOID) ptype = zero_cc_type_void();
                         else ptype = zero_cc_type_int64();
                         if (param_is_ptr) ptype = zero_cc_type_ptr(&ptype);
-                        p_node->aux.extra = (uint32_t)(uintptr_t)&ptype; // store pointer to type
+                        TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
+                        decl_node_set_type(ctx, p_node, ptype_ti);
                         if (param_head == AST_NULL) {
                             param_head = p_ref;
                             param_tail = p_ref;
@@ -499,7 +508,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     while (c->token_pos < c->token_count &&
                            c->tokens[c->token_pos].type != TK_RBRACE &&
                            c->tokens[c->token_pos].type != TK_EOF) {
-                        ASTRef s = zero_cc_parse_stmt_ast(c, arena);
+                        ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
                         if (s != AST_NULL) {
                             if (head == AST_NULL) {
                                 head = s;
@@ -563,6 +572,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     else if (type_tok == TK_VOID) ret_type = zero_cc_type_void();
                     else {
                         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[type_start_pos].str_val);
+                        if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[type_start_pos].str_val);
                         ret_type = tdef ? *tdef : zero_cc_type_int64();
                     }
                     if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
@@ -580,6 +590,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 else if (type_tok == TK_VOID) decl_type = zero_cc_type_void();
                 else {
                     ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[type_start_pos].str_val);
+                    if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[type_start_pos].str_val);
                     decl_type = tdef ? *tdef : zero_cc_type_int64();
                 }
                 if (is_ptr) decl_type = zero_cc_type_ptr(&decl_type);
@@ -591,6 +602,10 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 dn->col = col;
                 dn->s.str = vname;
                 dn->s.len = strlen(vname);
+
+                /* Attach type to AST node for semantic analysis */
+                TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                decl_node_set_type(ctx, dn, decl_ti);
 
                 /* Optional initializer: = expr */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {

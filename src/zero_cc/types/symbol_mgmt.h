@@ -97,6 +97,7 @@ static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
             if (!a.base || !b.base) return 1;
             return zero_cc_types_compatible(*a.base, *b.base) && a.array_len == b.array_len;
         case TYPE_STRUCT:
+        case TYPE_UNION:
             return strcmp(a.struct_name, b.struct_name) == 0;
         default:
             return 0;

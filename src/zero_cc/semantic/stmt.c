@@ -229,6 +229,13 @@ bool stmt_handle_return(SemContext *ctx, ZeroCCASTNode *node) {
                 sem_node_error(ctx, node, "void function should not return a value");
             } else if (ret_t) {
                 if (!type_compatible_assign(ctx->current_fn_ret_type, ret_t)) {
+                    fprintf(stderr, "DEBUG stmt_handle_return: fn_ret_type kind=%d tag=%s size=%zu, ret_t kind=%d tag=%s size=%zu\n",
+                            ctx->current_fn_ret_type->kind,
+                            ctx->current_fn_ret_type->details.record.tag ? ctx->current_fn_ret_type->details.record.tag : "(null)",
+                            ctx->current_fn_ret_type->details.record.size,
+                            ret_t->kind,
+                            ret_t->details.record.tag ? ret_t->details.record.tag : "(null)",
+                            ret_t->details.record.size);
                     sem_node_error(ctx, node, "incompatible return type in return statement");
                 }
             }

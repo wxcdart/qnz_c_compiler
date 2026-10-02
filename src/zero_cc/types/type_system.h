@@ -20,6 +20,7 @@ typedef enum {
     TYPE_PTR,
     TYPE_ARRAY,
     TYPE_STRUCT,
+    TYPE_UNION,
     /* Reserved range for JIT intrinsics & SIMD vector types */
     TYPE_USER_0,
     TYPE_USER_1,

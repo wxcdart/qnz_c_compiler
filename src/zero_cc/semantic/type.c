@@ -189,6 +189,10 @@ bool type_equal(const TypeInfo *a, const TypeInfo *b) {
             if (a->details.record.tag && b->details.record.tag) {
                 return strcmp(a->details.record.tag, b->details.record.tag) == 0;
             }
+            if (!a->details.record.tag && !b->details.record.tag) {
+                return a->details.record.size == b->details.record.size &&
+                       a->details.record.align == b->details.record.align;
+            }
             return false;
 
         default:

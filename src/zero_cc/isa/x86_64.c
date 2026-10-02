@@ -624,68 +624,80 @@ static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
 
 /* setl al, zero-extend to rax */
 static void x86_emit_setl(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9c);
     me_emit_u8(c, 0xc0);  /* setl al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* setle al, zero-extend to rax */
 static void x86_emit_setle(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9e);
     me_emit_u8(c, 0xc0);  /* setle al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* setg al, zero-extend to rax */
 static void x86_emit_setg(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9f);
     me_emit_u8(c, 0xc0);  /* setg al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* setge al, zero-extend to rax */
 static void x86_emit_setge(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x9d);
     me_emit_u8(c, 0xc0);  /* setge al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* sete al, zero-extend to rax */
 static void x86_emit_sete(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x94);
     me_emit_u8(c, 0xc0);  /* sete al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* setne al, zero-extend to rax */
 static void x86_emit_setne(ZeroCCCompiler *c, int dst_reg) {
-    (void)dst_reg; /* Always rax */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0x95);
     me_emit_u8(c, 0xc0);  /* setne al */
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);  /* movzx rax, al */
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* deref: mov dst, [src] */
@@ -706,7 +718,9 @@ static void x86_emit_load_byte(ZeroCCCompiler *c, int dst_reg, int src_reg) {
 
 /* cmp rax, 0 */
 static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
-    (void)src_reg; /* Always rax */
+    if (src_reg != 0) {
+        x86_mov_rr(c, 0, src_reg);
+    }
     me_emit_u8(c, 0x48);
     me_emit_u8(c, 0x3d);
     me_emit_u8(c, 0x00);
@@ -715,15 +729,22 @@ static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
 
 /* not rax */
 static void x86_emit_not(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    (void)dst_reg; (void)src_reg; /* Always rax */
+    if (src_reg != 0) {
+        x86_mov_rr(c, 0, src_reg);
+    }
     me_emit_u8(c, 0x48);
     me_emit_u8(c, 0xf7);
     me_emit_u8(c, 0xd0);
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 /* lnot: !rax (test + sete + movzx) */
 static void x86_emit_lnot(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    (void)dst_reg; (void)src_reg; /* Always rax */
+    if (src_reg != 0) {
+        x86_mov_rr(c, 0, src_reg);
+    }
     /* test rax, rax */
     me_emit_u8(c, 0x48);
     me_emit_u8(c, 0x85);
@@ -736,6 +757,9 @@ static void x86_emit_lnot(ZeroCCCompiler *c, int dst_reg, int src_reg) {
     me_emit_u8(c, 0x0f);
     me_emit_u8(c, 0xb6);
     me_emit_u8(c, 0xc0);
+    if (dst_reg != 0) {
+        x86_mov_rr(c, dst_reg, 0);
+    }
 }
 
 static void x86_emit_label(ZeroCCCompiler *c, const char *name) {

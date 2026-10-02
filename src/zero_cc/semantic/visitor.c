@@ -211,7 +211,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_MEMBER: {
-            (void)sem_analyze_ref(ctx, node->left);
+            res = expr_handle_member(ctx, node);
             break;
         }
         case NODE_VA_START: {

@@ -201,6 +201,10 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
             if (t1->details.record.tag && t2->details.record.tag) {
                 return strcmp(t1->details.record.tag, t2->details.record.tag) == 0;
             }
+            if (!t1->details.record.tag && !t2->details.record.tag) {
+                return t1->details.record.size == t2->details.record.size &&
+                       t1->details.record.align == t2->details.record.align;
+            }
             return false;
 
         default:

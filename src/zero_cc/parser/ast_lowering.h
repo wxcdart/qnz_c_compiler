@@ -18,6 +18,15 @@
 #include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
+#include "../abi_classify.h"
+
+/* Helper: Get current function's return type (last function added to compiler) */
+static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
+    if (c->function_count > 0) {
+        return c->functions[c->function_count - 1].return_type;
+    }
+    return zero_cc_type_int();
+}
 
 /* IR Emitter Context for state management (replaces static globals) */
 static IREmitterContext g_ir_emitter_ctx;
@@ -98,8 +107,12 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
                     me_emit_u8(c, 0x85);
                     me_emit_u32(c, (uint32_t)(-sym->stack_offset));
                 } else {
-                    /* Integer assignment: use IR store */
+                    /* Integer or struct assignment: use IR store */
                     ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
+                        /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
+                        ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                    }
                 }
             }
             c->last_expr_is_float = 0;
@@ -118,6 +131,23 @@ static uint16_t g_ir_epilogue_label = 0;
 
 static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node && node->left != AST_NULL) {
+        ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
+        ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
+        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
+            /* System V AMD64 ABI: 2-eightbyte struct returned across rax and rdx */
+            int32_t struct_offset = -sym->stack_offset;
+            
+            // 1. Load lower 8 bytes into rax (VREG_0) via IR
+            ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
+            
+            // 2. Load upper 8 bytes into rdx (physical register 2) via IR
+            ir_emit_load(2, BE(c)->fp_reg, struct_offset + 8);
+            
+            // 3. Jump to epilogue (which will emit leave; ret)
+            ir_emit_jmp(g_ir_epilogue_label);
+            return;
+        }
+
         int result_temp = lower_expr(c, arena, node->left);
         /* Ensure result is in rax (VREG_0) for return */
         if (!c->last_expr_is_float) {
@@ -125,6 +155,13 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
             int result_reg = regalloc_get_reg_for_temp(&c->regalloc, result_temp);
             if (result_reg != VREG_0) {
                 ir_emit_mov_reg(VREG_0, result_temp);
+            }
+            /* If function returns float/double, convert int to float */
+            ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
+            if (fn_ret_type.tag == TYPE_FLOAT || fn_ret_type.tag == TYPE_DOUBLE) {
+                int xmm0_temp = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint8_t)xmm0_temp, (uint8_t)result_temp);
+                c->last_expr_is_float = 1;
             }
         }
         /* Float result is already in xmm0, no move needed */
@@ -636,10 +673,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         case NODE_CAST: {
             int result = lower_expr(c, arena, node->left);
-            /* Float to int conversion: emit OP_CVTTSD2SI in IR stream */
+            /* Float to int conversion: emit via IR for correct sequencing */
             if (c->last_expr_is_float) {
                 int int_res_temp = c->next_temp_id++;
-                ir_emit_cvttsd2si(int_res_temp, result);
+                ir_emit_cvttsd2si((uint8_t)int_res_temp, (uint8_t)result);
                 c->last_expr_is_float = 0;
                 return int_res_temp;
             }
@@ -714,6 +751,43 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             
             int right_temp = lower_expr(c, arena, node->right);
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
+            
+            if (left_node && left_node->tag == NODE_MEMBER) {
+                /* Struct member assignment: left_node->left is base, left_node->aux.alt is offset */
+                ZeroCCASTNode *base_node = zero_cc_ast_get(arena, left_node->left);
+                int32_t member_offset = (int32_t)left_node->aux.alt;
+                
+                // Find the base variable's stack offset if it's a local identifier
+                int32_t base_stack_offset = 0;
+                if (base_node && base_node->tag == NODE_IDENT) {
+                    ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+                    if (!sym) {
+                        fprintf(stderr, "ERROR: Undefined local variable '%s' in struct assignment\n", base_node->s.str);
+                        return 0xFF;
+                    }
+                    base_stack_offset = -sym->stack_offset;
+                } else {
+                    fprintf(stderr, "ERROR: Unsupported base expression in struct member assignment\n");
+                    return 0xFF;
+                }
+                
+                int32_t total_offset = base_stack_offset + member_offset;
+                
+                if (c->last_expr_is_float) {
+                    /* Float value in xmm0 - store to [rbp + total_offset] */
+                    me_emit_u8(c, 0xF2);
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x11);
+                    me_emit_u8(c, 0x85);
+                    me_emit_u32(c, (uint32_t)total_offset);
+                } else {
+                    /* Integer/pointer value in GPR - use IR store */
+                    ir_emit_store(right_temp, BE(c)->fp_reg, total_offset);
+                }
+                c->last_expr_is_float = 0;
+                return right_temp;
+            }
+            
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
@@ -820,6 +894,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                         }
                         ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
+                            /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
+                            ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                        }
                         c->last_expr_is_float = 0;
                         return right_temp;
                     }
@@ -875,12 +953,24 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_MEMBER: {
-            int base_temp = lower_expr(c, arena, node->left);
-            int32_t offset = (int32_t)node->aux.extra;
-            int result_temp = c->next_temp_id++;
-            ir_emit_load(result_temp, base_temp, offset);
+            /* Load member value from memory (Rvalue context) */
+            int32_t member_offset = (int32_t)node->aux.alt;
+            ZeroCCASTNode *base_node = zero_cc_ast_get(arena, node->left);
+            int32_t base_stack_offset = 0;
+            
+            if (base_node && base_node->tag == NODE_IDENT) {
+                ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+                if (sym) {
+                    base_stack_offset = -sym->stack_offset;
+                }
+            }
+            
+            int32_t total_offset = base_stack_offset + member_offset;
+            
+            int val_temp = c->next_temp_id++;
+            ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
             c->last_expr_is_float = 0;
-            return result_temp;
+            return val_temp;
         }
         
         case NODE_CALL: {
@@ -958,6 +1048,17 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 c->last_expr_is_float = 0;
+                
+                /* Check if function returns a 9-16 byte struct/union */
+                if (callee_fn && (callee_fn->return_type.tag == TYPE_STRUCT || callee_fn->return_type.tag == TYPE_UNION) && 
+                    callee_fn->return_type.size > 8 && callee_fn->return_type.size <= 16) {
+                    /* Store struct return info in label_idx: high byte = 1, low byte = size */
+                    if (ir_get_count() > 0) {
+                        Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                        last_instr->label_idx = 0x0100 | (callee_fn->return_type.size & 0xFF);
+                    }
+                }
+                
                 return VREG_0;  /* Return value in rax */
             }
             c->last_expr_is_float = 0;
@@ -1173,6 +1274,12 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 }
                 break;
             
+            case OP_CVTSI2SD:
+                if (BE(c)->emit_fp_cvtsf) {
+                    BE(c)->emit_fp_cvtsf(c, 0, phys_src1);  /* convert GPR phys_src1 to xmm0 */
+                }
+                break;
+            
             case OP_CALL: {
                 /* Extract function name from imm64 (stored as pointer during lowering) */
                 const char *fn_name = (const char *)(intptr_t)instr->imm64;
@@ -1191,14 +1298,17 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 /* Extract fp_reg_idx (number of float args) from label_idx */
                 int fp_reg_idx = (int)instr->label_idx;
                 
-                /* Emit moves for integer args to argument registers */
+                /* Safe parallel move: push all src registers then pop into dst registers */
                 static const int int_arg_regs[6] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
-                int int_reg_idx = 0;
-                for (int i = 0; i < arg_count && int_reg_idx < 6; i++) {
-                    int src_phys = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
-                    int dst_reg = int_arg_regs[int_reg_idx];
-                    BE(c)->emit_mov_reg(c, dst_reg, src_phys);
-                    int_reg_idx++;
+                int n_args = (arg_count < 6) ? arg_count : 6;
+                int src_regs[6];
+                for (int i = 0; i < n_args; i++) {
+                    src_regs[i] = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                    BE(c)->emit_push_reg(c, src_regs[i]);
+                }
+                for (int i = n_args - 1; i >= 0; i--) {
+                    int dst_reg = int_arg_regs[i];
+                    BE(c)->emit_pop_reg(c, dst_reg);
                 }
                 
                 /* Load float arguments from spill slots into xmm0..xmmN */
@@ -1225,6 +1335,15 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 
                 /* Emit the call */
                 BE(c)->emit_call(c, fn_name);
+
+                /* Handle struct return (9-16 bytes) unpacking */
+                if ((instr->label_idx & 0xFF00) == 0x0100) {
+                    int struct_size = instr->label_idx & 0xFF;
+                    if (struct_size > 8 && struct_size <= 16) {
+                        /* Physical rdx contains upper 8 bytes */
+                        /* This is handled by caller store logic */
+                    }
+                }
                 break;
             }
             

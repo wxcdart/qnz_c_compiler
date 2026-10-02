@@ -326,6 +326,17 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         return zero_cc_type_ptr(NULL);
     }
     /* Type keywords as primary (for sizeof(type)/_Alignof(type)) */
+    if (t == TK_STRUCT || t == TK_UNION) {
+        (*pos)++;
+        if (c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            (*pos)++;
+            ZeroCCType *st = zero_cc_find_struct(c, name);
+            if (!st) st = zero_cc_find_typedef(c, name);
+            if (st) return *st;
+            return zero_cc_type_int64();
+        }
+    }
     if (t == TK_INT) { (*pos)++; return zero_cc_type_int(); }
     if (t == TK_CHAR) { (*pos)++; return zero_cc_type_char(); }
     if (t == TK_VOID) { (*pos)++; return zero_cc_type_void(); }
@@ -343,6 +354,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         /* Look ahead: if next token is a type keyword, treat as cast */
         ZeroCCTokType next = c->tokens[*pos].type;
         if (next == TK_IDENT || next == TK_INT || next == TK_CHAR || next == TK_VOID ||
+            next == TK_STRUCT || next == TK_UNION ||
             next == TK_FLOAT_KW || next == TK_DOUBLE_KW || next == TK_BOOL_KW ||
             next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC) {
             /* Cast: (type) expr */

@@ -33,9 +33,9 @@ typedef enum RegClass {
 
 /* Available registers per class (System V AMD64 ABI) */
 static const char *gpr_registers[] __attribute__((unused)) = {
-    "rax", "rcx", "rdx", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+    "rax", "rcx", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
 };
-#define GPR_COUNT 14
+#define GPR_COUNT 13
 
 static const char *xmm_registers[] __attribute__((unused)) = {
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
@@ -290,9 +290,10 @@ static void regalloc_allocate(RegAllocator *ra) {
 /* Map register allocator index to VREG number (for x86-64) */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
 static int regalloc_idx_to_vreg(int idx) {
-    /* System V AMD64 ABI register order, excluding rsp/rbp which are reserved. */
-    static const int idx_to_vreg[] = {0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-    if (idx >= 0 && idx < 14) {
+    /* System V AMD64 ABI register order, excluding rsp/rbp/rdx which are reserved. */
+    /* rdx (2) is reserved for struct return second eightbyte */
+    static const int idx_to_vreg[] = {0, 1, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    if (idx >= 0 && idx < 13) {
         return idx_to_vreg[idx];
     }
     return 0;  /* Default to VREG_0 */
@@ -302,6 +303,11 @@ static int regalloc_idx_to_vreg(int idx) {
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     if (!ra || temp_id == 0xFF) return VREG_0;  /* Default to VREG_0 */
+    
+    /* VREG_2 (rdx) is a fixed register for System V ABI struct returns */
+    if (temp_id == VREG_2) {
+        return 2;  /* Physical rdx encoding */
+    }
     
     for (size_t i = 0; i < ra->interval_count; i++) {
         if (ra->intervals[i].temp_id == temp_id) {

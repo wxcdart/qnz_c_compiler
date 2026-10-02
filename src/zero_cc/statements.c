@@ -43,7 +43,7 @@ static int add_label(const char *name, size_t position) {
 /* Helper: Check if token is a type specifier */
 static inline bool is_type_specifier_token(ZeroCCTokType t) {
     return (t == TK_IDENT || t == TK_INT || t == TK_CHAR || t == TK_VOID ||
-            t == TK_STRUCT || t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
+            t == TK_STRUCT || t == TK_UNION || t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
             t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG ||
             t == TK_AUTO || t == TK_ATOMIC);
 }
@@ -193,9 +193,10 @@ void zero_cc_parse_stmt(ZeroCCCompiler *c) {
             return;
         }
 
-        /* Typedef: check next token for struct/enum vs scalar */
+        /* Typedef: check next token for struct/union/enum vs scalar */
         case TK_TYPEDEF:
-            if (c->tokens[c->token_pos + 1].type == TK_STRUCT) {
+            if (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
+                c->tokens[c->token_pos + 1].type == TK_UNION) {
                 zero_cc_stmt_typedef_struct(c);
             } else if (c->tokens[c->token_pos + 1].type == TK_ENUM) {
                 zero_cc_stmt_typedef_enum(c);
@@ -218,11 +219,21 @@ void zero_cc_parse_stmt(ZeroCCCompiler *c) {
             /* Fall through to check for declarations and compound conditions */
             break;
 
-        /* Type specifiers: variable declaration */
+        /* Type specifiers: variable declaration or struct/union definition */
+        case TK_STRUCT:
+        case TK_UNION:
+            if (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+                (c->tokens[c->token_pos + 1].type == TK_IDENT &&
+                 c->tokens[c->token_pos + 2].type == TK_LBRACE)) {
+                zero_cc_stmt_typedef_struct(c);
+                return;
+            }
+            zero_cc_stmt_decl(c, t, decl_align_spec);
+            return;
+
         case TK_INT:
         case TK_CHAR:
         case TK_VOID:
-        case TK_STRUCT:
         case TK_FLOAT_KW:
         case TK_DOUBLE_KW:
         case TK_BOOL_KW:

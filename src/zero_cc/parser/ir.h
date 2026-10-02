@@ -10,7 +10,7 @@
 /* Maximum instructions per function: 64K = 65536 */
 #define MAX_INSTRS 65536
 
-/* Opcode definitions - 50 opcodes */
+/* Opcode definitions - 51 opcodes */
 typedef enum {
     /* Data Movement (10) */
     OP_NOP = 0,
@@ -68,7 +68,7 @@ typedef enum {
     OP_RET,            /* ret */
     OP_LEAVE,          /* leave */
 
-    /* Special (7) */
+    /* Special (8) */
     OP_LABEL,          /* label marker */
     OP_DEREF,          /* mov rax, [rax] */
     OP_LOAD_BYTE,      /* movzx rax, byte ptr [rax] */
@@ -77,6 +77,7 @@ typedef enum {
     OP_SET_NE,         /* setne al */
     OP_STACK_ALIGN,    /* sub rsp, imm8 */
     OP_CVTTSD2SI,      /* cvttsd2si eax, xmm0 */
+    OP_CVTSI2SD,       /* cvtsi2sd xmm0, eax */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -134,6 +135,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SET_NE: return "SET_NE";
         case OP_STACK_ALIGN: return "STACK_ALIGN";
         case OP_CVTTSD2SI: return "CVTTSD2SI";
+        case OP_CVTSI2SD: return "CVTSI2SD";
         default: return "UNKNOWN";
     }
 }
@@ -224,6 +226,16 @@ static inline void ir_emit_ret(void) {
 /* Emit function call - fn_name stored in imm64 as pointer during lowering */
 static inline void ir_emit_call(const char *fn_name) {
     ir_emit((Instr){.op = OP_CALL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+}
+
+/* Float to int conversion (cvttsd2si) */
+static inline void ir_emit_cvttsd2si(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_CVTTSD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* Int to float conversion (cvtsi2sd) */
+static inline void ir_emit_cvtsi2sd(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_CVTSI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */
