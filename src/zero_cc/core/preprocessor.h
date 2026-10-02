@@ -19,6 +19,11 @@ static inline void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {
     cpp->cond_true[0] = true;
     cpp->cond_seen_true[0] = true;
     cpp->expanding_macro_index = -1;
+    cpp->default_pack = 0;
+    cpp->pack_stack_depth = 0;
+    cpp->diagnostic_state.warning_as_error = false;
+    cpp->diagnostic_state.disabled_warning_count = 0;
+    cpp->diagnostic_state.stack_depth = 0;
 }
 
 static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
@@ -36,6 +41,18 @@ static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
     }
     for (size_t i = 0; i < cpp->once_file_count; i++) {
         if (cpp->once_files[i]) free(cpp->once_files[i]);
+    }
+    /* Free pragma state */
+    for (int d = 0; d < cpp->pack_stack_depth; d++) {
+        /* pack stack doesn't need cleanup */
+    }
+    for (int i = 0; i < cpp->diagnostic_state.disabled_warning_count; i++) {
+        if (cpp->diagnostic_state.disabled_warnings[i]) free(cpp->diagnostic_state.disabled_warnings[i]);
+    }
+    for (int d = 0; d < cpp->diagnostic_state.stack_depth; d++) {
+        for (int i = 0; i < cpp->diagnostic_state.disabled_warning_count_stack[d]; i++) {
+            if (cpp->diagnostic_state.disabled_warnings_stack[d][i]) free(cpp->diagnostic_state.disabled_warnings_stack[d][i]);
+        }
     }
 }
 

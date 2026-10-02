@@ -57,6 +57,22 @@ typedef struct {
     int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
     char *once_files[ONCE_FILES_MAX];
     size_t once_file_count;
+
+    /* Pragma state */
+    int pack_stack[32];
+    int pack_stack_depth;
+    int default_pack;
+
+    /* GCC diagnostic pragma state */
+    struct {
+        bool warning_as_error;
+        char *disabled_warnings[64];
+        int disabled_warning_count;
+        int stack_depth;
+        bool warning_as_error_stack[16];
+        char *disabled_warnings_stack[16][64];
+        int disabled_warning_count_stack[16];
+    } diagnostic_state;
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

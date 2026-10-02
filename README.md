@@ -142,6 +142,16 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 | **`inline` semantics** | 📋 Planned | `isa_backend` |
 | **Complex numbers** | 📋 Planned | `isa_backend` |
 
+### Preprocessor Pragmas (Sprint 2.5)
+
+| Pragma | Status | Notes |
+|--------|--------|-------|
+| **`#pragma pack(n)`** | ✅ Complete | Structure packing control with push/pop |
+| **`#pragma message("text")`** | ✅ Complete | Compiler messages |
+| **`#pragma GCC diagnostic push/pop`** | ✅ Complete | Diagnostic state stack |
+| **`#pragma GCC diagnostic error/warning/ignored`** | ✅ Complete | Warning control |
+| **`#pragma GCC push_options` / `pop_options`** | ✅ Complete | Options stack |
+
 ### Known Limitations
 
 - `_Thread_local`: Full system TLS support (fs/gs segments on x86-64)
