@@ -293,7 +293,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 41 | **Test Suite Restructuring & Harness Modernization**: Organize 108 flat tests into structured categories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`); implement unified runner with timing, pass/fail counts, and TAP/JUnit output | 3 days | |
 | 42 | **Memory Leak & Sanitizer Audit**: Clean run of entire test suite under AddressSanitizer (`-fsanitize=address,undefined`) and Valgrind; fix AST arena and string buffer leaks | 4 days | |
 | 43 | **JIT W^X Memory Hardening**: Transition from `PROT_READ|PROT_WRITE|PROT_EXEC` to strict W^X (`mprotect` write-then-execute) for security and real-world OS compliance | 2 days | |
-| 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | |
+| 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, unify `include/` vs `src/` layout (eliminate duplicate `src/zero_cc/zero_cc.h`), eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | |
 
 ---
 
