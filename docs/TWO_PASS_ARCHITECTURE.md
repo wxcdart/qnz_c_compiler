@@ -334,7 +334,7 @@ int allocate_spill_slot(void) {
 - `2_pass_decision.md` - Final design decisions
 - `2_pass_considerations.md` - Edge cases and details
 - `2_pass_progress.md` - Current progress status
-- `circular_dependency_analysis.md` - Architecture analysis
+- `archived/circular_dependency_analysis.md` - Architecture analysis
 
 ### Tests
 
