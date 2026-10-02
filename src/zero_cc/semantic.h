@@ -2,7 +2,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-#include "utils/arena.h"
+#include "common/arena.h"
 #include "parser.h"
 #include "semantic/diagnostics.h"
 

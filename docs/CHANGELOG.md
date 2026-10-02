@@ -97,6 +97,21 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - All 5 tasks of Sprint 5.5 (Tasks 40–44) complete.
   - 109/109 tests passing under `make test`, `make asan`, and `make valgrind`.
 
+#### Subsystem Consolidation (`src/zero_cc/common/`) ✅
+- **Directory Structure Simplification**:
+  - Consolidated disparate utility, platform, and data structure directories (`utils/`, `data_structures/`, `platform/`, `structures/`) into a single unified `src/zero_cc/common/` directory.
+  - Reduced `src/zero_cc/` subdirectories to 8 distinct, well-defined subsystems: `common/`, `core/`, `isa/`, `jit/`, `lexer/`, `parser/`, `semantic/`, `types/`.
+- **Relocated Components**:
+  - Arena memory allocator: `src/zero_cc/common/arena.{c,h}`.
+  - Hash tables & double hashing: `src/zero_cc/common/hash_table.{c,h}`, `zero_tpht.h`, `zero_chained_tpht.h`, `zero_tinyptr.h`.
+  - Virtual memory adapter: `src/zero_cc/common/mmap_adapter.h`.
+  - POSIX platform shims: `src/zero_cc/common/zero_posix.h`, `posix_error.h`, `posix_fileio.h`, `posix_libc.h`, `posix_mmap.h`, `posix_system.h`.
+- **Include Paths & Build Updates**:
+  - Updated include paths across compiler subsystems (`parser`, `semantic`, `jit`) and all unit/semantic test suites.
+  - Updated `Makefile` object targets (`EXTRA_OBJS`) and header dependency wildcards (`$(wildcard src/zero_cc/common/*.h)`).
+  - 109/109 tests passing cleanly with zero memory leaks across `make test`, `make asan`, and `make valgrind`.
+
+
 #### Virtual Register (VREG) System ✅
 - ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
 - Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)

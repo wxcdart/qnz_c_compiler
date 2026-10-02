@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "zero_cc/data_structures/hash_table.h"
+#include "zero_cc/common/hash_table.h"
 
 int main(void) {
     HashTable32 ht;

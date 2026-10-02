@@ -18,7 +18,7 @@
 #include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
-#include "../utils/arena.h"
+#include "../common/arena.h"
 #include "abi_classify.h"
 
 /* Helper: Get current function's return type (last function added to compiler) */

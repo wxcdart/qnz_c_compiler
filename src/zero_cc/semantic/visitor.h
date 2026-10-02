@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
-#include "../utils/arena.h"
+#include "../common/arena.h"
 #include "../parser.h"
 #include "../types/token.h"
 #include "diagnostics.h"

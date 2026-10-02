@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "../utils/arena.h"
-#include "../structures/zero_tpht.h"
+#include "../common/arena.h"
+#include "../common/zero_tpht.h"
 
 #ifdef __cplusplus
 extern "C" {

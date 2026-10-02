@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include "../utils/arena.h"
+#include "../common/arena.h"
 
 typedef struct {
     const char *file;   // source filename (e.g. "<stdin>")

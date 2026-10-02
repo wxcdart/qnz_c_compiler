@@ -7,7 +7,7 @@ TESTS = $(TEST_SRCS:.c=)
 
 LEXER_OBJ = src/zero_cc/lexer.o
 PARSER_OBJ = src/zero_cc/parser.o
-EXTRA_OBJS = src/zero_cc/data_structures/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/utils/arena.o src/zero_cc/parser/ir.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
+EXTRA_OBJS = src/zero_cc/common/hash_table_tpht.o src/zero_cc/semantic/diagnostics.o src/zero_cc/semantic/type.o src/zero_cc/semantic/scope.o src/zero_cc/semantic/promote.o src/zero_cc/semantic/stmt.o src/zero_cc/semantic/visitor.o src/zero_cc/semantic/expr.o src/zero_cc/semantic/decl.o src/zero_cc/semantic.o src/zero_cc/common/arena.o src/zero_cc/parser/ir.o src/zero_cc/isa/x86_64.o src/zero_cc/isa/aarch64.o src/zero_cc/isa/riscv.o
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap test-junit benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
@@ -22,7 +22,8 @@ $(LEXER_OBJ): src/zero_cc/lexer.c src/zero_cc/lexer.h src/zero_cc/types_lexer.h 
 PARSER_HEADERS = src/zero_cc/parser.h src/zero_cc/types_lexer.h \
 	$(wildcard src/zero_cc/parser/*.h) \
 	$(wildcard src/zero_cc/types/*.h) \
-	$(wildcard src/zero_cc/jit/*.h)
+	$(wildcard src/zero_cc/jit/*.h) \
+	$(wildcard src/zero_cc/common/*.h)
 
 $(PARSER_OBJ): src/zero_cc/parser.c $(PARSER_HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -30,7 +31,7 @@ $(PARSER_OBJ): src/zero_cc/parser.c $(PARSER_HEADERS)
 TLS_OBJ = src/zero_cc/tls_backend.o
 src/zero_cc/tls_backend.o: src/zero_cc/tls_backend.c
 	$(CC) $(CFLAGS) -c $< -o $@
-src/zero_cc/utils/arena.o: src/zero_cc/utils/arena.c
+src/zero_cc/common/arena.o: src/zero_cc/common/arena.c
 	$(CC) $(CFLAGS) -c $< -o $@
 src/zero_cc/semantic/type.o: src/zero_cc/semantic/type.c src/zero_cc/semantic/type.h
 	$(CC) $(CFLAGS) -c $< -o $@

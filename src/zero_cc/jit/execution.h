@@ -18,7 +18,7 @@
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "../types/global_vars.h"
-#include "../platform/mmap_adapter.h"
+#include "../common/mmap_adapter.h"
 
 static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     if (!c || c->text_section.length == 0) return -1;
