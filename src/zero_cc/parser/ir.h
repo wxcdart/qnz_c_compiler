@@ -187,8 +187,8 @@ static inline Instr* ir_get(size_t idx) {
 }
 
 /* Helper functions for common patterns */
-static inline void ir_emit_mov_imm(uint8_t temp_dest, int16_t imm) {
-    ir_emit((Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = imm, .imm64 = imm, .label_idx = 0});
+static inline void ir_emit_mov_imm(uint8_t temp_dest, int64_t imm) {
+    ir_emit((Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
 }
 
 static inline void ir_emit_add(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {

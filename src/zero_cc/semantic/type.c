@@ -272,50 +272,58 @@ size_t type_align(const TypeInfo *t) {
 
 /* Add a field to a struct type */
 void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type) {
+    type_add_bitfield(perm, struct_t, name, offset, field_type, 0, 0, false);
+}
+
+/* Add a bit-field to a struct type */
+void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed) {
     if (!struct_t || !name || !field_type) return;
     
     // Allocate or grow field array
     size_t new_count = struct_t->details.record.field_count + 1;
-    void *new_fields = arena_alloc(perm, new_count * sizeof(struct { const char *name; size_t offset; TypeInfo *type; }));
+    void *new_fields = arena_alloc(perm, new_count * sizeof(struct StructField));
     if (!new_fields) return;
     
     // Copy existing fields
     if (struct_t->details.record.fields) {
-        memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct { const char *name; size_t offset; TypeInfo *type; }));
+        memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct StructField));
     }
     
     // Add new field
-    struct { const char *name; size_t offset; TypeInfo *type; } *fields = new_fields;
+    struct StructField *fields = (struct StructField *)new_fields;
     fields[new_count - 1].name = name;
     fields[new_count - 1].offset = offset;
     fields[new_count - 1].type = field_type;
+    fields[new_count - 1].is_bitfield = (bit_width > 0);
+    fields[new_count - 1].bit_offset = bit_offset;
+    fields[new_count - 1].bit_width = bit_width;
+    fields[new_count - 1].is_signed = is_signed;
     
-    struct_t->details.record.fields = new_fields;
+    struct_t->details.record.fields = fields;
     struct_t->details.record.field_count = new_count;
 }
 
-/* Find a field by name in a struct type */
-TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name) {
+/* Find full field info by name in a struct type */
+struct StructField *type_find_field_info(const TypeInfo *struct_t, const char *name) {
     if (!struct_t || !name) return NULL;
     if (!struct_t->details.record.fields) return NULL;
     
     for (size_t i = 0; i < struct_t->details.record.field_count; i++) {
         if (strcmp(struct_t->details.record.fields[i].name, name) == 0) {
-            return struct_t->details.record.fields[i].type;
+            return &struct_t->details.record.fields[i];
         }
     }
     return NULL;
 }
 
+/* Find a field by name in a struct type */
+TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name) {
+    struct StructField *fld = type_find_field_info(struct_t, name);
+    return fld ? fld->type : NULL;
+}
+
 /* Get field offset by name */
 size_t type_get_field_offset(const TypeInfo *struct_t, const char *name) {
-    if (!struct_t || !name) return 0;
-    if (!struct_t->details.record.fields) return 0;
-    
-    for (size_t i = 0; i < struct_t->details.record.field_count; i++) {
-        if (strcmp(struct_t->details.record.fields[i].name, name) == 0) {
-            return struct_t->details.record.fields[i].offset;
-        }
-    }
-    return 0;
+    struct StructField *fld = type_find_field_info(struct_t, name);
+    return fld ? fld->offset : 0;
 }

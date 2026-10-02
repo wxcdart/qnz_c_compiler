@@ -32,10 +32,11 @@ typedef enum RegClass {
 } RegClass;
 
 /* Available registers per class (System V AMD64 ABI) */
+/* Note: rsp/rbp are reserved for stack, rdx is reserved for struct returns, rcx for shift counts (cl) */
 static const char *gpr_registers[] __attribute__((unused)) = {
-    "rax", "rcx", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+    "rax", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
 };
-#define GPR_COUNT 13
+#define GPR_COUNT 12
 
 static const char *xmm_registers[] __attribute__((unused)) = {
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
@@ -290,10 +291,11 @@ static void regalloc_allocate(RegAllocator *ra) {
 /* Map register allocator index to VREG number (for x86-64) */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
 static int regalloc_idx_to_vreg(int idx) {
-    /* System V AMD64 ABI register order, excluding rsp/rbp/rdx which are reserved. */
+    /* System V AMD64 ABI register order, excluding rsp/rbp/rdx/rcx which are reserved. */
     /* rdx (2) is reserved for struct return second eightbyte */
-    static const int idx_to_vreg[] = {0, 1, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-    if (idx >= 0 && idx < 13) {
+    /* rcx (1) is reserved for shift count (cl) */
+    static const int idx_to_vreg[] = {0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    if (idx >= 0 && idx < 12) {
         return idx_to_vreg[idx];
     }
     return 0;  /* Default to VREG_0 */
@@ -303,6 +305,11 @@ static int regalloc_idx_to_vreg(int idx) {
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     if (!ra || temp_id == 0xFF) return VREG_0;  /* Default to VREG_0 */
+    
+    /* VREG_0 (rax) is a fixed register for return values */
+    if (temp_id == VREG_0) {
+        return 0;  /* Physical rax encoding */
+    }
     
     /* VREG_2 (rdx) is a fixed register for System V ABI struct returns */
     if (temp_id == VREG_2) {

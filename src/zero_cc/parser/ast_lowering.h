@@ -18,6 +18,7 @@
 #include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
+#include "../utils/arena.h"
 #include "../abi_classify.h"
 
 /* Helper: Get current function's return type (last function added to compiler) */
@@ -145,8 +146,7 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
         /* Ensure result is in rax (VREG_0) for return */
         if (!c->last_expr_is_float) {
             /* Move result to rax if not already there - emit IR */
-            int result_reg = regalloc_get_reg_for_temp(&c->regalloc, result_temp);
-            if (result_reg != VREG_0) {
+            if (result_temp != VREG_0) {
                 ir_emit_mov_reg(VREG_0, result_temp);
             }
             /* If function returns float/double, convert int to float */
@@ -733,6 +733,89 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 
                 int32_t total_offset = base_stack_offset + member_offset;
                 
+                if (left_node->flags & NODE_MEMBER_IS_BITFIELD) {
+                    uint8_t bit_offset = (uint8_t)(left_node->aux.step & 0xFF);
+                    uint8_t bit_width = (uint8_t)((left_node->aux.step >> 8) & 0xFF);
+                    bool is_signed = ((left_node->aux.step >> 16) & 1) != 0;
+                    uint64_t val_mask = (bit_width >= 64) ? ~0ULL : ((1ULL << bit_width) - 1);
+
+                    /* 1. Load current storage unit */
+                    int curr_temp = c->next_temp_id++;
+                    ir_emit_load(curr_temp, BE(c)->fp_reg, total_offset);
+
+                    /* Handle compound assignment on bitfield */
+                    if (is_compound) {
+                        int curr_val = curr_temp;
+                        if (bit_offset > 0) {
+                            int shift_amt = c->next_temp_id++;
+                            ir_emit_mov_imm(shift_amt, (int32_t)bit_offset);
+                            int shifted = c->next_temp_id++;
+                            ir_emit_shr(shifted, curr_val, shift_amt);
+                            curr_val = shifted;
+                        }
+                        int mask_t = c->next_temp_id++;
+                        ir_emit_mov_imm(mask_t, (int32_t)val_mask);
+                        int masked = c->next_temp_id++;
+                        ir_emit_and(masked, curr_val, mask_t);
+                        curr_val = masked;
+                        if (is_signed && bit_width < 32) {
+                            int32_t sign_bit = (int32_t)(1ULL << (bit_width - 1));
+                            int s_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(s_temp, sign_bit);
+                            int x_temp = c->next_temp_id++;
+                            ir_emit_xor(x_temp, curr_val, s_temp);
+                            int e_temp = c->next_temp_id++;
+                            ir_emit_sub(e_temp, x_temp, s_temp);
+                            curr_val = e_temp;
+                        }
+                        int op_res = c->next_temp_id++;
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
+                            case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
+                            case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
+                            case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
+                            case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
+                            case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
+                            case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
+                            default: ir_emit_mov_reg(op_res, right_temp); break;
+                        }
+                        right_temp = op_res;
+                    }
+
+                    /* 2. Clear target bits */
+                    uint64_t field_mask = (bit_width >= 64) ? ~0ULL : (val_mask << bit_offset);
+                    uint64_t clear_mask = ~field_mask;
+                    int clear_mask_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(clear_mask_temp, (int32_t)clear_mask);
+                    int cleared_temp = c->next_temp_id++;
+                    ir_emit_and(cleared_temp, curr_temp, clear_mask_temp);
+
+                    /* 3. Mask incoming value to bit_width */
+                    int val_mask_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(val_mask_temp, (int32_t)val_mask);
+                    int masked_val = c->next_temp_id++;
+                    ir_emit_and(masked_val, right_temp, val_mask_temp);
+
+                    /* 4. Shift into position */
+                    if (bit_offset > 0) {
+                        int shl_amt = c->next_temp_id++;
+                        ir_emit_mov_imm(shl_amt, (int32_t)bit_offset);
+                        int shifted_val = c->next_temp_id++;
+                        ir_emit_shl(shifted_val, masked_val, shl_amt);
+                        masked_val = shifted_val;
+                    }
+
+                    /* 5. Combine and store */
+                    int combined_temp = c->next_temp_id++;
+                    ir_emit_or(combined_temp, cleared_temp, masked_val);
+                    ir_emit_store(combined_temp, BE(c)->fp_reg, total_offset);
+
+                    c->last_expr_is_float = 0;
+                    return right_temp;
+                }
+
                 if (c->last_expr_is_float) {
                     /* Float value in xmm0 - store to [rbp + total_offset] */
                     if (BE(c)->emit_store_fp) {
@@ -906,6 +989,92 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             
             int val_temp = c->next_temp_id++;
             ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+
+            if (node->flags & NODE_MEMBER_IS_BITFIELD) {
+                uint8_t bit_offset = (uint8_t)(node->aux.step & 0xFF);
+                uint8_t bit_width = (uint8_t)((node->aux.step >> 8) & 0xFF);
+                bool is_signed = ((node->aux.step >> 16) & 1) != 0;
+
+                if (bit_offset > 0) {
+                    int shift_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(shift_temp, (int32_t)bit_offset);
+                    int shifted_temp = c->next_temp_id++;
+                    ir_emit_shr(shifted_temp, val_temp, shift_temp);
+                    val_temp = shifted_temp;
+                }
+
+                uint64_t mask = (bit_width >= 64) ? ~0ULL : ((1ULL << bit_width) - 1);
+                int mask_temp = c->next_temp_id++;
+                ir_emit_mov_imm(mask_temp, (int32_t)mask);
+                int masked_temp = c->next_temp_id++;
+                ir_emit_and(masked_temp, val_temp, mask_temp);
+                val_temp = masked_temp;
+
+                if (is_signed && bit_width < 32) {
+                    int32_t sign_bit = (int32_t)(1ULL << (bit_width - 1));
+                    int sign_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(sign_temp, sign_bit);
+                    int xor_temp = c->next_temp_id++;
+                    ir_emit_xor(xor_temp, val_temp, sign_temp);
+                    int ext_temp = c->next_temp_id++;
+                    ir_emit_sub(ext_temp, xor_temp, sign_temp);
+                    val_temp = ext_temp;
+                }
+            } else {
+                TypeInfo *ti = NULL;
+                if (c->sem_ctx && node->aux.extra > 0) {
+                    ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
+                }
+                size_t sz = ti ? type_size(ti) : 4;
+                bool is_u = ti && (ti->modifiers & TYPE_MOD_UNSIGNED);
+                if (sz == 1) {
+                    int mask_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(mask_temp, 0xFF);
+                    int masked = c->next_temp_id++;
+                    ir_emit_and(masked, val_temp, mask_temp);
+                    val_temp = masked;
+                    if (!is_u) {
+                        int sign_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(sign_temp, 0x80);
+                        int xor_temp = c->next_temp_id++;
+                        ir_emit_xor(xor_temp, val_temp, sign_temp);
+                        int ext_temp = c->next_temp_id++;
+                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
+                        val_temp = ext_temp;
+                    }
+                } else if (sz == 2) {
+                    int mask_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(mask_temp, 0xFFFF);
+                    int masked = c->next_temp_id++;
+                    ir_emit_and(masked, val_temp, mask_temp);
+                    val_temp = masked;
+                    if (!is_u) {
+                        int sign_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(sign_temp, 0x8000);
+                        int xor_temp = c->next_temp_id++;
+                        ir_emit_xor(xor_temp, val_temp, sign_temp);
+                        int ext_temp = c->next_temp_id++;
+                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
+                        val_temp = ext_temp;
+                    }
+                } else if (sz == 4) {
+                    int mask_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(mask_temp, 0xFFFFFFFFLL);
+                    int masked = c->next_temp_id++;
+                    ir_emit_and(masked, val_temp, mask_temp);
+                    val_temp = masked;
+                    if (!is_u) {
+                        int sign_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(sign_temp, 0x80000000LL);
+                        int xor_temp = c->next_temp_id++;
+                        ir_emit_xor(xor_temp, val_temp, sign_temp);
+                        int ext_temp = c->next_temp_id++;
+                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
+                        val_temp = ext_temp;
+                    }
+                }
+            }
+
             c->last_expr_is_float = 0;
             return val_temp;
         }

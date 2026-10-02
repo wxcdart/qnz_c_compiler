@@ -198,17 +198,17 @@ static void x86_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_alu3_comm(c, 0x31, dst, src1, src2);
 }
 
-static void x86_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
-    x86_mov_rr(c, dst, src);
-    x86_rex(c, 1, 0, 0, (dst >> 3) & 1);
-    if (shift == 1) {
-        me_emit_u8(c, 0xD1);            /* shl r/m64, 1   (D1 /4) */
-        x86_modrm(c, 3, 4, dst);
-    } else {
-        me_emit_u8(c, 0xC1);            /* shl r/m64, imm8 (C1 /4) */
-        x86_modrm(c, 3, 4, dst);
-        me_emit_u8(c, shift & 0xFF);
+/* shl dst_reg, cl (dst = src1 << src2) */
+static void x86_emit_shl(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    if (dst_reg != src1) {
+        x86_mov_rr(c, dst_reg, src1);
     }
+    if (src2 != 1 /* rcx */) {
+        x86_mov_rr(c, 1, src2);
+    }
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+    me_emit_u8(c, 0xd3);
+    x86_modrm(c, 3, 4, dst_reg & 7); /* shl dst_reg, cl */
 }
 
 static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -604,11 +604,11 @@ static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
 
 /* shr dst_reg, cl (dst = src1 >> src2) */
 static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    if (src2 != 1 /* rcx */) {
-        x86_mov_rr(c, 1, src2);
-    }
     if (dst_reg != src1) {
         x86_mov_rr(c, dst_reg, src1);
+    }
+    if (src2 != 1 /* rcx */) {
+        x86_mov_rr(c, 1, src2);
     }
     x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
     me_emit_u8(c, 0xd3);

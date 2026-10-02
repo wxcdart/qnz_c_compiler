@@ -70,7 +70,13 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                 mt.align = t.members[i].align;
                 mt.base = t.members[i].base;
                 TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
-                type_add_field(perm, ti, name_copy ? name_copy : t.members[i].name, t.members[i].offset, mti);
+                const char *fname = name_copy ? name_copy : t.members[i].name;
+                if (t.members[i].is_bitfield) {
+                    type_add_bitfield(perm, ti, fname, t.members[i].offset, mti,
+                                      t.members[i].bit_offset, t.members[i].bit_width, t.members[i].is_signed);
+                } else {
+                    type_add_field(perm, ti, fname, t.members[i].offset, mti);
+                }
             }
             return ti;
         }

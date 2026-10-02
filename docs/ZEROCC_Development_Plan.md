@@ -22,11 +22,11 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 |----------|:-------:|:-----------------------------------------------:|:---------:|
 | Statements | 10 | 0 | 0 |
 | Expressions | 22 | 2 | 1 |
-| Types & Declarations | 15 | 3 | 3 |
+| Types & Declarations | 16 | 3 | 2 |
 | Preprocessor | 11 | 0 | 0 |
 | Code Generation / Runtime | 10 | 3 | 0 |
 | Diagnostics | 0 | 1 | 2 |
-| **Total Constructs** | **68** | **9** | **6** |
+| **Total Constructs** | **69** | **9** | **5** |
 
 ### Sprint Progress Summary
 
@@ -38,7 +38,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 3** | Multi-ISA Backend & VREG System, System TLS (`fs`/`gs`) | ✅ Complete | 85/85 pass |
 | **Sprint 4** | Codegen depth (SSE2 FP arithmetic & calling conv, struct return by value, `va_arg`) | ✅ Complete | 105/105 pass |
 | **Frontier 1 & 2** | Sealed backend abstraction leaks, full SSE2 FP ABI, generalised x86-64 emission | ✅ Complete | **111/111 pass** |
-| **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields, VLAs, atomics) | 🟡 In Progress | 111/111 pass |
+| **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields ✅, VLAs, atomics) | 🟡 In Progress | **112/112 pass** |
 | **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X | 📅 Scheduled | — |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
@@ -129,7 +129,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `_Alignas(N)` | ✅ | Alignment applied to variable declarations |
 | Flexible array members | ✅ | Trailing zero-length arrays supported in structs (Sprint 5 Task 35) |
 | Anonymous struct/union members | ❌ | Sprint 5 Task 36 |
-| Bit-fields | ❌ | Sprint 5 Task 34 (`: width` packing and masking) |
+| Bit-fields | ✅ | C99 bit-fields (`: width`) with storage-unit packing, masking, sign-extension, and compound assignment (Sprint 5 Task 34, `test/bitfield_test.c`) |
 | Global variable declarations | ✅ | Emitted to `.data` and `.bss` with RIP-relative relocations |
 | `extern` declarations | ✅ | External symbol table resolution |
 
@@ -357,10 +357,10 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ### Current Focus: Sprint 5 – Type System Completeness
 
-Sprints 0.5 through 4 are complete with all 111 test suites passing cleanly. The immediate focus is completing the C99 type system:
+Sprints 0.5 through 4 are complete with all 112 test suites passing cleanly. The immediate focus is completing the C99 type system:
 
-1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union)
-2. **Task 36: Anonymous struct / union members**
+1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union) — ✅ Complete (`test/bitfield_test.c`)
+2. **Task 36: Anonymous struct / union members** (NEXT)
 3. **Task 37: Variable Length Arrays (VLAs)** (dynamic stack allocation via `sub rsp, reg`)
 4. **Task 38: `_Atomic` operations** (`lock cmpxchg`, `lock xadd`)
 5. **Task 39: `const` / `volatile` semantic enforcement**

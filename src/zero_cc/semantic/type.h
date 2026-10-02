@@ -70,10 +70,14 @@ struct TypeInfo {
             size_t      size;
             size_t      align;
             // For structs/unions: field info (optional, for member access)
-            struct {
+            struct StructField {
                 const char *name;
                 size_t      offset;
                 TypeInfo   *type;
+                bool        is_bitfield;
+                uint8_t     bit_offset;
+                uint8_t     bit_width;
+                bool        is_signed;
             } *fields;
             size_t      field_count;
         } record;
@@ -124,8 +128,10 @@ size_t type_align(const TypeInfo *t);
 
 /* Struct field access */
 void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type);
+void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed);
 TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name);
 size_t type_get_field_offset(const TypeInfo *struct_t, const char *name);
+struct StructField *type_find_field_info(const TypeInfo *struct_t, const char *name);
 
 #ifdef __cplusplus
 }

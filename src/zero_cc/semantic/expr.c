@@ -532,8 +532,17 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* Try to find field by name in struct fields */
     if (struct_t->details.record.fields && member_name) {
-        member_t = type_find_field(struct_t, member_name);
-        member_offset = type_get_field_offset(struct_t, member_name);
+        struct StructField *fld = type_find_field_info(struct_t, member_name);
+        if (fld) {
+            member_t = fld->type;
+            member_offset = fld->offset;
+            if (fld->is_bitfield) {
+                node->flags |= NODE_MEMBER_IS_BITFIELD;
+                node->aux.step = ((uint32_t)fld->bit_offset) |
+                                 (((uint32_t)fld->bit_width) << 8) |
+                                 (((uint32_t)(fld->is_signed ? 1 : 0)) << 16);
+            }
+        }
     }
 
     if (!member_t) {

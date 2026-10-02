@@ -37,6 +37,10 @@ typedef struct ZeroCCStructMember {
     size_t align;
     struct ZeroCCType *base;
     bool is_flexible;  /* True for flexible array member (FAM) */
+    bool is_bitfield;  /* True for bit-field member (: width) */
+    uint8_t bit_offset;/* Bit offset within storage unit (0..63) */
+    uint8_t bit_width; /* Bit-field width in bits (1..64) */
+    bool is_signed;    /* Signed vs unsigned bit-field */
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {

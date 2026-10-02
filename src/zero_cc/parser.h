@@ -33,7 +33,9 @@ typedef enum {
     NODE_ASSIGN,      /* op in aux.op (=, +=, etc.), left = target, right = val */
     NODE_TERNARY,     /* left = cond, right = then_expr, aux.alt = else_expr */
     NODE_CAST,        /* left = expr, aux.type_ref */
-    NODE_MEMBER,      /* left = struct_expr, is_arrow in flags, str_val = member */
+    NODE_MEMBER,      /* left = struct_expr, flags = NODE_MEMBER_*, s.str = member */
+#define NODE_MEMBER_IS_ARROW    (1u << 0)
+#define NODE_MEMBER_IS_BITFIELD (1u << 1)
     NODE_VA_START,    /* left = ap expr, right = last expr (for computing spill area) */
     NODE_VA_ARG,      /* left = va_list expr, aux.type_ref = target type */
     NODE_INDEX,       /* left = array_expr, right = index_expr */
