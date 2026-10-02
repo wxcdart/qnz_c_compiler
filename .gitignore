@@ -1,9 +1,11 @@
 *.o
 *.exe
-# ignore compiled test binaries
-test/*
-!test/*.c
-!test/*.h
+test_results.xml
+# ignore compiled test binaries in all subdirectories
+test/**
+!test/**/
+!test/**/*.c
+!test/**/*.h
 src/zero_cc/backends/setters.o
 src/zero_cc/tls_backend_static.o
 

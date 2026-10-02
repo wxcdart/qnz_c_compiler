@@ -34,6 +34,24 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Purged 8 scratch/stepping-stone debug test files (`test/flexible_array_debug*.c`) and 39 orphaned test binaries.
   - Clean build with zero warnings under `-Wall -Wextra` across all 108 test suites.
 
+#### Sprint 5.5 — Task 41: Test Suite Restructuring & Harness Modernization ✅
+- **Categorized Test Directory Structure**: Migrated flat 108 tests into structured domain-specific categories:
+  - `test/unit/` (12 tests): Lexer, preprocessor, hash table, IR opcodes, basic data structures.
+  - `test/semantic/` (11 tests): Type checking, scope resolution, declarations, promotions, static assert validation, const/volatile.
+  - `test/abi/` (26 tests): Calling conventions, System V AMD64 argument registers, struct pass-by-value, struct returns, SSE float passing, variadics.
+  - `test/jit/` (59 tests): End-to-end JIT execution across control flow, VLAs, atomics, bitfields, compound literals, floating-point arithmetic, strings, TLS.
+- **Unified Test Runner (`tools/test_runner.py`)**:
+  - Millisecond-precision per-test timing and pass/fail tracking.
+  - Colorized terminal output with category badges and failure details (stdout/stderr captures).
+  - Test Anything Protocol (TAP v13) output mode (`--tap`).
+  - Standard JUnit XML output mode (`--junit <file>`) for CI/CD integration.
+  - Category filtering (`--category <cat>`) and per-test execution support.
+- **Enhanced Makefile Targets**:
+  - `make test` runs the unified runner across all 108 tests.
+  - `make test-unit`, `make test-semantic`, `make test-abi`, `make test-jit` for focused testing.
+  - `make test-tap` and `make test-junit` for automation pipelines.
+  - Automatic directory creation (`@mkdir -p $(dir $@)`) for all test binaries.
+
 #### Virtual Register (VREG) System ✅
 - ISA-independent virtual registers (VREG_0-15, VREG_F0-F15)
 - Backend mapping functions (`get_int_reg()`, `get_fp_reg()`)

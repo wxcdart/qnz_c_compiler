@@ -290,7 +290,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
 | 40 | **Architecture Cleanup & Dead Code Elimination**: Remove legacy stubs, unify `compile.h`/`ast_lowering.h` pathways, and eliminate remaining hacky fallbacks | 4 days | ✅ |
-| 41 | **Test Suite Restructuring & Harness Modernization**: Organize 108 flat tests into structured categories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`); implement unified runner with timing, pass/fail counts, and TAP/JUnit output | 3 days | |
+| 41 | **Test Suite Restructuring & Harness Modernization**: Organize 108 flat tests into structured categories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`); implement unified runner with timing, pass/fail counts, and TAP/JUnit output | 3 days | ✅ |
 | 42 | **Memory Leak & Sanitizer Audit**: Clean run of entire test suite under AddressSanitizer (`-fsanitize=address,undefined`) and Valgrind; fix AST arena and string buffer leaks | 4 days | |
 | 43 | **JIT W^X Memory Hardening**: Transition from `PROT_READ|PROT_WRITE|PROT_EXEC` to strict W^X (`mprotect` write-then-execute) for security and real-world OS compliance | 2 days | |
 | 44 | **Diagnostic & Header Sanitization**: Clean up header dependencies, unify `include/` vs `src/` layout (eliminate duplicate `src/zero_cc/zero_cc.h`), eliminate redundant includes, and standardize error reporting with file:line:col caret formatting | 3 days | |
@@ -357,17 +357,20 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ### Current Focus: Sprint 5.5 – Codebase Hardening, Cleanup & Sanitization
 
-Sprints 0.5 through 5 and Sprint 5.5 Task 40 are complete with all 108 test suites passing cleanly:
+Sprints 0.5 through 5 and Sprint 5.5 Tasks 40 & 41 are complete with all 108 test suites passing cleanly:
 
 1. **Sprint 5 Type System**: Complete (Bit-fields, anonymous structs/unions, VLAs, `_Atomic`, `const`/`volatile`).
 2. **Task 40: Architecture Cleanup & Legacy Pipeline Elimination** — ✅ Complete:
-   - Deprecated single-pass expression/statement pipeline removed (~3,700 lines deleted).
+   - Deprecated single-pass pipeline removed (~3,700 lines deleted).
    - Unified on single AST → IR → ISA backend pipeline.
    - Pure constant evaluation and static assert extracted to `const_eval.h` and `static_assert.h`.
-   - Test suite purged of stepping-stone debug files; 108 active suites passing.
-3. **Next: Task 41 — Test Suite Restructuring & Harness Modernization**: Organize 108 tests into structured directories (`test/unit/`, `test/jit/`, `test/abi/`, `test/semantic/`) with unified runner.
+3. **Task 41: Test Suite Restructuring & Harness Modernization** — ✅ Complete:
+   - 108 tests organized into structured directories: `test/unit/` (12), `test/semantic/` (11), `test/abi/` (26), `test/jit/` (59).
+   - Unified test runner (`tools/test_runner.py`) with per-test timing, category filtering, TAP v13, and JUnit XML output.
+   - Makefile targets added: `make test`, `make test-unit`, `make test-semantic`, `make test-abi`, `make test-jit`, `make test-tap`, `make test-junit`.
+4. **Next: Task 42 — Memory Leak & Sanitizer Audit**: Clean run of entire test suite under AddressSanitizer (`-fsanitize=address,undefined`) and Valgrind; fix AST arena and string buffer leaks.
 
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-02.*
-*Updated with Sprint 5.5 Task 40 completion and Sprint 8 (Two-Pass IR & Optimization Pipeline).*
+*Updated with Sprint 5.5 Tasks 40 & 41 completion and Sprint 8 (Two-Pass IR & Optimization Pipeline).*
