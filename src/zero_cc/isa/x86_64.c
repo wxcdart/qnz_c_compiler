@@ -661,10 +661,12 @@ static void x86_emit_setne(ZeroCCCompiler *c, int dst_reg) {
 
 /* deref: mov dst, [src] */
 static void x86_emit_deref(ZeroCCCompiler *c, int dst_reg, int src_reg) {
-    /* mov dst, [src] - register indirect addressing */
     x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
     me_emit_u8(c, 0x8B);
-    x86_modrm(c, 0, dst_reg & 7, src_reg & 7);
+    int mod = ((src_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, dst_reg & 7, src_reg & 7);
+    if ((src_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
 }
 
 /* load_byte: movzx dst, byte ptr [src] */
@@ -672,7 +674,75 @@ static void x86_emit_load_byte(ZeroCCCompiler *c, int dst_reg, int src_reg) {
     x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0xB6);
-    x86_modrm(c, 0, dst_reg & 7, src_reg & 7);
+    int mod = ((src_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, dst_reg & 7, src_reg & 7);
+    if ((src_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_load_16(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    x86_rex(c, 0, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xB7);
+    int mod = ((src_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, dst_reg & 7, src_reg & 7);
+    if ((src_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_load_32(ZeroCCCompiler *c, int dst_reg, int src_reg) {
+    x86_rex(c, 0, (dst_reg >> 3) & 1, 0, (src_reg >> 3) & 1);
+    me_emit_u8(c, 0x8B);
+    int mod = ((src_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, dst_reg & 7, src_reg & 7);
+    if ((src_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_store_byte(ZeroCCCompiler *c, int src_reg, int base_reg) {
+    x86_rex(c, 0, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
+    me_emit_u8(c, 0x88);
+    int mod = ((base_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, src_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_store_16(ZeroCCCompiler *c, int src_reg, int base_reg) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
+    me_emit_u8(c, 0x89);
+    int mod = ((base_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, src_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_store_32(ZeroCCCompiler *c, int src_reg, int base_reg) {
+    x86_rex(c, 0, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
+    me_emit_u8(c, 0x89);
+    int mod = ((base_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, src_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_store_64(ZeroCCCompiler *c, int src_reg, int base_reg) {
+    x86_rex(c, 1, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
+    me_emit_u8(c, 0x89);
+    int mod = ((base_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, src_reg & 7, base_reg & 7);
+    if ((base_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
+    /* sub rsp, size_reg: 48 29 /r */
+    x86_rex(c, 1, (size_reg >> 3) & 1, 0, 0);
+    me_emit_u8(c, 0x29);
+    x86_modrm(c, 3, size_reg & 7, X86_RSP);
+    /* mov dst_reg, rsp: 48 89 /r */
+    x86_mov_rr(c, dst_reg, X86_RSP);
 }
 
 /* cmp src_reg, 0 */
@@ -899,6 +969,13 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_setne = x86_emit_setne,
     .emit_deref = x86_emit_deref,
     .emit_load_byte = x86_emit_load_byte,
+    .emit_load_16 = x86_emit_load_16,
+    .emit_load_32 = x86_emit_load_32,
+    .emit_store_byte = x86_emit_store_byte,
+    .emit_store_16 = x86_emit_store_16,
+    .emit_store_32 = x86_emit_store_32,
+    .emit_store_64 = x86_emit_store_64,
+    .emit_vla_alloc = x86_emit_vla_alloc,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,

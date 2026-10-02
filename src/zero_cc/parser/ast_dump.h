@@ -226,7 +226,16 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             }
             break;
         case NODE_DECL:
-            printf("Decl: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+            if (n->flags & NODE_DECL_IS_VLA) {
+                printf("Decl (VLA): %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+                if (n->right != AST_NULL) {
+                    for (int i = 0; i <= indent; i++) printf("  ");
+                    printf(".dim:\n");
+                    zero_cc_ast_dump(arena, n->right, indent + 2);
+                }
+            } else {
+                printf("Decl: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+            }
             if (n->left != AST_NULL) {
                 for (int i = 0; i <= indent; i++) printf("  ");
                 printf(".init:\n");

@@ -463,6 +463,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                         const char *pname = c->tokens[c->token_pos].str_val;
                         c->token_pos++;
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                            c->token_pos++;
+                            int bdepth = 1;
+                            while (c->token_pos < c->token_count && bdepth > 0) {
+                                if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
+                                else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
+                                c->token_pos++;
+                            }
+                            param_is_ptr = true;
+                        }
                         /* Create parameter node */
                         ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                         ZeroCCASTNode *p_node = zero_cc_ast_get(arena, p_ref);
@@ -587,6 +597,31 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
             } else {
                 /* Not a function: treat as variable declaration */
+                bool is_array = false;
+                bool is_vla = false;
+                ASTRef dim_expr = AST_NULL;
+                size_t fixed_count = 0;
+
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                    c->token_pos++; // consume '['
+                    is_array = true;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                        c->token_pos++;
+                        fixed_count = 0;
+                    } else {
+                        dim_expr = parse_expr_ast_internal(c, arena);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                            c->token_pos++;
+                        }
+                        ZeroCCASTNode *dim_node = zero_cc_ast_get(arena, dim_expr);
+                        if (dim_node && dim_node->tag == NODE_INT && dim_node->int_val >= 0) {
+                            fixed_count = (size_t)dim_node->int_val;
+                        } else {
+                            is_vla = true;
+                        }
+                    }
+                }
+
                 ZeroCCType decl_type;
                 if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) decl_type = zero_cc_type_char();
                 else if (type_tok == TK_SHORT) decl_type = zero_cc_type_int16();
@@ -600,7 +635,30 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     decl_type = tdef ? *tdef : zero_cc_type_int64();
                 }
                 if (is_ptr) decl_type = zero_cc_type_ptr(&decl_type);
-                zero_cc_add_local(c, vname, decl_type);
+
+                TypeInfo *decl_ti = NULL;
+                if (is_vla) {
+                    ZeroCCType elem_type = decl_type;
+                    decl_type = zero_cc_type_array(&elem_type, 0);
+                    decl_type.is_vla = true;
+                    decl_type.size = 8;
+                    decl_type.align = 8;
+                    TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
+                    decl_ti = type_array_of(ctx->perm_arena, elem_ti, 0);
+                    if (decl_ti) decl_ti->details.array.is_vla = true;
+                } else if (is_array) {
+                    ZeroCCType elem_type = decl_type;
+                    decl_type = zero_cc_type_array(&elem_type, fixed_count);
+                    TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
+                    decl_ti = type_array_of(ctx->perm_arena, elem_ti, fixed_count);
+                } else {
+                    decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                }
+
+                ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
+                if (sym && is_vla) {
+                    sym->is_vla = true;
+                }
 
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                 ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
@@ -608,9 +666,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 dn->col = col;
                 dn->s.str = vname;
                 dn->s.len = strlen(vname);
+                if (is_vla) {
+                    dn->flags |= NODE_DECL_IS_VLA;
+                    dn->right = dim_expr;
+                }
 
                 /* Attach type to AST node for semantic analysis */
-                TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
                 decl_node_set_type(ctx, dn, decl_ti);
 
                 /* Optional initializer: = expr */

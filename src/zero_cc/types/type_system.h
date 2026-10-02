@@ -54,6 +54,7 @@ typedef struct ZeroCCType {
     bool is_atomic;                       /* For _Atomic */
     bool is_const;
     bool is_volatile;
+    bool is_vla;
 
     size_t member_count;
 } ZeroCCType;
@@ -81,6 +82,7 @@ typedef struct {
     int32_t stack_offset;                 /* Offset from RBP */
     bool is_param;
     int param_reg_idx;
+    bool is_vla;
 } ZeroCCSym;
 
 /* Function Definition Record */

@@ -54,6 +54,7 @@ struct TypeInfo {
         struct {
             TypeInfo *base;
             size_t    count;
+            bool      is_vla;
         } array; // TYPE_ARRAY
         struct {
             TypeInfo *base;

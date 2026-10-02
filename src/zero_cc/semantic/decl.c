@@ -78,6 +78,14 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
+    /* If VLA dimension expression exists (in right branch) */
+    if ((node->flags & NODE_DECL_IS_VLA) && node->right != AST_NULL) {
+        ZeroCCASTNode *dim_node = decl_get_node(ctx, node->right);
+        if (dim_node) {
+            (void)decl_eval_node(ctx, dim_node);
+        }
+    }
+
     /* If no explicit type was specified, infer from initializer or default to int */
     if (!var_t) {
         var_t = init_t ? init_t : type_int(ctx->perm_arena);

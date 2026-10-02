@@ -273,8 +273,8 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_DECL: {
-            /* Check if this is a function definition: has body (right != AST_NULL) */
-            if (node->right != AST_NULL) {
+            /* Check if this is a function definition: has body (right != AST_NULL) and not a VLA */
+            if (!(node->flags & NODE_DECL_IS_VLA) && node->right != AST_NULL) {
                 /* Function definition */
                 res = decl_handle_function_proto(ctx, node);
             } else if (node->flags & NODE_FLAG_FUNC_PROTO) {

@@ -116,7 +116,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `unsigned` variants | ✅ | Full unsigned integer types |
 | Pointers `*` | ✅ | Multi-level pointers with correct scaling |
 | Arrays `T a[N]` (fixed size) | ✅ | Fixed-size array stack allocation and decay to pointers |
-| **VLA** `T a[n]` (variable size) | ❌ | Sprint 5 Task 37 (`sub rsp, reg`) |
+| **VLA** `T a[n]` (variable size) | ✅ | Dynamic stack allocation (`sub rsp, reg`), pointer decay, index/assign (`test/vla_test.c`) |
 | `struct` (named, with members) | ✅ | Member offset alignment and padding |
 | `union` | ✅ | Overlapping member layout, max alignment & size calculation |
 | `enum` (simple, explicit values) | ✅ | Enum constants registered and resolved in symbol table |
@@ -361,8 +361,8 @@ Sprints 0.5 through 4 are complete with all 112 test suites passing cleanly. The
 
 1. **Task 34: Bit-fields** (`: width` bit-packing & mask/shift operations in struct/union) — ✅ Complete (`test/bitfield_test.c`)
 2. **Task 36: Anonymous struct / union members** — ✅ Complete (`test/anon_struct_test.c`)
-3. **Task 37: Variable Length Arrays (VLAs)** (NEXT — dynamic stack allocation via `sub rsp, reg`)
-4. **Task 38: `_Atomic` operations** (`lock cmpxchg`, `lock xadd`)
+3. **Task 37: Variable Length Arrays (VLAs)** — ✅ Complete (`test/vla_test.c`)
+4. **Task 38: `_Atomic` operations** (NEXT — `lock cmpxchg`, `lock xadd`)
 5. **Task 39: `const` / `volatile` semantic enforcement**
 
 ---

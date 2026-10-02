@@ -44,11 +44,15 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         }
         case TYPE_ARRAY: {
             // FIX: Guard against NULL base pointer
+            TypeInfo *ti;
             if (!t.base) {
-                return type_array_of(perm, type_void(perm), t.array_len);
+                ti = type_array_of(perm, type_void(perm), t.array_len);
+            } else {
+                TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
+                ti = type_array_of(perm, base, t.array_len);
             }
-            TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
-            return type_array_of(perm, base, t.array_len);
+            if (ti) ti->details.array.is_vla = t.is_vla;
+            return ti;
         }
         case TYPE_STRUCT:
         case TYPE_UNION: {

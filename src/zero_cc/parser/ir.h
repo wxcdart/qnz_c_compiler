@@ -78,6 +78,13 @@ typedef enum {
     OP_STACK_ALIGN,    /* sub rsp, imm8 */
     OP_CVTTSD2SI,      /* cvttsd2si eax, xmm0 */
     OP_CVTSI2SD,       /* cvtsi2sd xmm0, eax */
+    OP_LOAD_16,        /* movzx rax, word ptr [rax] */
+    OP_LOAD_32,        /* mov eax, dword ptr [rax] */
+    OP_STORE_BYTE,     /* mov byte ptr [addr], src */
+    OP_STORE_16,       /* mov word ptr [addr], src */
+    OP_STORE_32,       /* mov dword ptr [addr], src */
+    OP_STORE_64,       /* mov qword ptr [addr], src */
+    OP_VLA_ALLOC,      /* sub rsp, size; mov dst, rsp */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -136,6 +143,13 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_STACK_ALIGN: return "STACK_ALIGN";
         case OP_CVTTSD2SI: return "CVTTSD2SI";
         case OP_CVTSI2SD: return "CVTSI2SD";
+        case OP_LOAD_16: return "LOAD_16";
+        case OP_LOAD_32: return "LOAD_32";
+        case OP_STORE_BYTE: return "STORE_BYTE";
+        case OP_STORE_16: return "STORE_16";
+        case OP_STORE_32: return "STORE_32";
+        case OP_STORE_64: return "STORE_64";
+        case OP_VLA_ALLOC: return "VLA_ALLOC";
         default: return "UNKNOWN";
     }
 }
@@ -236,6 +250,34 @@ static inline void ir_emit_cvttsd2si(uint8_t temp_dest, uint8_t temp_src) {
 /* Int to float conversion (cvtsi2sd) */
 static inline void ir_emit_cvtsi2sd(uint8_t temp_dest, uint8_t temp_src) {
     ir_emit((Instr){.op = OP_CVTSI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_load_16(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_LOAD_16, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_load_32(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_LOAD_32, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_store_byte(uint8_t temp_val, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_STORE_BYTE, .temp_dest = 0xFF, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_store_16(uint8_t temp_val, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_STORE_16, .temp_dest = 0xFF, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_store_32(uint8_t temp_val, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_STORE_32, .temp_dest = 0xFF, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_store_64(uint8_t temp_val, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_STORE_64, .temp_dest = 0xFF, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_vla_alloc(uint8_t temp_dest, uint8_t temp_size) {
+    ir_emit((Instr){.op = OP_VLA_ALLOC, .temp_dest = temp_dest, .temp_src1 = temp_size, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */

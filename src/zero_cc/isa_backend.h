@@ -78,6 +78,13 @@ typedef struct ZeroCCISABackend {
     void (*emit_setne)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_deref)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_load_byte)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_load_16)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_load_32)(ZeroCCCompiler *c, int dst_reg, int src_reg);
+    void (*emit_store_byte)(ZeroCCCompiler *c, int src_reg, int base_reg);
+    void (*emit_store_16)(ZeroCCCompiler *c, int src_reg, int base_reg);
+    void (*emit_store_32)(ZeroCCCompiler *c, int src_reg, int base_reg);
+    void (*emit_store_64)(ZeroCCCompiler *c, int src_reg, int base_reg);
+    void (*emit_vla_alloc)(ZeroCCCompiler *c, int dst_reg, int size_reg);
     void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
     void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);

@@ -41,6 +41,7 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     sym->stack_offset = c->current_stack_frame;
     sym->is_param = false;
     sym->param_reg_idx = -1;
+    sym->is_vla = type.is_vla;
     decl_align_spec = 0;
     return sym;
 }

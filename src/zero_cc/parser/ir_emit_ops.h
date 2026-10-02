@@ -56,10 +56,11 @@ static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
 
 /* lea rax, [rbp - offset] (address) */
 static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
+    (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_LEA_RAX_MEM,
         .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)fp_reg,
+        .temp_src1 = 0xFF,
         .temp_src2 = 0xFF,
         .imm = offset,
         .imm64 = 0,

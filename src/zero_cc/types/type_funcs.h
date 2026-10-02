@@ -88,7 +88,26 @@ static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
 }
 
 static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
-    ZeroCCType t; memset(&t, 0, sizeof(t)); t.tag = TYPE_ARRAY; t.base = base; t.array_len = length; if (length > 0) { t.size = base->size * length; } else { t.size = 0; } t.align = base->align; return t;
+    ZeroCCType t;
+    memset(&t, 0, sizeof(t));
+    t.tag = TYPE_ARRAY;
+    if (base) {
+        ZeroCCType *heap_base = (ZeroCCType *)malloc(sizeof(ZeroCCType));
+        *heap_base = *base;
+        t.base = heap_base;
+        if (length > 0) {
+            t.size = base->size * length;
+        } else {
+            t.size = 0;
+        }
+        t.align = base->align;
+    } else {
+        t.base = NULL;
+        t.size = 0;
+        t.align = 8;
+    }
+    t.array_len = length;
+    return t;
 }
 
 static inline ZeroCCType zero_cc_type_strip_qualifiers(ZeroCCType ty) {
