@@ -38,8 +38,10 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 3** | Multi-ISA Backend & VREG System, System TLS (`fs`/`gs`) | ✅ Complete | 85/85 pass |
 | **Sprint 4** | Codegen depth (SSE2 FP arithmetic & calling conv, struct return by value, `va_arg`) | ✅ Complete | 105/105 pass |
 | **Frontier 1 & 2** | Sealed backend abstraction leaks, full SSE2 FP ABI, generalised x86-64 emission | ✅ Complete | **111/111 pass** |
-| **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields ✅, VLAs, atomics) | 🟡 In Progress | **112/112 pass** |
+| **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields ✅, VLAs, atomics) | ✅ Complete | **112/112 pass** |
 | **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X, diagnostic & header sanitization | ✅ Complete | 109/109 pass |
+| **Sprint 5.6** | Register allocation & calling convention hardening (callee-save preservation, OP_CALL 7+ args, nested call clobbering) | ✅ Complete | **112/112 pass** |
+| **Sprint 5.7** | Register allocator completion & codegen edge-cases (spill slot codegen, float ternary, call clobber constraints) | 📅 Next | — |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
@@ -355,34 +357,32 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ## Immediate Next Actions
 
-### Current Focus: Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance
+### Current Focus: Sprint 5.7 – Register Allocator Completion & Codegen Edge-Cases
 
-Sprints 0.5 through 5 and all of Sprint 5.5 (Tasks 40–44) are complete with all 109 test suites passing cleanly:
+Sprints 0.5 through 5.6 are complete with all 112 test suites passing cleanly:
 
-1. **Sprint 5 Type System**: Complete (Bit-fields, anonymous structs/unions, VLAs, `_Atomic`, `const`/`volatile`).
-2. **Task 40: Architecture Cleanup & Legacy Pipeline Elimination** — ✅ Complete:
-   - Deprecated single-pass pipeline removed (~3,700 lines deleted).
-   - Unified on single AST → IR → ISA backend pipeline.
-   - Pure constant evaluation and static assert extracted to `const_eval.h` and `static_assert.h`.
-3. **Task 41: Test Suite Restructuring & Harness Modernization** — ✅ Complete:
-   - Tests organized into structured directories: `test/unit/` (12), `test/semantic/` (11), `test/abi/` (26), `test/jit/` (60).
-   - Unified test runner (`tools/test_runner.py`) with per-test timing, category filtering, TAP v13, and JUnit XML output.
-   - Makefile targets added: `make test`, `make test-unit`, `make test-semantic`, `make test-abi`, `make test-jit`, `make test-tap`, `make test-junit`.
-4. **Task 42: Memory Leak & Sanitizer Audit** — ✅ Complete:
-   - Clean execution across all test suites under ASan + UBSan + LSan.
-   - Zero memory errors and zero memory leaks verified with Valgrind 3.22.0.
-   - Makefile targets added: `make asan`, `make test-asan`, `make valgrind`, `make test-valgrind`.
-5. **Task 43: JIT W^X Memory Hardening** — ✅ Complete:
-   - Strict W^X memory partitioning between executable code (`.text` + `.rodata`) and mutable data (`.data`).
-   - `mprotect` write-then-execute transition (`zero_mmap_make_rx`), with native cross-platform adapter (`VirtualProtect` on Windows).
-   - Dedicated security test (`test/jit/jit_wx_test.c`) verifying write faults on RX code pages.
-6. **Task 44: Diagnostic & Header Sanitization** — ✅ Complete:
-   - Unified `include/` vs `src/` layout, eliminating duplicate `src/zero_cc/zero_cc.h`.
-   - Purged redundant includes and forward declarations.
-   - Standardized diagnostic error reporting with `file:line:col: error: ...` and caret formatting (`^`).
-7. **Next: Sprint 6 Task 45 — Rich Diagnostics & Warning/Error Distinction**: Warning vs error distinction, multi-source caret snippets, macro expansion notes.
+1. **Sprint 5.6: Register Allocation & Calling Convention Hardening** — ✅ Complete:
+   - AMD64 callee-saved register preservation (`rbx`, `r12`–`r15`) with top-of-frame slot allocation.
+   - Calling convention expanded to support up to 16 arguments: arguments 1–6 in registers, arguments 7+ on stack with 16-byte alignment.
+   - Fixed caller-saved clobbering across nested function call expressions via sequential argument spilling and pre-call reloading.
+   - Preserved 9–16 byte struct returns across `rax` and `rdx`.
+   - Comprehensive JIT testing in `test/jit/regalloc_test.c` (112/112 test suites passing under `make test` and `make asan`).
+
+2. **Sprint 5.7: Register Allocator Completion & Codegen Edge-Cases** — 📋 Planned:
+   - **Task 45: Real Stack Spill Slot Code Generation**:
+     - When linear-scan allocator spills an interval (`is_spilled == true`), allocate dedicated stack slot offsets `[rbp - spill_offset]` instead of falling back to `VREG_0`.
+     - In `emit_ir_to_machine_code`, emit dynamic spill loads before uses (`mov reg, [rbp - off]`) and spill stores after definitions (`mov [rbp - off], reg`).
+   - **Task 46: Floating-Point Ternary Operator (`NODE_TERNARY`)**:
+     - Support floating-point result types in ternary expressions (`cond ? 1.5 : 2.5`), emitting XMM register transfers and SSE2 conditional moves or branches.
+   - **Task 47: Call-Site Register Eviction / Callee-Save Affinity**:
+     - In `live_range.h`, flag intervals that span an `OP_CALL` instruction and prioritize assigning them to callee-saved registers (`rbx`, `r12`–`r15`) or pre-spilling them to prevent clobbering.
+   - **Task 48: Division/Modulo Clobber Handling**:
+     - Ensure any user temporaries assigned to `rax` or `rdx` across an `OP_DIV` or `OP_MOD` are safely evicted to alternate registers or spill slots.
+
+3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Next
 
 ---
 
-*Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-02.*
-*Updated with Sprint 5.5 completion (Tasks 40–44) and Sprint 6 roadmap.*
+*Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-03.*
+*Updated with Sprint 5.6 completion and Sprint 5.7 roadmap.*
+

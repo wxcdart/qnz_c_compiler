@@ -1660,8 +1660,9 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 
                 /* Collect argument temps for integer args only */
                 ASTRef arg = node->right;
-                int int_arg_temps[6];
+                int int_arg_temps[IR_CALL_MAX_ARGS];
                 int int_arg_count = 0;
+                int32_t int_spill_offsets[IR_CALL_MAX_ARGS];
                 int fp_reg_idx = 0;  /* Tracks which xmm register for next float arg */
                 int32_t fp_spill_offsets[8];
                 
@@ -1681,14 +1682,25 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             fp_reg_idx++;
                         }
                     } else {
-                        /* Integer argument: collect for IR emission */
-                        if (int_arg_count < 6) {
-                            int_arg_temps[int_arg_count] = temp;
+                        /* Integer argument: spill to a stack slot so subsequent argument
+                         * evaluations containing function calls do not clobber caller-saved registers. */
+                        if (int_arg_count < IR_CALL_MAX_ARGS) {
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int_spill_offsets[int_arg_count] = c->current_stack_frame;
+                            ir_emit_store(temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_count]);
                             int_arg_count++;
                         }
                     }
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     arg = arg_node ? arg_node->next : AST_NULL;
+                }
+                
+                /* Reload integer arguments from stack slots immediately before call */
+                for (int a = 0; a < int_arg_count; a++) {
+                    int reload_temp = c->next_temp_id++;
+                    ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
+                    int_arg_temps[a] = reload_temp;
                 }
                 
                 /* Emit IR call with only integer args */
@@ -1705,6 +1717,8 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         if (int_arg_count > 2) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[2]) << 0;
                         if (int_arg_count > 3) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[3]) << 8;
                     }
+                    /* Full argument list (needed for 5+ args) */
+                    ir_call_args_record(ir_get_count() - 1, int_arg_count, int_arg_temps);
                     /* Store fp_reg_idx in label_idx for variadic %al handling */
                     last_instr->label_idx = (uint16_t)fp_reg_idx;
                 }
@@ -1734,9 +1748,13 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
                         last_instr->label_idx = 0x0100 | (callee_fn->return_type.size & 0xFF);
                     }
+                    /* System V AMD64 ABI: 9-16 byte struct return uses RAX and RDX directly */
+                    return VREG_0;
                 }
                 
-                return VREG_0;  /* Return value in rax */
+                int call_res_temp = c->next_temp_id++;
+                ir_emit_mov_reg(call_res_temp, VREG_0);
+                return call_res_temp;
             }
             c->last_expr_is_float = 0;
             return VREG_0;
@@ -1747,6 +1765,40 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     }
 }
 
+
+/* =========================================================================
+ * Callee-Saved Register Preservation Helpers
+ * ========================================================================= */
+
+/* Emit MOV [rbp - slot], reg for each callee-saved GPR that was assigned. */
+static void emit_callee_save_stores(ZeroCCCompiler *c) __attribute__((unused));
+static void emit_callee_save_stores(ZeroCCCompiler *c) {
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    while (mask) {
+        int idx = __builtin_ctz(mask);
+        int vreg = callee_save_pool_to_vreg[idx];
+        int32_t slot = callee_save_slot_offset[idx];
+        if (BE(c)->emit_store) {
+            BE(c)->emit_store(c, vreg, BE(c)->fp_reg, -slot);
+        }
+        mask &= mask - 1;
+    }
+}
+
+/* Emit MOV reg, [rbp - slot] for each callee-saved GPR that was assigned. */
+static void emit_callee_save_loads(ZeroCCCompiler *c) __attribute__((unused));
+static void emit_callee_save_loads(ZeroCCCompiler *c) {
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    while (mask) {
+        int idx = __builtin_ctz(mask);
+        int vreg = callee_save_pool_to_vreg[idx];
+        int32_t slot = callee_save_slot_offset[idx];
+        if (BE(c)->emit_load) {
+            BE(c)->emit_load(c, vreg, BE(c)->fp_reg, -slot);
+        }
+        mask &= mask - 1;
+    }
+}
 
 /* =========================================================================
  * Main Entry Point
@@ -1783,6 +1835,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     regalloc_allocate(&c->regalloc);
     live_range_free(&lra);
     
+    /* Preserve callee-saved registers that were assigned by the allocator.
+     * Emit MOV [rbp - slot], reg for each used callee-saved GPR. */
+    emit_callee_save_stores(c);
+    
     /* Debug: print interval details */
     for (size_t i = 0; i < c->regalloc.interval_count && i < 10; i++) {
     }
@@ -1800,6 +1856,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Patch epilogue jumps - target is the epilogue (before leave/ret) */
     size_t epilogue_target = me_get_offset(c);
+    
+    /* Restore callee-saved registers before the epilogue leave/ret. */
+    emit_callee_save_loads(c);
     
     /* Emit epilogue */
     me_emit_leave(c);
@@ -2046,28 +2105,46 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 
                 /* Extract integer argument info packed into the instruction */
                 int arg_count = instr->temp_dest;
-                int arg_temps[6] = {0};
-                if (arg_count > 0) arg_temps[0] = instr->temp_src1;
-                if (arg_count > 1) arg_temps[1] = instr->temp_src2;
-                if (arg_count > 2) {
-                    /* Unpack remaining temps from imm (16-bit) */
-                    arg_temps[2] = (int)((instr->imm >> 0) & 0xFF);
-                    if (arg_count > 3) arg_temps[3] = (int)((instr->imm >> 8) & 0xFF);
+                int arg_temps[IR_CALL_MAX_ARGS] = {0};
+                const IRCallArgs *full_args = ir_call_args_find(i);
+                if (full_args) {
+                    arg_count = full_args->count;
+                    for (int a = 0; a < arg_count; a++) arg_temps[a] = full_args->temps[a];
+                } else {
+                    if (arg_count > 4) arg_count = 4;
+                    if (arg_count > 0) arg_temps[0] = instr->temp_src1;
+                    if (arg_count > 1) arg_temps[1] = instr->temp_src2;
+                    if (arg_count > 2) {
+                        /* Unpack remaining temps from imm (16-bit) */
+                        arg_temps[2] = (int)((instr->imm >> 0) & 0xFF);
+                        if (arg_count > 3) arg_temps[3] = (int)((instr->imm >> 8) & 0xFF);
+                    }
                 }
                 
                 /* Extract fp_reg_idx (number of float args) from label_idx */
                 int fp_reg_idx = (int)instr->label_idx;
                 
+                /* Args 6+ go on the stack (System V): [rsp] = arg6, [rsp+8] = arg7, ...
+                 * so push them in reverse order, padding to keep rsp 16-byte aligned. */
+                int n_stack = (arg_count > 6) ? arg_count - 6 : 0;
+                int stack_pad = (n_stack & 1) ? 8 : 0;
+                if (n_stack > 0) {
+                    if (stack_pad) BE(c)->emit_stack_adjust(c, -stack_pad);
+                    for (int a = arg_count - 1; a >= 6; a--) {
+                        BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]));
+                    }
+                }
+                
                 /* Safe parallel move: push all src registers then pop into dst registers */
                 static const int int_arg_regs[6] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
                 int n_args = (arg_count < 6) ? arg_count : 6;
                 int src_regs[6];
-                for (int i = 0; i < n_args; i++) {
-                    src_regs[i] = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
-                    BE(c)->emit_push_reg(c, src_regs[i]);
+                for (int a = 0; a < n_args; a++) {
+                    src_regs[a] = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+                    BE(c)->emit_push_reg(c, src_regs[a]);
                 }
-                for (int i = n_args - 1; i >= 0; i--) {
-                    int dst_reg = int_arg_regs[i];
+                for (int a = n_args - 1; a >= 0; a--) {
+                    int dst_reg = int_arg_regs[a];
                     BE(c)->emit_pop_reg(c, dst_reg);
                 }
                 
@@ -2092,6 +2169,11 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 
                 /* Emit the call */
                 BE(c)->emit_call(c, fn_name);
+
+                /* Caller cleans up stack-passed arguments (and alignment pad) */
+                if (n_stack > 0) {
+                    BE(c)->emit_stack_adjust(c, n_stack * 8 + stack_pad);
+                }
 
                 /* Handle struct return (9-16 bytes) unpacking */
                 if ((instr->label_idx & 0xFF00) == 0x0100) {

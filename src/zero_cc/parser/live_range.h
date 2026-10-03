@@ -209,8 +209,16 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
         
-        /* OP_CALL packs argument temps in temp_src1, temp_src2, and imm (temp_dest is arg_count) */
+        /* OP_CALL packs argument temps in temp_src1, temp_src2, and imm (temp_dest is arg_count);
+         * the complete list (5+ args) lives in the IR call-args side table. */
         if (instr->op == OP_CALL) {
+            const IRCallArgs *full_args = ir_call_args_find(i);
+            if (full_args) {
+                for (int a = 0; a < full_args->count; a++) {
+                    live_range_add_use(lra, i, full_args->temps[a], false);
+                }
+                continue;
+            }
             int arg_count = instr->temp_dest;
             if (arg_count > 0 && instr->temp_src1 != 0xFF) {
                 live_range_add_use(lra, i, instr->temp_src1, false);

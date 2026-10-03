@@ -180,6 +180,36 @@ typedef struct __attribute__((packed)) {
 extern Instr instrs[MAX_INSTRS];
 extern size_t instr_count;
 
+/* Integer argument temps for OP_CALL instructions. The packed Instr can only
+ * hold 4 argument temps, so every call records its full list here, keyed by
+ * the IR instruction index of the OP_CALL. Defined in ir.c. */
+#define IR_CALL_MAX_ARGS 16
+#define IR_CALL_MAX_SITES 1024
+typedef struct {
+    size_t instr_index;
+    int count;
+    uint8_t temps[IR_CALL_MAX_ARGS];
+} IRCallArgs;
+extern IRCallArgs ir_call_args_table[IR_CALL_MAX_SITES];
+extern size_t ir_call_args_count;
+
+/* Record the integer argument temps of the OP_CALL at instr_index */
+static inline void ir_call_args_record(size_t instr_index, int count, const int *temps) {
+    if (ir_call_args_count >= IR_CALL_MAX_SITES) return;
+    IRCallArgs *e = &ir_call_args_table[ir_call_args_count++];
+    e->instr_index = instr_index;
+    e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
+    for (int i = 0; i < e->count; i++) e->temps[i] = (uint8_t)temps[i];
+}
+
+/* Find the recorded argument list for the OP_CALL at instr_index (or NULL) */
+static inline const IRCallArgs *ir_call_args_find(size_t instr_index) {
+    for (size_t i = 0; i < ir_call_args_count; i++) {
+        if (ir_call_args_table[i].instr_index == instr_index) return &ir_call_args_table[i];
+    }
+    return NULL;
+}
+
 /* Get instruction buffer (for live range analysis) */
 static inline const Instr *ir_get_buffer(void) {
     return instrs;
@@ -197,6 +227,7 @@ static inline void ir_emit(Instr instr) {
 /* Reset for next function - O(1) */
 static inline void ir_reset(void) {
     instr_count = 0;
+    ir_call_args_count = 0;
 }
 
 /* Get instruction count */

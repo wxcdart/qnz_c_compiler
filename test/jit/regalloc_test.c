@@ -1,0 +1,128 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include "zero_cc.h"
+
+static int run_snippet(const char *src) {
+    ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+    if (!comp) return -1;
+    char *prep = zero_cc_preprocess(src, NULL);
+    if (!prep) {
+        free(comp);
+        return -1;
+    }
+    zero_cc_tokenize_c99(prep, comp);
+    free(prep);
+    zero_cc_compile_c99(comp);
+    if (comp->had_error) {
+        fprintf(stderr, "Compile error: %s\n", comp->error_msg);
+        free(comp->tokens);
+        free(comp);
+        return -1;
+    }
+    int ret = zero_cc_execute_jit(comp, NULL);
+    zero_cc_buf_free(&comp->text_section);
+    zero_cc_buf_free(&comp->rodata_section);
+    zero_cc_buf_free(&comp->data_section);
+    free(comp->tokens);
+    free(comp);
+    return ret;
+}
+
+int main(void) {
+    printf("Running register allocation tests...\n");
+
+    /* Test 1: value live across a call must survive (callee-save preservation) */
+    {
+        const char *src =
+            "int heavy(int a, int b, int c, int d) {\n"
+            "    int t1 = a + b; int t2 = c + d;\n"
+            "    int t4 = t1 * t2;\n"
+            "    return t4 + a;\n"
+            "}\n"
+            "int main(void) {\n"
+            "    int saved = 42;\n"
+            "    int r = heavy(1, 2, 3, 4);\n"
+            "    return saved + r;\n"
+            "}\n";
+        assert(run_snippet(src) == 64);
+    }
+
+    /* Test 2: many simultaneously live values */
+    {
+        const char *src =
+            "int main(void) {\n"
+            "    int x = 0;\n"
+            "    int a = x + 1; int b = x + 2; int c = x + 3; int d = x + 4;\n"
+            "    int e = x + 5; int f = x + 6; int g = x + 7; int h = x + 8;\n"
+            "    int i = x + 9; int j = x + 10;\n"
+            "    return a + b + c + d + e + f + g + h + i + j;\n"
+            "}\n";
+        assert(run_snippet(src) == 55);
+    }
+
+    /* Test 3: recursion */
+    {
+        const char *src =
+            "int fib(int n) {\n"
+            "    if (n <= 1) return n;\n"
+            "    int a = fib(n - 1);\n"
+            "    int b = fib(n - 2);\n"
+            "    return a + b;\n"
+            "}\n"
+            "int main(void) { return fib(10); }\n";
+        assert(run_snippet(src) == 55);
+    }
+
+    /* Test 4: five and six register arguments (r8, r9) */
+    {
+        const char *src =
+            "int f(int a, int b, int c, int d, int e, int g) {\n"
+            "    return a + b * 2 + c * 3 + d * 4 + e * 5 + g * 6;\n"
+            "}\n"
+            "int main(void) { return f(1, 2, 3, 4, 5, 6); }\n";
+        /* 1 + 4 + 9 + 16 + 25 + 36 = 91 */
+        assert(run_snippet(src) == 91);
+    }
+
+    /* Test 5: seventh and eighth arguments are passed on the stack */
+    {
+        const char *src =
+            "int f(int a, int b, int c, int d, int e, int g, int h, int k) {\n"
+            "    return a + b * 2 + c * 3 + d * 4 + e * 5 + g * 6 + h * 7 + k * 8;\n"
+            "}\n"
+            "int main(void) { return f(1, 2, 3, 4, 5, 6, 7, 8); }\n";
+        /* 91 + 49 + 64 = 204 */
+        assert(run_snippet(src) == 204);
+    }
+
+    /* Test 6: seven args (odd stack count -> alignment padding) with live value across call */
+    {
+        const char *src =
+            "int f(int a, int b, int c, int d, int e, int g, int h) {\n"
+            "    return a + b + c + d + e + g + h;\n"
+            "}\n"
+            "int main(void) {\n"
+            "    int keep = 100;\n"
+            "    int r = f(1, 2, 3, 4, 5, 6, 7);\n"
+            "    return keep + r;\n"
+            "}\n";
+        assert(run_snippet(src) == 128);
+    }
+
+    /* Test 7: nested function call arguments clobbering RAX */
+    {
+        const char *src =
+            "int add(int a, int b) { return a + b; }\n"
+            "int sub(int a, int b) { return a - b; }\n"
+            "int combine(int a, int b, int c) { return a * 100 + b * 10 + c; }\n"
+            "int main(void) {\n"
+            "    /* combine(add(1, 2), sub(10, 5), add(3, 4)) -> combine(3, 5, 7) = 357 */\n"
+            "    return combine(add(1, 2), sub(10, 5), add(3, 4));\n"
+            "}\n";
+        assert(run_snippet(src) == 357);
+    }
+
+    printf("All register allocation tests passed.\n");
+    return 0;
+}

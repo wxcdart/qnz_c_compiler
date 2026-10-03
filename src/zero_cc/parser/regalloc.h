@@ -79,6 +79,11 @@ typedef struct RegAllocator {
     
     /* Instruction count for interval tracking */
     size_t instruction_count;
+
+    /* Mask of callee-saved GPR allocator indices that were assigned.
+     * Callee-saved indices in the pool: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15
+     * Bit N is set if pool index N was assigned to some live interval. */
+    uint32_t used_callee_saved_gpr_mask;
 } RegAllocator;
 
 /* Destroy and free register allocator allocations */
@@ -107,6 +112,7 @@ static void regalloc_init(RegAllocator *ra) {
     regalloc_destroy(ra);
     ra->next_spill_slot = 0;
     ra->instruction_count = 0;
+    ra->used_callee_saved_gpr_mask = 0;
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
 }
@@ -177,11 +183,19 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) __attribute__((un
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     if (!ra || !interval) return -1;
     
+    /* Callee-saved allocator pool indices: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15 */
+    static const uint32_t callee_saved_mask =
+        (1u << 1) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+    
     /* Find a free register in the appropriate class */
     if (interval->reg_class == REG_CLASS_GPR) {
         for (int i = 0; i < GPR_COUNT; i++) {
             if (ra->gpr_free[i]) {
                 ra->gpr_free[i] = false;
+                /* Track if this is a callee-saved register */
+                if ((callee_saved_mask >> i) & 1u) {
+                    ra->used_callee_saved_gpr_mask |= (1u << i);
+                }
                 return i;
             }
         }
@@ -336,5 +350,53 @@ static size_t regalloc_get_interval_count(RegAllocator *ra) __attribute__((unuse
 static size_t regalloc_get_interval_count(RegAllocator *ra) {
     return ra ? ra->interval_count : 0;
 }
+
+/* =========================================================================
+ * Callee-Saved Register Preservation
+ *
+ * AMD64 System V ABI callee-saved GPRs: rbx, r12, r13, r14, r15.
+ * In the allocator pool these are indices: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15.
+ * Their VREG (physical encoding) values via idx_to_vreg[]:
+ *   idx 1  → vreg 3  (rbx)
+ *   idx 8  → vreg 12 (r12)
+ *   idx 9  → vreg 13 (r13)
+ *   idx 10 → vreg 14 (r14)
+ *   idx 11 → vreg 15 (r15)
+ *
+ * We reserve fixed frame slots for these at the top of the frame:
+ *   rbx  → [rbp - 8]
+ *   r12  → [rbp - 16]
+ *   r13  → [rbp - 24]
+ *   r14  → [rbp - 32]
+ *   r15  → [rbp - 40]
+ *
+ * The caller must start current_stack_frame at CALLEE_SAVE_FRAME_RESERVE (48)
+ * to ensure locals do not overlap with these reserved slots.
+ * ========================================================================= */
+
+/* Number of bytes reserved at the top of every frame for callee-save slots. */
+#define CALLEE_SAVE_FRAME_RESERVE 48
+
+/* Maps allocator pool index → frame slot offset (for callee-saved regs only).
+ * Use with: BE(c)->emit_store(c, vreg, fp_reg, -(int32_t)callee_save_slot_offset[idx]) */
+static const int32_t callee_save_slot_offset[] __attribute__((unused)) = {
+    /* idx 0 (rax)  */ 0,  /* not callee-saved */
+    /* idx 1 (rbx)  */ 8,
+    /* idx 2 (rsi)  */ 0,  /* not callee-saved */
+    /* idx 3 (rdi)  */ 0,  /* not callee-saved */
+    /* idx 4 (r8)   */ 0,  /* not callee-saved */
+    /* idx 5 (r9)   */ 0,  /* not callee-saved */
+    /* idx 6 (r10)  */ 0,  /* not callee-saved */
+    /* idx 7 (r11)  */ 0,  /* not callee-saved */
+    /* idx 8 (r12)  */ 16,
+    /* idx 9 (r13)  */ 24,
+    /* idx 10 (r14) */ 32,
+    /* idx 11 (r15) */ 40,
+};
+
+/* Physical VREG for each allocator pool index (matches idx_to_vreg[] in regalloc_idx_to_vreg) */
+static const int callee_save_pool_to_vreg[] __attribute__((unused)) = {
+    0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+};
 
 #endif /* ZERO_CC_PARSER_REGALLOC_H */

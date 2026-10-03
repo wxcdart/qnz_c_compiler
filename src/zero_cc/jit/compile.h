@@ -14,6 +14,7 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/parser/ir_emitter.h"
+#include "zero_cc/parser/regalloc.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
@@ -239,7 +240,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
 
         c->local_count = 0;
-        c->current_stack_frame = 16;
+        c->current_stack_frame = CALLEE_SAVE_FRAME_RESERVE; /* Reserve top of frame for callee-saves */
 
         /* Reset IR buffer for this function */
         ir_reset();
@@ -252,6 +253,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         int xmm_reg_idx = 0;
         /* Track which integer register to use for int params (independent of float regs) */
         int int_reg_idx = 0;
+        /* Count of integer params passed on the stack (7th and later) */
+        int stack_arg_idx = 0;
 
         for (size_t p = 0; p < param_count; p++) {
             ZeroCCSym *sym = zero_cc_add_local(c, param_names[p], param_types[p]);
@@ -269,6 +272,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     BE(c)->emit_param_save_int(c, int_reg_idx, sym->stack_offset);
                 }
                 int_reg_idx++;
+            } else if (!is_fp) {
+                /* 7th+ integer arg: passed on the stack at [rbp + 16 + 8*k] */
+                int32_t caller_off = 16 + 8 * stack_arg_idx;
+                BE(c)->emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                stack_arg_idx++;
             }
         }
 

@@ -15,7 +15,28 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ### Added
 
-#### Sprint 5.5 — C99/C11 Features: Named Enum Tags, Compound Literals & Comma Operator ✅
+#### Sprint 5.6 — Register Allocation & Calling Convention Hardening ✅
+- **Callee-Saved Register Preservation (`rbx`, `r12`–`r15`)**:
+  - Added `used_callee_saved_gpr_mask` tracking to `RegAllocator` in `regalloc.h`.
+  - Added `CALLEE_SAVE_FRAME_RESERVE` (48 bytes) top-of-frame reservation in `compile.h` to prevent local variable collisions.
+  - Implemented `emit_callee_save_stores` and `emit_callee_save_loads` in `ast_lowering.h` using dedicated stack frame slots.
+  - Callee-saved registers assigned during linear-scan allocation are preserved across function calls per the AMD64 ABI.
+- **OP_CALL Calling Convention Hardening & Multi-Argument Support**:
+  - Implemented `IRCallArgs` side table in `ir.h` and `ir.c` allowing up to 16 integer arguments per call site (overcoming packed `Instr` field limitations).
+  - Implemented full AMD64 ABI argument passing in `emit_ir_to_machine_code`:
+    - Arguments 1–6 pass in `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`.
+    - Arguments 7+ are pushed in reverse order to the stack with 16-byte alignment and cleaned up post-call via `emit_stack_adjust`.
+  - Updated callee function prologue in `compile.h` to load stack-passed arguments (`[rbp + 16 + 8*k]`) into parameter local slots.
+- **Nested Call Clobbering Resolution**:
+  - Fixed pre-existing caller-saved register clobbering across nested calls during argument evaluation:
+    - Proactively spills evaluated integer argument temporaries to dedicated stack slots immediately upon evaluation.
+    - Reloads all arguments into fresh virtual temporaries immediately before `OP_CALL`, guaranteeing no intervening call clobbers arguments.
+- **Struct Return Register Protection (9–16 bytes)**:
+  - Preserved direct `VREG_0` return for functions returning 9–16 byte structs/unions, ensuring both lower 8 bytes (RAX) and upper 8 bytes (RDX) remain untouched until stored into target local slots.
+- **Comprehensive Test Suite**:
+  - Added `test/jit/regalloc_test.c` covering callee-save preservation across calls, 10+ live values under high register pressure, recursive calls, 6-register argument calls, stack-passed arguments (7th and 8th), and multi-level nested call expressions.
+  - **Test Suite Status**: 112/112 tests passing cleanly under both `make test` and `make asan` with 0 memory errors or leaks.
+
 - **Named `enum` as a Distinct Type-Tag**:
   - Implemented `TYPE_ENUM` tag in the type system with 4-byte size and 4-byte alignment.
   - Added compiler enum registry `enums` with `zero_cc_register_enum` and `zero_cc_find_enum`.
