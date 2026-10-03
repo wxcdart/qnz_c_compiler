@@ -95,7 +95,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Unary `! ~ - & *` | ✅ | Full logical not, bitwise not, negate, address-of, and pointer dereference |
 | `++ --` (pre/post) | ✅ | Register-independent increment/decrement with correct pre/post value semantics |
 | Assignment `=` | ✅ | Memory and register assignment |
-| Compound assignment `+= -= *= /= %= &= \|= ^= <<= >>=` | ✅ | All integer and floating-point compound assignments lowered |
+| Compound assignment `+= -= *= /= %= &= \|= ^= <<= >>=` | ✅ | All integer and floating-point compound assignments lowered; fixed float operand order for `-=` and `/=` (Sprint 5.8) |
 | Ternary `? :` | ✅ | `NODE_TERNARY` lowered with conditional jumps |
 | Comma operator `,` | ✅ | Full `NODE_COMMA` parsing, chaining, and sequential AST lowering (`test/jit/comma_jit.c`) |
 | Cast `(T)expr` | ✅ | `NODE_CAST` lowered (int truncation/sign-extend, `cvtsi2sd`, `cvttsd2si`) |
@@ -104,8 +104,8 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Member access `.` / `->` | ✅ | `NODE_MEMBER` lowered with struct/union member byte-offset arithmetic |
 | Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered with scaled base+index addressing |
 | Function call | ✅ | Full System V AMD64 ABI calling convention (int regs `%rdi`–`%r9`, FP regs `%xmm0`–`%xmm7`, stack args, variadic `%al`) |
-| Compound literals `(T){…}` | ✅ | Full `NODE_COMPOUND_LIT` support for scalars, arrays, structs, address-of, and decay (`test/jit/compound_literal_jit.c`) |
-| Designated initializers `.field=val` / `[idx]=val` | ✅ | Full support in both compound literals and variable declarations (`test/jit/designated_init_test.c`) |
+| Compound literals `(T){…}` | ✅ | Full `NODE_COMPOUND_LIT` support for scalars, arrays, structs, address-of, and decay (`test/jit/compound_literal_jit.c`); zero-initialization of omitted gaps per C99 §6.7.8 |
+| Designated initializers `.field=val` / `[idx]=val` | ✅ | Full support in both compound literals and variable declarations (`test/jit/designated_init_test.c`); zero-initialization of omitted gaps per C99 §6.7.8; array bounds checking for `[idx]`; flexible array member init rejection |
 | `_Generic(…)` | ✅ | Full C11 generic selection with type matching, pointer decay, and default branch |
 
 ---
@@ -119,7 +119,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `unsigned` variants | ✅ | Full unsigned integer types |
 | Pointers `*` | ✅ | Multi-level pointers with correct scaling |
 | Arrays `T a[N]` (fixed size) | ✅ | Fixed-size array stack allocation and decay to pointers |
-| **VLA** `T a[n]` (variable size) | ✅ | Dynamic stack allocation (`sub rsp, reg`), pointer decay, index/assign (`test/vla_test.c`) |
+| **VLA** `T a[n]` (variable size) | ✅ | Dynamic stack allocation (`sub rsp, reg`), pointer decay, index/assign (`test/vla_test.c`); initializer rejection per C99 §6.7.8 p3 |
 | `struct` (named, with members) | ✅ | Member offset alignment and padding |
 | `union` | ✅ | Overlapping member layout, max alignment & size calculation |
 | `enum` (simple, explicit values) | ✅ | Enum constants registered and resolved in symbol table |
@@ -130,7 +130,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `_Atomic` | ✅ | C11 `_Atomic` type, atomic ops (`lock cmpxchg`, `lock xadd`, `xchg`), and GCC/C11 `__sync`/`__atomic` builtins (Sprint 5 Task 38, `test/atomic_test.c`) |
 | `_Thread_local` | ✅ | System TLS (`fs`/`gs` segment) lowered and verified (`test/tls.c`, `test/tls_jit.c`) |
 | `_Alignas(N)` | ✅ | Alignment applied to variable declarations |
-| Flexible array members | ✅ | Trailing zero-length arrays supported in structs (Sprint 5 Task 35) |
+| Flexible array members | ✅ | Trailing zero-length arrays supported in structs (Sprint 5 Task 35); initialization rejected per C99 §6.7.8 p21 |
 | Anonymous struct/union members | ✅ | C99/C11 recursive flattening, direct member access & nested bit-fields (Sprint 5 Task 36, `test/anon_struct_test.c`) |
 | Bit-fields | ✅ | C99 bit-fields (`: width`) with storage-unit packing, masking, sign-extension, and compound assignment (Sprint 5 Task 34, `test/bitfield_test.c`) |
 | Global variable declarations | ✅ | Emitted to `.data` and `.bss` with RIP-relative relocations |
