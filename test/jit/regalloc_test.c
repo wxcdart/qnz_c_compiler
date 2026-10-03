@@ -143,6 +143,43 @@ int main(void) {
         assert(run_snippet(src) == 105);
     }
 
+    /* Test 9: Phase 3 - Extreme register pressure forcing true stack spilling.
+     * With 16+ live variables held simultaneously, all 12 allocator registers are
+     * exhausted, forcing multiple temporaries to spill to the stack frame. */
+    {
+        const char *src =
+            "int main(void) {\n"
+            "    int a = 1;  int b = 2;  int c = 3;  int d = 4;\n"
+            "    int e = 5;  int f = 6;  int g = 7;  int h = 8;\n"
+            "    int i = 9;  int j = 10; int k = 11; int l = 12;\n"
+            "    int m = 13; int n = 14; int o = 15; int p = 16;\n"
+            "    int q = 17; int r = 18;\n"
+            "    /* All 18 variables live simultaneously at this point */\n"
+            "    int sum = a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p + q + r;\n"
+            "    return sum;\n"
+            "}\n";
+        /* 18 * 19 / 2 = 171 */
+        assert(run_snippet(src) == 171);
+    }
+
+    /* Test 10: Phase 3 - Spilled variables spanning a function call with two-address ALU operations */
+    {
+        const char *src =
+            "int helper(int x) { return x + 1; }\n"
+            "int main(void) {\n"
+            "    int a = 1;  int b = 2;  int c = 3;  int d = 4;\n"
+            "    int e = 5;  int f = 6;  int g = 7;  int h = 8;\n"
+            "    int i = 9;  int j = 10; int k = 11; int l = 12;\n"
+            "    int m = 13; int n = 14;\n"
+            "    int mid = helper(100);\n"
+            "    int diff = (a + b + c + d + e + f + g) - (h + i + j + k + l + m + n) + mid;\n"
+            "    return diff;\n"
+            "}\n";
+        /* (1..7 sum = 28) - (8..14 sum = 77) + 101 = 28 - 77 + 101 = 52 */
+        assert(run_snippet(src) == 52);
+    }
+
     printf("All register allocation tests passed.\n");
     return 0;
 }
+

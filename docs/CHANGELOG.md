@@ -33,8 +33,15 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
     - Reloads all arguments into fresh virtual temporaries immediately before `OP_CALL`, guaranteeing no intervening call clobbers arguments.
 - **Struct Return Register Protection (9–16 bytes)**:
   - Preserved direct `VREG_0` return for functions returning 9–16 byte structs/unions, ensuring both lower 8 bytes (RAX) and upper 8 bytes (RDX) remain untouched until stored into target local slots.
+- **Real Stack Spill Slot Lowering (Phase 3)**:
+  - Added `regalloc_get_spill_slot_for_temp` helper in `regalloc.h` to identify spilled virtual temporaries and their assigned slot index.
+  - Dynamically reserved spill stack space in `zero_cc_lower_ast` (`c->current_stack_frame += c->regalloc.next_spill_slot * 8`) and computed 8-byte aligned `spill_base_offset`.
+  - Implemented automatic operand reload in `emit_ir_to_machine_code`: spilled `temp_src1` reloads into scratch register `r10`, and spilled `temp_src2` reloads into scratch register `r11` (`mov reg, [rbp - (spill_base_offset + (slot + 1) * 8)]`), avoiding register collision on two-address ALU operations.
+  - Implemented automatic destination store in `emit_ir_to_machine_code`: spilled `temp_dest` writes through scratch register `r10` and emits `mov [rbp - (spill_base_offset + (slot + 1) * 8)], r10` at instruction completion.
+  - Added spilled argument reloading for `OP_CALL` stack and register passing.
+  - Added Tests 9 and 10 to `test/jit/regalloc_test.c` asserting correctness under extreme register pressure (18 simultaneously live variables and spilled call-spanning arithmetic).
 - **Comprehensive Test Suite**:
-  - Added `test/jit/regalloc_test.c` covering callee-save preservation across calls, 10+ live values under high register pressure, recursive calls, 6-register argument calls, stack-passed arguments (7th and 8th), and multi-level nested call expressions.
+  - Added `test/jit/regalloc_test.c` covering callee-save preservation across calls, 10+ live values under high register pressure, recursive calls, 6-register argument calls, stack-passed arguments (7th and 8th), multi-level nested call expressions, and true stack spill/reload lowering.
   - **Test Suite Status**: 112/112 tests passing cleanly under both `make test` and `make asan` with 0 memory errors or leaks.
 
 - **Named `enum` as a Distinct Type-Tag**:

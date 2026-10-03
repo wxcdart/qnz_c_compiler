@@ -375,6 +375,21 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     return VREG_0;  /* Not found - use default */
 }
 
+/* Check if a temporary is spilled, returning its spill slot (or -1 if not spilled) */
+static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
+static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
+    if (!ra || temp_id == 0xFF || temp_id == VREG_0 || temp_id == VREG_2) return -1;
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        if (ra->intervals[i].temp_id == temp_id) {
+            if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
+                return ra->intervals[i].spill_slot;
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
 /* Get the number of intervals (for debugging) */
 static size_t regalloc_get_interval_count(RegAllocator *ra) __attribute__((unused));
 static size_t regalloc_get_interval_count(RegAllocator *ra) {

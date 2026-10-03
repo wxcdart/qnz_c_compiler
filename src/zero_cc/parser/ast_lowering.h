@@ -52,7 +52,7 @@ static IREmitterContext g_ir_emitter_ctx;
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-static void emit_ir_to_machine_code(ZeroCCCompiler *c);
+static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
 
 /* =========================================================================
  * Statement Handlers
@@ -1838,13 +1838,20 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Preserve callee-saved registers that were assigned by the allocator.
      * Emit MOV [rbp - slot], reg for each used callee-saved GPR. */
     emit_callee_save_stores(c);
+
+    /* Allocate frame spill slots for any temps that were spilled */
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    int32_t spill_base_offset = c->current_stack_frame;
+    if (c->regalloc.next_spill_slot > 0) {
+        c->current_stack_frame += c->regalloc.next_spill_slot * 8;
+    }
     
     /* Debug: print interval details */
     for (size_t i = 0; i < c->regalloc.interval_count && i < 10; i++) {
     }
     
     /* Emit machine code from IR with allocated registers */
-    emit_ir_to_machine_code(c);
+    emit_ir_to_machine_code(c, spill_base_offset);
     
     /* Emit return jumps after IR-to-MC */
     emit_return_jumps(c);
@@ -1881,7 +1888,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
  * ========================================================================= */
 
 /* Emit machine code from IR with allocated registers */
-static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
+static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
     size_t label_count = c->ir_next_label;
@@ -1899,6 +1906,30 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
         int phys_dst = (instr->temp_dest == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
         int phys_src1 = (instr->temp_src1 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
         int phys_src2 = (instr->temp_src2 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
+
+        /* Check for spilled temps that need reloading / storing */
+        int spill_src1 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
+        int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
+        int spill_dst = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+
+        /* Reload spilled sources into scratch registers (r10 for src1, r11 for src2) */
+        if (spill_src1 >= 0) {
+            int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -slot_off);
+            }
+            phys_src1 = 10;
+        }
+        if (spill_src2 >= 0) {
+            int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, 11 /* r11 */, BE(c)->fp_reg, -slot_off);
+            }
+            phys_src2 = 11;
+        }
+        if (spill_dst >= 0) {
+            phys_dst = 10;
+        }
 
         switch (instr->op) {
             case OP_MOV_IMM:
@@ -2131,7 +2162,14 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 if (n_stack > 0) {
                     if (stack_pad) BE(c)->emit_stack_adjust(c, -stack_pad);
                     for (int a = arg_count - 1; a >= 6; a--) {
-                        BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]));
+                        int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+                        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
+                        if (sp >= 0) {
+                            int32_t off = spill_base_offset + (sp + 1) * 8;
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -off);
+                            r = 10;
+                        }
+                        BE(c)->emit_push_reg(c, r);
                     }
                 }
                 
@@ -2140,7 +2178,14 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
                 int n_args = (arg_count < 6) ? arg_count : 6;
                 int src_regs[6];
                 for (int a = 0; a < n_args; a++) {
-                    src_regs[a] = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+                    int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+                    int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
+                    if (sp >= 0) {
+                        int32_t off = spill_base_offset + (sp + 1) * 8;
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -off);
+                        r = 10;
+                    }
+                    src_regs[a] = r;
                     BE(c)->emit_push_reg(c, src_regs[a]);
                 }
                 for (int a = n_args - 1; a >= 0; a--) {
@@ -2251,6 +2296,14 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c) {
             
             default:
                 break;
+        }
+
+        /* If destination temp was spilled, store scratch register (r10) back to frame spill slot */
+        if (spill_dst >= 0) {
+            int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
+            if (BE(c)->emit_store) {
+                BE(c)->emit_store(c, 10 /* r10 */, BE(c)->fp_reg, -slot_off);
+            }
         }
     }
 

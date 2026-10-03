@@ -168,7 +168,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Struct return by value | ✅ | AMD64 ABI hidden pointer (`%rdi`) for >16B, packed into `%rax`/`%rdx` for ≤16B |
 | `va_start` / `va_arg` / `va_end` | ✅ | AMD64 ABI variadic save area, `%al` register setup, and `va_arg` expansion |
 | Global variable storage (`.data` / `.bss`) | ✅ | Data section emission and RIP-relative data relocation |
-| Register allocation | 🟡 | Linear-scan infrastructure in place (`regalloc.h`, `live_range.h`); stack spill default |
+| Register allocation | ✅ | Linear-scan register allocation (`regalloc.h`, `live_range.h`) with callee-save preservation (`rbx, r12-r15`), call-spanning affinity, and real stack spill/reload lowering (`[rbp - offset]`) |
 | ARM64 back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
 | RISC-V back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
 | `libc` symbol resolution | ✅ | Dynamic symbol resolution via `dlsym(RTLD_DEFAULT)` at JIT execution |
@@ -329,7 +329,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
 | 54 | **Complete Pass 1 (AST → IR)**: Expand `ir_emit_ops.h` and migrate remaining AST statement/expression nodes to IR; eliminate dual-emission pathway | 1 week | 🟡 Partial |
-| 55 | **Register Allocator Hardening**: Fix live-interval computation in `live_range.h`; robust linear-scan assignment with callee/caller register spilling in `regalloc.h` | 1 week | 🟡 Partial |
+| 55 | **Register Allocator Hardening**: Fix live-interval computation in `live_range.h`; robust linear-scan assignment with callee/caller register spilling in `regalloc.h`, callee-save frame preservation, and stack spill/reload lowering | 1 week | ✅ Complete |
 | 56 | **Pass 2 Machine Code Emission**: Complete `emit_ir_to_machine_code()` using target `isa_backend.h` interfaces (x86-64, AArch64, RISC-V) | 1 week | |
 | 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | |
 | 58 | **Loop & Control-Flow Optimizations (-O3)**: Loop-invariant code motion (LICM), strength reduction (multiplication to shifts/adds), and branch simplification | 1 week | |
