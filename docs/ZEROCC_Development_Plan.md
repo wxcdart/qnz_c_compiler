@@ -1,8 +1,9 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-10-02. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-10-03. Findings are **grounded in actual source inspection** of
 > [`parser.c`](../src/zero_cc/parser.c), [`types_lexer.h`](../src/zero_cc/types_lexer.h),
-> [`lexer.c`](../src/zero_cc/lexer.c), [`ast_lowering.h`](../src/zero_cc/parser/ast_lowering.h),
+> [`lexer.c`](../src/zero_cc/lexer.c), [`ast_lowering.h`](../src/zero_cc/parser/ast_lowering.h)
+> (modularized into `ast_lowering_stmt.h`, `ast_lowering_expr.h`, `ast_lowering_mc.h`),
 > and the multi-ISA backend implementations in [`src/zero_cc/isa/`](../src/zero_cc/isa/).
 
 ## Goal: Self-Hosting C11 Compiler
@@ -24,9 +25,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Expressions | 24 | 0 | 1 |
 | Types & Declarations | 17 | 2 | 2 |
 | Preprocessor | 11 | 0 | 0 |
-| Code Generation / Runtime | 10 | 3 | 0 |
+| Code Generation / Runtime | 11 | 2 | 0 |
 | Diagnostics | 0 | 1 | 2 |
-| **Total Constructs** | **72** | **6** | **5** |
+| **Total Constructs** | **73** | **5** | **5** |
 
 ### Sprint Progress Summary
 
@@ -41,7 +42,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 5** | Type system completeness (`union` layout ✅, flexible arrays ✅, bit-fields ✅, VLAs, atomics) | ✅ Complete | **112/112 pass** |
 | **Sprint 5.5** | Codebase hardening, test harness modernization, ASan/UBSan audit, JIT W^X, diagnostic & header sanitization | ✅ Complete | 109/109 pass |
 | **Sprint 5.6** | Register allocation & calling convention hardening (callee-save preservation, OP_CALL 7+ args, nested call clobbering) | ✅ Complete | **112/112 pass** |
-| **Sprint 5.7** | Register allocator completion & codegen edge-cases (spill slot codegen, float ternary, call clobber constraints) | 📅 Next | — |
+| **Sprint 5.7** | Register allocator completion (Phases 1-3: callee-saves, call affinity, real stack spill slot lowering) & `ast_lowering.h` modularization | ✅ Complete | **112/112 pass** |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
@@ -299,6 +300,32 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
+### Sprint 5.6 – Register Allocation & Calling Convention Hardening (Week 23.5)
+
+> **Strategic Priority**: Eliminate caller/callee-saved register clobbering, scale function call argument capacity to the full AMD64 ABI, and protect 9–16 byte struct returns.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 44.1 | **Callee-Saved Register Mask in Prologue/Epilogue (Phase 1)**: Track `used_callee_saved_gpr_mask`; reserve top-of-frame slots (`CALLEE_SAVE_FRAME_RESERVE`); emit stores in prologue and reloads in epilogue for `rbx, r12-r15` | 3 days | ✅ Complete |
+| 44.2 | **Multi-Argument Calling Convention**: Support up to 16 integer arguments via `IRCallArgs` side table; emit args 1–6 in `rdi, rsi, rdx, rcx, r8, r9` and args 7+ on stack with 16-byte alignment; load stack args in callee prologue | 2 days | ✅ Complete |
+| 44.3 | **Nested Call Clobbering Resolution**: Prevent intervening nested call results in RAX/caller-saved registers from overwriting outer argument registers via proactive stack spilling during evaluation and pre-call reload | 2 days | ✅ Complete |
+| 44.4 | **Struct Return Register Protection (9–16 bytes)**: Preserve direct `VREG_0` return across RAX and RDX for 2-eightbyte struct and union values | 1 day | ✅ Complete |
+
+---
+
+### Sprint 5.7 – Register Allocator Completion & Lowering Modularization (Week 23.8)
+
+> **Strategic Priority**: Promote Register Allocation to feature-complete (Phase 2 & Phase 3) and modularize the monolithic 2,300+ line lowering engine.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 44.5 | **Call-Boundary Live Range Splitting & Affinity (Phase 2)**: Track `OP_CALL` positions in `LiveRangeAnalyzer`; flag `spans_call = true` on intervals crossing calls; prioritize callee-saved registers (`rbx, r12-r15`) | 2 days | ✅ Complete |
+| 44.6 | **Real Stack Spill Slot Code Generation (Phase 3)**: Implement `regalloc_get_spill_slot_for_temp()`; allocate dynamic frame spill slots `[rbp - (spill_base_offset + (slot + 1) * 8)]`; reload operands via scratch registers `r10`/`r11`; store spilled destination through `r10` | 3 days | ✅ Complete |
+| 44.7 | **Extreme Pressure & Spilling Test Suite**: Add Tests 8, 9, 10 to `test/jit/regalloc_test.c` (call-spanning variables, 18 simultaneously live values, spilled two-address ALU expressions) | 1 day | ✅ Complete |
+| 44.8 | **`ast_lowering.h` Architectural Modularization**: Decompose 2,320-line monolith into dedicated headers: `ast_lowering_stmt.h` (360 lines), `ast_lowering_expr.h` (1,385 lines), `ast_lowering_mc.h` (452 lines), and coordinator `ast_lowering.h` (178 lines) | 2 days | ✅ Complete |
+
+---
+
 ### Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance (Weeks 24–26)
 
 | Priority | Task | Effort | Status |
@@ -357,37 +384,46 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ## Immediate Next Actions
 
-### Current Focus: Sprint 5.7 – Register Allocator Completion & Codegen Edge-Cases
+### Current Focus: Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance
 
-Sprints 0.5 through 5.6 are complete with all 112 test suites passing cleanly:
+Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing cleanly under both standard builds and AddressSanitizer/UBSan:
 
 1. **Sprint 5.6: Register Allocation & Calling Convention Hardening** — ✅ Complete:
    - AMD64 callee-saved register preservation (`rbx`, `r12`–`r15`) with top-of-frame slot allocation.
    - Calling convention expanded to support up to 16 arguments: arguments 1–6 in registers, arguments 7+ on stack with 16-byte alignment.
    - Fixed caller-saved clobbering across nested function call expressions via sequential argument spilling and pre-call reloading.
    - Preserved 9–16 byte struct returns across `rax` and `rdx`.
-   - Comprehensive JIT testing in `test/jit/regalloc_test.c` (112/112 test suites passing under `make test` and `make asan`).
+   - Comprehensive JIT testing in `test/jit/regalloc_test.c`.
 
-2. **Sprint 5.7: Register Allocator Completion & Codegen Edge-Cases** — 🟡 In Progress:
-   - **Task 47: Call-Site Register Eviction / Callee-Save Affinity (Phase 2)** — ✅ Complete:
+2. **Sprint 5.7: Register Allocator Completion & Lowering Modularization** — ✅ Complete:
+   - **Phase 2 (Call-Boundary Affinity)** — ✅ Complete:
      - In `live_range.h`, `LiveRangeAnalyzer` tracks all `OP_CALL` positions and flags `spans_call = true` on intervals that cross call boundaries.
      - In `regalloc.h`, `alloc_reg()` prioritizes callee-saved registers (`rbx`, `r12`–`r15`) for intervals spanning calls.
      - Fixed `VREG_0` (RAX) pre-coloring so caller-saved RAX is not erroneously marked free when active.
-     - Verified with Test 8 in `test/jit/regalloc_test.c` (112/112 tests passing under `make test` and `make asan`).
-   - **Task 45: Real Stack Spill Slot Code Generation (Phase 3)** — ⏳ Next:
-     - Reserve `r10` and `r11` exclusively for spill scratch reloads and stores (removing them from general allocator pool to prevent collisions).
-     - Allocate dedicated frame spill slots at `[rbp - (current_stack_frame + (slot + 1) * 8)]`.
-     - In `emit_ir_to_machine_code()`, emit reload instructions into distinct scratch registers (`phys_src1 = r10`, `phys_src2 = r11`) before opcode execution to protect 2-address operations, and store back `phys_dst = r10` to stack after opcode execution.
-     - Support XMM floating-point spill slots via `xmm7` scratch register and `movsd` load/store.
-   - **Task 46: Floating-Point Ternary Operator (`NODE_TERNARY`)**:
-     - Support floating-point result types in ternary expressions (`cond ? 1.5 : 2.5`), emitting XMM register transfers and SSE2 conditional moves or branches.
-   - **Task 48: Division/Modulo Clobber Handling**:
-     - Ensure any user temporaries assigned to `rax` or `rdx` across an `OP_DIV` or `OP_MOD` are safely evicted to alternate registers or spill slots.
+     - Verified with Test 8 in `test/jit/regalloc_test.c`.
+   - **Phase 3 (Real Stack Spill Slot Lowering)** — ✅ Complete:
+     - Implemented `regalloc_get_spill_slot_for_temp()` to track spilled intervals.
+     - Dynamically reserved spill stack space (`c->current_stack_frame += c->regalloc.next_spill_slot * 8`) with aligned `spill_base_offset`.
+     - In `emit_ir_to_machine_code()`, emitted reload instructions into distinct scratch registers (`phys_src1 = r10`, `phys_src2 = r11`) before opcode execution to protect 2-address operations, and stored back `phys_dst = r10` to the stack frame slot at `[rbp - (spill_base_offset + (slot + 1) * 8)]`.
+     - Handled spilled arguments in `OP_CALL` for both stack-passed and register-passed arguments.
+     - Added Tests 9 & 10 in `test/jit/regalloc_test.c` (18 simultaneously live variables and spilled call-spanning arithmetic).
+   - **Architectural Modularization** — ✅ Complete:
+     - Decomposed 2,320-line `ast_lowering.h` into clean single-responsibility modules:
+       - `ast_lowering_stmt.h` (360 lines)
+       - `ast_lowering_expr.h` (1,385 lines)
+       - `ast_lowering_mc.h` (452 lines)
+       - `ast_lowering.h` (178 lines coordinator)
+     - Test Suite status: **112/112 passed** cleanly under `make test` and `make asan`.
 
-3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Next
+3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
+   - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction.
+   - **Task 46: GCC C-Torture integration**: Execute `gcc.c-torture/execute` (~1,500 tests) against ZeroCC JIT.
+   - **Task 47: Differential Fuzzing**: Harness Csmith & yarpgen to compare ZeroCC execution results vs GCC/Clang.
+   - **Task 48: Regression test suite**: Bootstrap from TCC corpus.
+   - **Task 49: GitHub Actions CI**: Automated CI for `make clean && make test` + ASan/UBSan matrix.
 
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-03.*
-*Updated with Sprint 5.7 Phase 2 completion and Phase 3 blueprint.*
+*Updated with Sprint 5.7 full completion (Phases 1-3 + modular lowering split).*
 
