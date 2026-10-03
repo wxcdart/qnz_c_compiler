@@ -243,14 +243,14 @@ Extended pragma directive support for better compatibility with real-world C cod
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
 | 18 | `#pragma pack(n)` - structure packing control | 2 days | ✅ Complete (preprocessor forwards `#pragma` / `_Pragma` to the tokenizer) |
-| 19 | `#pragma message("text")` - compiler messages | 1 day | ✅ Complete |
-| 20 | `#pragma GCC diagnostic` - warning control | 2 days | ✅ Complete (push/pop/diagnostic modes implemented) |
-| 21 | `#pragma GCC push_options` / `pop_options` | 1 day | ✅ Complete |
-| 22 | Generic pragma passthrough (emit to output) | 1 day | ✅ Complete |
+| 19 | `#pragma message("text")` - compiler messages | 1 day | ✅ Complete (printed to stderr by the preprocessor, tested in `jit/pragma_diag`) |
+| 20 | `#pragma GCC diagnostic` - warning control | 2 days | ✅ Complete (push/pop/ignored/warning/error; translation-unit-wide, not per source range) |
+| 21 | `#pragma GCC push_options` / `pop_options` | 1 day | 🟡 Accepted and ignored (no per-region options tracked yet) |
+| 22 | Generic pragma passthrough (emit to output) | 1 day | ✅ Complete (unknown pragmas forwarded; unknown `GCC` pragmas ignored) |
 
 **Notes:**
-- `#pragma pack(n)` is fully integrated: the preprocessor forwards non-`once` pragmas (including `_Pragma("...")`) to the tokenizer, which records position-based pack events for the parser.
-- The `#pragma GCC diagnostic` support is complete with push/pop and warning control modes.
+- The preprocessor consumes `message` and `GCC ...` pragmas (including via `_Pragma`) and forwards `pack` and other pragmas to the tokenizer.
+- `#pragma GCC diagnostic` state is the final state at end of preprocessing and applies to the whole translation unit; a line-range implementation is future work.
 
 ---
 

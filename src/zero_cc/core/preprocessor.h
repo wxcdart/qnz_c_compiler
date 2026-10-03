@@ -556,6 +556,134 @@ static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const c
 
 static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out);
 
+/* ---- Pragma handling (message / GCC diagnostic / push_options) ---- */
+static inline const char *zero_cc_pragma_skip_ws(const char *q) {
+    while (*q == ' ' || *q == '\t') q++;
+    return q;
+}
+
+static inline bool zero_cc_pragma_word(const char **pq, const char *w) {
+    size_t n = strlen(w);
+    const char *q = *pq;
+    if (strncmp(q, w, n) != 0 || isalnum((unsigned char)q[n]) || q[n] == '_') return false;
+    *pq = zero_cc_pragma_skip_ws(q + n);
+    return true;
+}
+
+/* Copy first quoted string in q into out, stripping a leading "-W". */
+static inline bool zero_cc_pragma_quoted(const char *q, char *out, size_t cap, bool strip_w) {
+    const char *a = strchr(q, '"');
+    if (!a) return false;
+    a++;
+    const char *b = strchr(a, '"');
+    if (!b) return false;
+    if (strip_w && strncmp(a, "-W", 2) == 0) a += 2;
+    size_t n = (size_t)(b - a);
+    if (n >= cap) n = cap - 1;
+    memcpy(out, a, n);
+    out[n] = '\0';
+    return true;
+}
+
+static inline void zero_cc_diag_remove(ZeroCCPreprocessor *cpp, const char *name) {
+    for (int i = 0; i < cpp->diagnostic_state.disabled_warning_count; i++) {
+        if (cpp->diagnostic_state.disabled_warnings[i] &&
+            strcmp(cpp->diagnostic_state.disabled_warnings[i], name) == 0) {
+            free(cpp->diagnostic_state.disabled_warnings[i]);
+            int last = --cpp->diagnostic_state.disabled_warning_count;
+            cpp->diagnostic_state.disabled_warnings[i] = cpp->diagnostic_state.disabled_warnings[last];
+            cpp->diagnostic_state.disabled_warnings[last] = NULL;
+            return;
+        }
+    }
+}
+
+/* Returns true if the pragma was consumed by the preprocessor. */
+static inline bool zero_cc_cpp_handle_pragma(ZeroCCPreprocessor *cpp, const char *text, size_t len) {
+    char buf[512];
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    while (len > 0 && isspace((unsigned char)buf[len - 1])) buf[--len] = '\0';
+    const char *q = zero_cc_pragma_skip_ws(buf);
+
+    if (zero_cc_pragma_word(&q, "message")) {
+        char msg[400];
+        if (!zero_cc_pragma_quoted(q, msg, sizeof(msg), false)) msg[0] = '\0';
+        fprintf(stderr, "%s:%d: note: #pragma message: %s\n",
+                cpp->filename ? cpp->filename : "<stdin>", (int)cpp->line_num, msg);
+        return true;
+    }
+    if (!zero_cc_pragma_word(&q, "GCC")) return false;
+    if (zero_cc_pragma_word(&q, "push_options") || zero_cc_pragma_word(&q, "pop_options")) {
+        return true; /* no per-region options are tracked yet */
+    }
+    if (!zero_cc_pragma_word(&q, "diagnostic")) return false;
+    typeof(cpp->diagnostic_state) *d = &cpp->diagnostic_state;
+    if (zero_cc_pragma_word(&q, "push")) {
+        if (d->stack_depth < 16) {
+            int k = d->stack_depth++;
+            d->warning_as_error_stack[k] = d->warning_as_error;
+            d->disabled_warning_count_stack[k] = d->disabled_warning_count;
+            for (int i = 0; i < d->disabled_warning_count; i++)
+                d->disabled_warnings_stack[k][i] = d->disabled_warnings[i] ? strdup(d->disabled_warnings[i]) : NULL;
+        }
+        return true;
+    }
+    if (zero_cc_pragma_word(&q, "pop")) {
+        if (d->stack_depth > 0) {
+            int k = --d->stack_depth;
+            for (int i = 0; i < d->disabled_warning_count; i++) free(d->disabled_warnings[i]);
+            d->warning_as_error = d->warning_as_error_stack[k];
+            d->disabled_warning_count = d->disabled_warning_count_stack[k];
+            for (int i = 0; i < d->disabled_warning_count; i++) {
+                d->disabled_warnings[i] = d->disabled_warnings_stack[k][i];
+                d->disabled_warnings_stack[k][i] = NULL;
+            }
+            d->disabled_warning_count_stack[k] = 0;
+        }
+        return true;
+    }
+    bool ignored = zero_cc_pragma_word(&q, "ignored");
+    bool warning = !ignored && zero_cc_pragma_word(&q, "warning");
+    bool error = !ignored && !warning && zero_cc_pragma_word(&q, "error");
+    if (ignored || warning || error) {
+        char name[128];
+        bool is_werror = false;
+        if (zero_cc_pragma_quoted(q, name, sizeof(name), true)) {
+            is_werror = (strcmp(name, "error") == 0);
+            if (ignored) {
+                bool present = false;
+                for (int i = 0; i < d->disabled_warning_count; i++)
+                    if (d->disabled_warnings[i] && strcmp(d->disabled_warnings[i], name) == 0) present = true;
+                if (!present && d->disabled_warning_count < 64)
+                    d->disabled_warnings[d->disabled_warning_count++] = strdup(name);
+            } else if (is_werror) {
+                d->warning_as_error = error;
+            } else {
+                zero_cc_diag_remove(cpp, name); /* warning/error re-enable the diagnostic */
+            }
+        }
+        return true;
+    }
+    return true; /* unknown GCC pragma: ignore like GCC does */
+}
+
+/* Publish the final diagnostic pragma state for the tokenizer/compiler. */
+static inline void zero_cc_cpp_publish_diag_state(ZeroCCPreprocessor *cpp) {
+    for (int i = 0; i < zero_cc_global_diag_state.disabled_warning_count && i < 64; i++) {
+        free(zero_cc_global_diag_state.disabled_warnings[i]);
+        zero_cc_global_diag_state.disabled_warnings[i] = NULL;
+    }
+    zero_cc_global_diag_state.warning_as_error = cpp->diagnostic_state.warning_as_error;
+    zero_cc_global_diag_state.disabled_warning_count = cpp->diagnostic_state.disabled_warning_count;
+    for (int i = 0; i < cpp->diagnostic_state.disabled_warning_count; i++) {
+        zero_cc_global_diag_state.disabled_warnings[i] =
+            cpp->diagnostic_state.disabled_warnings[i] ? strdup(cpp->diagnostic_state.disabled_warnings[i]) : NULL;
+    }
+}
+
+
 static inline int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
     while (*expr && isspace((unsigned char)*expr)) expr++;
     if (!*expr) return 0;
@@ -781,7 +909,16 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
                         continue;
                     }
-                    /* Other pragmas (pack, GCC diagnostic, ...): forward to the tokenizer */
+                    /* message / GCC diagnostic are handled here; others (pack, ...) go to the tokenizer */
+                    {
+                        const char *eol = p;
+                        while (*eol && *eol != '\n') eol++;
+                        if (zero_cc_cpp_handle_pragma(cpp, p, (size_t)(eol - p))) {
+                            p = eol;
+                            if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
+                            continue;
+                        }
+                    }
                     zero_cc_buf_puts(out, "#pragma ");
                     while (*p && *p != '\n') zero_cc_buf_putc(out, *p++);
                     if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
@@ -927,6 +1064,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                 const char *s = temp;
                                 while (*s) {
                                     if (*s == '\\' && s[1]) {
+                                        s++; /* point at the escaped character */
                                         char esc = 0;
                                         int val = 0;
                                         if (!zero_cc_handle_escape(&s, NULL, &esc, &val)) {
@@ -979,6 +1117,12 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                 /* Forward other pragmas (e.g. pack) to the tokenizer as a #pragma line */
                                 const char *close = end + 1;
                                 while (*close && isspace((unsigned char)*close)) close++;
+                                if (*close == ')' && zero_cc_cpp_handle_pragma(cpp, pragma_text, strlen(pragma_text))) {
+                                    p = close + 1;
+                                    free(temp);
+                                    free(processed);
+                                    continue;
+                                }
                                 if (*close == ')') {
                                     zero_cc_buf_puts(out, "\n#pragma ");
                                     zero_cc_buf_puts(out, pragma_text);
@@ -1203,6 +1347,7 @@ static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs
     ZeroCCBuffer out;
     zero_cc_buf_init(&out, 4096);
     zero_cc_cpp_process_text(cpp, source, &out);
+    zero_cc_cpp_publish_diag_state(cpp);
     zero_cc_cpp_destroy(cpp);
     free(cpp);
     return out.data;

@@ -318,6 +318,7 @@ void diag_report_warning_at_token(ZeroCCCompiler *c, const char *fmt, ...) {
 /** Check if a warning is disabled by #pragma GCC diagnostic. */
 bool diag_is_warning_disabled(const ZeroCCCompiler *c, const char *warn_name) {
     if (!c || !warn_name) return false;
+    if (strncmp(warn_name, "-W", 2) == 0) warn_name += 2;
     for (int i = 0; i < c->diag_pragma_state.disabled_warning_count && i < 64; i++) {
         if (c->diag_pragma_state.disabled_warnings[i] && 
             strcmp(c->diag_pragma_state.disabled_warnings[i], warn_name) == 0) {
