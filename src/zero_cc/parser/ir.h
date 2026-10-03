@@ -61,6 +61,8 @@ typedef enum {
     OP_JL,             /* jl label */
     OP_JLE,            /* jle label */
     OP_JG,             /* jg label */
+    /* Jump with label index (for break/continue/goto) */
+    OP_JMP_LABEL,      /* jmp [label_idx] - break/continue/goto */
 
     /* Function (4) */
     OP_CALL,           /* call function */
@@ -90,6 +92,18 @@ typedef enum {
     OP_ATOMIC_CMPXCHG_BOOL, /* lock cmpxchg [addr], desired (rax=expected) -> bool */
     OP_ATOMIC_XCHG,         /* xchg [addr], val */
     OP_MFENCE,              /* mfence */
+    /* Floating-point operations (8) */
+    OP_FMOV_IMM,       /* movsd xmm0, [rip + offset] - load float literal */
+    OP_FLOAD,          /* movsd xmm0, [rbp - offset] - load float from stack */
+    OP_FSTORE,         /* movsd [rbp - offset], xmm0 - store float to stack */
+    OP_FADD,           /* addsd xmm0, xmm1 - float add */
+    OP_FSUB,           /* subsd xmm0, xmm1 - float sub */
+    OP_FMUL,           /* mulsd xmm0, xmm1 - float mul */
+    OP_FDIV,           /* divsd xmm0, xmm1 - float div */
+    OP_FMOV,           /* movsd xmm0, xmm1 - float move */
+    /* RIP-relative addressing (2) */
+    OP_LEA_RIP,        /* lea rax, [rip + offset] - string literal address */
+    OP_MOV_GLOBAL,     /* mov rax, [rip + global] - global variable load with relocation */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -135,6 +149,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_JL: return "JL";
         case OP_JLE: return "JLE";
         case OP_JG: return "JG";
+        case OP_JMP_LABEL: return "JMP_LABEL";
         case OP_CALL: return "CALL";
         case OP_CALL_INDIRECT: return "CALL_INDIRECT";
         case OP_RET: return "RET";
@@ -160,6 +175,16 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
         case OP_ATOMIC_XCHG: return "ATOMIC_XCHG";
         case OP_MFENCE: return "MFENCE";
+        case OP_FMOV_IMM: return "FMOV_IMM";
+        case OP_FLOAD: return "FLOAD";
+        case OP_FSTORE: return "FSTORE";
+        case OP_FADD: return "FADD";
+        case OP_FSUB: return "FSUB";
+        case OP_FMUL: return "FMUL";
+        case OP_FDIV: return "FDIV";
+        case OP_FMOV: return "FMOV";
+        case OP_LEA_RIP: return "LEA_RIP";
+        case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         default: return "UNKNOWN";
     }
 }
@@ -274,6 +299,10 @@ static inline void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx) {
     ir_emit((Instr){.op = OP_JNE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
 }
 
+static inline void ir_emit_jmp_label(uint16_t label_idx) {
+    ir_emit((Instr){.op = OP_JMP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
+}
+
 static inline void ir_emit_ret(void) {
     ir_emit((Instr){.op = OP_RET, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }
@@ -339,6 +368,56 @@ static inline void ir_emit_atomic_xchg(uint8_t temp_dest, uint8_t temp_addr, uin
 
 static inline void ir_emit_mfence(void) {
     ir_emit((Instr){.op = OP_MFENCE, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* Float literal load via RIP-relative (imm64 holds rodata offset) */
+static inline void ir_emit_fmov_imm(uint8_t temp_dest, int64_t rodata_offset) {
+    ir_emit((Instr){.op = OP_FMOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
+}
+
+/* Float load from stack */
+static inline void ir_emit_fload(uint8_t temp_dest, uint8_t temp_base, int16_t offset) {
+    ir_emit((Instr){.op = OP_FLOAD, .temp_dest = temp_dest, .temp_src1 = temp_base, .temp_src2 = 0xFF, .imm = offset, .label_idx = 0});
+}
+
+/* Float store to stack */
+static inline void ir_emit_fstore(uint8_t temp_src, uint8_t temp_base, int16_t offset) {
+    ir_emit((Instr){.op = OP_FSTORE, .temp_dest = 0xFF, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = offset, .label_idx = 0});
+}
+
+/* Float add: xmm0 = xmm0 + xmm1 */
+static inline void ir_emit_fadd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_FADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+
+/* Float sub: xmm0 = xmm0 - xmm1 */
+static inline void ir_emit_fsub(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_FSUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+
+/* Float mul: xmm0 = xmm0 * xmm1 */
+static inline void ir_emit_fmul(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_FMUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+
+/* Float div: xmm0 = xmm0 / xmm1 */
+static inline void ir_emit_fdiv(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_FDIV, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+
+/* Float move: xmm0 = xmm1 */
+static inline void ir_emit_fmov(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_FMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* LEA RIP-relative (imm64 holds rodata offset) */
+static inline void ir_emit_lea_rip(uint8_t temp_dest, int64_t rodata_offset) {
+    ir_emit((Instr){.op = OP_LEA_RIP, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
+}
+
+/* Global variable load with relocation (imm64 holds symbol name pointer) */
+static inline void ir_emit_mov_global(uint8_t temp_dest, const char *symbol_name) {
+    ir_emit((Instr){.op = OP_MOV_GLOBAL, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */

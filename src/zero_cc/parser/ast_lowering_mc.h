@@ -261,6 +261,90 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
                 }
                 break;
 
+            case OP_FMOV_IMM: {
+                /* Load float literal - value stored in imm64 as bit pattern */
+                double val = *(double*)&instr->imm64;
+                if (BE(c)->emit_load_fp_imm) {
+                    BE(c)->emit_load_fp_imm(c, phys_dst, val);
+                }
+                break;
+            }
+
+            case OP_FLOAD:
+                if (BE(c)->emit_load_fp) {
+                    BE(c)->emit_load_fp(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_FSTORE:
+                if (BE(c)->emit_store_fp) {
+                    BE(c)->emit_store_fp(c, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_FADD:
+                if (BE(c)->emit_fp_add) {
+                    BE(c)->emit_fp_add(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_FSUB:
+                if (BE(c)->emit_fp_sub) {
+                    BE(c)->emit_fp_sub(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_FMUL:
+                if (BE(c)->emit_fp_mul) {
+                    BE(c)->emit_fp_mul(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_FDIV:
+                if (BE(c)->emit_fp_div) {
+                    BE(c)->emit_fp_div(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_FMOV:
+                if (BE(c)->emit_fp_mov) {
+                    BE(c)->emit_fp_mov(c, phys_dst, phys_src1);
+                }
+                break;
+
+            case OP_LEA_RIP: {
+                /* LEA RIP-relative for string literals */
+                size_t rodata_offset = (size_t)instr->imm64;
+                if (BE(c)->emit_lea_rip) {
+                    BE(c)->emit_lea_rip(c, phys_dst, rodata_offset);
+                }
+                break;
+            }
+
+            case OP_MOV_GLOBAL: {
+                /* Global variable load with relocation */
+                const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+                if (BE(c)->emit_mov_imm) {
+                    BE(c)->emit_mov_imm(c, phys_dst, 0);
+                }
+                /* Store symbol name for relocation patching */
+                if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                    ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                    r->text_patch_offset = me_get_offset(c) - 8;
+                    snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
+                    r->is_call = false;
+                }
+                break;
+            }
+
+            case OP_JMP_LABEL: {
+                /* Unconditional jump to label (for break/continue/goto) */
+                BE(c)->emit_jmp(c, "");
+                /* Store patch info for later resolution */
+                /* Note: label resolution is handled separately in emit_return_jumps */
+                break;
+            }
+
             case OP_CALL: {
                 /* Extract function name from imm64 (stored as pointer during lowering) */
                 const char *fn_name = (const char *)(intptr_t)instr->imm64;
