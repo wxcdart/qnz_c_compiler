@@ -277,12 +277,12 @@ Extended pragma directive support for better compatibility with real-world C cod
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
 | 33 | `union` proper layout (overlapping members) | 3 days | ✅ Complete |
-| 34 | Bit-fields (`: width` bit-packing & mask/shift operations) | 1 week | |
+| 34 | Bit-fields (`: width` bit-packing & mask/shift operations) | 1 week | ✅ Complete |
 | 35 | Flexible array members (trailing zero-length struct arrays) | 2 days | ✅ Complete |
-| 36 | Anonymous struct/union members | 3 days | |
-| 37 | VLA (dynamic stack allocation) | 1 week | |
-| 38 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week | |
-| 39 | `const` / `volatile` semantic enforcement | 3 days | |
+| 36 | Anonymous struct/union members | 3 days | ✅ Complete |
+| 37 | VLA (dynamic stack allocation) | 1 week | ✅ Complete |
+| 38 | `_Atomic` operations (compare-exchange, fetch-add) | 1 week | ✅ Complete |
+| 39 | `const` / `volatile` semantic enforcement | 3 days | ✅ Complete |
 
 ---
 
