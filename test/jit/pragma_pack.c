@@ -66,7 +66,7 @@ int main(void) {
     {
         const char *src =
             "#pragma pack(push, 1)\n"
-            "struct Outer { char a; struct Inner { char x; int y; }; };\n"
+            "struct Outer { char a; struct Inner { char x; int y; } in; };\n"
             "#pragma pack(pop)\n"
             "int main(void) { return sizeof(struct Outer) + sizeof(struct Inner); }\n";
         int res = run_snippet(src);

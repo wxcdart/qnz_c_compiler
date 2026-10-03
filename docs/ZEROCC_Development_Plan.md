@@ -242,14 +242,14 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 18 | `#pragma pack(n)` - structure packing control | 2 days | ⚠️ Partial (infrastructure in place, needs preprocessor integration) |
+| 18 | `#pragma pack(n)` - structure packing control | 2 days | ✅ Complete (preprocessor forwards `#pragma` / `_Pragma` to the tokenizer) |
 | 19 | `#pragma message("text")` - compiler messages | 1 day | ✅ Complete |
 | 20 | `#pragma GCC diagnostic` - warning control | 2 days | ✅ Complete (push/pop/diagnostic modes implemented) |
 | 21 | `#pragma GCC push_options` / `pop_options` | 1 day | ✅ Complete |
 | 22 | Generic pragma passthrough (emit to output) | 1 day | ✅ Complete |
 
 **Notes:**
-- `#pragma pack(n)` infrastructure is in place but needs to be integrated with the preprocessor.
+- `#pragma pack(n)` is fully integrated: the preprocessor forwards non-`once` pragmas (including `_Pragma("...")`) to the tokenizer, which records position-based pack events for the parser.
 - The `#pragma GCC diagnostic` support is complete with push/pop and warning control modes.
 
 ---

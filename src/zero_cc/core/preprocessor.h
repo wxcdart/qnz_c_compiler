@@ -781,6 +781,11 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
                         continue;
                     }
+                    /* Other pragmas (pack, GCC diagnostic, ...): forward to the tokenizer */
+                    zero_cc_buf_puts(out, "#pragma ");
+                    while (*p && *p != '\n') zero_cc_buf_putc(out, *p++);
+                    if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
+                    continue;
                 } else if (active && strcmp(directive, "embed") == 0) {
                     while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
                     bool is_sys = (*p == '<');
@@ -970,6 +975,19 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                             }
                                         }
                                     }
+                                } else {
+                                /* Forward other pragmas (e.g. pack) to the tokenizer as a #pragma line */
+                                const char *close = end + 1;
+                                while (*close && isspace((unsigned char)*close)) close++;
+                                if (*close == ')') {
+                                    zero_cc_buf_puts(out, "\n#pragma ");
+                                    zero_cc_buf_puts(out, pragma_text);
+                                    zero_cc_buf_puts(out, "\n");
+                                    p = close + 1;
+                                    free(temp);
+                                    free(processed);
+                                    continue;
+                                }
                                 }
                                 free(temp);
                                 free(processed);
