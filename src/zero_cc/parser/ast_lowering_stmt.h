@@ -106,11 +106,15 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
                     /* mov [rbp - offset], eax */
                     BE(c)->emit_store(c, 0, BE(c)->fp_reg, -sym->stack_offset);
                 } else {
-                    /* Integer or struct assignment: use IR store */
-                    ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
-                    if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
-                        /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
-                        ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                    /* If initializer was a compound literal storing directly to an array variable, don't overwrite */
+                    ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
+                    if (!(sym->type.tag == TYPE_ARRAY && init_node && init_node->tag == NODE_COMPOUND_LIT)) {
+                        /* Integer or struct assignment: use IR store */
+                        ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
+                            /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
+                            ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                        }
                     }
                 }
             }

@@ -16,6 +16,7 @@
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count);
 
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx) {
     if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
@@ -815,10 +816,29 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 /* Attach type to AST node for semantic analysis */
                 decl_node_set_type(ctx, dn, decl_ti);
 
-                /* Optional initializer: = expr */
+                /* Optional initializer: = expr or = { ... } */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                     c->token_pos++;
-                    ASTRef init_val = parse_assignment_ast(c, arena);
+                    ASTRef init_val = AST_NULL;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+                        /* Brace-enclosed / designated initializer: struct Point p = { .x = 10 }; */
+                        size_t elem_count = 0;
+                        ASTRef head_expr = parse_brace_init_list_ast(c, arena, decl_type, &elem_count);
+                        if (decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 && elem_count > 0) {
+                            decl_type.array_len = elem_count;
+                            if (sym) sym->type.array_len = elem_count;
+                        }
+                        ASTRef comp_ref = zero_cc_ast_alloc_node(arena, NODE_COMPOUND_LIT);
+                        ZeroCCASTNode *cn = zero_cc_ast_get(arena, comp_ref);
+                        cn->left = head_expr;
+                        if (sym) {
+                            cn->s.str = sym->name;
+                            cn->s.len = strlen(sym->name);
+                        }
+                        init_val = comp_ref;
+                    } else {
+                        init_val = parse_assignment_ast(c, arena);
+                    }
                     dn = zero_cc_ast_get(arena, decl_ref);
                     if (dn) dn->left = init_val;
                 }

@@ -880,8 +880,13 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         elem_size = sym->type.members[m_idx].size;
                     }
                 } else if (sym->type.tag == TYPE_ARRAY) {
+                    size_t a_idx = idx;
+                    if ((elem_node->flags & 0x8000) != 0) {
+                        a_idx = (size_t)elem_node->aux.alt;
+                        idx = a_idx;
+                    }
                     size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
-                    elem_offset = idx * unit_sz;
+                    elem_offset = a_idx * unit_sz;
                     elem_size = unit_sz;
                 } else {
                     elem_offset = 0;
