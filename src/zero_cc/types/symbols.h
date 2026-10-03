@@ -82,6 +82,21 @@ typedef struct ZeroCCCompiler {
     /* Rich diagnostics system */
     DiagBuf diag_buf;
     Arena *diag_arena;
+
+    /* Pragma pack alignment (0 = default) */
+    int default_pack;
+    /* #pragma pack events recorded by the tokenizer: from token index
+     * pack_ev_tok[i] onward the pack value is pack_ev_val[i]. */
+    size_t pack_ev_tok[256];
+    int pack_ev_val[256];
+    size_t pack_ev_n;
+    
+    /* GCC diagnostic pragma state (from preprocessor) */
+    struct {
+        bool warning_as_error;
+        char *disabled_warnings[64];
+        int disabled_warning_count;
+    } diag_pragma_state;
 } ZeroCCCompiler;
 
 int64_t decl_align_spec; /* alignment specifier from _Alignas */

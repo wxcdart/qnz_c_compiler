@@ -314,3 +314,58 @@ void diag_report_warning_at_token(ZeroCCCompiler *c, const char *fmt, ...) {
     diag_report_warning_file(&c->diag_buf, file, line, col, NULL, fmt, ap);
     va_end(ap);
 }
+
+/** Check if a warning is disabled by #pragma GCC diagnostic. */
+bool diag_is_warning_disabled(const ZeroCCCompiler *c, const char *warn_name) {
+    if (!c || !warn_name) return false;
+    for (int i = 0; i < c->diag_pragma_state.disabled_warning_count && i < 64; i++) {
+        if (c->diag_pragma_state.disabled_warnings[i] && 
+            strcmp(c->diag_pragma_state.disabled_warnings[i], warn_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Report a warning diagnostic with warning name for #pragma GCC diagnostic support. */
+void diag_report_warning_named(ZeroCCCompiler *c, uint32_t line, uint32_t col,
+                                DiagMacroContext *macro_ctx, const char *warn_name, const char *fmt, ...) {
+    if (!c || !fmt) return;
+    /* Check if warning is disabled */
+    if (warn_name && diag_is_warning_disabled(c, warn_name)) return;
+    
+    uint32_t ln = line, cl = col;
+    const char *file = "<stdin>";
+    if (c->token_pos < c->token_count) {
+        ln = c->tokens[c->token_pos].line;
+        cl = c->tokens[c->token_pos].col;
+        if (c->tokens[c->token_pos].filename) {
+            file = c->tokens[c->token_pos].filename;
+        }
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    diag_report_warning_file(&c->diag_buf, file, ln, cl, macro_ctx, fmt, ap);
+    va_end(ap);
+}
+
+/** Report a warning diagnostic at the compiler's current token position with warning name. */
+void diag_report_warning_at_token_named(ZeroCCCompiler *c, const char *warn_name, const char *fmt, ...) {
+    if (!c || !fmt) return;
+    /* Check if warning is disabled */
+    if (warn_name && diag_is_warning_disabled(c, warn_name)) return;
+    
+    uint32_t line = 0, col = 0;
+    const char *file = "<stdin>";
+    if (c->token_pos < c->token_count) {
+        line = c->tokens[c->token_pos].line;
+        col = c->tokens[c->token_pos].col;
+        if (c->tokens[c->token_pos].filename) {
+            file = c->tokens[c->token_pos].filename;
+        }
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    diag_report_warning_file(&c->diag_buf, file, line, col, NULL, fmt, ap);
+    va_end(ap);
+}

@@ -7,6 +7,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+/* Global pragma state - defined in pragma_state.c */
+extern int zero_cc_global_pack;
+extern struct {
+    bool warning_as_error;
+    char *disabled_warnings[64];
+    int disabled_warning_count;
+} zero_cc_global_diag_state;
+
+/* Get the pack value after preprocessing */
+static inline int zero_cc_get_pack_value(void) {
+    return zero_cc_global_pack;
+}
+
+/* Set the pack value (for use by tokenizer) */
+static inline void zero_cc_set_pack_value(int pack) {
+    zero_cc_global_pack = pack;
+}
+
 #include "zero_cc/lexer/scan.h"
 
 static inline void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {

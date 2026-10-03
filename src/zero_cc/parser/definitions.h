@@ -12,6 +12,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     ZeroCCType st; memset(&st, 0, sizeof(st));
     st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
+    /* Resolve #pragma pack in effect at this token position */
+    c->default_pack = 0;
+    for (size_t pi = 0; pi < c->pack_ev_n && c->pack_ev_tok[pi] <= c->token_pos; pi++)
+        c->default_pack = c->pack_ev_val[pi];
     size_t current_offset = 0;
     size_t max_size = 0;
     st.align = 1;
@@ -195,6 +199,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             size_t base_align = is_ptr ? 8 : (inner_type.align > 0 ? inner_type.align : 8);
             size_t base_size = is_ptr ? 8 : inner_type.size;
             size_t effective_align = member_align > base_align ? member_align : base_align;
+            /* Apply #pragma pack if set */
+            if (c->default_pack > 0 && effective_align > (size_t)c->default_pack) {
+                effective_align = (size_t)c->default_pack;
+            }
             if (effective_align > st.align) st.align = effective_align;
 
             if (is_union) {
@@ -213,6 +221,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     if (m->size > max_size) max_size = m->size;
                 }
             } else {
+                /* Align offset based on effective_align (already pack-capped) */
                 current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
                 if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
                     ZeroCCStructMember *m = &st.members[st.member_count++];
@@ -348,6 +357,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
             if (is_ptr) { base_align = 8; base_size = 8; }
             size_t effective_align = member_align > base_align ? member_align : base_align;
+            if (c->default_pack > 0 && effective_align > (size_t)c->default_pack) effective_align = (size_t)c->default_pack;
             if (effective_align > st.align) st.align = effective_align;
 
             char mname[128] = "";
@@ -548,6 +558,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
     if (is_union) {
         st.size = (max_size + st.align - 1) & ~(st.align - 1);
     } else {
+        st.size = (current_offset + st.align - 1) & ~(st.align - 1);
+    }
+    /* Apply #pragma pack to final struct alignment */
+    if (c->default_pack > 0 && st.align > (size_t)c->default_pack) {
+        st.align = (size_t)c->default_pack;
         st.size = (current_offset + st.align - 1) & ~(st.align - 1);
     }
     if (st.align == 0) st.align = 1;

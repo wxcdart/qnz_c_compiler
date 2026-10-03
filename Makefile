@@ -25,6 +25,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/semantic/semantic.o \
 	src/zero_cc/common/arena.o \
 	src/zero_cc/parser/ir.o \
+	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/aarch64.o \
 	src/zero_cc/isa/riscv.o)

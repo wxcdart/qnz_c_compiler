@@ -240,13 +240,17 @@ These only need new `case` blocks in [`lower_node()`](src/zero_cc/parser.c) / `l
 
 Extended pragma directive support for better compatibility with real-world C code.
 
-| Priority | Task | Effort |
-|----------|------|--------|
-| 18 | `#pragma pack(n)` - structure packing control | 2 days |
-| 19 | `#pragma message("text")` - compiler messages | 1 day |
-| 20 | `#pragma GCC diagnostic` - warning control | 2 days |
-| 21 | `#pragma GCC push_options` / `pop_options` | 1 day |
-| 22 | Generic pragma passthrough (emit to output) | 1 day |
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 18 | `#pragma pack(n)` - structure packing control | 2 days | ⚠️ Partial (infrastructure in place, needs preprocessor integration) |
+| 19 | `#pragma message("text")` - compiler messages | 1 day | ✅ Complete |
+| 20 | `#pragma GCC diagnostic` - warning control | 2 days | ✅ Complete (push/pop/diagnostic modes implemented) |
+| 21 | `#pragma GCC push_options` / `pop_options` | 1 day | ✅ Complete |
+| 22 | Generic pragma passthrough (emit to output) | 1 day | ✅ Complete |
+
+**Notes:**
+- `#pragma pack(n)` infrastructure is in place but needs to be integrated with the preprocessor.
+- The `#pragma GCC diagnostic` support is complete with push/pop and warning control modes.
 
 ---
 

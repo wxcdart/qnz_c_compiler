@@ -113,3 +113,13 @@ void diag_report_warning_at_token(ZeroCCCompiler *c, const char *fmt, ...);
 
 /** Merge source diagnostics buffer into destination buffer. */
 void diag_merge(DiagBuf *dest, const DiagBuf *src);
+
+/** Check if a warning is disabled by #pragma GCC diagnostic. */
+bool diag_is_warning_disabled(const ZeroCCCompiler *c, const char *warn_name);
+
+/** Report a warning diagnostic with warning name for #pragma GCC diagnostic support. */
+void diag_report_warning_named(ZeroCCCompiler *c, uint32_t line, uint32_t col,
+                                DiagMacroContext *macro_ctx, const char *warn_name, const char *fmt, ...);
+
+/** Report a warning diagnostic at the compiler's current token position with warning name. */
+void diag_report_warning_at_token_named(ZeroCCCompiler *c, const char *warn_name, const char *fmt, ...);

@@ -4,10 +4,24 @@
 
 #include "zero_cc/types/symbols.h"
 #include "zero_cc/lexer/next.h"
+#include "zero_cc/core/preprocessor.h"
 
 /* Main tokenization function */
 static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
     if (!src || !c) return;
+
+    /* Initialize pack value from preprocessor */
+    c->default_pack = zero_cc_get_pack_value();
+    c->pack_ev_n = 0;
+    int pack_stack[32]; int pack_depth = 0; int cur_pack = 0;
+    
+    /* Initialize diagnostic pragma state from preprocessor */
+    c->diag_pragma_state.warning_as_error = zero_cc_global_diag_state.warning_as_error;
+    c->diag_pragma_state.disabled_warning_count = zero_cc_global_diag_state.disabled_warning_count;
+    for (int i = 0; i < zero_cc_global_diag_state.disabled_warning_count && i < 64; i++) {
+        c->diag_pragma_state.disabled_warnings[i] = zero_cc_global_diag_state.disabled_warnings[i];
+        zero_cc_global_diag_state.disabled_warnings[i] = NULL; /* Transfer ownership */
+    }
 
     ZeroCCLexer lx;
     zero_cc_lexer_init(&lx, src);
@@ -46,6 +60,41 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
             break;
         }
 
+        /* #pragma pack: record position-based event, drop from token stream */
+        if (tok->type == TK_HASH && tok->src) {
+            const char *q = tok->src + 1;
+            while (*q == ' ' || *q == '\t') q++;
+            if (strncmp(q, "pragma", 6) == 0) {
+                q += 6;
+                while (*q == ' ' || *q == '\t') q++;
+                if (strncmp(q, "pack", 4) == 0 && !isalnum((unsigned char)q[4]) && q[4] != '_') {
+                    q += 4;
+                    const char *eol = q;
+                    while (*eol && *eol != '\n') eol++;
+                    while (q < eol && (*q == ' ' || *q == '\t' || *q == '(')) q++;
+                    bool changed = true;
+                    if (strncmp(q, "push", 4) == 0) {
+                        q += 4;
+                        if (pack_depth < 32) pack_stack[pack_depth++] = cur_pack;
+                        while (q < eol && (*q == ' ' || *q == ',' || *q == '\t')) q++;
+                        if (*q >= '0' && *q <= '9') cur_pack = (int)strtol(q, NULL, 10);
+                    } else if (strncmp(q, "pop", 3) == 0) {
+                        if (pack_depth > 0) cur_pack = pack_stack[--pack_depth];
+                    } else if (*q >= '0' && *q <= '9') {
+                        cur_pack = (int)strtol(q, NULL, 10);
+                    } else {
+                        cur_pack = 0; /* plain pack() / pack: reset */
+                    }
+                    if (changed && c->pack_ev_n < 256) {
+                        c->pack_ev_tok[c->pack_ev_n] = c->token_count;
+                        c->pack_ev_val[c->pack_ev_n++] = cur_pack;
+                    }
+                    lx.cur = eol; /* newline handled by the lexer */
+                    lx.offset += (size_t)(eol - tok->src);
+                    continue;
+                }
+            }
+        }
         c->token_count++;
         if (tok->type == TK_EOF) break;
     }
