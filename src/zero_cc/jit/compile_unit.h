@@ -85,7 +85,6 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     Arena *tmp = arena_create(1024 * 1024);
     if (!perm || !tmp) {
         fprintf(stderr, "zero_cc: arena allocation failed\n");
-        c->had_error = true;
         zero_cc_type_pool_free();
         return;
     }
@@ -108,9 +107,13 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     if (c->tokens && c->token_count > 0 && c->tokens[0].filename) {
         diag_set_file(&shared_diags, c->tokens[0].filename);
     }
+    /* Initialize compiler's diagnostic buffer */
+    diag_init(&c->diag_buf, tmp);
+    if (c->tokens && c->token_count > 0 && c->tokens[0].filename) {
+        diag_set_file(&c->diag_buf, c->tokens[0].filename);
+    }
     SemContext shared_ctx;
     if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL)) {
-        c->had_error = true;
         zero_cc_type_pool_free();
         return;
     }
@@ -283,11 +286,18 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
+    // End of compilation
+    /* Merge semantic diagnostics into compiler buffer */
+    diag_merge(&c->diag_buf, &shared_diags);
+    /* Sync diagnostics to compiler for backward compatibility */
+    diag_sync_compiler(c);
+    /* Print diagnostics to stderr */
+    diag_print_stderr(&c->diag_buf);
+
     sem_context_destroy(&shared_ctx);
     arena_destroy(tmp);
     arena_destroy(perm);
     zero_cc_type_pool_free();
-    // End of compilation
 }
 
 

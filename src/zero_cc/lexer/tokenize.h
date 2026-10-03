@@ -15,8 +15,8 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
     size_t cap = 1024;
     c->tokens = (ZeroCCToken *)malloc(cap * sizeof(ZeroCCToken));
     if (!c->tokens) {
-        c->had_error = 1;
-        snprintf(c->error_msg, sizeof(c->error_msg), "Failed to allocate token buffer");
+        const char *file = c->diag_buf.default_file ? c->diag_buf.default_file : "<stdin>";
+        diag_report_error_file(&c->diag_buf, file, 0, 0, NULL, "Failed to allocate token buffer");
         return;
     }
     c->token_count = 0;
@@ -27,8 +27,8 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
             cap *= 2;
             ZeroCCToken *new_tokens = (ZeroCCToken *)realloc(c->tokens, cap * sizeof(ZeroCCToken));
             if (!new_tokens) {
-                c->had_error = 1;
-                snprintf(c->error_msg, sizeof(c->error_msg), "Failed to grow token buffer");
+                const char *file = c->diag_buf.default_file ? c->diag_buf.default_file : "<stdin>";
+                diag_report_error_file(&c->diag_buf, file, 0, 0, NULL, "Failed to grow token buffer");
                 break;
             }
             c->tokens = new_tokens;
@@ -41,8 +41,8 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
             break;  /* EOF */
         }
         if (ret == -1) {      /* Error */
-            c->had_error = 1;
-            snprintf(c->error_msg, sizeof(c->error_msg), "Lexer error at line %zu, col %zu", tok->line, tok->col);
+            const char *file = c->diag_buf.default_file ? c->diag_buf.default_file : "<stdin>";
+            diag_report_error_file(&c->diag_buf, file, lx.line, lx.col, NULL, "Lexer error");
             break;
         }
 

@@ -10,6 +10,7 @@
 #include "zero_cc/types/token.h"
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/semantic/expr.h"
+#include "zero_cc/semantic/diagnostics.h"
 #include "../parser/regalloc.h"
 
 /* Compiler & Emitter Context */
@@ -77,6 +78,10 @@ typedef struct ZeroCCCompiler {
     const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
     int had_error;
     char error_msg[256];
+
+    /* Rich diagnostics system */
+    DiagBuf diag_buf;
+    Arena *diag_arena;
 } ZeroCCCompiler;
 
 int64_t decl_align_spec; /* alignment specifier from _Alignas */

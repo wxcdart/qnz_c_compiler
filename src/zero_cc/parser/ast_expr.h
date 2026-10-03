@@ -62,9 +62,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                         designated_member_idx = (int32_t)mi;
                         /* C99: flexible array members cannot be initialized */
                         if (lit_type.members[mi].is_flexible) {
-                            c->had_error = 1;
-                            snprintf(c->error_msg, sizeof(c->error_msg),
-                                     "initialization of flexible array member '%s'", field_name);
+                            diag_report_error_at_token(c, "initialization of flexible array member '%s'", field_name);
                             return AST_NULL;
                         }
                         break;
@@ -79,10 +77,9 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 /* Bounds check for fixed-size arrays */
                 if (lit_type.tag == TYPE_ARRAY && lit_type.array_len > 0 &&
                     (size_t)designated_member_idx >= lit_type.array_len) {
-                    c->had_error = 1;
-                    snprintf(c->error_msg, sizeof(c->error_msg),
-                             "array initializer index %d exceeds array bound %zu",
-                             designated_member_idx, lit_type.array_len);
+                    diag_report_error_at_token(c,
+                        "array initializer index %d exceeds array bound %zu",
+                        designated_member_idx, lit_type.array_len);
                     return AST_NULL;
                 }
                 c->token_pos++;

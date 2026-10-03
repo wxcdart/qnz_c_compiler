@@ -847,8 +847,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 /* C99 §6.7.8 p3: VLA shall not have an initializer */
                 if ((dn->flags & NODE_DECL_IS_VLA) != 0) {
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
-                        c->had_error = 1;
-                        snprintf(c->error_msg, sizeof(c->error_msg), "variable length array '%s' cannot be initialized", dn->s.str);
+                        diag_report_error_at_token(c,
+                            "variable length array '%s' cannot be initialized", dn->s.str);
                         return AST_NULL;
                     }
                 }

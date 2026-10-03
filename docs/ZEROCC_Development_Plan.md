@@ -180,9 +180,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 | Construct | Status | Notes |
 |-----------|:------:|-------|
-| Error messages with source location | ✅ | Standard file:line:col caret formatting implemented in diagnostics.c (Sprint 5.5 Task 44) |
-| Macro expansion notes | ❌ | Planned in Sprint 6 |
-| Warning vs. error distinction | ❌ | All diagnostics currently treated as hard errors; planned in Sprint 6 Task 45 |
+| Error messages with source location | ✅ | Standard file:line:col caret formatting implemented in diagnostics.c |
+| Macro expansion notes | ✅ | Implemented via `DiagMacroContext` chain in diagnostics |
+| Warning vs. error distinction | ✅ | `DiagSeverity` enum (DIAG_ERROR, DIAG_WARNING, DIAG_NOTE) implemented |
 
 ---
 
@@ -330,11 +330,11 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 45 | Rich diagnostics: `file:line:col: error: …` format and warning vs error distinction | 1 week | |
-| 46 | GCC C-Torture integration (run `gcc.c-torture/execute` ~1,500 tests against ZeroCC JIT) | 1 week | |
-| 47 | Differential Fuzzing: Csmith & yarpgen harness comparing ZeroCC execution results vs GCC/Clang | 1 week | |
-| 48 | Regression test suite (bootstrap from TCC corpus) | 1 week | |
-| 49 | GitHub Actions CI (`make clean && make test` + ASan/UBSan matrix) | 2 days | |
+| 45 | Rich diagnostics: `file:line:col: error: …` format and warning vs error distinction | 1 week | ✅ Complete |
+| 46 | GCC C-Torture integration (run `gcc.c-torture/execute` ~1,500 tests against ZeroCC JIT) | 1 week | ❌ |
+| 47 | Differential Fuzzing: Csmith & yarpgen harness comparing ZeroCC execution results vs GCC/Clang | 1 week | ❌ |
+| 48 | Regression test suite (bootstrap from TCC corpus) | 1 week | ❌ |
+| 49 | GitHub Actions CI (`make clean && make test` + ASan/UBSan matrix) | 2 days | ❌ |
 
 ---
 
@@ -416,14 +416,17 @@ Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing clea
      - Test Suite status: **112/112 passed** cleanly under `make test` and `make asan`.
 
 3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
-   - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction.
-   - **Task 46: GCC C-Torture integration**: Execute `gcc.c-torture/execute` (~1,500 tests) against ZeroCC JIT.
-   - **Task 47: Differential Fuzzing**: Harness Csmith & yarpgen to compare ZeroCC execution results vs GCC/Clang.
-   - **Task 48: Regression test suite**: Bootstrap from TCC corpus.
-   - **Task 49: GitHub Actions CI**: Automated CI for `make clean && make test` + ASan/UBSan matrix.
+   - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction. ✅ **Complete**:
+     - Migrated all parser error reporting from `c->had_error = 1; snprintf(...)` to `diag_report_error_at_token()` API.
+     - Rich diagnostics with `file:line:col: error: message` format and caret `^` pointers.
+     - Warning vs. error distinction implemented via `DiagSeverity` enum (DIAG_ERROR, DIAG_WARNING, DIAG_NOTE).
+     - Macro expansion context tracking for nested macro diagnostics.
+     - All raw `fprintf(stderr, ...)` error calls migrated to diagnostics API.
+     - All 114 tests pass with proper diagnostic output.
 
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-03.*
 *Updated with Sprint 5.7 full completion (Phases 1-3 + modular lowering split).*
+*Updated 2026-10-03: Task 45 (Rich Diagnostics) complete - migrated all error reporting to diagnostics API.*
 

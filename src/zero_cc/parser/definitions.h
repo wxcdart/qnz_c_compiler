@@ -39,8 +39,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
         if (mt == TK_STATIC_ASSERT) {
             c->token_pos++;
             if (c->tokens[c->token_pos].type != TK_LPAREN) {
-                c->had_error = 1;
-                snprintf(c->error_msg, sizeof(c->error_msg), "Expected '(' after _Static_assert");
+                diag_report_error_at_token(c, "Expected '(' after _Static_assert");
                 return st;
             }
             c->token_pos++;
@@ -49,27 +48,23 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_STRING) c->token_pos++;
                 if (c->tokens[c->token_pos].type != TK_RPAREN) {
-                    c->had_error = 1;
-                    snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' after message");
+                    diag_report_error_at_token(c, "Expected ')' after message");
                     return st;
                 }
                 c->token_pos++;
             } else if (c->tokens[c->token_pos].type == TK_RPAREN) {
                 c->token_pos++;
             } else {
-                c->had_error = 1;
-                snprintf(c->error_msg, sizeof(c->error_msg), "Expected ')' or ',' after constant expression");
+                diag_report_error_at_token(c, "Expected ')' or ',' after constant expression");
                 return st;
             }
             if (c->tokens[c->token_pos].type != TK_SEMI) {
-                c->had_error = 1;
-                snprintf(c->error_msg, sizeof(c->error_msg), "Expected ';' after _Static_assert");
+                diag_report_error_at_token(c, "Expected ';' after _Static_assert");
                 return st;
             }
             c->token_pos++;
             if (val == 0) {
-                c->had_error = 1;
-                snprintf(c->error_msg, sizeof(c->error_msg), "Static assertion failed");
+                diag_report_error_at_token(c, "Static assertion failed");
                 return st;
             }
             continue;
@@ -108,8 +103,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                             zero_cc_register_enum_const(c, ename, enum_val);
                             if (enum_val == INT64_MAX) {
-                                c->had_error = 1;
-                                snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                                diag_report_error_at_token(c, "overflow in enumeration values");
                             } else {
                                 enum_val++;
                             }
@@ -627,8 +621,7 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
                     }
                     zero_cc_register_enum_const(c, ename, enum_val);
                     if (enum_val == INT64_MAX) {
-                        c->had_error = 1;
-                        snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                        diag_report_error_at_token(c, "overflow in enumeration values");
                     } else {
                         enum_val++;
                     }
@@ -690,8 +683,7 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
                 }
                 zero_cc_register_enum_const(c, ename, enum_val);
                 if (enum_val == INT64_MAX) {
-                    c->had_error = 1;
-                    snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                    diag_report_error_at_token(c, "overflow in enumeration values");
                 } else {
                     enum_val++;
                 }

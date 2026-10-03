@@ -444,13 +444,13 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             return ty;
         }
         /* Unknown identifier */
-        c->had_error = 1;
+        diag_report_error_at_token(c, "unknown identifier '%s'", c->tokens[*pos - 1].str_val);
         ZeroCCType unknown_ty;
         memset(&unknown_ty, 0, sizeof(unknown_ty));
         return unknown_ty;
     }
     /* Should not reach here for valid constant expression */
-    c->had_error = 1;
+    diag_report_error_at_token(c, "invalid constant expression");
     ZeroCCType unknown_ty;
     memset(&unknown_ty, 0, sizeof(unknown_ty));
     return unknown_ty;

@@ -356,7 +356,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             /* (Machine code emission will be implemented in future) */
         } else {
             if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
-            c->had_error = true;
+            /* Error already reported via semantic_print_diagnostics */
         }
 
         // Restore scope and return type after analysis
