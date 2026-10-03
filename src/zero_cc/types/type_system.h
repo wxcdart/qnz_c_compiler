@@ -21,6 +21,7 @@ typedef enum {
     TYPE_ARRAY,
     TYPE_STRUCT,
     TYPE_UNION,
+    TYPE_ENUM,
     /* Reserved range for JIT intrinsics & SIMD vector types */
     TYPE_USER_0,
     TYPE_USER_1,
@@ -72,6 +73,11 @@ typedef struct {
     char name[128];
     ZeroCCType type;
 } ZeroCCStructDef;
+
+typedef struct {
+    char name[128];
+    ZeroCCType type;
+} ZeroCCEnumDef;
 
 typedef struct {
     char name[128];

@@ -29,6 +29,9 @@ typedef struct ZeroCCCompiler {
     ZeroCCStructDef structs[ZERO_CC_MAX_STRUCTS];
     size_t struct_count;
 
+    ZeroCCEnumDef enums[ZERO_CC_MAX_ENUM_DEFS];
+    size_t enum_count;
+
     ZeroCCEnumConst enum_constants[ZERO_CC_MAX_ENUMS];
     size_t enum_const_count;
 

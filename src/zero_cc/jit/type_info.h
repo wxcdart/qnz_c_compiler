@@ -106,6 +106,21 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             }
             break;
         }
+        case TYPE_ENUM: {
+            ti = type_new(perm);
+            ti->kind = TYPE_KIND_ENUM;
+            if (t.struct_name[0] != '\0') {
+                size_t tlen = strlen(t.struct_name);
+                char *tag_copy = (char *)arena_alloc(perm, tlen + 1);
+                if (tag_copy) {
+                    memcpy(tag_copy, t.struct_name, tlen + 1);
+                    ti->details.record.tag = tag_copy;
+                }
+            }
+            ti->details.record.size = 4;
+            ti->details.record.align = 4;
+            break;
+        }
         default: ti = type_int(perm); break;
     }
     if (ti) {

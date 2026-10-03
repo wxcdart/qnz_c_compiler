@@ -67,6 +67,12 @@ static inline ZeroCCType zero_cc_type_nullptr(void) {
     t.tag = TYPE_NULLPTR; t.size = 8; t.align = 8;
     return t;
 }
+static inline ZeroCCType zero_cc_type_enum(const char *name) {
+    ZeroCCType t; memset(&t, 0, sizeof(t));
+    t.tag = TYPE_ENUM; t.size = 4; t.align = 4;
+    if (name) snprintf(t.struct_name, sizeof(t.struct_name), "%s", name);
+    return t;
+}
 static inline ZeroCCType zero_cc_type_user(int user_idx, size_t size, size_t align) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = (ZeroTypeTag)(TYPE_USER_0 + (user_idx & 3));

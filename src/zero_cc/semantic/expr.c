@@ -51,6 +51,8 @@ static bool expr_is_lvalue(SemContext *ctx, const ZeroCCASTNode *node) {
             return true;
         case NODE_INDEX:
             return true;
+        case NODE_COMPOUND_LIT:
+            return true;
         case NODE_UNOP:
             /* Dereference *p is an lvalue */
             if (node->aux.op == '*' || node->aux.op == EXPR_TK_STAR) {
@@ -727,6 +729,29 @@ TypeInfo *expr_handle_expression(SemContext *ctx, ZeroCCASTNode *node) {
 
         case NODE_TERNARY:
             return expr_handle_ternary(ctx, node);
+
+        case NODE_COMMA: {
+            ZeroCCASTNode *left_node = expr_get_node(ctx, node->left);
+            if (left_node) (void)expr_handle_expression(ctx, left_node);
+            ZeroCCASTNode *right_node = expr_get_node(ctx, node->right);
+            TypeInfo *res = right_node ? expr_handle_expression(ctx, right_node) : NULL;
+            expr_node_set_type(ctx, node, res);
+            return res;
+        }
+
+        case NODE_COMPOUND_LIT: {
+            ASTRef cur_ref = node->left;
+            while (cur_ref != AST_NULL) {
+                ZeroCCASTNode *elem_node = expr_get_node(ctx, cur_ref);
+                if (elem_node) {
+                    (void)expr_handle_expression(ctx, elem_node);
+                    cur_ref = elem_node->next;
+                } else {
+                    break;
+                }
+            }
+            return expr_node_type(ctx, node);
+        }
 
         default:
             /* Other expressions or statements */

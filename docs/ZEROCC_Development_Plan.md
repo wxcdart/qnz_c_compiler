@@ -21,12 +21,12 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Category | ✅ Done | 🟡 Partial (parsed, not fully lowered/enforced) | ❌ Missing |
 |----------|:-------:|:-----------------------------------------------:|:---------:|
 | Statements | 10 | 0 | 0 |
-| Expressions | 22 | 2 | 1 |
-| Types & Declarations | 16 | 3 | 2 |
+| Expressions | 24 | 0 | 1 |
+| Types & Declarations | 17 | 2 | 2 |
 | Preprocessor | 11 | 0 | 0 |
 | Code Generation / Runtime | 10 | 3 | 0 |
 | Diagnostics | 0 | 1 | 2 |
-| **Total Constructs** | **69** | **9** | **5** |
+| **Total Constructs** | **72** | **6** | **5** |
 
 ### Sprint Progress Summary
 
@@ -94,15 +94,15 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Assignment `=` | ✅ | Memory and register assignment |
 | Compound assignment `+= -= *= /= %= &= \|= ^= <<= >>=` | ✅ | All integer and floating-point compound assignments lowered |
 | Ternary `? :` | ✅ | `NODE_TERNARY` lowered with conditional jumps |
-| Comma operator `,` | 🟡 | Handled in function argument lists; expression-level `NODE_COMMA` partial |
+| Comma operator `,` | ✅ | Full `NODE_COMMA` parsing, chaining, and sequential AST lowering (`test/jit/comma_jit.c`) |
 | Cast `(T)expr` | ✅ | `NODE_CAST` lowered (int truncation/sign-extend, `cvtsi2sd`, `cvttsd2si`) |
 | `sizeof(T)` / `sizeof expr` | ✅ | Compile-time constant evaluation |
 | `_Alignof(T)` | ✅ | Compile-time constant evaluation |
 | Member access `.` / `->` | ✅ | `NODE_MEMBER` lowered with struct/union member byte-offset arithmetic |
 | Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered with scaled base+index addressing |
 | Function call | ✅ | Full System V AMD64 ABI calling convention (int regs `%rdi`–`%r9`, FP regs `%xmm0`–`%xmm7`, stack args, variadic `%al`) |
-| Compound literals `(T){…}` | 🟡 | `NODE_COMPOUND_LIT` parsed; single-word lowering |
-| Designated initializers `.field=val` | ❌ | No parse support |
+| Compound literals `(T){…}` | ✅ | Full `NODE_COMPOUND_LIT` support for scalars, arrays, structs, address-of, and decay (`test/jit/compound_literal_jit.c`) |
+| Designated initializers `.field=val` | 🟡 | Supported in compound literals; general initializer lists pending |
 | `_Generic(…)` | ✅ | Full C11 generic selection with type matching, pointer decay, and default branch |
 
 ---
@@ -120,7 +120,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `struct` (named, with members) | ✅ | Member offset alignment and padding |
 | `union` | ✅ | Overlapping member layout, max alignment & size calculation |
 | `enum` (simple, explicit values) | ✅ | Enum constants registered and resolved in symbol table |
-| Named `enum` as a distinct type-tag | 🟡 | Enum values resolved; distinct type checking partial |
+| Named `enum` as a distinct type-tag | ✅ | Full `TYPE_ENUM` tag, registry, variables, parameters, returns, members, sizeof (`test/jit/enum_tag_jit.c`) |
 | `typedef` (scalar, struct) | ✅ | Typedef table resolution |
 | `typedef` for function pointers | ✅ | `typedef int (*fn)(int)` parsed and callable |
 | `const` / `volatile` / `restrict` | ✅ | Syntactic parsing, qualifier preservation, and semantic enforcement on variables, pointers, members, and structs (Sprint 5 Task 39, `test/const_volatile_test.c`) |

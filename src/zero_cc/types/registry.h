@@ -51,6 +51,30 @@ static inline ZeroCCType* zero_cc_find_typedef(ZeroCCCompiler *c, const char *al
     return NULL;
 }
 
+/* Enum Type Registry */
+static inline void zero_cc_register_enum(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
+    for (size_t i = 0; i < c->enum_count; i++) {
+        if (strcmp(c->enums[i].name, name) == 0) {
+            c->enums[i].type = type;
+            return;
+        }
+    }
+    if (c->enum_count < ZERO_CC_MAX_ENUM_DEFS) {
+        snprintf(c->enums[c->enum_count].name, 128, "%s", name);
+        c->enums[c->enum_count].type = type;
+        c->enum_count++;
+    }
+}
+
+static inline ZeroCCType* zero_cc_find_enum(ZeroCCCompiler *c, const char *name) {
+    for (size_t i = 0; i < c->enum_count; i++) {
+        if (strcmp(c->enums[i].name, name) == 0) {
+            return &c->enums[i].type;
+        }
+    }
+    return NULL;
+}
+
 /* Enum Constant Registry */
 static inline void zero_cc_register_enum_const(ZeroCCCompiler *c, const char *name, int64_t val) {
     for (size_t i = 0; i < c->enum_const_count; i++) {

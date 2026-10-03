@@ -15,6 +15,27 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ### Added
 
+#### Sprint 5.5 — C99/C11 Features: Named Enum Tags, Compound Literals & Comma Operator ✅
+- **Named `enum` as a Distinct Type-Tag**:
+  - Implemented `TYPE_ENUM` tag in the type system with 4-byte size and 4-byte alignment.
+  - Added compiler enum registry `enums` with `zero_cc_register_enum` and `zero_cc_find_enum`.
+  - Added full support for `enum Tag { ... };` definitions at both top-level and block scope.
+  - Supported `enum Tag var;`, `enum Tag *ptr;`, and typedef aliases `typedef enum Tag Alias;`.
+  - Added support for `enum Tag` in function parameter declarations and return type signatures.
+  - Added support for `enum Tag` members inside struct and union declarations.
+  - Supported compile-time `sizeof(enum Tag) == 4` and `_Alignof(enum Tag) == 4`.
+  - Folded enum constant identifiers directly to `NODE_INT` in AST expressions and added immediate value lowering in `ast_lowering.h`.
+  - Added comprehensive test suite in `test/jit/enum_tag_jit.c`.
+- **Compound Literals `(T){...}`**:
+  - Implemented `NODE_COMPOUND_LIT` parsing and AST lowering for scalar and aggregate types.
+  - Added support for array decay to pointer, direct subscripting `(int[]){1,2}[0]`, address-of `&(int){42}`, and designated struct initializers `(struct S){.x = 10}`.
+  - Expanded comprehensive test suite in `test/jit/compound_literal_jit.c`.
+- **Comma Operator `,`**:
+  - Implemented `NODE_COMMA` with lowest operator precedence and left-associativity.
+  - Lowered sequentially in AST IR lowering (evaluates LHS, evaluates RHS, yields RHS).
+  - Added comprehensive test suite in `test/jit/comma_jit.c`.
+- **Test Suite Status**: 111/111 tests passing cleanly under `make test` and `make asan` with 0 memory errors or leaks.
+
 #### Sprint 5.5 — Task 40: Architecture Cleanup & Legacy Pipeline Elimination ✅
 - **Eliminated Legacy Single-Pass Pipeline**: Fully removed the deprecated single-pass expression and statement parsers that performed ad-hoc x86-64 machine code emission (~3,700 lines eliminated).
 - **Unified Pipeline Architecture**: ZeroCC now strictly operates on a clean **AST → Semantic Analysis → IR → Backend Emission** path for all statements, expressions, and functions.

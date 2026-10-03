@@ -96,6 +96,11 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             zero_cc_ast_dump(arena, n->right, indent + 1);
             zero_cc_ast_dump(arena, n->aux.alt, indent + 1);
             break;
+        case NODE_COMMA:
+            printf("CommaOp (,)\n");
+            zero_cc_ast_dump(arena, n->left, indent + 1);
+            zero_cc_ast_dump(arena, n->right, indent + 1);
+            break;
         case NODE_CAST:
             printf("Cast\n");
             zero_cc_ast_dump(arena, n->left, indent + 1);
@@ -109,10 +114,16 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             zero_cc_ast_dump(arena, n->left, indent + 1);
             zero_cc_ast_dump(arena, n->right, indent + 1);
             break;
-        case NODE_COMPOUND_LIT:
+        case NODE_COMPOUND_LIT: {
             printf("CompoundLiteral\n");
-            zero_cc_ast_dump(arena, n->left, indent + 1);
+            ASTRef cur = n->left;
+            while (cur != AST_NULL) {
+                zero_cc_ast_dump(arena, cur, indent + 1);
+                ZeroCCASTNode *cur_node = zero_cc_ast_get(arena, cur);
+                cur = cur_node ? cur_node->next : AST_NULL;
+            }
             break;
+        }
         case NODE_CALL:
             printf("FunctionCall\n");
             zero_cc_ast_dump(arena, n->left, indent + 1);

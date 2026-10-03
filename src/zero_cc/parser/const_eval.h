@@ -350,6 +350,16 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             if (st) return *st;
             return zero_cc_type_int64();
         }
+    } else if (t == TK_ENUM) {
+        (*pos)++;
+        if (c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            (*pos)++;
+            ZeroCCType *et = zero_cc_find_enum(c, name);
+            if (!et) et = zero_cc_find_typedef(c, name);
+            if (et) return *et;
+            return zero_cc_type_enum(name);
+        }
     }
     if (t == TK_INT) { (*pos)++; return zero_cc_type_int(); }
     if (t == TK_CHAR) { (*pos)++; return zero_cc_type_char(); }
@@ -487,10 +497,23 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         } else {
             ty = zero_cc_type_int64();
         }
+    } else if (t == TK_ENUM) {
+        (*pos)++;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            ZeroCCType *et = zero_cc_find_enum(c, name);
+            if (!et) et = zero_cc_find_typedef(c, name);
+            if (et) ty = *et;
+            else ty = zero_cc_type_enum(name);
+            (*pos)++;
+        } else {
+            ty = zero_cc_type_enum(NULL);
+        }
     } else if (t == TK_IDENT) {
         const char *name = c->tokens[*pos].str_val;
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);
+        if (!tdef) tdef = zero_cc_find_enum(c, name);
         if (tdef) {
             ty = *tdef;
             (*pos)++;
@@ -519,9 +542,22 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else {
         ty = zero_cc_type_int();
     }
-    while (c->tokens[*pos].type == TK_STAR) {
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
         (*pos)++;
+    }
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+        (*pos)++;
+        ssize_t arr_len = 0;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
+            arr_len = (ssize_t)c->tokens[*pos].num_val;
+            (*pos)++;
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) {
+            (*pos)++;
+        }
+        ZeroCCType elem_ty = ty;
+        ty = zero_cc_type_array(&elem_ty, arr_len);
     }
     return ty;
 }
@@ -546,10 +582,23 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         } else {
             ty = zero_cc_type_int64();
         }
+    } else if (c->tokens[c->token_pos].type == TK_ENUM) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            const char *name = c->tokens[c->token_pos].str_val;
+            ZeroCCType *et = zero_cc_find_enum(c, name);
+            if (!et) et = zero_cc_find_typedef(c, name);
+            if (et) ty = *et;
+            else ty = zero_cc_type_enum(name);
+            c->token_pos++;
+        } else {
+            ty = zero_cc_type_enum(NULL);
+        }
     } else if (c->tokens[c->token_pos].type == TK_IDENT) {
         const char *name = c->tokens[c->token_pos].str_val;
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);
+        if (!tdef) tdef = zero_cc_find_enum(c, name);
         if (tdef) {
             ty = *tdef;
             c->token_pos++;

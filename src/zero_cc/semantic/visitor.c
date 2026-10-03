@@ -199,6 +199,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             res = then_t ? then_t : else_t;
             break;
         }
+        case NODE_COMMA: {
+            (void)sem_analyze_ref(ctx, node->left);
+            res = sem_analyze_ref(ctx, node->right);
+            break;
+        }
         case NODE_CAST: {
             (void)sem_analyze_ref(ctx, node->left);
             /* Cast target type will be set by full semantic passes */
@@ -236,7 +241,13 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_COMPOUND_LIT: {
-            (void)sem_analyze_ref(ctx, node->left);
+            ASTRef cur_ref = node->left;
+            while (cur_ref != AST_NULL) {
+                (void)sem_analyze_ref(ctx, cur_ref);
+                ZeroCCASTNode *elem = zero_cc_ast_get(ctx->ast_arena, cur_ref);
+                cur_ref = elem ? elem->next : AST_NULL;
+            }
+            res = expr_node_type(ctx, node);
             break;
         }
         case NODE_MEMBER: {

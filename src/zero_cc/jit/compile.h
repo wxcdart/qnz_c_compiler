@@ -36,8 +36,21 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             if (st) fn_ret_type = *st;
             c->token_pos++;
         }
+    } else if (c->tokens[c->token_pos].type == TK_ENUM) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            ZeroCCType *et = zero_cc_find_enum(c, c->tokens[c->token_pos].str_val);
+            if (!et) et = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
+            if (et) fn_ret_type = *et;
+            else fn_ret_type = zero_cc_type_enum(c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+        } else {
+            fn_ret_type = zero_cc_type_enum(NULL);
+        }
     } else if (c->tokens[c->token_pos].type == TK_IDENT) {
         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
+        if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
+        if (!tdef) tdef = zero_cc_find_enum(c, c->tokens[c->token_pos].str_val);
         if (tdef) fn_ret_type = *tdef;
         c->token_pos++;
     } else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) {
@@ -104,6 +117,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             if (c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
                 c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
                 c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+                c->tokens[c->token_pos].type == TK_ENUM ||
                 c->tokens[c->token_pos].type == TK_FLOAT_KW ||
                 c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
                 c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
@@ -112,10 +126,16 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 const char *ptname = c->tokens[c->token_pos].str_val;
                 ZeroCCType *pfound = zero_cc_find_typedef(c, ptname);
                 if (!pfound) pfound = zero_cc_find_struct(c, ptname);
+                if (!pfound) pfound = zero_cc_find_enum(c, ptname);
                 c->token_pos++;
                 if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
                     ptname = c->tokens[c->token_pos].str_val;
                     pfound = zero_cc_find_struct(c, ptname);
+                    if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+                    c->token_pos++;
+                } else if (ptt == TK_ENUM && c->tokens[c->token_pos].type == TK_IDENT) {
+                    ptname = c->tokens[c->token_pos].str_val;
+                    pfound = zero_cc_find_enum(c, ptname);
                     if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
                     c->token_pos++;
                 }

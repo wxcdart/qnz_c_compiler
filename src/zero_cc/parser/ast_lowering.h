@@ -495,6 +495,13 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 0;
                     return temp;
                 }
+                ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, name);
+                if (ec) {
+                    int temp = c->next_temp_id++;
+                    ir_emit_mov_imm(temp, ec->value);
+                    c->last_expr_is_float = 0;
+                    return temp;
+                }
                 return 0xFF;
             }
         }
@@ -621,6 +628,13 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             return result_temp;
         }
         
+        case NODE_COMMA: {
+            /* Comma operator: evaluate left, discard result, evaluate right, return right */
+            lower_expr(c, arena, node->left);
+            int right_temp = lower_expr(c, arena, node->right);
+            return right_temp;
+        }
+        
         case NODE_UNOP: {
             if (node->aux.op == TK_INC || node->aux.op == TK_DEC) {
                 ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
@@ -694,6 +708,15 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         } else {
                             ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
                         }
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                } else if (operand && operand->tag == NODE_COMPOUND_LIT) {
+                    (void)lower_expr(c, arena, node->left);
+                    ZeroCCSym *sym = (operand->s.str && operand->s.str[0]) ? zero_cc_find_local(c, operand->s.str) : NULL;
+                    if (sym) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -809,8 +832,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 /* Struct member assignment: traverse chain of member accesses */
                 int32_t member_offset = 0;
                 ZeroCCASTNode *curr = left_node;
+                ASTRef base_ref = node->left;
                 while (curr && curr->tag == NODE_MEMBER) {
                     member_offset += (int32_t)curr->aux.alt;
+                    base_ref = curr->left;
                     curr = zero_cc_ast_get(arena, curr->left);
                 }
                 ZeroCCASTNode *base_node = curr;
@@ -847,6 +872,12 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                     }
                     base_stack_offset = -sym->stack_offset;
+                } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
+                    (void)lower_expr(c, arena, base_ref);
+                    ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+                    if (sym) {
+                        base_stack_offset = -sym->stack_offset;
+                    }
                 } else {
                     fprintf(stderr, "ERROR: Unsupported base expression in struct member assignment\n");
                     return 0xFF;
@@ -966,6 +997,11 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
                     if (ln && ln->tag == NODE_IDENT) {
                         ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                        if (sym && sym->type.base && sym->type.base->size > 0) {
+                            elem_size = sym->type.base->size;
+                        }
+                    } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
+                        ZeroCCSym *sym = (ln->s.str && ln->s.str[0]) ? zero_cc_find_local(c, ln->s.str) : NULL;
                         if (sym && sym->type.base && sym->type.base->size > 0) {
                             elem_size = sym->type.base->size;
                         }
@@ -1202,10 +1238,96 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_COMPOUND_LIT: {
-            if (node->left != AST_NULL) {
-                return lower_expr(c, arena, node->left);
+            ZeroCCSym *sym = (node->s.str && node->s.str[0]) ? zero_cc_find_local(c, node->s.str) : NULL;
+            if (!sym) {
+                if (node->left != AST_NULL) return lower_expr(c, arena, node->left);
+                return 0xFF;
             }
-            return 0xFF;
+            ASTRef cur_ref = node->left;
+            size_t idx = 0;
+            while (cur_ref != AST_NULL) {
+                ZeroCCASTNode *elem_node = zero_cc_ast_get(arena, cur_ref);
+                if (!elem_node) break;
+                int val_temp = lower_expr(c, arena, cur_ref);
+                size_t elem_offset = 0;
+                size_t elem_size = 4;
+                if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                    size_t m_idx = idx;
+                    if ((elem_node->flags & 0x8000) != 0) m_idx = (size_t)elem_node->aux.alt;
+                    if (m_idx < sym->type.member_count) {
+                        elem_offset = sym->type.members[m_idx].offset;
+                        elem_size = sym->type.members[m_idx].size;
+                    }
+                } else if (sym->type.tag == TYPE_ARRAY) {
+                    size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
+                    elem_offset = idx * unit_sz;
+                    elem_size = unit_sz;
+                } else {
+                    elem_offset = 0;
+                    elem_size = sym->type.size ? sym->type.size : 4;
+                }
+                int32_t store_offset = -(sym->stack_offset - (int32_t)elem_offset);
+                if (elem_size == 1) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, store_offset);
+                    ir_emit_store_byte(val_temp, addr_temp);
+                } else if (elem_size == 2) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, store_offset);
+                    ir_emit_store_16(val_temp, addr_temp);
+                } else if (elem_size == 4) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, store_offset);
+                    ir_emit_store_32(val_temp, addr_temp);
+                } else {
+                    ir_emit_store(val_temp, BE(c)->fp_reg, store_offset);
+                }
+                idx++;
+                cur_ref = elem_node->next;
+            }
+            if (sym->type.tag == TYPE_ARRAY) {
+                int ptr_temp = c->next_temp_id++;
+                ir_emit_lea(ptr_temp, BE(c)->fp_reg, -sym->stack_offset);
+                c->last_expr_is_float = 0;
+                return ptr_temp;
+            } else if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                if (sym->type.size <= 8) {
+                    int val_temp = c->next_temp_id++;
+                    ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return val_temp;
+                } else if (sym->type.size <= 16) {
+                    int val_temp = c->next_temp_id++;
+                    ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    ir_emit_load(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                    c->last_expr_is_float = 0;
+                    return val_temp;
+                } else {
+                    int ptr_temp = c->next_temp_id++;
+                    ir_emit_lea(ptr_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return ptr_temp;
+                }
+            } else {
+                int val_temp = c->next_temp_id++;
+                if (sym->type.size == 1) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                    ir_emit_load_byte(val_temp, addr_temp);
+                } else if (sym->type.size == 2) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                    ir_emit_load_16(val_temp, addr_temp);
+                } else if (sym->type.size == 4) {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
+                    ir_emit_load_32(val_temp, addr_temp);
+                } else {
+                    ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                }
+                c->last_expr_is_float = 0;
+                return val_temp;
+            }
         }
         
         case NODE_INDEX: {
@@ -1225,6 +1347,11 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
                 if (ln && ln->tag == NODE_IDENT) {
                     ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                    if (sym && sym->type.base && sym->type.base->size > 0) {
+                        elem_size = sym->type.base->size;
+                    }
+                } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
+                    ZeroCCSym *sym = (ln->s.str && ln->s.str[0]) ? zero_cc_find_local(c, ln->s.str) : NULL;
                     if (sym && sym->type.base && sym->type.base->size > 0) {
                         elem_size = sym->type.base->size;
                     }
@@ -1270,8 +1397,10 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             /* Load member value from memory (Rvalue context) */
             int32_t member_offset = 0;
             ZeroCCASTNode *curr = node;
+            ASTRef base_ref = ref;
             while (curr && curr->tag == NODE_MEMBER) {
                 member_offset += (int32_t)curr->aux.alt;
+                base_ref = curr->left;
                 curr = zero_cc_ast_get(arena, curr->left);
             }
             ZeroCCASTNode *base_node = curr;
@@ -1279,6 +1408,12 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             
             if (base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+                if (sym) {
+                    base_stack_offset = -sym->stack_offset;
+                }
+            } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
+                (void)lower_expr(c, arena, base_ref);
+                ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
                 if (sym) {
                     base_stack_offset = -sym->stack_offset;
                 }

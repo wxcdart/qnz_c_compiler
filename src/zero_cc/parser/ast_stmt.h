@@ -12,8 +12,10 @@
 #include "parser.h"
 #include "../jit/type_info.h"
 #include "../semantic/decl.h"
+#include "definitions.h"
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx) {
     if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
@@ -339,7 +341,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
             c->token_pos++;
         }
-        ASTRef cond = parse_expr_ast_internal(c, arena);
+        ASTRef cond = parse_assignment_ast(c, arena);
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
             c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
@@ -399,11 +401,21 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         t = c->tokens[c->token_pos].type;
     }
 
+    /* Block-scoped enum definition / declaration */
+    if (t == TK_ENUM && c->token_pos + 1 < c->token_count &&
+        (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+         (c->tokens[c->token_pos + 1].type == TK_IDENT &&
+          c->token_pos + 2 < c->token_count &&
+          (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
+        zero_cc_stmt_enum(c);
+        return AST_NULL;
+    }
+
     if (is_type_specifier(c, t)) {
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
         c->token_pos++;
-        if (type_tok == TK_STRUCT || type_tok == TK_UNION) {
+        if (type_tok == TK_STRUCT || type_tok == TK_UNION || type_tok == TK_ENUM) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 type_start_pos = c->token_pos;
                 c->token_pos++;
@@ -501,11 +513,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         if (c->tokens[c->token_pos].type == TK_VOLATILE) param_is_volatile = true;
                         c->token_pos++;
                     }
+                    size_t ptype_pos = c->token_pos;
                     ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
                     if (!is_type_specifier(c, param_type_tok)) {
                         break; // error
                     }
                     c->token_pos++;
+                    const char *param_tag_name = NULL;
+                    if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION || param_type_tok == TK_ENUM) &&
+                        c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                        param_tag_name = c->tokens[c->token_pos].str_val;
+                        c->token_pos++;
+                    }
                     while (c->token_pos < c->token_count &&
                            (c->tokens[c->token_pos].type == TK_CONST ||
                             c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -557,7 +576,23 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         else if (param_type_tok == TK_FLOAT_KW) ptype = zero_cc_type_float();
                         else if (param_type_tok == TK_DOUBLE_KW) ptype = zero_cc_type_double();
                         else if (param_type_tok == TK_VOID) ptype = zero_cc_type_void();
-                        else ptype = zero_cc_type_int64();
+                        else if (param_type_tok == TK_STRUCT || param_type_tok == TK_UNION) {
+                            ZeroCCType *st = param_tag_name ? zero_cc_find_struct(c, param_tag_name) : NULL;
+                            if (!st && param_tag_name) st = zero_cc_find_typedef(c, param_tag_name);
+                            ptype = st ? *st : zero_cc_type_int64();
+                        }
+                        else if (param_type_tok == TK_ENUM) {
+                            ZeroCCType *et = param_tag_name ? zero_cc_find_enum(c, param_tag_name) : NULL;
+                            if (!et && param_tag_name) et = zero_cc_find_typedef(c, param_tag_name);
+                            ptype = et ? *et : zero_cc_type_enum(param_tag_name);
+                        }
+                        else {
+                            const char *tname = c->tokens[ptype_pos].str_val;
+                            ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
+                            if (!tdef) tdef = zero_cc_find_struct(c, tname);
+                            if (!tdef) tdef = zero_cc_find_enum(c, tname);
+                            ptype = tdef ? *tdef : zero_cc_type_int64();
+                        }
                         ptype.is_const = param_is_const;
                         ptype.is_volatile = param_is_volatile;
                         if (param_is_ptr) {
@@ -628,8 +663,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     else if (type_tok == TK_DOUBLE_KW) ret_type = zero_cc_type_double();
                     else if (type_tok == TK_VOID) ret_type = zero_cc_type_void();
                     else {
-                        ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[type_start_pos].str_val);
-                        ret_type = tdef ? *tdef : zero_cc_type_int64();
+                        const char *tname = c->tokens[type_start_pos].str_val;
+                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
+                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
+                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
+                        if (tdef) ret_type = *tdef;
+                        else if (type_tok == TK_ENUM) ret_type = zero_cc_type_enum(tname);
+                        else ret_type = zero_cc_type_int64();
                     }
                     if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
                     /* Store return type in arena and save arena offset */
@@ -659,9 +699,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     else if (type_tok == TK_DOUBLE_KW) ret_type = zero_cc_type_double();
                     else if (type_tok == TK_VOID) ret_type = zero_cc_type_void();
                     else {
-                        ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[type_start_pos].str_val);
-                        if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[type_start_pos].str_val);
-                        ret_type = tdef ? *tdef : zero_cc_type_int64();
+                        const char *tname = c->tokens[type_start_pos].str_val;
+                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
+                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
+                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
+                        if (tdef) ret_type = *tdef;
+                        else if (type_tok == TK_ENUM) ret_type = zero_cc_type_enum(tname);
+                        else ret_type = zero_cc_type_int64();
                     }
                     if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
                     /* Store return type in arena and save arena offset */
@@ -705,9 +749,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 else if (type_tok == TK_DOUBLE_KW) decl_type = zero_cc_type_double();
                 else if (type_tok == TK_VOID) decl_type = zero_cc_type_void();
                 else {
-                    ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[type_start_pos].str_val);
-                    if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[type_start_pos].str_val);
-                    decl_type = tdef ? *tdef : zero_cc_type_int64();
+                    const char *tname = c->tokens[type_start_pos].str_val;
+                    ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
+                    if (!tdef) tdef = zero_cc_find_struct(c, tname);
+                    if (!tdef) tdef = zero_cc_find_enum(c, tname);
+                    if (tdef) decl_type = *tdef;
+                    else if (type_tok == TK_ENUM) decl_type = zero_cc_type_enum(tname);
+                    else decl_type = zero_cc_type_int64();
                 }
                 decl_type.is_const = is_const;
                 decl_type.is_volatile = is_volatile;
@@ -770,7 +818,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 /* Optional initializer: = expr */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                     c->token_pos++;
-                    ASTRef init_val = parse_expr_ast_internal(c, arena);
+                    ASTRef init_val = parse_assignment_ast(c, arena);
                     dn = zero_cc_ast_get(arena, decl_ref);
                     if (dn) dn->left = init_val;
                 }

@@ -75,8 +75,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             continue;
         }
 
-        /* Nested struct/union or anonymous struct/union member */
-        if (mt == TK_STRUCT || mt == TK_UNION) {
+        /* Nested struct/union/enum or anonymous member */
+        if (mt == TK_STRUCT || mt == TK_UNION || mt == TK_ENUM) {
+            bool is_enum = (mt == TK_ENUM);
             bool inner_is_union = (mt == TK_UNION);
             c->token_pos++;
             char inner_tag[128] = "";
@@ -86,20 +87,48 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
             ZeroCCType inner_type;
             memset(&inner_type, 0, sizeof(inner_type));
-            inner_type.tag = inner_is_union ? TYPE_UNION : TYPE_STRUCT;
+            inner_type.tag = is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT);
+            inner_type.size = is_enum ? 4 : 0;
+            inner_type.align = is_enum ? 4 : 1;
             if (inner_tag[0] != '\0') {
                 snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
             }
             if (c->tokens[c->token_pos].type == TK_LBRACE) {
-                inner_type = zero_cc_parse_struct_body(c, inner_is_union);
-                if (inner_tag[0] != '\0') {
-                    snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
-                    zero_cc_register_struct(c, inner_tag, inner_type);
+                if (is_enum) {
+                    c->token_pos++;
+                    int64_t enum_val = 0;
+                    while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
+                        if (c->tokens[c->token_pos].type == TK_IDENT) {
+                            char ename[128];
+                            snprintf(ename, sizeof(ename), "%s", c->tokens[c->token_pos].str_val);
+                            c->token_pos++;
+                            if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                                c->token_pos++;
+                                enum_val = zero_cc_eval_const_expr(c);
+                            }
+                            zero_cc_register_enum_const(c, ename, enum_val);
+                            enum_val++;
+                        }
+                        if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                    }
+                    if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+                    if (inner_tag[0] != '\0') {
+                        zero_cc_register_enum(c, inner_tag, inner_type);
+                    }
+                } else {
+                    inner_type = zero_cc_parse_struct_body(c, inner_is_union);
+                    if (inner_tag[0] != '\0') {
+                        snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
+                        zero_cc_register_struct(c, inner_tag, inner_type);
+                    }
                 }
             } else if (inner_tag[0] != '\0') {
-                ZeroCCType *found = zero_cc_find_struct(c, inner_tag);
-                if (found) {
-                    inner_type = *found;
+                if (is_enum) {
+                    ZeroCCType *found = zero_cc_find_enum(c, inner_tag);
+                    if (found) inner_type = *found;
+                } else {
+                    ZeroCCType *found = zero_cc_find_struct(c, inner_tag);
+                    if (found) inner_type = *found;
                 }
             }
 
@@ -178,7 +207,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->align = effective_align;
                     m->is_flexible = false;
                     m->is_bitfield = false;
-                    m->tag = is_ptr ? TYPE_PTR : (inner_is_union ? TYPE_UNION : TYPE_STRUCT);
+                    m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     if (!is_ptr) {
                         m->base = zero_cc_type_alloc_base(&inner_type);
                     }
@@ -194,7 +223,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->align = effective_align;
                     m->is_flexible = is_flexible;
                     m->is_bitfield = false;
-                    m->tag = is_ptr ? TYPE_PTR : (inner_is_union ? TYPE_UNION : TYPE_STRUCT);
+                    m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     if (!is_ptr) {
                         m->base = zero_cc_type_alloc_base(&inner_type);
                     }
@@ -577,7 +606,7 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
         if (c->tokens[c->token_pos].type == TK_LBRACE) {
             c->token_pos++;
             ZeroCCType et; memset(&et, 0, sizeof(et));
-            et.tag = TYPE_INT32;
+            et.tag = TYPE_ENUM;
             et.size = 4;
             et.align = 4;
             snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
@@ -597,6 +626,20 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
             }
             if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+            if (en_name[0] != '\0') {
+                zero_cc_register_enum(c, en_name, et);
+            }
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                char alias[128];
+                snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                zero_cc_register_typedef(c, alias, et);
+            }
+            if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            return;
+        } else if (en_name[0] != '\0') {
+            ZeroCCType *existing = zero_cc_find_enum(c, en_name);
+            ZeroCCType et = existing ? *existing : zero_cc_type_enum(en_name);
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
@@ -621,7 +664,7 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type == TK_LBRACE) {
         c->token_pos++;
         ZeroCCType et; memset(&et, 0, sizeof(et));
-        et.tag = TYPE_INT32;
+        et.tag = TYPE_ENUM;
         et.size = 4;
         et.align = 4;
         snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
@@ -641,6 +684,9 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
             if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
         }
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+        if (en_name[0] != '\0') {
+            zero_cc_register_enum(c, en_name, et);
+        }
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             char alias[128];
             snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
@@ -649,6 +695,11 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
         }
         if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
         return;
+    } else if (en_name[0] != '\0') {
+        if (!zero_cc_find_enum(c, en_name)) {
+            ZeroCCType et = zero_cc_type_enum(en_name);
+            zero_cc_register_enum(c, en_name, et);
+        }
     }
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
 }

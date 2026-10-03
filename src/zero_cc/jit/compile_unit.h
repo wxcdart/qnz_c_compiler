@@ -43,10 +43,17 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
         }
     }
     
-    /* Standalone Enum Declaration */
+    /* Standalone Enum Declaration / Definition */
     if (t == TK_ENUM) {
-        zero_cc_stmt_enum(c);
-        return true;
+        if (c->token_pos + 1 < c->token_count &&
+            (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+             (c->tokens[c->token_pos + 1].type == TK_IDENT &&
+              c->token_pos + 2 < c->token_count &&
+              (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
+            zero_cc_stmt_enum(c);
+            return true;
+        }
+        return false;
     }
     
     /* Struct/Union definition */
@@ -113,6 +120,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
         if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
+            (c->tokens[c->token_pos].type == TK_ENUM &&
+             (c->token_pos + 1 < c->token_count &&
+              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+               (c->tokens[c->token_pos + 1].type == TK_IDENT &&
+                c->token_pos + 2 < c->token_count &&
+                (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
             ((c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) &&
              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
               (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE)))) {
@@ -161,6 +174,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+            c->tokens[c->token_pos].type == TK_ENUM ||
             c->tokens[c->token_pos].type == TK_IDENT) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
