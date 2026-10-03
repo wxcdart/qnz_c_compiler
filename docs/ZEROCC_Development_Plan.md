@@ -105,7 +105,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Array subscript `a[i]` | ✅ | `NODE_INDEX` lowered with scaled base+index addressing |
 | Function call | ✅ | Full System V AMD64 ABI calling convention (int regs `%rdi`–`%r9`, FP regs `%xmm0`–`%xmm7`, stack args, variadic `%al`) |
 | Compound literals `(T){…}` | ✅ | Full `NODE_COMPOUND_LIT` support for scalars, arrays, structs, address-of, and decay (`test/jit/compound_literal_jit.c`) |
-| Designated initializers `.field=val` | 🟡 | Supported in compound literals; general initializer lists pending |
+| Designated initializers `.field=val` / `[idx]=val` | ✅ | Full support in both compound literals and variable declarations (`test/jit/designated_init_test.c`) |
 | `_Generic(…)` | ✅ | Full C11 generic selection with type matching, pointer decay, and default branch |
 
 ---
