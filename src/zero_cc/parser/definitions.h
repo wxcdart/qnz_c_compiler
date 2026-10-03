@@ -107,7 +107,12 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 enum_val = zero_cc_eval_const_expr(c);
                             }
                             zero_cc_register_enum_const(c, ename, enum_val);
-                            enum_val++;
+                            if (enum_val == INT64_MAX) {
+                                c->had_error = 1;
+                                snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                            } else {
+                                enum_val++;
+                            }
                         }
                         if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
                     }
@@ -621,7 +626,12 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
                         enum_val = zero_cc_eval_const_expr(c);
                     }
                     zero_cc_register_enum_const(c, ename, enum_val);
-                    enum_val++;
+                    if (enum_val == INT64_MAX) {
+                        c->had_error = 1;
+                        snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                    } else {
+                        enum_val++;
+                    }
                 }
                 if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
             }
@@ -679,7 +689,12 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
                     enum_val = zero_cc_eval_const_expr(c);
                 }
                 zero_cc_register_enum_const(c, ename, enum_val);
-                enum_val++;
+                if (enum_val == INT64_MAX) {
+                    c->had_error = 1;
+                    snprintf(c->error_msg, sizeof(c->error_msg), "overflow in enumeration values");
+                } else {
+                    enum_val++;
+                }
             }
             if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
         }

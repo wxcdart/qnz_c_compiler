@@ -143,6 +143,22 @@ int main(void) {
         assert(res == 42);
     }
 
+    /* Test 7: Enum constant auto-increment overflow past INT64_MAX */
+    {
+        const char *src =
+            "enum Big { BIG_A = 9223372036854775807LL, BIG_B };\n"
+            "int main(void) { return 0; }\n";
+        ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+        char *prep = zero_cc_preprocess(src, NULL);
+        zero_cc_tokenize_c99(prep, comp);
+        free(prep);
+        zero_cc_compile_c99(comp);
+        assert(comp->had_error != 0);
+        assert(strstr(comp->error_msg, "overflow") != NULL);
+        free(comp->tokens);
+        free(comp);
+    }
+
     printf("All Named Enum Type-Tag JIT tests passed!\n");
     return 0;
 }

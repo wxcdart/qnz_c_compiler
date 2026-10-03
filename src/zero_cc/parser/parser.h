@@ -32,6 +32,7 @@ typedef enum {
     NODE_TERNARY,     /* left = cond, right = then_expr, aux.alt = else_expr */
     NODE_CAST,        /* left = expr, aux.type_ref */
     NODE_MEMBER,      /* left = struct_expr, flags = NODE_MEMBER_*, s.str = member */
+    /* Flags for NODE_MEMBER: */
 #define NODE_MEMBER_IS_ARROW    (1u << 0)
 #define NODE_MEMBER_IS_BITFIELD (1u << 1)
     NODE_VA_START,    /* left = ap expr, right = last expr (for computing spill area) */
@@ -54,8 +55,10 @@ typedef enum {
     NODE_GOTO,        /* s.str = label name */
     NODE_LABEL,       /* s.str = label name, left = stmt */
     NODE_RETURN,      /* left = expr (optional) */
-    NODE_DECL,        /* var declaration: left = init, str_val = name */
-#define NODE_FLAG_FUNC_PROTO  (1u << 0)  /* function prototype (no body, has param list) */
+    NODE_DECL,        /* var / func declaration: left = init, str_val = name */
+    /* Flags for NODE_DECL: */
+#define NODE_DECL_FUNC_PROTO  (1u << 0)  /* function prototype (no body, has param list) */
+#define NODE_FLAG_FUNC_PROTO  NODE_DECL_FUNC_PROTO /* alias for backwards-compat */
 #define NODE_DECL_IS_VLA      (1u << 1)  /* variable length array declaration */
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
     NODE_STATIC_ASSERT/* left = cond */,
