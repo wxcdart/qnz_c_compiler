@@ -40,6 +40,12 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Implemented automatic destination store in `emit_ir_to_machine_code`: spilled `temp_dest` writes through scratch register `r10` and emits `mov [rbp - (spill_base_offset + (slot + 1) * 8)], r10` at instruction completion.
   - Added spilled argument reloading for `OP_CALL` stack and register passing.
   - Added Tests 9 and 10 to `test/jit/regalloc_test.c` asserting correctness under extreme register pressure (18 simultaneously live variables and spilled call-spanning arithmetic).
+- **Modularization of `ast_lowering.h`**:
+  - Decomposed the 2,300+ line monolithic `ast_lowering.h` into dedicated, modular headers:
+    - [`ast_lowering_stmt.h`](file:///home/ubuntu/dev/qnz_c_compiler/src/zero_cc/parser/ast_lowering_stmt.h) (360 lines): Statement AST node lowering (`lower_stmt_*`, block/loop/control flow) and `lower_node` dispatcher.
+    - [`ast_lowering_expr.h`](file:///home/ubuntu/dev/qnz_c_compiler/src/zero_cc/parser/ast_lowering_expr.h) (1,385 lines): Expression AST node lowering (`lower_expr`) into IR instructions.
+    - [`ast_lowering_mc.h`](file:///home/ubuntu/dev/qnz_c_compiler/src/zero_cc/parser/ast_lowering_mc.h) (452 lines): IR-to-machine-code emission (`emit_ir_to_machine_code`) with operand reloading, register dispatch, and destination stack spilling.
+    - [`ast_lowering.h`](file:///home/ubuntu/dev/qnz_c_compiler/src/zero_cc/parser/ast_lowering.h) (178 lines): Clean coordinator header containing state management, callee-saved preservation helpers, and `zero_cc_lower_ast()`.
 - **Comprehensive Test Suite**:
   - Added `test/jit/regalloc_test.c` covering callee-save preservation across calls, 10+ live values under high register pressure, recursive calls, 6-register argument calls, stack-passed arguments (7th and 8th), multi-level nested call expressions, and true stack spill/reload lowering.
   - **Test Suite Status**: 112/112 tests passing cleanly under both `make test` and `make asan` with 0 memory errors or leaks.
