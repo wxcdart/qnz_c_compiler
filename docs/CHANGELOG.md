@@ -15,6 +15,29 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ### Added
 
+#### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
+- **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
+  - Compound literals and brace-enclosed variable initializers now zero-initialize the entire object (struct/array) before applying designated and positional stores.
+  - Fixes uninitialized gaps in `int arr[5] = { [2] = 7 }` → `arr[0]`, `arr[1]`, `arr[3]`, `arr[4]` now correctly zero.
+  - Implemented in `ast_lowering_expr.h` `NODE_COMPOUND_LIT` lowering via chunked zero stores (8/4/2/1-byte).
+- **VLA Initializer Rejection (C99 §6.7.8 p3)**:
+  - Variable-length arrays with initializers now emit a constraint violation error: `"variable length array '...' cannot be initialized"`.
+  - Implemented in `ast_stmt.h` during declaration parsing.
+- **Array Designator Bounds Checking**:
+  - Designated array initializers `[idx] = val` now validate `idx < array_len` for fixed-size arrays at parse time.
+  - Errors with: `"array initializer index N exceeds array bound M"`.
+  - Implemented in `ast_expr.h` `parse_brace_init_list_ast`.
+- **Flexible Array Member Initialization Rejection (C99 §6.7.8 p21)**:
+  - Initialization of flexible array members (`.flex = ...` or `[idx] = ...` on trailing zero-length array) now rejected at both parse time and lowering time.
+  - Errors with: `"initialization of flexible array member '...'"`.
+  - Implemented in `ast_expr.h` `parse_brace_init_list_ast` and `ast_lowering_expr.h` `NODE_COMPOUND_LIT` lowering.
+- **Parser Synchronization Enhancement**:
+  - Added `TK_STATIC_ASSERT` to panic-mode synchronization stop list in `zero_cc_synchronize_ast()`.
+  - Prevents cascading parse errors after `_Static_assert`.
+- **Code Quality Cleanups**:
+  - Replaced magic `0x8000` flag with named constant `NODE_FLAG_DESIGNATED` (bit 15) in `parser.h`.
+  - All usages updated in `ast_expr.h`, `ast_lowering_expr.h`, `ast_stmt.h`.
+
 #### Sprint 5.6 — Register Allocation & Calling Convention Hardening ✅
 - **Callee-Saved Register Preservation (`rbx`, `r12`–`r15`)**:
   - Added `used_callee_saved_gpr_mask` tracking to `RegAllocator` in `regalloc.h`.

@@ -864,6 +864,37 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (node->left != AST_NULL) return lower_expr(c, arena, node->left);
                 return 0xFF;
             }
+            /* C99: zero-initialize entire object before designated/positional stores */
+            size_t total_size = sym->type.size ? sym->type.size : 4;
+            if (total_size > 0) {
+                int zero_temp = c->next_temp_id++;
+                ir_emit_mov_imm(zero_temp, 0);
+                size_t offset = 0;
+                while (offset < total_size) {
+                    size_t chunk = total_size - offset;
+                    if (chunk >= 8) chunk = 8;
+                    else if (chunk >= 4) chunk = 4;
+                    else if (chunk >= 2) chunk = 2;
+                    else chunk = 1;
+                    int32_t store_offset = -(sym->stack_offset - (int32_t)offset);
+                    if (chunk == 8) {
+                        ir_emit_store(zero_temp, BE(c)->fp_reg, store_offset);
+                    } else if (chunk == 4) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, 0xFF, store_offset);
+                        ir_emit_store_32(zero_temp, addr_temp);
+                    } else if (chunk == 2) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, 0xFF, store_offset);
+                        ir_emit_store_16(zero_temp, addr_temp);
+                    } else {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, 0xFF, store_offset);
+                        ir_emit_store_byte(zero_temp, addr_temp);
+                    }
+                    offset += chunk;
+                }
+            }
             ASTRef cur_ref = node->left;
             size_t idx = 0;
             while (cur_ref != AST_NULL) {
@@ -874,14 +905,22 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 size_t elem_size = 4;
                 if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
                     size_t m_idx = idx;
-                    if ((elem_node->flags & 0x8000) != 0) m_idx = (size_t)elem_node->aux.alt;
+                    if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) m_idx = (size_t)elem_node->aux.alt;
                     if (m_idx < sym->type.member_count) {
+                        /* C99: flexible array members cannot be initialized */
+                        if (sym->type.members[m_idx].is_flexible) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg),
+                                     "initialization of flexible array member '%s'",
+                                     sym->type.members[m_idx].name);
+                            return 0xFF;
+                        }
                         elem_offset = sym->type.members[m_idx].offset;
                         elem_size = sym->type.members[m_idx].size;
                     }
                 } else if (sym->type.tag == TYPE_ARRAY) {
                     size_t a_idx = idx;
-                    if ((elem_node->flags & 0x8000) != 0) {
+                    if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) {
                         a_idx = (size_t)elem_node->aux.alt;
                         idx = a_idx;
                     }

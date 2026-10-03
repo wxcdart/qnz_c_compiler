@@ -32,7 +32,7 @@ static void zero_cc_synchronize_ast(ZeroCCCompiler *c) {
         if (t == TK_IF || t == TK_WHILE || t == TK_DO || t == TK_FOR ||
             t == TK_SWITCH || t == TK_CASE || t == TK_DEFAULT ||
             t == TK_RETURN || t == TK_BREAK || t == TK_CONTINUE ||
-            t == TK_GOTO || t == TK_LBRACE ||
+            t == TK_GOTO || t == TK_STATIC_ASSERT || t == TK_LBRACE ||
             is_type_specifier(c, t)) {
             return;
         }
@@ -843,6 +843,15 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 /* Attach type to AST node for semantic analysis */
                 decl_node_set_type(ctx, dn, decl_ti);
+
+                /* C99 §6.7.8 p3: VLA shall not have an initializer */
+                if ((dn->flags & NODE_DECL_IS_VLA) != 0) {
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                        c->had_error = 1;
+                        snprintf(c->error_msg, sizeof(c->error_msg), "variable length array '%s' cannot be initialized", dn->s.str);
+                        return AST_NULL;
+                    }
+                }
 
                 /* Optional initializer: = expr or = { ... } */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {

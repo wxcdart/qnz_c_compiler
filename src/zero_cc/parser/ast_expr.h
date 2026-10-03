@@ -60,6 +60,13 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 for (size_t mi = 0; mi < lit_type.member_count; mi++) {
                     if (strcmp(lit_type.members[mi].name, field_name) == 0) {
                         designated_member_idx = (int32_t)mi;
+                        /* C99: flexible array members cannot be initialized */
+                        if (lit_type.members[mi].is_flexible) {
+                            c->had_error = 1;
+                            snprintf(c->error_msg, sizeof(c->error_msg),
+                                     "initialization of flexible array member '%s'", field_name);
+                            return AST_NULL;
+                        }
                         break;
                     }
                 }
@@ -69,6 +76,15 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
             c->token_pos++; /* consume '[' */
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
                 designated_member_idx = (int32_t)c->tokens[c->token_pos].num_val;
+                /* Bounds check for fixed-size arrays */
+                if (lit_type.tag == TYPE_ARRAY && lit_type.array_len > 0 &&
+                    (size_t)designated_member_idx >= lit_type.array_len) {
+                    c->had_error = 1;
+                    snprintf(c->error_msg, sizeof(c->error_msg),
+                             "array initializer index %d exceeds array bound %zu",
+                             designated_member_idx, lit_type.array_len);
+                    return AST_NULL;
+                }
                 c->token_pos++;
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
@@ -84,7 +100,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
             ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
             if (en && designated_member_idx >= 0) {
                 en->aux.alt = (uint32_t)designated_member_idx;
-                en->flags |= 0x8000;
+                en->flags |= NODE_FLAG_DESIGNATED;
             }
             if (head_expr == AST_NULL) {
                 head_expr = elem;

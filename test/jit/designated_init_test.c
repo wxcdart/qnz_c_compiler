@@ -78,6 +78,58 @@ int main(void) {
         assert(res == 42);
     }
 
+    /* Test 5: Zero-initialization of omitted gaps in arrays and structs */
+    {
+        const char *src =
+            "struct Gap { int a; int b; int c; };\n"
+            "int main(void) {\n"
+            "    struct Gap g = { .b = 42 };\n"
+            "    int arr[6] = { [2] = 40, [5] = 2 };\n"
+            "    if (g.a != 0 || g.c != 0) return 1;\n"
+            "    if (arr[0] != 0 || arr[1] != 0 || arr[3] != 0 || arr[4] != 0) return 2;\n"
+            "    return g.b + arr[0] + arr[1];\n"
+            "}\n";
+        int res = run_snippet(src);
+        assert(res == 42);
+    }
+
+    /* Test 6: Array designated initializer out-of-bounds rejected */
+    {
+        const char *src =
+            "int main(void) {\n"
+            "    int arr[3] = { [5] = 10 };\n"
+            "    return 0;\n"
+            "}\n";
+        ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+        char *prep = zero_cc_preprocess(src, NULL);
+        zero_cc_tokenize_c99(prep, comp);
+        free(prep);
+        zero_cc_compile_c99(comp);
+        assert(comp->had_error != 0);
+        assert(strstr(comp->error_msg, "exceeds array bound") != NULL);
+        free(comp->tokens);
+        free(comp);
+    }
+
+    /* Test 7: VLA with initializer rejected */
+    {
+        const char *src =
+            "int main(void) {\n"
+            "    int n = 5;\n"
+            "    int vla[n] = { 1, 2, 3 };\n"
+            "    return 0;\n"
+            "}\n";
+        ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+        char *prep = zero_cc_preprocess(src, NULL);
+        zero_cc_tokenize_c99(prep, comp);
+        free(prep);
+        zero_cc_compile_c99(comp);
+        assert(comp->had_error != 0);
+        assert(strstr(comp->error_msg, "cannot be initialized") != NULL);
+        free(comp->tokens);
+        free(comp);
+    }
+
     printf("All Designated / Brace Initializer JIT tests passed!\n");
     return 0;
 }

@@ -35,6 +35,7 @@ typedef enum {
     /* Flags for NODE_MEMBER: */
 #define NODE_MEMBER_IS_ARROW    (1u << 0)
 #define NODE_MEMBER_IS_BITFIELD (1u << 1)
+#define NODE_FLAG_DESIGNATED    (1u << 15)  /* element has explicit designator (.field or [idx]) */
     NODE_VA_START,    /* left = ap expr, right = last expr (for computing spill area) */
     NODE_VA_ARG,      /* left = va_list expr, aux.type_ref = target type */
     NODE_INDEX,       /* left = array_expr, right = index_expr */
