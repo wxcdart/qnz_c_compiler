@@ -18,6 +18,28 @@ static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count);
 
+static void zero_cc_synchronize_ast(ZeroCCCompiler *c) {
+    while (c->token_pos < c->token_count) {
+        ZeroCCTokType t = c->tokens[c->token_pos].type;
+        if (t == TK_SEMI) {
+            c->token_pos++;
+            return;
+        }
+        if (t == TK_RBRACE || t == TK_EOF) {
+            return;
+        }
+        /* Stop at statement-starting keywords */
+        if (t == TK_IF || t == TK_WHILE || t == TK_DO || t == TK_FOR ||
+            t == TK_SWITCH || t == TK_CASE || t == TK_DEFAULT ||
+            t == TK_RETURN || t == TK_BREAK || t == TK_CONTINUE ||
+            t == TK_GOTO || t == TK_LBRACE ||
+            is_type_specifier(c, t)) {
+            return;
+        }
+        c->token_pos++;
+    }
+}
+
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx) {
     if (!c || !arena || c->token_pos >= c->token_count) return AST_NULL;
 
@@ -48,6 +70,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         while (c->token_pos < c->token_count &&
                c->tokens[c->token_pos].type != TK_RBRACE &&
                c->tokens[c->token_pos].type != TK_EOF) {
+            size_t entry_pos = c->token_pos;
             ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
             if (s != AST_NULL) {
                 if (head == AST_NULL) {
@@ -59,6 +82,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         tail_node->next = s;
                     }
                     tail = s;
+                }
+            } else {
+                /* If statement failed to parse or did not advance token position, synchronize */
+                if (c->token_pos == entry_pos) {
+                    zero_cc_synchronize_ast(c);
                 }
             }
         }
