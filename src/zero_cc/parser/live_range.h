@@ -41,6 +41,11 @@ typedef struct LiveRangeAnalyzer {
     bool *rax_clobbered;        /* True if rax is clobbered at instruction i */
     bool *rdx_clobbered;        /* True if rdx is clobbered at instruction i */
     size_t clobber_capacity;    /* Capacity of clobber arrays */
+    
+    /* OP_CALL instruction positions */
+    size_t *call_positions;     /* Indices of OP_CALL instructions */
+    size_t call_count;          /* Number of calls */
+    size_t call_capacity;       /* Capacity of call_positions array */
 } LiveRangeAnalyzer;
 
 /* Initialize live range analyzer */
@@ -59,6 +64,10 @@ static void live_range_init(LiveRangeAnalyzer *lra) {
     lra->rax_clobbered = NULL;
     lra->rdx_clobbered = NULL;
     lra->clobber_capacity = 0;
+    
+    lra->call_positions = NULL;
+    lra->call_count = 0;
+    lra->call_capacity = 0;
 }
 
 /* Free live range analyzer */
@@ -71,12 +80,16 @@ static void live_range_free(LiveRangeAnalyzer *lra) {
     free(lra->temp_live_end);
     free(lra->rax_clobbered);
     free(lra->rdx_clobbered);
+    free(lra->call_positions);
     
     lra->uses = NULL;
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
     lra->rax_clobbered = NULL;
     lra->rdx_clobbered = NULL;
+    lra->call_positions = NULL;
+    lra->call_count = 0;
+    lra->call_capacity = 0;
 }
 
 /* Mark a register as clobbered at a given instruction */
@@ -192,8 +205,33 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         RegClass reg_class = REG_CLASS_GPR;
         
         /* Add interval to register allocator */
-        regalloc_add_interval(ra, (int)temp_id, start, end, reg_class);
+        int int_idx = regalloc_add_interval(ra, (int)temp_id, start, end, reg_class);
+        
+        /* Check if this interval spans any function call */
+        if (int_idx >= 0 && lra->call_count > 0) {
+            for (size_t c = 0; c < lra->call_count; c++) {
+                size_t call_pos = lra->call_positions[c];
+                if (start < call_pos && end > call_pos) {
+                    regalloc_set_interval_spans_call(ra, int_idx, true);
+                    break;
+                }
+            }
+        }
     }
+}
+
+/* Record a call position in the analyzer */
+static void live_range_record_call(LiveRangeAnalyzer *lra, size_t instr_index) __attribute__((unused));
+static void live_range_record_call(LiveRangeAnalyzer *lra, size_t instr_index) {
+    if (!lra) return;
+    if (lra->call_count >= lra->call_capacity) {
+        size_t new_cap = lra->call_capacity ? lra->call_capacity * 2 : 16;
+        size_t *new_arr = realloc(lra->call_positions, new_cap * sizeof(size_t));
+        if (!new_arr) return;
+        lra->call_positions = new_arr;
+        lra->call_capacity = new_cap;
+    }
+    lra->call_positions[lra->call_count++] = instr_index;
 }
 
 /* Scan IR and record temp uses/defs */
@@ -212,6 +250,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         /* OP_CALL packs argument temps in temp_src1, temp_src2, and imm (temp_dest is arg_count);
          * the complete list (5+ args) lives in the IR call-args side table. */
         if (instr->op == OP_CALL) {
+            live_range_record_call(lra, i);
             const IRCallArgs *full_args = ir_call_args_find(i);
             if (full_args) {
                 for (int a = 0; a < full_args->count; a++) {

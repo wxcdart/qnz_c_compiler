@@ -52,6 +52,7 @@ typedef struct LiveInterval {
     int assigned_reg;         /* Assigned register index (-1 if spilled) */
     int spill_slot;           /* Spill slot index (-1 if not spilled) */
     bool is_spilled;          /* Whether this interval is spilled */
+    bool spans_call;          /* Whether this interval spans a function call */
 } LiveInterval;
 
 /* Register allocator state */
@@ -139,8 +140,17 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->assigned_reg = -1;
     interval->spill_slot = -1;
     interval->is_spilled = false;
+    interval->spans_call = false;
     
     return (int)(ra->interval_count - 1);
+}
+
+/* Mark an interval as spanning a function call */
+static void regalloc_set_interval_spans_call(RegAllocator *ra, int interval_idx, bool spans_call) __attribute__((unused));
+static void regalloc_set_interval_spans_call(RegAllocator *ra, int interval_idx, bool spans_call) {
+    if (ra && interval_idx >= 0 && (size_t)interval_idx < ra->interval_count) {
+        ra->intervals[interval_idx].spans_call = spans_call;
+    }
 }
 
 /* Comparison function for sorting intervals by start position */
@@ -189,6 +199,20 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     
     /* Find a free register in the appropriate class */
     if (interval->reg_class == REG_CLASS_GPR) {
+        if (interval->spans_call) {
+            /* Interval spans OP_CALL: prioritize callee-saved registers (rbx, r12-r15) */
+            static const int callee_saved_indices[] = {1, 8, 9, 10, 11};
+            for (size_t k = 0; k < sizeof(callee_saved_indices)/sizeof(callee_saved_indices[0]); k++) {
+                int i = callee_saved_indices[k];
+                if (ra->gpr_free[i]) {
+                    ra->gpr_free[i] = false;
+                    ra->used_callee_saved_gpr_mask |= (1u << i);
+                    return i;
+                }
+            }
+            /* Callee-saved registers exhausted: fall through to allocate any free GPR */
+        }
+
         for (int i = 0; i < GPR_COUNT; i++) {
             if (ra->gpr_free[i]) {
                 ra->gpr_free[i] = false;
@@ -251,8 +275,14 @@ static void regalloc_allocate(RegAllocator *ra) {
         /* Expire old intervals */
         expire_old_intervals(ra, current->start);
         
-        /* Try to allocate a register */
-        int reg = alloc_reg(ra, current);
+        /* Try to allocate a register (VREG_0 is pre-colored to pool index 0 = RAX) */
+        int reg;
+        if (current->temp_id == VREG_0) {
+            reg = 0;
+            ra->gpr_free[0] = false;
+        } else {
+            reg = alloc_reg(ra, current);
+        }
         
         if (reg >= 0) {
             /* Successfully allocated a register */

@@ -368,14 +368,19 @@ Sprints 0.5 through 5.6 are complete with all 112 test suites passing cleanly:
    - Preserved 9–16 byte struct returns across `rax` and `rdx`.
    - Comprehensive JIT testing in `test/jit/regalloc_test.c` (112/112 test suites passing under `make test` and `make asan`).
 
-2. **Sprint 5.7: Register Allocator Completion & Codegen Edge-Cases** — 📋 Planned:
-   - **Task 45: Real Stack Spill Slot Code Generation**:
-     - When linear-scan allocator spills an interval (`is_spilled == true`), allocate dedicated stack slot offsets `[rbp - spill_offset]` instead of falling back to `VREG_0`.
-     - In `emit_ir_to_machine_code`, emit dynamic spill loads before uses (`mov reg, [rbp - off]`) and spill stores after definitions (`mov [rbp - off], reg`).
+2. **Sprint 5.7: Register Allocator Completion & Codegen Edge-Cases** — 🟡 In Progress:
+   - **Task 47: Call-Site Register Eviction / Callee-Save Affinity (Phase 2)** — ✅ Complete:
+     - In `live_range.h`, `LiveRangeAnalyzer` tracks all `OP_CALL` positions and flags `spans_call = true` on intervals that cross call boundaries.
+     - In `regalloc.h`, `alloc_reg()` prioritizes callee-saved registers (`rbx`, `r12`–`r15`) for intervals spanning calls.
+     - Fixed `VREG_0` (RAX) pre-coloring so caller-saved RAX is not erroneously marked free when active.
+     - Verified with Test 8 in `test/jit/regalloc_test.c` (112/112 tests passing under `make test` and `make asan`).
+   - **Task 45: Real Stack Spill Slot Code Generation (Phase 3)** — ⏳ Next:
+     - Reserve `r10` and `r11` exclusively for spill scratch reloads and stores (removing them from general allocator pool to prevent collisions).
+     - Allocate dedicated frame spill slots at `[rbp - (current_stack_frame + (slot + 1) * 8)]`.
+     - In `emit_ir_to_machine_code()`, emit reload instructions into distinct scratch registers (`phys_src1 = r10`, `phys_src2 = r11`) before opcode execution to protect 2-address operations, and store back `phys_dst = r10` to stack after opcode execution.
+     - Support XMM floating-point spill slots via `xmm7` scratch register and `movsd` load/store.
    - **Task 46: Floating-Point Ternary Operator (`NODE_TERNARY`)**:
      - Support floating-point result types in ternary expressions (`cond ? 1.5 : 2.5`), emitting XMM register transfers and SSE2 conditional moves or branches.
-   - **Task 47: Call-Site Register Eviction / Callee-Save Affinity**:
-     - In `live_range.h`, flag intervals that span an `OP_CALL` instruction and prioritize assigning them to callee-saved registers (`rbx`, `r12`–`r15`) or pre-spilling them to prevent clobbering.
    - **Task 48: Division/Modulo Clobber Handling**:
      - Ensure any user temporaries assigned to `rax` or `rdx` across an `OP_DIV` or `OP_MOD` are safely evicted to alternate registers or spill slots.
 
@@ -384,5 +389,5 @@ Sprints 0.5 through 5.6 are complete with all 112 test suites passing cleanly:
 ---
 
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-03.*
-*Updated with Sprint 5.6 completion and Sprint 5.7 roadmap.*
+*Updated with Sprint 5.7 Phase 2 completion and Phase 3 blueprint.*
 

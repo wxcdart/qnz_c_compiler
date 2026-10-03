@@ -123,6 +123,26 @@ int main(void) {
         assert(run_snippet(src) == 357);
     }
 
+    /* Test 8: Phase 2 - multiple live values spanning an intervening function call */
+    {
+        const char *src =
+            "int clobber_caller_regs(int x) {\n"
+            "    /* Perform arithmetic across caller-saved regs (rdi, rsi, rdx, rcx, r8, r9, rax) */\n"
+            "    int a = x * 2; int b = x * 3; int c = x * 4;\n"
+            "    return a + b + c;\n"
+            "}\n"
+            "int main(void) {\n"
+            "    int v1 = 10;\n"
+            "    int v2 = 20;\n"
+            "    int v3 = 30;\n"
+            "    int mid = clobber_caller_regs(5);\n"
+            "    /* v1, v2, v3 span the call to clobber_caller_regs and must survive intact */\n"
+            "    return v1 + v2 + v3 + mid;\n"
+            "}\n";
+        /* 10 + 20 + 30 + (10 + 15 + 20) = 60 + 45 = 105 */
+        assert(run_snippet(src) == 105);
+    }
+
     printf("All register allocation tests passed.\n");
     return 0;
 }
