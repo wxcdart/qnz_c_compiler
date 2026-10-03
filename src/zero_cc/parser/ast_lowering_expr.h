@@ -721,11 +721,15 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     /* For compound assignment, we need to load current value first */
                     if (is_compound) {
-                        /* Load current value into xmm1 */
-                        if (BE(c)->emit_load_fp) {
-                            BE(c)->emit_load_fp(c, 1, BE(c)->fp_reg, -sym->stack_offset);
+                        /* xmm0 currently holds the evaluated RHS. Move it to xmm1 */
+                        if (BE(c)->emit_fp_mov) {
+                            BE(c)->emit_fp_mov(c, 1, 0);
                         }
-                        /* Perform operation in xmm0 */
+                        /* Load current LHS value into xmm0 */
+                        if (BE(c)->emit_load_fp) {
+                            BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                        }
+                        /* Perform operation: xmm0 = LHS op RHS (xmm0 op xmm1) */
                         switch (node->aux.op) {
                             case TK_ADD_ASSIGN:
                                 if (BE(c)->emit_fp_add) BE(c)->emit_fp_add(c, 0, 0, 1);

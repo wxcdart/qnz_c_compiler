@@ -5,9 +5,12 @@
 int main(void) {
     const char *src = 
         "int main(void) {\n"
-        "    double a = 2.5;\n"
-        "    double b = 3.0;\n"
-        "    return 0;\n"
+        "    double a = 10.0;\n"
+        "    a -= 2.5; /* 10.0 - 2.5 = 7.5 */\n"
+        "    a /= 2.5; /* 7.5 / 2.5 = 3.0 */\n"
+        "    a *= 4.0; /* 3.0 * 4.0 = 12.0 */\n"
+        "    a += 0.5; /* 12.0 + 0.5 = 12.5 */\n"
+        "    return (int)a;\n"
         "}\n";
     
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
@@ -16,11 +19,11 @@ int main(void) {
     free(prep);
     zero_cc_compile_c99(comp);
     int ret = zero_cc_execute_jit(comp, NULL);
-    printf("Result: %d (expected 0)\n", ret);
+    printf("Result: %d (expected 12)\n", ret);
     zero_cc_buf_free(&comp->text_section);
     zero_cc_buf_free(&comp->rodata_section);
     zero_cc_buf_free(&comp->data_section);
     free(comp->tokens);
     free(comp);
-    return ret == 0 ? 0 : 1;
+    return ret == 12 ? 0 : 1;
 }
