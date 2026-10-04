@@ -60,16 +60,29 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Updated `parser.c` to include `ast_lowering.c` instead of `ast_lowering.h`.
   - Eliminated header-only implementation pattern for AST lowering pipeline.
 - **Target-Independent IR Canonicalization (Task 64)**:
-  - Added `emit_leave()` and `get_code_offset()` to ISA backend abstraction (`isa_backend.h`).
-  - Moved ISA-specific machine code emission from IR layer to backend layer:
+  - **Phase 1**: Added `emit_leave()` and `get_code_offset()` to ISA backend abstraction (`isa_backend.h`).
+  - **Phase 1**: Moved ISA-specific machine code emission from IR layer to backend layer:
     - `me_emit_leave()` → `BE(c)->emit_leave()` (via backend function pointer)
     - `me_get_offset()` → `BE(c)->get_code_offset()` (via backend function pointer)
-  - Implemented backend functions for all ISAs:
+  - **Phase 1**: Implemented backend functions for all ISAs:
     - `x86_64.c`: `x86_emit_leave()`, `x86_get_code_offset()`
     - `aarch64.c`: `aarch64_emit_leave()`, `aarch64_get_code_offset()`
     - `riscv.c`: `riscv64_emit_leave()`, `riscv32_emit_leave()`, `get_code_offset()`
-  - Removed `machine_emitter.h` include from IR layer (`ast_lowering_internal.h`).
-  - IR layer is now target-agnostic with no ISA-specific instruction emission.
+  - **Phase 2**: Added `ISACallingConvention` struct to `isa_backend.h` with:
+    - `int_arg_regs`, `int_arg_reg_count` - Integer argument register mapping
+    - `fp_arg_regs`, `fp_arg_reg_count` - Floating-point argument register mapping
+    - `callee_saved_gpr`, `callee_saved_gpr_count` - Callee-saved register mapping
+  - **Phase 2**: Added `conv` field to `ZeroCCISABackend` struct
+  - **Phase 2**: Added `backend_get_int_arg_reg()` and `backend_get_fp_arg_reg()` helper functions
+  - **Phase 2**: Implemented calling convention tables for all ISAs:
+    - `x86_64.c`: `x86_64_conv` (System V ABI: rdi, rsi, rdx, rcx, r8, r9)
+    - `aarch64.c`: `aarch64_conv` (AAPCS64: x0-x7, v0-v7)
+    - `riscv.c`: `riscv64_conv` and `riscv32_conv` (LP64D/ILP32D: a0-a7, fa0-fa7)
+  - **Phase 2**: Replaced hardcoded `int_arg_regs` table in `ast_lowering_mc.c` with `backend_get_int_arg_reg()`
+  - **Phase 2**: Updated all IR opcode comments in `ir.h` to be target-agnostic:
+    - Removed references to specific registers (rax, rbx, rbp, xmm0, etc.)
+    - Comments now describe semantics rather than x86-64 implementation
+  - **✅ COMPLETE**: IR layer is now fully target-agnostic with no ISA-specific code
 
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
