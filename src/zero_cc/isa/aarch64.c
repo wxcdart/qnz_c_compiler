@@ -24,6 +24,21 @@ static const ISARegInfo aarch64_regs = {
     .num_fp_regs = 32,
 };
 
+/* AArch64 AAPCS64 calling convention */
+/* Register numbers: 0-30=x0-x30, 31=sp */
+static const int aarch64_int_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* x0-x7 */
+static const int aarch64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* v0-v7 */
+static const int aarch64_callee_saved_gpr[] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30};  /* x19-x29, x30 */
+
+static const ISACallingConvention aarch64_conv = {
+    .int_arg_regs = aarch64_int_arg_regs,
+    .int_arg_reg_count = 8,
+    .fp_arg_regs = aarch64_fp_arg_regs,
+    .fp_arg_reg_count = 8,
+    .callee_saved_gpr = aarch64_callee_saved_gpr,
+    .callee_saved_gpr_count = 12,
+};
+
 /* ARM64 instruction encoding helpers */
 static inline void arm64_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
     me_emit_u8(c, insn & 0xFF);
@@ -357,6 +372,7 @@ static int aarch64_get_fp_reg(int vreg) { return vreg; }
 const ZeroCCISABackend aarch64_backend = {
     .isa = ISA_AARCH64,
     .regs = &aarch64_regs,
+    .conv = &aarch64_conv,
     .fp_reg = 29,  /* x29 */
     .sp_reg = 31,  /* sp */
     

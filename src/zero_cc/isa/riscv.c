@@ -54,6 +54,35 @@ static const ISARegInfo riscv_regs = {
     .num_fp_regs = 32,
 };
 
+/* RISC-V calling convention (LP64D for 64-bit, ILP32D for 32-bit) */
+/* Register numbers: 0=zero 1=ra 2=sp 3=gp 4=tp 5=t0 6=t1 7=t2 8=s0 9=s1 10=a0... */
+static const int riscv64_int_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* a0-a7 */
+static const int riscv64_fp_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* fa0-fa7 */
+static const int riscv64_callee_saved_gpr[] = {8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};  /* s0-s11 */
+
+static const ISACallingConvention riscv64_conv = {
+    .int_arg_regs = riscv64_int_arg_regs,
+    .int_arg_reg_count = 8,
+    .fp_arg_regs = riscv64_fp_arg_regs,
+    .fp_arg_reg_count = 8,
+    .callee_saved_gpr = riscv64_callee_saved_gpr,
+    .callee_saved_gpr_count = 12,
+};
+
+/* RISC-V 32-bit calling convention (similar but different register sizes) */
+static const int riscv32_int_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* a0-a7 */
+static const int riscv32_fp_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* fa0-fa7 */
+static const int riscv32_callee_saved_gpr[] = {8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};  /* s0-s11 */
+
+static const ISACallingConvention riscv32_conv = {
+    .int_arg_regs = riscv32_int_arg_regs,
+    .int_arg_reg_count = 8,
+    .fp_arg_regs = riscv32_fp_arg_regs,
+    .fp_arg_reg_count = 8,
+    .callee_saved_gpr = riscv32_callee_saved_gpr,
+    .callee_saved_gpr_count = 12,
+};
+
 /* RISC-V instruction encoding helpers */
 static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
     me_emit_u8(c, insn & 0xFF);
@@ -389,6 +418,7 @@ static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 const ZeroCCISABackend riscv64_backend = {
     .isa = ISA_RISCV64,
     .regs = &riscv_regs,
+    .conv = &riscv64_conv,
     .fp_reg = 8,   /* s0 */
     .sp_reg = 2,   /* sp */
     
@@ -725,6 +755,7 @@ static void riscv32_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 const ZeroCCISABackend riscv32_backend = {
     .isa = ISA_RISCV32,
     .regs = &riscv_regs,
+    .conv = &riscv32_conv,
     .fp_reg = 8,
     .sp_reg = 2,
     

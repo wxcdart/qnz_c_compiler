@@ -15,45 +15,45 @@
 typedef enum {
     /* Data Movement (10) */
     OP_NOP = 0,
-    OP_MOV_IMM,        /* mov rax, imm16 */
-    OP_MOV_MEM_RAX,    /* mov [rbp - offset], rax */
-    OP_MOV_RAX_MEM,    /* mov rax, [rbp - offset] */
-    OP_MOV_RAX_RBX,    /* mov rax, rbx */
-    OP_LEA_RAX_MEM,    /* lea rax, [rbp - offset] */
-    OP_PUSH_RAX,       /* push rax */
-    OP_POP_RAX,        /* pop rax */
-    OP_PUSH_RBX,       /* push rbx */
-    OP_POP_RBX,        /* pop rbx */
+    OP_MOV_IMM,        /* move immediate value to register */
+    OP_MOV_MEM_RAX,    /* store register to stack slot */
+    OP_MOV_RAX_MEM,    /* load from stack slot to register */
+    OP_MOV_RAX_RBX,    /* move register to register */
+    OP_LEA_RAX_MEM,    /* load effective address from stack slot */
+    OP_PUSH_RAX,       /* push register to stack */
+    OP_POP_RAX,        /* pop register from stack */
+    OP_PUSH_RBX,       /* push register to stack */
+    OP_POP_RBX,        /* pop register from stack */
 
     /* Arithmetic (10) */
-    OP_ADD_IMM,        /* add rax, imm16 */
-    OP_SUB_IMM,        /* sub rax, imm16 */
-    OP_ADD,            /* add rax, rbx */
-    OP_SUB,            /* sub rax, rbx */
-    OP_MUL,            /* imul rax, rbx */
-    OP_DIV,            /* idiv rbx */
-    OP_MOD,            /* idiv rbx, result in rdx */
-    OP_NEG,            /* neg rax */
-    OP_INC,            /* inc rax */
-    OP_DEC,            /* dec rax */
+    OP_ADD_IMM,        /* add immediate to register */
+    OP_SUB_IMM,        /* subtract immediate from register */
+    OP_ADD,            /* add two registers */
+    OP_SUB,            /* subtract two registers */
+    OP_MUL,            /* signed multiply two registers */
+    OP_DIV,            /* signed divide by register */
+    OP_MOD,            /* signed modulo (remainder of division) */
+    OP_NEG,            /* negate register */
+    OP_INC,            /* increment register */
+    OP_DEC,            /* decrement register */
 
     /* Logical (8) */
-    OP_AND,            /* and rax, rbx */
-    OP_OR,             /* or rax, rbx */
-    OP_XOR,            /* xor rax, rbx */
-    OP_NOT,            /* not rax */
-    OP_LNOT,           /* !rax (test + sete + movzx) */
-    OP_SHL,            /* shl rax, rbx */
-    OP_SHR,            /* shr rax, rbx */
-    OP_SAR,            /* sar rax, rbx */
+    OP_AND,            /* bitwise AND two registers */
+    OP_OR,             /* bitwise OR two registers */
+    OP_XOR,            /* bitwise XOR two registers */
+    OP_NOT,            /* bitwise NOT register */
+    OP_LNOT,           /* logical NOT (test + sete + movzx) */
+    OP_SHL,            /* shift left register by register */
+    OP_SHR,            /* shift right register by register (unsigned) */
+    OP_SAR,            /* shift right register by register (signed) */
 
     /* Comparison (6) */
-    OP_CMP,            /* cmp rax, rbx */
-    OP_TEST,           /* test rax, rax */
-    OP_SETL,           /* setl al */
-    OP_SETLE,          /* setle al */
-    OP_SETG,           /* setg al */
-    OP_SETGE,          /* setge al */
+    OP_CMP,            /* compare two registers */
+    OP_TEST,           /* bitwise AND for flags only */
+    OP_SETL,           /* set byte if less than */
+    OP_SETLE,          /* set byte if less than or equal */
+    OP_SETG,           /* set byte if greater than */
+    OP_SETGE,          /* set byte if greater than or equal */
 
     /* Control Flow (6) */
     OP_JMP,            /* jmp label */
@@ -67,49 +67,49 @@ typedef enum {
 
     /* Function (4) */
     OP_CALL,           /* call function */
-    OP_CALL_INDIRECT,  /* call [r11] */
-    OP_RET,            /* ret */
+    OP_CALL_INDIRECT,  /* call through register */
+    OP_RET,            /* return from function */
     /* Frame Management (5) */
-    OP_PROLOGUE,       /* push rbp; mov rbp,rsp; sub rsp,frame_size (imm64) */
-    OP_EPILOGUE,       /* callee-save loads; leave; ret */
-    OP_PARAM_SAVE_INT, /* imm = reg_idx, imm64 = offset */
-    OP_PARAM_SAVE_FP,  /* imm = reg_idx, imm64 = offset */
-    OP_VARIADIC_SPILL, /* imm = param_count, imm64 = base_offset */
+    OP_PROLOGUE,       /* function prologue (frame setup) */
+    OP_EPILOGUE,       /* callee-save loads; return sequence */
+    OP_PARAM_SAVE_INT, /* save integer argument register to stack slot */
+    OP_PARAM_SAVE_FP,  /* save floating-point argument register to stack slot */
+    OP_VARIADIC_SPILL, /* spill variadic argument registers to stack */
 
     /* Special (8) */
     OP_LABEL,          /* label marker */
-    OP_DEREF,          /* mov rax, [rax] */
-    OP_LOAD_BYTE,      /* movzx rax, byte ptr [rax] */
-    OP_CMP_ZERO,       /* cmp rax, 0 */
-    OP_SET_E,          /* sete al */
-    OP_SET_NE,         /* setne al */
-    OP_STACK_ALIGN,    /* sub rsp, imm8 */
-    OP_CVTTSD2SI,      /* cvttsd2si eax, xmm0 */
-    OP_CVTSI2SD,       /* cvtsi2sd xmm0, eax */
-    OP_LOAD_16,        /* movzx rax, word ptr [rax] */
-    OP_LOAD_32,        /* mov eax, dword ptr [rax] */
-    OP_STORE_BYTE,     /* mov byte ptr [addr], src */
-    OP_STORE_16,       /* mov word ptr [addr], src */
-    OP_STORE_32,       /* mov dword ptr [addr], src */
-    OP_STORE_64,       /* mov qword ptr [addr], src */
-    OP_VLA_ALLOC,      /* sub rsp, size; mov dst, rsp */
-    OP_ATOMIC_XADD,         /* lock xadd [addr], val */
-    OP_ATOMIC_CMPXCHG,      /* lock cmpxchg [addr], desired (rax=expected) -> val */
-    OP_ATOMIC_CMPXCHG_BOOL, /* lock cmpxchg [addr], desired (rax=expected) -> bool */
-    OP_ATOMIC_XCHG,         /* xchg [addr], val */
-    OP_MFENCE,              /* mfence */
+    OP_DEREF,          /* load value from pointer address */
+    OP_LOAD_BYTE,      /* load byte with zero-extension */
+    OP_CMP_ZERO,       /* compare register with zero */
+    OP_SET_E,          /* set byte if equal */
+    OP_SET_NE,         /* set byte if not equal */
+    OP_STACK_ALIGN,    /* align stack pointer */
+    OP_CVTTSD2SI,      /* convert float to integer (truncate) */
+    OP_CVTSI2SD,       /* convert integer to float */
+    OP_LOAD_16,        /* load 16-bit value with zero-extension */
+    OP_LOAD_32,        /* load 32-bit value */
+    OP_STORE_BYTE,     /* store byte to address */
+    OP_STORE_16,       /* store 16-bit value to address */
+    OP_STORE_32,       /* store 32-bit value to address */
+    OP_STORE_64,       /* store 64-bit value to address */
+    OP_VLA_ALLOC,      /* allocate variable-length array on stack */
+    OP_ATOMIC_XADD,         /* atomic exchange and add */
+    OP_ATOMIC_CMPXCHG,      /* atomic compare and exchange (returns old value) */
+    OP_ATOMIC_CMPXCHG_BOOL, /* atomic compare and exchange (returns success) */
+    OP_ATOMIC_XCHG,         /* atomic exchange */
+    OP_MFENCE,              /* memory fence (serialization) */
     /* Floating-point operations (8) */
-    OP_FMOV_IMM,       /* movsd xmm0, [rip + offset] - load float literal */
-    OP_FLOAD,          /* movsd xmm0, [rbp - offset] - load float from stack */
-    OP_FSTORE,         /* movsd [rbp - offset], xmm0 - store float to stack */
-    OP_FADD,           /* addsd xmm0, xmm1 - float add */
-    OP_FSUB,           /* subsd xmm0, xmm1 - float sub */
-    OP_FMUL,           /* mulsd xmm0, xmm1 - float mul */
-    OP_FDIV,           /* divsd xmm0, xmm1 - float div */
-    OP_FMOV,           /* movsd xmm0, xmm1 - float move */
+    OP_FMOV_IMM,       /* load floating-point literal */
+    OP_FLOAD,          /* load float from stack slot */
+    OP_FSTORE,         /* store float to stack slot */
+    OP_FADD,           /* floating-point add */
+    OP_FSUB,           /* floating-point subtract */
+    OP_FMUL,           /* floating-point multiply */
+    OP_FDIV,           /* floating-point divide */
+    OP_FMOV,           /* move floating-point value */
     /* RIP-relative addressing (2) */
-    OP_LEA_RIP,        /* lea rax, [rip + offset] - string literal address */
-    OP_MOV_GLOBAL,     /* mov rax, [rip + global] - global variable load with relocation */
+    OP_LEA_RIP,        /* load effective address (position-independent) */
+    OP_MOV_GLOBAL,     /* load global variable (position-independent) */
 } Opcode;
 
 /* Helper: Get opcode name for debugging */
@@ -210,8 +210,8 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_FMUL:
         case OP_FDIV:
         case OP_FMOV:
-        case OP_CVTSI2SD:  /* int -> float conversion uses xmm0 as dest */
-        case OP_CVTTSD2SI: /* float -> int conversion uses xmm0 as src */
+        case OP_CVTSI2SD:  /* int -> float conversion */
+        case OP_CVTTSD2SI: /* float -> int conversion (truncate) */
             return true;
         default:
             return false;
@@ -423,27 +423,27 @@ static inline void ir_emit_fstore(uint8_t temp_src, uint8_t temp_base, int16_t o
     ir_emit((Instr){.op = OP_FSTORE, .temp_dest = 0xFF, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = offset, .label_idx = 0});
 }
 
-/* Float add: xmm0 = xmm0 + xmm1 */
+/* Float add: dest = src1 + src2 */
 static inline void ir_emit_fadd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
     ir_emit((Instr){.op = OP_FADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-/* Float sub: xmm0 = xmm0 - xmm1 */
+/* Float sub: dest = src1 - src2 */
 static inline void ir_emit_fsub(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
     ir_emit((Instr){.op = OP_FSUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-/* Float mul: xmm0 = xmm0 * xmm1 */
+/* Float mul: dest = src1 * src2 */
 static inline void ir_emit_fmul(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
     ir_emit((Instr){.op = OP_FMUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-/* Float div: xmm0 = xmm0 / xmm1 */
+/* Float div: dest = src1 / src2 */
 static inline void ir_emit_fdiv(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
     ir_emit((Instr){.op = OP_FDIV, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-/* Float move: xmm0 = xmm1 */
+/* Float move: dest = src */
 static inline void ir_emit_fmov(uint8_t temp_dest, uint8_t temp_src) {
     ir_emit((Instr){.op = OP_FMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
 }

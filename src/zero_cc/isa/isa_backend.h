@@ -28,10 +28,21 @@ typedef struct {
     int num_fp_regs;
 } ISARegInfo;
 
+/* Calling convention tables - ISA-specific */
+typedef struct {
+    const int *int_arg_regs;      /* Array of int arg register indices */
+    int int_arg_reg_count;        /* Number of int arg registers */
+    const int *fp_arg_regs;       /* Array of FP arg register indices */
+    int fp_arg_reg_count;         /* Number of FP arg registers */
+    const int *callee_saved_gpr;  /* Array of callee-saved GPR indices */
+    int callee_saved_gpr_count;   /* Number of callee-saved GPRs */
+} ISACallingConvention;
+
 /* Emit backend - instruction generation */
 typedef struct ZeroCCISABackend {
     ZeroCCISA isa;
     const ISARegInfo *regs;
+    const ISACallingConvention *conv;  /* Calling convention tables */
     
     /* Function prologue/epilogue */
     void (*emit_prologue)(ZeroCCCompiler *c, size_t stack_size);
@@ -153,5 +164,20 @@ const ZeroCCISABackend *zero_cc_get_native_backend(void);
 
 /* Convenience macro for compiler access */
 #define BE(c) ((c)->isa_backend)
+
+/* Helper functions for calling convention access */
+static inline int backend_get_int_arg_reg(const ZeroCCISABackend *be, int idx) {
+    if (be->conv && idx < be->conv->int_arg_reg_count) {
+        return be->conv->int_arg_regs[idx];
+    }
+    return -1;  /* Stack-passed */
+}
+
+static inline int backend_get_fp_arg_reg(const ZeroCCISABackend *be, int idx) {
+    if (be->conv && idx < be->conv->fp_arg_reg_count) {
+        return be->conv->fp_arg_regs[idx];
+    }
+    return -1;  /* Stack-passed */
+}
 
 #endif /* ZERO_CC_ISA_BACKEND_H */

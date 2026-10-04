@@ -398,7 +398,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 
                 /* Safe parallel move: push all src registers then pop into dst registers */
-                static const int int_arg_regs[6] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
                 int n_args = (arg_count < 6) ? arg_count : 6;
                 int src_regs[6];
                 for (int a = 0; a < n_args; a++) {
@@ -413,7 +412,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_push_reg(c, src_regs[a]);
                 }
                 for (int a = n_args - 1; a >= 0; a--) {
-                    int dst_reg = int_arg_regs[a];
+                    int dst_reg = backend_get_int_arg_reg(BE(c), a);
+                    if (dst_reg < 0) {
+                        /* Argument is stack-passed, skip register assignment */
+                        continue;
+                    }
                     BE(c)->emit_pop_reg(c, dst_reg);
                 }
                 

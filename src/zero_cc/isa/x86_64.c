@@ -20,6 +20,21 @@ static const ISARegInfo x86_64_regs = {
     .num_fp_regs = 16,
 };
 
+/* x86-64 System V ABI calling convention */
+/* Register numbers: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15 */
+static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
+static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
+static const int x86_64_callee_saved_gpr[] = {3, 5, 12, 13, 14, 15};  /* rbx, rbp, r12-r15 */
+
+static const ISACallingConvention x86_64_conv = {
+    .int_arg_regs = x86_64_int_arg_regs,
+    .int_arg_reg_count = 6,
+    .fp_arg_regs = x86_64_fp_arg_regs,
+    .fp_arg_reg_count = 8,
+    .callee_saved_gpr = x86_64_callee_saved_gpr,
+    .callee_saved_gpr_count = 6,
+};
+
 /* Register numbers used by this backend are the hardware encodings:
  * 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8..15=r8..r15 */
 #define X86_RAX 0
@@ -1054,6 +1069,7 @@ static int x86_get_fp_reg(int vreg) { return vreg; }
 const ZeroCCISABackend x86_64_backend = {
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,
+    .conv = &x86_64_conv,
     .fp_reg = X86_RBP,  /* hardware encoding 5 */
     .sp_reg = X86_RSP,  /* hardware encoding 4 */
     
