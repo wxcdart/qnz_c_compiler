@@ -112,13 +112,43 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Reset IR buffer */
     ir_reset();
+
+    /* Emit placeholder OP_PROLOGUE (will be patched with exact frame size after regalloc) */
+    ir_emit_prologue(0);
+
+    /* Emit IR instructions to save incoming parameter registers into their assigned local stack slots */
+    if (c->function_count > 0) {
+        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+        int xmm_idx = 0;
+        int int_idx = 0;
+        int stack_idx = 0;
+
+        for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
+            ZeroCCSym *sym = &c->locals[p];
+            if (!sym->is_param) continue;
+            bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+
+            if (is_fp && xmm_idx < 8) {
+                ir_emit_param_save_fp(xmm_idx, sym->stack_offset);
+                xmm_idx++;
+            } else if (!is_fp && int_idx < 6) {
+                ir_emit_param_save_int(int_idx, sym->stack_offset);
+                int_idx++;
+            } else if (!is_fp) {
+                int32_t caller_off = 16 + 8 * stack_idx;
+                ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
+                ir_emit_store(VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                stack_idx++;
+            }
+        }
+
+        if (fn->is_variadic) {
+            int32_t base_spill_offset = (int32_t)fn->param_count > 0 ? c->locals[fn->param_count - 1].stack_offset + 8 : CALLEE_SAVE_FRAME_RESERVE + 8;
+            ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
+        }
+    }
+
     g_ir_epilogue_label = c->ir_next_label++;
-    
-    /* Don't reset text section - accumulate all function code */
-    /* c->text_section.length = 0; */
-    
-    /* NOTE: The function prologue is emitted in compile.h before calling this
-     * function. emit_prologue() is NOT called here to avoid a double prologue. */
     
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
@@ -133,15 +163,18 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     live_range_free(&lra);
     
-    /* Preserve callee-saved registers that were assigned by the allocator.
-     * Emit MOV [rbp - slot], reg for each used callee-saved GPR. */
-    emit_callee_save_stores(c);
-    
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
     int32_t spill_base_offset = c->current_stack_frame;
     if (c->regalloc.next_spill_slot > 0) {
         c->current_stack_frame += c->regalloc.next_spill_slot * 8;
+    }
+
+    /* Calculate total 16-byte aligned stack frame size and patch OP_PROLOGUE */
+    size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
+    Instr *prologue_instr = ir_get(0);
+    if (prologue_instr && prologue_instr->op == OP_PROLOGUE) {
+        prologue_instr->imm64 = (uint64_t)total_frame_size;
     }
     
     /* Emit machine code from IR with allocated registers */

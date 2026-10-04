@@ -242,18 +242,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         c->local_count = 0;
         c->current_stack_frame = CALLEE_SAVE_FRAME_RESERVE; /* Reserve top of frame for callee-saves */
 
-        /* Reset IR buffer for this function */
-        ir_reset();
-
-        /* Function Prologue */
-        BE(c)->emit_prologue(c, 256);
-
-        /* Save parameter registers to stack */
-        /* Track which xmm register to use for float params (independent of int regs) */
+        /* Parameters and locals are allocated stack offsets in c->current_stack_frame.
+         * The function prologue and parameter save instructions will be emitted into IR in zero_cc_lower_ast(). */
         int xmm_reg_idx = 0;
-        /* Track which integer register to use for int params (independent of float regs) */
         int int_reg_idx = 0;
-        /* Count of integer params passed on the stack (7th and later) */
         int stack_arg_idx = 0;
 
         for (size_t p = 0; p < param_count; p++) {
@@ -263,28 +255,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             bool is_fp = (param_types[p].tag == TYPE_FLOAT || param_types[p].tag == TYPE_DOUBLE);
             
             if (is_fp && xmm_reg_idx < 8) {
-                if (BE(c)->emit_param_save_fp) {
-                    BE(c)->emit_param_save_fp(c, xmm_reg_idx, sym->stack_offset);
-                }
                 xmm_reg_idx++;
             } else if (!is_fp && int_reg_idx < 6) {
-                if (BE(c)->emit_param_save_int) {
-                    BE(c)->emit_param_save_int(c, int_reg_idx, sym->stack_offset);
-                }
                 int_reg_idx++;
             } else if (!is_fp) {
-                /* 7th+ integer arg: passed on the stack at [rbp + 16 + 8*k] */
-                int32_t caller_off = 16 + 8 * stack_arg_idx;
-                BE(c)->emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
-                BE(c)->emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_arg_idx++;
             }
         }
 
-        /* Variadic spill area: spill remaining integer registers for va_start */
+        /* Variadic spill area: reserve stack frame for remaining integer registers */
         if (is_variadic_fn) {
-            if (BE(c)->emit_variadic_spill) {
-                BE(c)->emit_variadic_spill(c, param_count, int_reg_idx);
+            for (size_t p = param_count; p < 6; p++) {
+                c->current_stack_frame += 8;
             }
         }
 

@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon -g
+CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon -g -MMD -MP
 LDFLAGS ?=
 
 BUILD_DIR ?= build
@@ -166,3 +166,6 @@ clean:
 # Target to build and run the golden error test
 golden_test: $(TEST_BIN_DIR)/unit/golden_error_test
 	./$(TEST_BIN_DIR)/unit/golden_error_test
+
+DEPS = $(shell find $(BUILD_DIR) -name "*.d" 2>/dev/null)
+-include $(DEPS)

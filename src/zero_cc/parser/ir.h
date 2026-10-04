@@ -69,7 +69,12 @@ typedef enum {
     OP_CALL,           /* call function */
     OP_CALL_INDIRECT,  /* call [r11] */
     OP_RET,            /* ret */
-    OP_LEAVE,          /* leave */
+    /* Frame Management (5) */
+    OP_PROLOGUE,       /* push rbp; mov rbp,rsp; sub rsp,frame_size (imm64) */
+    OP_EPILOGUE,       /* callee-save loads; leave; ret */
+    OP_PARAM_SAVE_INT, /* imm = reg_idx, imm64 = offset */
+    OP_PARAM_SAVE_FP,  /* imm = reg_idx, imm64 = offset */
+    OP_VARIADIC_SPILL, /* imm = param_count, imm64 = base_offset */
 
     /* Special (8) */
     OP_LABEL,          /* label marker */
@@ -154,7 +159,11 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_CALL: return "CALL";
         case OP_CALL_INDIRECT: return "CALL_INDIRECT";
         case OP_RET: return "RET";
-        case OP_LEAVE: return "LEAVE";
+        case OP_PROLOGUE: return "PROLOGUE";
+        case OP_EPILOGUE: return "EPILOGUE";
+        case OP_PARAM_SAVE_INT: return "PARAM_SAVE_INT";
+        case OP_PARAM_SAVE_FP: return "PARAM_SAVE_FP";
+        case OP_VARIADIC_SPILL: return "VARIADIC_SPILL";
         case OP_LABEL: return "LABEL";
         case OP_DEREF: return "DEREF";
         case OP_LOAD_BYTE: return "LOAD_BYTE";
@@ -261,13 +270,12 @@ static inline const Instr *ir_get_buffer(void) {
 }
 
 /* Emit instruction - O(1) */
-static inline void ir_emit(Instr instr) {
-    if (instr_count >= MAX_INSTRS) {
-        fprintf(stderr, "Error: Function too large (>64K instructions)\n");
-        exit(1);
-    }
-    instrs[instr_count++] = instr;
-}
+void ir_emit(Instr instr);
+
+/* Label and jump instructions */
+void ir_emit_label(uint16_t label_idx);
+void ir_emit_jmp(uint16_t label_idx);
+void ir_emit_je(uint8_t temp_cond, uint16_t label_idx);
 
 /* Reset for next function - O(1) */
 static inline void ir_reset(void) {
@@ -303,28 +311,38 @@ static inline void ir_emit_mul(uint8_t temp_dest, uint8_t temp_src1, uint8_t tem
     ir_emit((Instr){.op = OP_MUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_label(uint16_t label_idx) {
-    ir_emit((Instr){.op = OP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
-}
-
-static inline void ir_emit_jmp(uint16_t label_idx) {
-    ir_emit((Instr){.op = OP_JMP, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
-}
-
-static inline void ir_emit_je(uint8_t temp_cond, uint16_t label_idx) {
-    ir_emit((Instr){.op = OP_JE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
-}
-
-static inline void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx) {
-    ir_emit((Instr){.op = OP_JNE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
-}
-
-static inline void ir_emit_jmp_label(uint16_t label_idx) {
-    ir_emit((Instr){.op = OP_JMP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = label_idx});
-}
+/* Label and jump instructions */
+/* Defined in ir.c */
+extern void ir_emit_label(uint16_t label_idx);
+extern void ir_emit_jmp(uint16_t label_idx);
+extern void ir_emit_je(uint8_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jmp_label(uint16_t label_idx);
 
 static inline void ir_emit_ret(void) {
     ir_emit((Instr){.op = OP_RET, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* Emit function prologue (frame_size in imm64) */
+static inline void ir_emit_prologue(int64_t frame_size) {
+    ir_emit((Instr){.op = OP_PROLOGUE, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .imm64 = frame_size, .label_idx = 0});
+}
+
+/* Emit function epilogue */
+static inline void ir_emit_epilogue(void) {
+    ir_emit((Instr){.op = OP_EPILOGUE, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_param_save_int(int reg_idx, int32_t offset) {
+    ir_emit((Instr){.op = OP_PARAM_SAVE_INT, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+}
+
+static inline void ir_emit_param_save_fp(int reg_idx, int32_t offset) {
+    ir_emit((Instr){.op = OP_PARAM_SAVE_FP, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+}
+
+static inline void ir_emit_variadic_spill(int param_count, int32_t base_offset) {
+    ir_emit((Instr){.op = OP_VARIADIC_SPILL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)param_count, .imm64 = (int64_t)base_offset, .label_idx = 0});
 }
 
 /* Emit function call - fn_name stored in imm64 as pointer during lowering */

@@ -15,6 +15,14 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ### Added
 
+#### Sprint 8.5 — Architectural Hardening & Infrastructure Refactoring
+- **Unified Prologue & Epilogue Pipeline (Task 60)**:
+  - Eliminated the split between `compile.h` and `ast_lowering.h`: early prologue and early parameter register saves in `compile.h` removed.
+  - Deferred prologue emission until post-regalloc: `OP_PROLOGUE` is emitted as a placeholder during IR lowering, and its `imm64` (frame size) is patched after register allocation with exact total size (`locals + spills + callee_saves + 16_byte_alignment`).
+  - Added IR instructions `OP_PARAM_SAVE_INT`, `OP_PARAM_SAVE_FP`, and `OP_VARIADIC_SPILL` to uniformly represent incoming ABI argument and variadic register spills in IR before instruction selection.
+  - Fixed variadic register spill offset calculation so `x86_emit_variadic_spill` uses the exact base offset following fixed parameters without corrupting `current_stack_frame`.
+  - Added `-MMD -MP` automatic header dependency generation to the `Makefile` to prevent translation unit header desynchronization.
+
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
   - Compound literals and brace-enclosed variable initializers now zero-initialize the entire object (struct/array) before applying designated and positional stores.

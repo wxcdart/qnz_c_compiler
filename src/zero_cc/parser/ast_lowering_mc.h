@@ -18,6 +18,9 @@
 #include "../types/vregs.h"
 #include "regalloc.h"
 
+/* Forward declarations from ast_lowering.h */
+static void emit_callee_save_stores(ZeroCCCompiler *c);
+
 /* Emit machine code from IR with allocated registers */
 static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer();
@@ -63,6 +66,31 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
         }
 
         switch (instr->op) {
+            case OP_PROLOGUE:
+                if (BE(c)->emit_prologue) {
+                    BE(c)->emit_prologue(c, (size_t)instr->imm64);
+                }
+                emit_callee_save_stores(c);
+                break;
+
+            case OP_PARAM_SAVE_INT:
+                if (BE(c)->emit_param_save_int) {
+                    BE(c)->emit_param_save_int(c, (int)instr->imm, (int32_t)instr->imm64);
+                }
+                break;
+
+            case OP_PARAM_SAVE_FP:
+                if (BE(c)->emit_param_save_fp) {
+                    BE(c)->emit_param_save_fp(c, (int)instr->imm, (int32_t)instr->imm64);
+                }
+                break;
+
+            case OP_VARIADIC_SPILL:
+                if (BE(c)->emit_variadic_spill) {
+                    BE(c)->emit_variadic_spill(c, (int)instr->imm, (int32_t)instr->imm64);
+                }
+                break;
+
             case OP_MOV_IMM:
                 BE(c)->emit_mov_imm(c, phys_dst, instr->imm64);
                 break;

@@ -121,7 +121,7 @@ typedef struct ZeroCCISABackend {
     /* Parameter spilling / function setup */
     void (*emit_param_save_int)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
     void (*emit_param_save_fp)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
-    void (*emit_variadic_spill)(ZeroCCCompiler *c, int param_count, int int_reg_idx);
+    void (*emit_variadic_spill)(ZeroCCCompiler *c, int param_count, int32_t base_offset);
     void (*emit_variadic_al_setup)(ZeroCCCompiler *c, int num_fp_args);
     
     /* RIP-relative addressing for string literals */

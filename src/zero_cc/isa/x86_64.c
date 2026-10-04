@@ -987,8 +987,7 @@ static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offse
 }
 
 /* Variadic spill: spill remaining integer registers for va_start */
-static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int int_reg_idx) {
-    (void)int_reg_idx;
+static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
     static const uint8_t save_int_regs[6][3] = {
         {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi */
         {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi */
@@ -998,8 +997,7 @@ static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int int_
         {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  */
     };
     for (size_t p = param_count; p < 6; p++) {
-        c->current_stack_frame += 8;
-        int32_t spill_offset = c->current_stack_frame;
+        int32_t spill_offset = base_offset + (int32_t)(p - param_count) * 8;
         zero_cc_emit_u8(&c->text_section, save_int_regs[p][0]);
         zero_cc_emit_u8(&c->text_section, save_int_regs[p][1]);
         zero_cc_emit_u8(&c->text_section, save_int_regs[p][2]);
