@@ -1,0 +1,128 @@
+# Missing Opcode Handler Templates
+# Copy these into ast_lowering_mc.c switch statement
+
+
+// OP_PUSH_RAX
+/* Push register to stack */
+case OP_PUSH_RAX:
+    if (BE(c)->emit_push_reg) {
+        BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+    }
+    break;
+
+
+// OP_POP_RAX
+/* Pop register from stack */
+case OP_POP_RAX:
+    if (BE(c)->emit_pop_reg) {
+        BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
+    }
+    break;
+
+
+// OP_PUSH_RBX
+/* Push register to stack */
+case OP_PUSH_RBX:
+    if (BE(c)->emit_push_reg) {
+        BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+    }
+    break;
+
+
+// OP_POP_RBX
+/* Pop register from stack */
+case OP_POP_RBX:
+    if (BE(c)->emit_pop_reg) {
+        BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
+    }
+    break;
+
+
+// OP_ADD_IMM
+/* Add immediate to register */
+case OP_ADD_IMM:
+    phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+    if (BE(c)->emit_add_imm) {
+        BE(c)->emit_add_imm(c, phys_dst, (int16_t)instr->imm);
+    }
+    break;
+
+
+// OP_SUB_IMM
+/* Subtract immediate from register */
+case OP_SUB_IMM:
+    phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+    if (BE(c)->emit_sub_imm) {
+        BE(c)->emit_sub_imm(c, phys_dst, (int16_t)instr->imm);
+    }
+    break;
+
+
+// OP_INC
+/* Increment register */
+case OP_INC:
+    phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+    if (BE(c)->emit_inc) {
+        BE(c)->emit_inc(c, phys_dst);
+    }
+    break;
+
+
+// OP_DEC
+/* Decrement register */
+case OP_DEC:
+    phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+    if (BE(c)->emit_dec) {
+        BE(c)->emit_dec(c, phys_dst);
+    }
+    break;
+
+
+// OP_SAR
+/* Arithmetic shift right */
+case OP_SAR:
+    phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+    phys_src = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
+    if (BE(c)->emit_sar) {
+        BE(c)->emit_sar(c, phys_dst, phys_src);
+    }
+    break;
+
+
+// OP_CALL_INDIRECT
+/* Call through register pointer */
+case OP_CALL_INDIRECT:
+    /* Load address from register and call */
+    addr_reg = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
+    if (BE(c)->emit_call_reg) {
+        BE(c)->emit_call_reg(c, addr_reg);
+    }
+    break;
+
+
+// OP_RET
+/* Return from function */
+case OP_RET:
+    if (BE(c)->emit_ret) {
+        BE(c)->emit_ret(c);
+    }
+    break;
+
+
+// OP_EPILOGUE
+/* Function epilogue (callee-save loads, leave, ret) */
+case OP_EPILOGUE:
+    if (BE(c)->emit_epilogue) {
+        BE(c)->emit_epilogue(c);
+    }
+    break;
+
+
+// OP_STACK_ALIGN
+/* Align stack pointer */
+case OP_STACK_ALIGN:
+    if (BE(c)->emit_stack_align) {
+        BE(c)->emit_stack_align(c, (uint8_t)instr->imm);
+    }
+    break;
+
