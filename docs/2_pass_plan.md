@@ -1,13 +1,13 @@
 # Two-Pass Register Allocation Integration Plan with Optimization Levels
 
-## Status: Phase 1 Complete ✅
+## Status: Phases 1–3 Complete ✅
 
-**Current Progress**: IR infrastructure implemented and tested.
+**Current Progress**: Two-pass IR and Register Allocation fully integrated and passing test suite.
 - [x] Phase 1: IR buffer (64K array, 8-byte instructions)
-- [ ] Phase 2: Pass 1 (Instruction Selection)
-- [ ] Phase 3: Register Allocation integration
-- [ ] Phase 4: Pass 2 (Code Emission)
-- [ ] Phase 5: Optimization passes
+- [x] Phase 2: Pass 1 (Instruction Selection: AST → IR)
+- [x] Phase 3: Register Allocation integration (Linear-scan, GPR/XMM classes, spill lowering)
+- [ ] Phase 4: Pass 2 (Code Emission completion across all targets)
+- [ ] Phase 5: Optimization passes (-O1 to -O3)
 - [ ] Phase 6: Testing and benchmarks
 
 **See**: `2_pass_progress.md` for latest status

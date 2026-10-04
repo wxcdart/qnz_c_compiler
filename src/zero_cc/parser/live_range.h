@@ -35,6 +35,7 @@ typedef struct LiveRangeAnalyzer {
     /* Live intervals per temp */
     size_t *temp_def_pos;       /* Definition position per temp */
     size_t *temp_live_end;      /* Last use position per temp */
+    RegClass *temp_reg_class;   /* Register class per temp (GPR or XMM) */
     size_t temp_capacity;       /* Capacity of temp arrays */
     
     /* Clobber tracking per instruction */
@@ -59,6 +60,7 @@ static void live_range_init(LiveRangeAnalyzer *lra) {
     
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
+    lra->temp_reg_class = NULL;
     lra->temp_capacity = 0;
     
     lra->rax_clobbered = NULL;
@@ -159,14 +161,23 @@ static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int t
             return;
         }
         
+        RegClass *new_reg_class = realloc(lra->temp_reg_class, new_cap * sizeof(RegClass));
+        if (!new_reg_class) {
+            free(new_def_pos);
+            free(new_live_end);
+            return;
+        }
+        
         /* Initialize new entries */
         for (size_t i = lra->temp_capacity; i < new_cap; i++) {
             new_def_pos[i] = SIZE_MAX;  /* Undefined */
             new_live_end[i] = 0;
+            new_reg_class[i] = REG_CLASS_GPR;  /* Default to GPR */
         }
         
         lra->temp_def_pos = new_def_pos;
         lra->temp_live_end = new_live_end;
+        lra->temp_reg_class = new_reg_class;
         lra->temp_capacity = new_cap;
     }
     
@@ -186,7 +197,6 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) __attri
 static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
     if (!lra || !ra) return;
     
-    
     /* Process each temp that was defined */
     for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
         if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
@@ -196,13 +206,11 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         size_t start = lra->temp_def_pos[temp_id];
         size_t end = lra->temp_live_end[temp_id];
         
-        
         /* Skip if start > end (shouldn't happen, but be safe) */
         if (start > end) continue;
         
-        /* Determine register class based on usage pattern */
-        /* For now, assume all temps are GPR (we'll refine this later) */
-        RegClass reg_class = REG_CLASS_GPR;
+        /* Determine register class from the defining instruction's opcode */
+        RegClass reg_class = lra->temp_reg_class[temp_id];
         
         /* Add interval to register allocator */
         int int_idx = regalloc_add_interval(ra, (int)temp_id, start, end, reg_class);
@@ -279,14 +287,36 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         /* Record destination temp (definition) - skip 0xFF (no temp) */
         if (instr->temp_dest != 0xFF) {
             live_range_add_use(lra, i, instr->temp_dest, true);
+            /* Set register class based on the defining instruction's opcode */
+            if ((size_t)instr->temp_dest < lra->temp_capacity) {
+                if (instr->op == OP_CVTTSD2SI) {
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
+                } else if (ir_opcode_is_float(instr->op)) {
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
+                }
+            }
         }
         
         /* Record source temps (uses) - skip 0xFF (no temp) */
         if (instr->temp_src1 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src1, false);
+            if ((size_t)instr->temp_src1 < lra->temp_capacity) {
+                if (instr->op == OP_CVTSI2SD) {
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
+                } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV) {
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
+                }
+            }
         }
         if (instr->temp_src2 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src2, false);
+            if ((size_t)instr->temp_src2 < lra->temp_capacity) {
+                if (instr->op == OP_FSTORE) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
+                } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
+                }
+            }
         }
         
         /* DIV/MOD clobbers rax and rdx - extend live ranges of temps 0 and 2

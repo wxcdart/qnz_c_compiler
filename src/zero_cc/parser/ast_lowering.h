@@ -103,9 +103,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
-    c->next_temp_id = 0;
+    c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
     
+    /* Reset user labels and loop label stack for this function */
+    g_user_label_count = 0;
+    g_loop_label_depth = 0;
+
     /* Reset IR buffer */
     ir_reset();
     g_ir_epilogue_label = c->ir_next_label++;
@@ -126,21 +130,18 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
     live_range_compute(&lra, &c->regalloc);
     regalloc_allocate(&c->regalloc);
+    
     live_range_free(&lra);
     
     /* Preserve callee-saved registers that were assigned by the allocator.
      * Emit MOV [rbp - slot], reg for each used callee-saved GPR. */
     emit_callee_save_stores(c);
-
+    
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
     int32_t spill_base_offset = c->current_stack_frame;
     if (c->regalloc.next_spill_slot > 0) {
         c->current_stack_frame += c->regalloc.next_spill_slot * 8;
-    }
-    
-    /* Debug: print interval details */
-    for (size_t i = 0; i < c->regalloc.interval_count && i < 10; i++) {
     }
     
     /* Emit machine code from IR with allocated registers */

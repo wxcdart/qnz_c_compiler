@@ -49,28 +49,30 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_FLOAT: {
-            /* Float literals load via backend emit_load_fp_imm */
+            /* Float literals: store in rodata and load via RIP-relative addressing */
             double val = node->float_val;
-            if (BE(c)->emit_load_fp_imm) {
-                BE(c)->emit_load_fp_imm(c, 0, val);
-            }
+            size_t rodata_offset = c->rodata_section.length;
+            zero_cc_buf_put_bytes(&c->rodata_section, &val, sizeof(double));
+            int temp = c->next_temp_id++;
+            ir_emit_fmov_imm((uint8_t)temp, (int64_t)rodata_offset);
             c->last_expr_is_float = 1;
-            return VREG_F0;
+            return temp;
         }
         
         case NODE_STRING: {
+            int temp = c->next_temp_id++;
             if (node->s.str) {
                 size_t len = strlen(node->s.str);
                 size_t rodata_offset = c->rodata_section.length;
                 zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
                 uint8_t zero = 0;
                 zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
-                if (BE(c)->emit_lea_rip) {
-                    BE(c)->emit_lea_rip(c, 0, rodata_offset);
-                }
+                ir_emit_lea_rip(temp, rodata_offset);
+            } else {
+                ir_emit_mov_imm(temp, 0);
             }
             c->last_expr_is_float = 0;
-            return VREG_0;
+            return temp;
         }
         
         case NODE_IDENT: {
@@ -78,12 +80,11 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
-                    /* Float load via backend emit_load_fp */
-                    if (BE(c)->emit_load_fp) {
-                        BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
-                    }
+                    /* Float load via IR for proper register allocation */
+                    int temp = c->next_temp_id++;
+                    ir_emit_fload((uint8_t)temp, 0xFF, -sym->stack_offset);
                     c->last_expr_is_float = 1;
-                    return VREG_F0;
+                    return temp;
                 } else if (sym->type.tag == TYPE_ARRAY && !sym->is_vla) {
                     /* Fixed-size array decays to pointer via LEA */
                     int temp = c->next_temp_id++;
@@ -100,15 +101,7 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
                     int temp = c->next_temp_id++;
-                    /* Global load requires direct machine code with relocation */
-                    BE(c)->emit_mov_imm(c, 0, 0);
-                    size_t patch_pos = me_get_offset(c) - 8;
-                    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
-                        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
-                        r->text_patch_offset = patch_pos;
-                        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", name);
-                        r->is_call = false;
-                    }
+                    ir_emit_mov_global(temp, gv->name);
                     c->last_expr_is_float = 0;
                     return temp;
                 }
@@ -124,65 +117,36 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_BINOP: {
-            /* Evaluate left operand first - result lands in xmm0 for floats */
+            /* Evaluate left operand first */
             int left_temp = lower_expr(c, arena, node->left);
             bool left_is_float = c->last_expr_is_float;
 
-            /* For float operands: spill xmm0 (= left) to stack NOW, before
-             * evaluating right, which would otherwise overwrite xmm0.
-             * Use an %rbp-relative stack slot within the allocated frame
-             * rather than red-zone [rsp-8] so it is safe across nested calls. */
-            int32_t spill_offset = 0;
-            if (left_is_float) {
-                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                c->current_stack_frame += 8;
-                spill_offset = c->current_stack_frame;
-
-                /* movsd [rbp - spill_offset], xmm0 */
-                if (BE(c)->emit_store_fp) {
-                    BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -spill_offset);
-                }
-            }
-
-            /* Evaluate right operand - result lands in xmm0 for floats */
+            /* Evaluate right operand */
             int right_temp = lower_expr(c, arena, node->right);
             bool right_is_float = c->last_expr_is_float;
 
-            /* Float arithmetic requires direct machine code */
+            /* Float arithmetic - use IR for proper register allocation */
             if (left_is_float && right_is_float) {
-                /* At this point: xmm0 = right
-                 * Reload left and set up: xmm0 = left, xmm1 = right
-                 * so that "xmm0 op xmm1" gives "left op right" for all ops. */
-
-                /* movsd xmm1, xmm0   -- xmm1 = right */
-                if (BE(c)->emit_fp_mov) {
-                    BE(c)->emit_fp_mov(c, 1, 0);
-                }
-
-                /* movsd xmm0, [rbp - spill_offset] -- xmm0 = left (reloaded) */
-                if (BE(c)->emit_load_fp) {
-                    BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -spill_offset);
-                }
-
-                /* Perform: xmm0 = left op right */
+                /* At this point: left_temp and right_temp are float temps in XMM registers */
+                int result_temp = c->next_temp_id++;
                 switch (node->aux.op) {
                     case TK_PLUS:
-                        if (BE(c)->emit_fp_add) BE(c)->emit_fp_add(c, 0, 0, 1);
+                        ir_emit_fadd((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
                         break;
                     case TK_MINUS:
-                        if (BE(c)->emit_fp_sub) BE(c)->emit_fp_sub(c, 0, 0, 1);
+                        ir_emit_fsub((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
                         break;
                     case TK_STAR:
-                        if (BE(c)->emit_fp_mul) BE(c)->emit_fp_mul(c, 0, 0, 1);
+                        ir_emit_fmul((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
                         break;
                     case TK_SLASH:
-                        if (BE(c)->emit_fp_div) BE(c)->emit_fp_div(c, 0, 0, 1);
+                        ir_emit_fdiv((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
                         break;
                     default:
                         break;
                 }
                 c->last_expr_is_float = 1;
-                return VREG_F0;
+                return result_temp;
             }
             
             /* Integer arithmetic - use IR */
@@ -582,16 +546,16 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 if (c->last_expr_is_float) {
-                    /* Float value in xmm0 - store to [rbp + total_offset] */
-                    if (BE(c)->emit_store_fp) {
-                        BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, total_offset);
-                    }
+                    /* Float value: store via IR */
+                    ir_emit_fstore((uint8_t)right_temp, BE(c)->fp_reg, total_offset);
+                    c->last_expr_is_float = 1;
+                    return right_temp;
                 } else {
                     /* Integer/pointer value in GPR - use IR store */
                     ir_emit_store(right_temp, BE(c)->fp_reg, total_offset);
+                    c->last_expr_is_float = 0;
+                    return right_temp;
                 }
-                c->last_expr_is_float = 0;
-                return right_temp;
             }
 
             if (left_node && left_node->tag == NODE_INDEX) {
@@ -707,71 +671,58 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                 if (target_is_float) {
+                    int float_temp = right_temp;
                     if (!c->last_expr_is_float) {
-                        /* Convert int to float in xmm0 */
-                        if (BE(c)->emit_fp_cvtsf) {
-                            BE(c)->emit_fp_cvtsf(c, 0, 0); /* cvtsi2sd xmm0, rax */
-                        }
+                        /* Convert int to float via IR */
+                        float_temp = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint8_t)float_temp, (uint8_t)right_temp);
                     }
-                    /* For compound assignment, we need to load current value first */
+                    /* For compound assignment, load current value, operate, then store */
                     if (is_compound) {
-                        /* xmm0 currently holds the evaluated RHS. Move it to xmm1 */
-                        if (BE(c)->emit_fp_mov) {
-                            BE(c)->emit_fp_mov(c, 1, 0);
-                        }
-                        /* Load current LHS value into xmm0 */
-                        if (BE(c)->emit_load_fp) {
-                            BE(c)->emit_load_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
-                        }
-                        /* Perform operation: xmm0 = LHS op RHS (xmm0 op xmm1) */
+                        int lhs_temp = c->next_temp_id++;
+                        ir_emit_fload((uint8_t)lhs_temp, 0xFF, -sym->stack_offset);
+                        int op_res = c->next_temp_id++;
                         switch (node->aux.op) {
-                            case TK_ADD_ASSIGN:
-                                if (BE(c)->emit_fp_add) BE(c)->emit_fp_add(c, 0, 0, 1);
-                                break;
-                            case TK_SUB_ASSIGN:
-                                if (BE(c)->emit_fp_sub) BE(c)->emit_fp_sub(c, 0, 0, 1);
-                                break;
-                            case TK_MUL_ASSIGN:
-                                if (BE(c)->emit_fp_mul) BE(c)->emit_fp_mul(c, 0, 0, 1);
-                                break;
-                            case TK_DIV_ASSIGN:
-                                if (BE(c)->emit_fp_div) BE(c)->emit_fp_div(c, 0, 0, 1);
-                                break;
+                            case TK_ADD_ASSIGN: ir_emit_fadd((uint8_t)op_res, (uint8_t)lhs_temp, (uint8_t)float_temp); break;
+                            case TK_SUB_ASSIGN: ir_emit_fsub((uint8_t)op_res, (uint8_t)lhs_temp, (uint8_t)float_temp); break;
+                            case TK_MUL_ASSIGN: ir_emit_fmul((uint8_t)op_res, (uint8_t)lhs_temp, (uint8_t)float_temp); break;
+                            case TK_DIV_ASSIGN: ir_emit_fdiv((uint8_t)op_res, (uint8_t)lhs_temp, (uint8_t)float_temp); break;
+                            default: op_res = float_temp; break;
                         }
+                        ir_emit_fstore((uint8_t)op_res, 0xFF, -sym->stack_offset);
+                        c->last_expr_is_float = 1;
+                        return op_res;
+                    } else {
+                        /* Simple assignment: just store */
+                        ir_emit_fstore((uint8_t)float_temp, 0xFF, -sym->stack_offset);
+                        c->last_expr_is_float = 1;
+                        return float_temp;
                     }
-                    /* movsd [rbp - offset], xmm0 */
-                    if (BE(c)->emit_store_fp) {
-                        BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
-                    }
-                    c->last_expr_is_float = 1;
-                    return VREG_F0;
                 } else {
                     if (c->last_expr_is_float) {
-                        /* Convert float to int in eax */
-                        if (BE(c)->emit_fp_cvtsi) {
-                            BE(c)->emit_fp_cvtsi(c, 0, 0); /* cvttsd2si eax, xmm0 */
-                        }
+                        /* Convert float to int via IR */
+                        int int_temp = c->next_temp_id++;
+                        ir_emit_cvttsd2si((uint8_t)int_temp, (uint8_t)right_temp);
                         if (is_compound) {
                             /* Load current value and perform operation */
                             int left_temp = c->next_temp_id++;
                             ir_emit_load(left_temp, BE(c)->fp_reg, -sym->stack_offset);
                             switch (node->aux.op) {
-                                case TK_ADD_ASSIGN: ir_emit_add(right_temp, left_temp, right_temp); break;
-                                case TK_SUB_ASSIGN: ir_emit_sub(right_temp, left_temp, right_temp); break;
-                                case TK_MUL_ASSIGN: ir_emit_mul(right_temp, left_temp, right_temp); break;
-                                case TK_DIV_ASSIGN: ir_emit_div(right_temp, left_temp, right_temp); break;
-                                case TK_MOD_ASSIGN: ir_emit_mod(right_temp, left_temp, right_temp); break;
-                                case TK_AND_ASSIGN: ir_emit_and(right_temp, left_temp, right_temp); break;
-                                case TK_OR_ASSIGN:  ir_emit_or(right_temp, left_temp, right_temp); break;
-                                case TK_XOR_ASSIGN: ir_emit_xor(right_temp, left_temp, right_temp); break;
-                                case TK_SHL_ASSIGN: ir_emit_shl(right_temp, left_temp, right_temp); break;
-                                case TK_SHR_ASSIGN: ir_emit_shr(right_temp, left_temp, right_temp); break;
+                                case TK_ADD_ASSIGN: ir_emit_add(int_temp, left_temp, int_temp); break;
+                                case TK_SUB_ASSIGN: ir_emit_sub(int_temp, left_temp, int_temp); break;
+                                case TK_MUL_ASSIGN: ir_emit_mul(int_temp, left_temp, int_temp); break;
+                                case TK_DIV_ASSIGN: ir_emit_div(int_temp, left_temp, int_temp); break;
+                                case TK_MOD_ASSIGN: ir_emit_mod(int_temp, left_temp, int_temp); break;
+                                case TK_AND_ASSIGN: ir_emit_and(int_temp, left_temp, int_temp); break;
+                                case TK_OR_ASSIGN:  ir_emit_or(int_temp, left_temp, int_temp); break;
+                                case TK_XOR_ASSIGN: ir_emit_xor(int_temp, left_temp, int_temp); break;
+                                case TK_SHL_ASSIGN: ir_emit_shl(int_temp, left_temp, int_temp); break;
+                                case TK_SHR_ASSIGN: ir_emit_shr(int_temp, left_temp, int_temp); break;
                             }
                         }
-                        /* mov [rbp - offset], eax */
-                        BE(c)->emit_store(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                        ir_emit_store((uint8_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
                         c->last_expr_is_float = 0;
-                        return VREG_0;
+                        return int_temp;
                     } else {
                         if (sym && (sym->is_atomic || sym->type.is_atomic)) {
                             int addr_temp = c->next_temp_id++;
@@ -1327,16 +1278,12 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 while (arg != AST_NULL) {
                     int temp = lower_expr(c, arena, arg);
                     if (c->last_expr_is_float) {
-                        /* Float argument: value is in xmm0. Spill it to a stack slot NOW
-                         * so that subsequent argument evaluations (or calls) do not clobber it. */
+                        /* Float argument: spill it to a stack slot via IR */
                         if (fp_reg_idx < 8) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
                             fp_spill_offsets[fp_reg_idx] = c->current_stack_frame;
-                            /* movsd [rbp - spill_offset], xmm0 */
-                            if (BE(c)->emit_store_fp) {
-                                BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -fp_spill_offsets[fp_reg_idx]);
-                            }
+                            ir_emit_fstore((uint8_t)temp, 0xFF, -fp_spill_offsets[fp_reg_idx]);
                             fp_reg_idx++;
                         }
                     } else {

@@ -87,24 +87,24 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
         if (sym) {
             bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             if (target_is_float) {
+                int float_temp = result_temp;
                 if (!c->last_expr_is_float) {
-                    /* Convert int (in rax / result_temp) to float in xmm0 */
-                    if (BE(c)->emit_fp_cvtsf) {
-                        BE(c)->emit_fp_cvtsf(c, 0, 0); /* xmm0, rax */
-                    }
+                    /* Convert int to float via IR */
+                    float_temp = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint8_t)float_temp, (uint8_t)result_temp);
                 }
-                /* Float assignment: store xmm0 to [rbp - offset] */
-                if (BE(c)->emit_store_fp) {
-                    BE(c)->emit_store_fp(c, 0, BE(c)->fp_reg, -sym->stack_offset);
-                }
+                /* Float assignment: store via IR */
+                ir_emit_fstore((uint8_t)float_temp, 0xFF, -sym->stack_offset);
+                c->last_expr_is_float = 1;
+                return;
             } else {
                 if (c->last_expr_is_float) {
-                    /* Convert float (in xmm0) to int (in eax) */
-                    if (BE(c)->emit_fp_cvtsi) {
-                        BE(c)->emit_fp_cvtsi(c, 0, 0); /* eax, xmm0 */
-                    }
-                    /* mov [rbp - offset], eax */
-                    BE(c)->emit_store(c, 0, BE(c)->fp_reg, -sym->stack_offset);
+                    /* Convert float to int via IR */
+                    int int_temp = c->next_temp_id++;
+                    ir_emit_cvttsd2si((uint8_t)int_temp, (uint8_t)result_temp);
+                    ir_emit_store((uint8_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return;
                 } else {
                     /* If initializer was a compound literal storing directly to an array variable, don't overwrite */
                     ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
@@ -191,27 +191,53 @@ static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNod
     ir_emit_label(end_label);
 }
 
+/* Loop context stack for break/continue lowering via IR */
+#define MAX_LOOP_DEPTH 32
+static struct {
+    uint16_t break_label;
+    uint16_t continue_label;
+} g_loop_label_stack[MAX_LOOP_DEPTH];
+static int g_loop_label_depth = 0;
+
 static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
+    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
+        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
+        g_loop_label_stack[g_loop_label_depth].continue_label = loop_start;
+        g_loop_label_depth++;
+    }
     ir_emit_label(loop_start);
     int cond_temp = lower_expr(c, arena, node->left);
     ir_emit_je((uint8_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
+    if (g_loop_label_depth > 0) {
+        g_loop_label_depth--;
+    }
 }
 
 static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
+    uint16_t loop_cond = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
+    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
+        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
+        g_loop_label_stack[g_loop_label_depth].continue_label = loop_cond;
+        g_loop_label_depth++;
+    }
     ir_emit_label(loop_start);
     lower_node(c, arena, node->right);
+    ir_emit_label(loop_cond);
     int cond_temp = lower_expr(c, arena, node->left);
     ir_emit_jne((uint8_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
+    if (g_loop_label_depth > 0) {
+        g_loop_label_depth--;
+    }
 }
 
 static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -220,7 +246,13 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
         lower_node(c, arena, node->left);
     }
     uint16_t loop_start = c->ir_next_label++;
+    uint16_t loop_step = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
+    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
+        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
+        g_loop_label_stack[g_loop_label_depth].continue_label = loop_step;
+        g_loop_label_depth++;
+    }
     ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
         int cond_temp = lower_expr(c, arena, node->right);
@@ -229,11 +261,15 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
     }
+    ir_emit_label(loop_step);
     if (node->aux.step != AST_NULL) {
         lower_expr(c, arena, node->aux.step);
     }
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
+    if (g_loop_label_depth > 0) {
+        g_loop_label_depth--;
+    }
 }
 
 static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -243,58 +279,55 @@ static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
     /* TODO: Implement switch statement */
 }
 
-static void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
-    if (g_ir_emitter_ctx.loop_depth > 0) {
-        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        ir_emitter_add_break_patch(&g_ir_emitter_ctx, patch);
+static void lower_stmt_break(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
+    if (g_loop_label_depth > 0) {
+        ir_emit_jmp(g_loop_label_stack[g_loop_label_depth - 1].break_label);
     }
 }
 
-static void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
-    if (g_ir_emitter_ctx.loop_depth > 0) {
-        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        ir_emitter_add_continue_patch(&g_ir_emitter_ctx, patch);
+static void lower_stmt_continue(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
+    if (g_loop_label_depth > 0) {
+        ir_emit_jmp(g_loop_label_stack[g_loop_label_depth - 1].continue_label);
     }
+}
+
+/* User label mapping for AST -> IR lowering */
+#define MAX_USER_LABELS 256
+static struct {
+    char name[64];
+    uint16_t ir_label;
+} g_user_labels[MAX_USER_LABELS];
+static int g_user_label_count = 0;
+
+static uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name) {
+    for (int i = 0; i < g_user_label_count; i++) {
+        if (strcmp(g_user_labels[i].name, name) == 0) {
+            return g_user_labels[i].ir_label;
+        }
+    }
+    uint16_t lbl = c->ir_next_label++;
+    if (g_user_label_count < MAX_USER_LABELS) {
+        strncpy(g_user_labels[g_user_label_count].name, name, 63);
+        g_user_labels[g_user_label_count].name[63] = '\0';
+        g_user_labels[g_user_label_count].ir_label = lbl;
+        g_user_label_count++;
+    }
+    return lbl;
 }
 
 static void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
-    if (!node) return;
-    int idx = ir_emitter_find_label(&g_ir_emitter_ctx, node->s.str);
-    if (idx < 0) {
-        idx = ir_emitter_add_label(&g_ir_emitter_ctx, node->s.str, me_get_offset(c));
-    } else {
-        g_ir_emitter_ctx.label_table[idx].position = me_get_offset(c);
-    }
-    /* Patch any pending gotos to this label */
-    for (int i = 0; i < g_ir_emitter_ctx.goto_patch_count[idx]; i++) {
-        size_t patch_pos = g_ir_emitter_ctx.goto_patch_list[idx][i];
-        BE(c)->patch_jmp(c, patch_pos, g_ir_emitter_ctx.label_table[idx].position);
-    }
-    g_ir_emitter_ctx.goto_patch_count[idx] = 0;
+    if (!node || !node->s.str) return;
+    uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
+    ir_emit_label(lbl);
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
     }
 }
 
 static void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused)), ZeroCCASTNode *node) {
-    if (!node) return;
-    int idx = ir_emitter_find_label(&g_ir_emitter_ctx, node->s.str);
-    if (idx >= 0) {
-        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        BE(c)->patch_jmp(c, patch, g_ir_emitter_ctx.label_table[idx].position);
-    } else {
-        size_t patch = BE(c)->emit_jmp(c, ""); /* TODO: label */;
-        idx = ir_emitter_add_label(&g_ir_emitter_ctx, node->s.str, 0);
-        if (idx >= 0) {
-            if (!g_ir_emitter_ctx.goto_patch_list[idx]) {
-                g_ir_emitter_ctx.goto_patch_list[idx] = (size_t*)malloc(sizeof(size_t) * 16);
-                g_ir_emitter_ctx.goto_patch_count[idx] = 0;
-            }
-            if (g_ir_emitter_ctx.goto_patch_list[idx] && g_ir_emitter_ctx.goto_patch_count[idx] < 16) {
-                g_ir_emitter_ctx.goto_patch_list[idx][g_ir_emitter_ctx.goto_patch_count[idx]++] = patch;
-            }
-        }
-    }
+    if (!node || !node->s.str) return;
+    uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
+    ir_emit_jmp(lbl);
 }
 
 /* =========================================================================

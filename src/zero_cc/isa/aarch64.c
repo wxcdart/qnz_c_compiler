@@ -202,10 +202,10 @@ static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
     arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (base_reg << 5) | src_reg);
 }
 
-static void aarch64_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
+static void aarch64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
     /* Use literal pool or mov immediate for float */
     /* For now, store to memory and load */
-    (void)c; (void)dst_reg; (void)value;
+    (void)c; (void)dst_reg; (void)rodata_offset;
 }
 
 static void aarch64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -388,7 +388,7 @@ const ZeroCCISABackend aarch64_backend = {
     
     .emit_load_fp = aarch64_emit_load_fp,
     .emit_store_fp = aarch64_emit_store_fp,
-    .emit_load_fp_imm = aarch64_emit_load_fp_imm,
+    .emit_load_fp_rodata = aarch64_emit_load_fp_rodata,
     .emit_fp_add = aarch64_emit_fp_add,
     .emit_fp_sub = aarch64_emit_fp_sub,
     .emit_fp_mul = aarch64_emit_fp_mul,

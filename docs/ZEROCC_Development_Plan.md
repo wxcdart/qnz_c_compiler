@@ -271,7 +271,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 28 | Full SSE2 floating-point arithmetic (`addsd`, `subsd`, `mulsd`, `divsd`) | 1 week | ✅ |
 | 29 | Struct return by value (hidden-pointer calling convention) | 1 week | ✅ |
 | 30 | `va_arg` expansion | 1 week | ✅ |
-| 31 | Linear-scan register allocator | 2 weeks | 🟡 Partial |
+| 31 | Linear-scan register allocator | 2 weeks | ✅ Complete (superseded & completed by 44.1, 44.5–44.7, 55) |
 | 32 | Global variable storage emission (`.data` / `.bss`) | 3 days | ✅ |
 
 ---
@@ -359,7 +359,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 54 | **Complete Pass 1 (AST → IR)**: Expand `ir_emit_ops.h` and migrate remaining AST statement/expression nodes to IR; eliminate dual-emission pathway | 1 week | 🟡 Partial (Sprint 8) |
+| 54 | **Complete Pass 1 (AST → IR)**: Expand `ir_emit_ops.h` and migrate remaining AST statement/expression nodes to IR; eliminate dual-emission pathway | 1 week | ✅ Complete |
 | 55 | **Register Allocator Hardening**: Fix live-interval computation in `live_range.h`; robust linear-scan assignment with callee/caller register spilling in `regalloc.h`, callee-save frame preservation, and stack spill/reload lowering | 1 week | ✅ Complete |
 | 56 | **Pass 2 Machine Code Emission**: Complete `emit_ir_to_machine_code()` using target `isa_backend.h` interfaces (x86-64, AArch64, RISC-V) | 1 week | |
 | 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | |

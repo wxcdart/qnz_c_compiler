@@ -244,9 +244,9 @@ static void riscv64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
     riscv_emit_u32(c, 0x00002027 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
 }
 
-static void riscv64_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
+static void riscv64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
     /* Use literal pool - store to memory and load */
-    (void)c; (void)dst_reg; (void)value;
+    (void)c; (void)dst_reg; (void)rodata_offset;
 }
 
 static void riscv64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -418,7 +418,7 @@ const ZeroCCISABackend riscv64_backend = {
     
     .emit_load_fp = riscv64_emit_load_fp,
     .emit_store_fp = riscv64_emit_store_fp,
-    .emit_load_fp_imm = riscv64_emit_load_fp_imm,
+    .emit_load_fp_rodata = riscv64_emit_load_fp_rodata,
     .emit_fp_add = riscv64_emit_fp_add,
     .emit_fp_sub = riscv64_emit_fp_sub,
     .emit_fp_mul = riscv64_emit_fp_mul,
@@ -583,8 +583,8 @@ static void riscv32_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
     riscv_emit_u32(c, 0x00002027 | (RV_REG(base_reg) << 15) | (RV_REG(src_reg) << 20) | ((offset & 0xFFF) << 7) | (3 << 25));
 }
 
-static void riscv32_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
-    (void)c; (void)dst_reg; (void)value;
+static void riscv32_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
+    (void)c; (void)dst_reg; (void)rodata_offset;
 }
 
 static void riscv32_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -740,7 +740,7 @@ const ZeroCCISABackend riscv32_backend = {
     
     .emit_load_fp = riscv32_emit_load_fp,
     .emit_store_fp = riscv32_emit_store_fp,
-    .emit_load_fp_imm = riscv32_emit_load_fp_imm,
+    .emit_load_fp_rodata = riscv32_emit_load_fp_rodata,
     .emit_fp_add = riscv32_emit_fp_add,
     .emit_fp_sub = riscv32_emit_fp_sub,
     .emit_fp_mul = riscv32_emit_fp_mul,

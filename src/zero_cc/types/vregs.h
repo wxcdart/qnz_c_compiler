@@ -61,5 +61,6 @@
 #define VREG_SP    256  /* Stack pointer - use BE(c)->sp_reg */
 #define VREG_FP    257  /* Frame pointer - use BE(c)->fp_reg */
 #define VREG_FLAGS 258  /* Condition flags (implicit on most ISAs) */
+#define VREG_USER_START 16  /* First temp ID available for user allocation */
 
 #endif /* ZERO_CC_VREGS_H */

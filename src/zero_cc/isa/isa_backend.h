@@ -107,7 +107,7 @@ typedef struct ZeroCCISABackend {
     /* Floating point */
     void (*emit_load_fp)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
     void (*emit_store_fp)(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
-    void (*emit_load_fp_imm)(ZeroCCCompiler *c, int dst_reg, double value);
+    void (*emit_load_fp_rodata)(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset);
     void (*emit_fp_add)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_fp_sub)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_fp_mul)(ZeroCCCompiler *c, int dst, int src1, int src2);

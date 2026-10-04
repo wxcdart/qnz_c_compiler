@@ -247,8 +247,12 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
 /* Perform linear-scan register allocation */
 static void regalloc_allocate(RegAllocator *ra) __attribute__((unused));
 static void regalloc_allocate(RegAllocator *ra) {
-    if (!ra || ra->interval_count == 0) return;
+    if (!ra || ra->interval_count == 0) {
+        printf("DEBUG: regalloc_allocate called with interval_count=%zu\n", ra ? ra->interval_count : 0);
+        return;
+    }
     
+    printf("DEBUG: regalloc_allocate called with interval_count=%zu\n", ra->interval_count);
     
     /* Sort intervals by start position */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));
@@ -369,7 +373,14 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
             if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
                 return VREG_0;  /* Spilled - use default */
             }
-            return regalloc_idx_to_vreg(ra->intervals[i].assigned_reg);
+            /* Return physical register based on class */
+            if (ra->intervals[i].reg_class == REG_CLASS_XMM) {
+                /* XMM registers: allocator index 0-7 maps directly to XMM0-XMM7 */
+                return ra->intervals[i].assigned_reg;
+            } else {
+                /* GPR registers: use idx_to_vreg conversion */
+                return regalloc_idx_to_vreg(ra->intervals[i].assigned_reg);
+            }
         }
     }
     return VREG_0;  /* Not found - use default */

@@ -174,8 +174,8 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
     }
     /* If dst is rax or rdx, result is already there */
     
-    if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */
     if (save_rax) me_emit_u8(c, 0x58);  /* pop rax */
+    if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */
 }
 
 static void x86_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -405,15 +405,15 @@ static void x86_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int3
     me_emit_u32(c, (uint32_t)offset);
 }
 
-static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
-    /* Store to rodata and load via RIP-relative addressing */
-    size_t rodata_offset = c->rodata_section.length;
-    zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&value, sizeof(value));
-    
+static void x86_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
+    /* movsd xmm, [rip + disp32] */
     me_emit_u8(c, 0xF2);
+    if (dst_reg >= 8) {
+        me_emit_u8(c, 0x44);  /* REX.R for xmm8-xmm15 */
+    }
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x10);  /* movsd xmm, m64 */
-    me_emit_u8(c, 0x05);  /* RIP-relative */
+    x86_modrm(c, 0, dst_reg & 7, 5);  /* Mod=00, rm=5 (RIP-relative) */
     size_t patch_pos = me_get_offset(c);
     me_emit_u32(c, 0);
     
@@ -423,14 +423,20 @@ static void x86_emit_load_fp_imm(ZeroCCCompiler *c, int dst_reg, double value) {
         c->str_relocs[c->str_reloc_count].dst_reg = dst_reg;
         c->str_reloc_count++;
     }
-    /* Emit REX prefix for dst_reg after relocation is patched */
-    x86_rex(c, 0, 0, 0, dst_reg >> 3);
 }
 
 static void x86_emit_fp_mov(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* addsd dst, src2 (dst = src1 + src2) */
+    if (dst == src2 && dst != src1) {
+        /* Commutative: dst = src1 + dst is the same as dst = dst + src1 */
+        me_emit_u8(c, 0xF2);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (src1 >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x58);  /* addsd */
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+        return;
+    }
     if (dst != src1) {
         x86_emit_fp_mov(c, dst, src1);
     }
@@ -442,7 +448,13 @@ static void x86_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void x86_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    if (dst != src1) {
+    if (dst == src2 && dst != src1) {
+        /* Non-commutative: moving src1 to dst would overwrite src2. Use xmm7 as scratch. */
+        int scratch = 7;
+        x86_emit_fp_mov(c, scratch, src2);
+        x86_emit_fp_mov(c, dst, src1);
+        src2 = scratch;
+    } else if (dst != src1) {
         x86_emit_fp_mov(c, dst, src1);
     }
     me_emit_u8(c, 0xF2);
@@ -453,6 +465,15 @@ static void x86_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void x86_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    if (dst == src2 && dst != src1) {
+        /* Commutative */
+        me_emit_u8(c, 0xF2);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (src1 >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x59);  /* mulsd */
+        x86_modrm(c, 3, dst & 7, src1 & 7);
+        return;
+    }
     if (dst != src1) {
         x86_emit_fp_mov(c, dst, src1);
     }
@@ -464,7 +485,13 @@ static void x86_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void x86_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    if (dst != src1) {
+    if (dst == src2 && dst != src1) {
+        /* Non-commutative: moving src1 to dst would overwrite src2. Use xmm7 as scratch. */
+        int scratch = 7;
+        x86_emit_fp_mov(c, scratch, src2);
+        x86_emit_fp_mov(c, dst, src1);
+        src2 = scratch;
+    } else if (dst != src1) {
         x86_emit_fp_mov(c, dst, src1);
     }
     me_emit_u8(c, 0xF2);
@@ -769,6 +796,15 @@ static void x86_emit_atomic_xadd(ZeroCCCompiler *c, int dst_reg, int addr_reg, i
 }
 
 static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width) {
+    /* If addr_reg or desired_reg is RAX, preserve them in a scratch register before RAX is overwritten with expected_reg */
+    if (addr_reg == X86_RAX) {
+        x86_mov_rr(c, 10 /* R10 */, addr_reg);
+        addr_reg = 10;
+    }
+    if (desired_reg == X86_RAX) {
+        x86_mov_rr(c, 11 /* R11 */, desired_reg);
+        desired_reg = 11;
+    }
     if (expected_reg != X86_RAX) {
         x86_mov_rr(c, X86_RAX, expected_reg);
     }
@@ -795,6 +831,15 @@ static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg
 }
 
 static void x86_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width) {
+    /* If addr_reg or desired_reg is RAX, preserve them in a scratch register before RAX is overwritten with expected_reg */
+    if (addr_reg == X86_RAX) {
+        x86_mov_rr(c, 10 /* R10 */, addr_reg);
+        addr_reg = 10;
+    }
+    if (desired_reg == X86_RAX) {
+        x86_mov_rr(c, 11 /* R11 */, desired_reg);
+        desired_reg = 11;
+    }
     if (expected_reg != X86_RAX) {
         x86_mov_rr(c, X86_RAX, expected_reg);
     }
@@ -1046,7 +1091,7 @@ const ZeroCCISABackend x86_64_backend = {
     
     .emit_load_fp = x86_emit_load_fp,
     .emit_store_fp = x86_emit_store_fp,
-    .emit_load_fp_imm = x86_emit_load_fp_imm,
+    .emit_load_fp_rodata = x86_emit_load_fp_rodata,
     .emit_fp_add = x86_emit_fp_add,
     .emit_fp_sub = x86_emit_fp_sub,
     .emit_fp_mul = x86_emit_fp_mul,

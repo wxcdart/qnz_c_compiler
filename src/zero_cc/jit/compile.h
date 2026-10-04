@@ -334,7 +334,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (sem_ok) {
             /* Reset register allocator for this function */
             regalloc_init(&c->regalloc);
-            c->next_temp_id = 0;
+            c->next_temp_id = VREG_USER_START;
             c->ir_next_label = 0;
             
             /* Reset IR buffer for this function */

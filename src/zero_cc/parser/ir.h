@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -186,6 +187,25 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         default: return "UNKNOWN";
+    }
+}
+
+/* Check if opcode is a floating-point operation */
+static inline bool ir_opcode_is_float(Opcode op) {
+    switch (op) {
+        case OP_FMOV_IMM:
+        case OP_FLOAD:
+        case OP_FSTORE:
+        case OP_FADD:
+        case OP_FSUB:
+        case OP_FMUL:
+        case OP_FDIV:
+        case OP_FMOV:
+        case OP_CVTSI2SD:  /* int -> float conversion uses xmm0 as dest */
+        case OP_CVTTSD2SI: /* float -> int conversion uses xmm0 as src */
+            return true;
+        default:
+            return false;
     }
 }
 

@@ -175,13 +175,13 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
             
             case OP_CVTTSD2SI:
                 if (BE(c)->emit_fp_cvtsi) {
-                    BE(c)->emit_fp_cvtsi(c, phys_dst, 0);  /* convert xmm0 to GPR phys_dst */
+                    BE(c)->emit_fp_cvtsi(c, phys_dst, phys_src1);  /* convert xmm<src> to GPR dst */
                 }
                 break;
             
             case OP_CVTSI2SD:
                 if (BE(c)->emit_fp_cvtsf) {
-                    BE(c)->emit_fp_cvtsf(c, 0, phys_src1);  /* convert GPR phys_src1 to xmm0 */
+                    BE(c)->emit_fp_cvtsf(c, phys_dst, phys_src1);  /* convert GPR src to xmm<dst> */
                 }
                 break;
 
@@ -262,10 +262,10 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
                 break;
 
             case OP_FMOV_IMM: {
-                /* Load float literal - value stored in imm64 as bit pattern */
-                double val = *(double*)&instr->imm64;
-                if (BE(c)->emit_load_fp_imm) {
-                    BE(c)->emit_load_fp_imm(c, phys_dst, val);
+                /* Load float literal via RIP-relative offset in rodata */
+                size_t rodata_offset = (size_t)instr->imm64;
+                if (BE(c)->emit_load_fp_rodata) {
+                    BE(c)->emit_load_fp_rodata(c, phys_dst, rodata_offset);
                 }
                 break;
             }
