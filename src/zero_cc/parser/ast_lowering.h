@@ -34,6 +34,7 @@
 #include "regalloc.h"
 #include "live_range.h"
 #include "lowering_state.h"
+#include "label_patcher.h"
 
 /* Helper: Get current function's return type (last function added to compiler) */
 static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
@@ -100,6 +101,7 @@ static void emit_callee_save_loads(ZeroCCCompiler *c) {
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Initialize lowering state */
     memset(&c->lowering, 0, sizeof(c->lowering));
+    memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
     
     /* Reset register allocator for this function */
@@ -107,9 +109,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
     
-    /* Reset user labels and loop label stack for this function */
-    c->lowering.user_label_count = 0;
-    c->lowering.loop_depth = 0;
+    /* Reset label patcher state */
+    label_patcher_init(&c->label_patcher);
 
     /* Reset IR buffer */
     ir_reset();
@@ -198,12 +199,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Emit epilogue */
     me_emit_leave(c);
     BE(c)->emit_ret(c);
-    for (int i = 0; i < c->lowering.ir_ctx.epilogue_patch_count; i++) {
-        size_t patch_pos = c->lowering.ir_ctx.epilogue_patches[i];
-        int32_t rel = (int32_t)(epilogue_target - (patch_pos + 4));
-        me_patch_u32(c, patch_pos, (uint32_t)rel);
-    }
-    c->lowering.ir_ctx.epilogue_patch_count = 0;
     regalloc_destroy(&c->regalloc);
     
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,

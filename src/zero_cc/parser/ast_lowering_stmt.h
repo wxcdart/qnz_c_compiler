@@ -20,6 +20,7 @@
 #include "../semantic/type.h"
 #include "../common/arena.h"
 #include "abi_classify.h"
+#include "label_patcher.h"
 
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
@@ -192,20 +193,14 @@ static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (c->lowering.loop_depth < 16) {
-        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
-        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_start;
-        c->lowering.loop_depth++;
-    }
+    label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_start);
     ir_emit_label(loop_start);
     int cond_temp = lower_expr(c, arena, node->left);
     ir_emit_je((uint8_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
-    if (c->lowering.loop_depth > 0) {
-        c->lowering.loop_depth--;
-    }
+    label_patcher_exit_loop(&c->label_patcher);
 }
 
 static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -213,20 +208,14 @@ static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCC
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_cond = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (c->lowering.loop_depth < 16) {
-        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
-        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_cond;
-        c->lowering.loop_depth++;
-    }
+    label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_cond);
     ir_emit_label(loop_start);
     lower_node(c, arena, node->right);
     ir_emit_label(loop_cond);
     int cond_temp = lower_expr(c, arena, node->left);
     ir_emit_jne((uint8_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
-    if (c->lowering.loop_depth > 0) {
-        c->lowering.loop_depth--;
-    }
+    label_patcher_exit_loop(&c->label_patcher);
 }
 
 static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -237,11 +226,7 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_step = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (c->lowering.loop_depth < 16) {
-        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
-        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_step;
-        c->lowering.loop_depth++;
-    }
+    label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_step);
     ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
         int cond_temp = lower_expr(c, arena, node->right);
@@ -256,9 +241,7 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     }
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
-    if (c->lowering.loop_depth > 0) {
-        c->lowering.loop_depth--;
-    }
+    label_patcher_exit_loop(&c->label_patcher);
 }
 
 static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -268,30 +251,31 @@ static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
     /* TODO: Implement switch statement */
 }
 
-static void lower_stmt_break(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
-    if (c->lowering.loop_depth > 0) {
-        ir_emit_jmp(c->lowering.loop_stack[c->lowering.loop_depth - 1].break_label);
+static void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
+    uint16_t lbl = label_patcher_get_break_label(&c->label_patcher);
+    if (lbl) {
+        ir_emit_jmp(lbl);
     }
 }
 
-static void lower_stmt_continue(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
-    if (c->lowering.loop_depth > 0) {
-        ir_emit_jmp(c->lowering.loop_stack[c->lowering.loop_depth - 1].continue_label);
+static void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
+    uint16_t lbl = label_patcher_get_continue_label(&c->label_patcher);
+    if (lbl) {
+        ir_emit_jmp(lbl);
     }
 }
 
 static uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name) {
-    for (int i = 0; i < c->lowering.user_label_count; i++) {
-        if (strcmp(c->lowering.user_labels[i].name, name) == 0) {
-            return c->lowering.user_labels[i].ir_label;
+    uint16_t lbl = label_patcher_find_or_create_user_label(&c->label_patcher, name);
+    if (lbl == 0) {
+        lbl = c->ir_next_label++;
+        /* Update the label_patcher with the new label */
+        for (int i = 0; i < c->label_patcher.user_label_count; i++) {
+            if (strcmp(c->label_patcher.user_labels[i].name, name) == 0) {
+                c->label_patcher.user_labels[i].ir_label = lbl;
+                break;
+            }
         }
-    }
-    uint16_t lbl = c->ir_next_label++;
-    if (c->lowering.user_label_count < 256) {
-        strncpy(c->lowering.user_labels[c->lowering.user_label_count].name, name, 63);
-        c->lowering.user_labels[c->lowering.user_label_count].name[63] = '\0';
-        c->lowering.user_labels[c->lowering.user_label_count].ir_label = lbl;
-        c->lowering.user_label_count++;
     }
     return lbl;
 }

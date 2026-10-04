@@ -13,6 +13,7 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "../parser/regalloc.h"
 #include "../parser/lowering_state.h"
+#include "../parser/label_patcher.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
@@ -99,8 +100,11 @@ typedef struct ZeroCCCompiler {
         int disabled_warning_count;
     } diag_pragma_state;
 
-    /* Lowering state - Task 61: Encapsulated per-compiler-instance state */
+    /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;
+    
+    /* Label patcher state - Task 62: Unified label resolution */
+    LabelPatcherState label_patcher;
 } ZeroCCCompiler;
 
 int64_t decl_align_spec; /* alignment specifier from _Alignas */

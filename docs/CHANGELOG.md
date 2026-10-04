@@ -22,6 +22,34 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Added IR instructions `OP_PARAM_SAVE_INT`, `OP_PARAM_SAVE_FP`, and `OP_VARIADIC_SPILL` to uniformly represent incoming ABI argument and variadic register spills in IR before instruction selection.
   - Fixed variadic register spill offset calculation so `x86_emit_variadic_spill` uses the exact base offset following fixed parameters without corrupting `current_stack_frame`.
   - Added `-MMD -MP` automatic header dependency generation to the `Makefile` to prevent translation unit header desynchronization.
+- **Global State Encapsulation / Reentrancy (Task 61)**:
+  - Created `LoweringState` struct to encapsulate all per-function lowering state (`ir_ctx`, `epilogue_label`).
+  - Created `LabelPatcherState` struct to encapsulate all label/patching state (`loop_stack`, `user_labels`).
+  - Replaced all global variables with encapsulated state in `ZeroCCCompiler`:
+    - `g_ir_emitter_ctx` → `c->lowering.ir_ctx`
+    - `g_ir_epilogue_label` → `c->lowering.epilogue_label`
+    - `g_loop_label_stack` → `c->label_patcher.loop_stack`
+    - `g_loop_label_depth` → `c->label_patcher.loop_depth`
+    - `g_user_labels` → `c->label_patcher.user_labels`
+    - `g_user_label_count` → `c->label_patcher.user_label_count`
+  - Enabled reentrant compilation: multiple `ZeroCCCompiler` instances can now compile concurrently without state collision.
+  - Removed ~70KB of dead `IREmitterContext` code (unused break/continue patch arrays, label tables, goto patch lists).
+- **Unified IR Label & Branch Patching (Task 62)**:
+  - Created new `label_patcher.h` with unified API for loop control and label management.
+  - Moved loop control state (`loop_stack`, `loop_depth`) from `LoweringState` to `LabelPatcherState`.
+  - Moved user label state (`user_labels`, `user_label_count`) from `LoweringState` to `LabelPatcherState`.
+  - Updated all AST lowering code to use `label_patcher_*` API:
+    - `label_patcher_enter_loop()` / `label_patcher_exit_loop()` for loop scoping
+    - `label_patcher_get_break_label()` / `label_patcher_get_continue_label()` for break/continue
+    - `label_patcher_find_or_create_user_label()` for goto labels
+  - Removed dead code from `IREmitterContext`:
+    - `break_patch_pos[16][64]`, `break_patch_count[16]`
+    - `continue_patch_pos[16][64]`, `continue_patch_count[16]`
+    - `loop_start_pos[16]`, `label_table[256]`, `label_count`
+    - `goto_patch_list[256]`, `goto_patch_count[256]`, `goto_patch_list_count`
+    - `epilogue_patches[32]`, `epilogue_patch_count`
+  - Simplified `ir_emitter.h` to only contain temp variable tracking functions.
+  - Net result: **-128 lines** of code (165 removed, 37 added).
 
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
