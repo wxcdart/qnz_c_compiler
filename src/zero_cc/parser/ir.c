@@ -45,5 +45,5 @@ void ir_emit_jmp_label(uint16_t label_idx) {
 
 /* Clear IR buffer for next function */
 void ir_clear(void) {
-    ir_count = 0;
+    instr_count = 0;
 }

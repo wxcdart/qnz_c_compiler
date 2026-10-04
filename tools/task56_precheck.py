@@ -11,7 +11,6 @@ Checks:
 
 import os
 import re
-import json
 from collections import defaultdict
 
 def check_circular_dependencies():
@@ -199,17 +198,17 @@ def check_two_pass_flow():
     print("5. TWO-PASS FLOW INTEGRATION")
     print("=" * 70)
     
-    # Check parser.c for AST lowering entry point
-    parser_c = 'src/zero_cc/parser/parser.c'
-    if not os.path.exists(parser_c):
-        print(f"❌ File not found: {parser_c}")
+    # Check ast_lowering.c for the main flow (not parser.c)
+    ast_lowering_c = 'src/zero_cc/parser/ast_lowering.c'
+    if not os.path.exists(ast_lowering_c):
+        print(f"❌ File not found: {ast_lowering_c}")
         return False
     
-    with open(parser_c, 'r') as f:
+    with open(ast_lowering_c, 'r') as f:
         content = f.read()
     
     checks = {
-        'lower_function': 'AST → IR (Pass 1)',
+        'zero_cc_lower_ast': 'AST → IR (Pass 1)',
         'emit_ir_to_machine_code': 'IR → MC (Pass 2)',
         'regalloc': 'Register allocation',
     }
@@ -217,9 +216,9 @@ def check_two_pass_flow():
     all_ok = True
     for check, desc in checks.items():
         if check in content:
-            print(f"✅ {desc}: Found in parser.c")
+            print(f"✅ {desc}: Found in ast_lowering.c")
         else:
-            print(f"⚠️  {desc}: Not found in parser.c")
+            print(f"⚠️  {desc}: Not found in ast_lowering.c")
             all_ok = False
     
     return all_ok
