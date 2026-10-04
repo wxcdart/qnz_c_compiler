@@ -44,8 +44,9 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 5.6** | Register allocation & calling convention hardening (callee-save preservation, OP_CALL 7+ args, nested call clobbering) | ✅ Complete | **112/112 pass** |
 | **Sprint 5.7** | Register allocator completion (Phases 1-3: callee-saves, call affinity, real stack spill slot lowering) & `ast_lowering.h` modularization | ✅ Complete | **112/112 pass** |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
-| **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
-| **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
+| **Sprint 7** | Architectural Hardening & Infrastructure Refactoring | 📅 Scheduled | — |
+| **Sprint 8** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
+| **Sprint 9** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
 
 ---
 
@@ -170,8 +171,8 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | `va_start` / `va_arg` / `va_end` | ✅ | AMD64 ABI variadic save area, `%al` register setup, and `va_arg` expansion |
 | Global variable storage (`.data` / `.bss`) | ✅ | Data section emission and RIP-relative data relocation |
 | Register allocation | ✅ | Linear-scan register allocation (`regalloc.h`, `live_range.h`) with callee-save preservation (`rbx, r12-r15`), call-spanning affinity, and real stack spill/reload lowering (`[rbp - offset]`) |
-| ARM64 back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
-| RISC-V back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 7 |
+| ARM64 back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 8 |
+| RISC-V back-end | 🟡 | Target abstraction ready in `isa_backend.h`; full instruction selection planned for Sprint 8 |
 | `libc` symbol resolution | ✅ | Dynamic symbol resolution via `dlsym(RTLD_DEFAULT)` at JIT execution |
 
 ---
@@ -338,11 +339,35 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 46 | GCC C-Torture integration (run `gcc.c-torture/execute` ~1,500 tests against ZeroCC JIT) | 1 week | ❌ |
 | 47 | Differential Fuzzing: Csmith & yarpgen harness comparing ZeroCC execution results vs GCC/Clang | 1 week | ❌ |
 | 48 | Regression test suite (bootstrap from TCC corpus) | 1 week | ❌ |
-| 49 | GitHub Actions CI (`make clean && make test` + ASan/UBSan matrix) | 2 days | ❌ |
+| 49 | Local test automation (scripted `make test` + ASan/UBSan runs, parallel test runner) | 2 days | ❌ |
 
 ---
 
-### Sprint 7 – Cross-platform & Multi-Architecture Expansion (Weeks 27–29)
+### Sprint 7 – Architectural Hardening & Infrastructure Refactoring (Weeks 27–28)
+
+> **Strategic Priority**: Eliminate structural design fragility, remove translation-unit static state, unify the prologue/epilogue and label management pipelines, and decouple modular C compilation units. **These are prerequisites for clean multi-ISA backends.**
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 60 | **Unified Prologue & Epilogue Pipeline**: Eliminate the split between `compile.h` and `ast_lowering.h`; defer prologue emission until post-regalloc so total frame size (locals, spills, callee-saves, and alignment) is calculated in one cohesive pass; model prologue/epilogue via IR or unified frame allocator | 4 days | ✅ Complete (2026-10-03) - Fixed infinite loop bug (OP_JMP missing from inner dispatch switch), fixed opcode enum evaluation inconsistency (moved `ir_emit_*` functions to `ir.c`), all 118 tests passing |
+| 61 | **Global State Encapsulation (Reentrancy)**: Eliminate file-scope globals (`g_ir_emitter_ctx`, `g_user_labels`, `g_loop_label_stack`, and static IR buffers in `ir_emitter.h`); encapsulate all lowering, label, and IR state inside `ZeroCCCompiler` or a per-function `LoweringContext` | 3 days | ⏳ Planned |
+| 62 | **Unified IR Label & Branch Patching**: Consolidate backend ISA labels (`c->labels`), `g_ir_emitter_ctx.epilogue_patches`, and IR labels into a single unified label and jump-patching mechanism handled completely in Pass 2 | 3 days | ⏳ Planned |
+| 63 | **Modular Header Separation (`.h` to `.c`)**: Refactor `ast_lowering_expr.h`, `ast_lowering_stmt.h`, `ast_lowering_mc.h`, and `ast_lowering.h` from header-only inclusions into standard `.c` compilation units with private internal headers (`ast_lowering_internal.h`) | 3 days | ⏳ Planned |
+| 64 | **Target-Independent IR Canonicalization**: Abstract ISA-specific addressing assumptions (such as `IR_LEA_RIP` and base+disp memory addressing) into portable IR operations (`IR_LOAD_SYMBOL`, `IR_ADDR_OF`) lowered per target ISA | 3 days | ⏳ Planned |
+
+#### Sprint 7 Progress Summary (Updated 2026-10-03)
+
+**Task 60 Complete** - Unified Prologue & Epilogue Pipeline:
+- Fixed critical infinite loop bug: `OP_JMP` was missing from inner dispatch switch in `ast_lowering_mc.h`, causing jump offsets to be written to byte 0 of function code
+- Fixed opcode enum evaluation inconsistency: Moved `ir_emit_je()`, `ir_emit_jne()`, `ir_emit_jmp()`, `ir_emit_label()` from header to `ir.c` to ensure consistent enum values across translation units (OP_JE was evaluating to 35 instead of 60)
+- All 118 compiler tests passing (67 JIT tests + 51 unit tests) in 0.63s with zero failures
+- Tests verified: `ternary_jit` (previously timed out 8+ hours), `string_simple_jit`, `anon_struct_test`, and full test suite
+
+**Remaining**: Tasks 61-64 (12 days effort) - Global state encapsulation, unified label patching, modular header separation, and target-independent IR canonicalization
+
+---
+
+### Sprint 8 – Cross-platform & Multi-Architecture Expansion (Weeks 29–32)
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
@@ -353,7 +378,7 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
-### Sprint 8 – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (Weeks 30–33)
+### Sprint 9 – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (Weeks 33–36)
 
 > **Strategic Priority**: Transition from direct AST-to-machine-code lowering to a full Two-Pass IR architecture with linear-scan register allocation and multi-tier optimization passes (-O0 through -O3), drawing high-throughput design patterns from LuaJIT's linear IR and folding engine. Reference: [`docs/2_pass_plan.md`](2_pass_plan.md) and [`docs/TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md).
 
@@ -365,20 +390,6 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | |
 | 58 | **Loop & Control-Flow Optimizations (-O3)**: Loop-invariant code motion (LICM), strength reduction (multiplication to shifts/adds), and branch simplification | 1 week | |
 | 59 | **Optimization Benchmarking & Differential Verification**: Benchmark compilation speed and execution throughput against GCC/Clang across optimization levels (-O0 to -O3) | 3 days | |
-
----
-
-### Sprint 8.5 – Architectural Hardening & Infrastructure Refactoring (Weeks 33.5–34)
-
-> **Strategic Priority**: Eliminate structural design fragility, remove translation-unit static state, unify the prologue/epilogue and label management pipelines, and decouple modular C compilation units.
-
-| Priority | Task | Effort | Status |
-|----------|------|--------|--------|
-| 60 | **Unified Prologue & Epilogue Pipeline**: Eliminate the split between `compile.h` and `ast_lowering.h`; defer prologue emission until post-regalloc so total frame size (locals, spills, callee-saves, and alignment) is calculated in one cohesive pass; model prologue/epilogue via IR or unified frame allocator | 4 days | ⏳ Planned |
-| 61 | **Global State Encapsulation (Reentrancy)**: Eliminate file-scope globals (`g_ir_emitter_ctx`, `g_user_labels`, `g_loop_label_stack`, and static IR buffers in `ir_emitter.h`); encapsulate all lowering, label, and IR state inside `ZeroCCCompiler` or a per-function `LoweringContext` | 3 days | ⏳ Planned |
-| 62 | **Unified IR Label & Branch Patching**: Consolidate backend ISA labels (`c->labels`), `g_ir_emitter_ctx.epilogue_patches`, and IR labels into a single unified label and jump-patching mechanism handled completely in Pass 2 | 3 days | ⏳ Planned |
-| 63 | **Modular Header Separation (`.h` to `.c`)**: Refactor `ast_lowering_expr.h`, `ast_lowering_stmt.h`, `ast_lowering_mc.h`, and `ast_lowering.h` from header-only inclusions into standard `.c` compilation units with private internal headers (`ast_lowering_internal.h`) | 3 days | ⏳ Planned |
-| 64 | **Target-Independent IR Canonicalization**: Abstract ISA-specific addressing assumptions (such as `IR_LEA_RIP` and base+disp memory addressing) into portable IR operations (`IR_LOAD_SYMBOL`, `IR_ADDR_OF`) lowered per target ISA | 3 days | ⏳ Planned |
 
 ---
 
@@ -394,10 +405,10 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 19–21 | **Sprint 5** – Type system completeness (Bit-fields, VLAs, Atomic) |
 | 22–23 | **Sprint 5.5** – Codebase Hardening, Cleanup & Sanitization (ASan, W^X, Test Harness) |
 | 24–26 | **Sprint 6** – Industrial Testing & Conformance (GCC Torture, Csmith Fuzzing) |
-| 27–29 | **Sprint 7** – Cross-platform backends (AArch64, RISC-V, Windows) |
-| 30–33 | **Sprint 8** – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (-O0 to -O3) |
-| 33.5–34 | **Sprint 8.5** – Architectural Hardening & Infrastructure Refactoring (Tasks 60–64) |
-| 35 | Final release, docs, tag `v1.0` |
+| 27–28 | **Sprint 7** – Architectural Hardening & Infrastructure Refactoring (Tasks 60–64) |
+| 29–32 | **Sprint 8** – Cross-platform backends (AArch64, RISC-V, Windows) |
+| 33–36 | **Sprint 9** – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (-O0 to -O3) |
+| 37 | Final release, docs, tag `v1.0` |
 
 ---
 
@@ -434,9 +445,11 @@ Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing clea
        - `ast_lowering.h` (178 lines coordinator)
      - Test Suite status: **112/112 passed** cleanly under `make test` and `make asan`.
 
-3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
+3. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Scheduled (after Sprint 7):
    - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction. ✅ **Complete**:
      - Migrated all parser error reporting from `c->had_error = 1; snprintf(...)` to `diag_report_error_at_token()` API.
+
+> **Sequencing Note**: Sprint 7 (Architectural Hardening, Tasks 60–64) should be completed before running Sprint 6 heavy tasks (46–48). The global state (`g_ir_emitter_ctx`, `g_user_labels`, `g_loop_label_stack`), split prologue/epilogue, and dual label systems cause flaky failures and state bleed during parallel fuzzing (Csmith, GCC torture). Fixing these first avoids re-running 1,500+ torture tests after architectural changes.
      - Rich diagnostics with `file:line:col: error: message` format and caret `^` pointers.
      - Warning vs. error distinction implemented via `DiagSeverity` enum (DIAG_ERROR, DIAG_WARNING, DIAG_NOTE).
      - Macro expansion context tracking for nested macro diagnostics.
@@ -447,7 +460,7 @@ Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing clea
 
 ## 7. Design Critique & Architectural Hardening Roadmap
 
-As ZeroCC transitions from an exploratory prototype into an industrial-grade compiler with multi-ISA support and optimization pipelines (Sprint 7 & 8), several structural tensions and design fragilities must be addressed.
+As ZeroCC transitions from an exploratory prototype into an industrial-grade compiler with multi-ISA support and optimization pipelines (Sprint 8 & 9), several structural tensions and design fragilities must be addressed.
 
 ### Identified Design Fragilities
 
@@ -492,7 +505,7 @@ As ZeroCC transitions from an exploratory prototype into an industrial-grade com
 | **Global State** | Static globals (`g_ir_emitter_ctx`, etc.) | Encapsulate in `CompilerContext` | Sprint 6.5 | **Medium** |
 | **Label Systems** | Dual system (IR labels vs Backend patches) | Unify into single Pass 2 IR label resolver | Sprint 6.5 | **Medium** |
 | **Header Separation** | Header-only implementation includes | Split into `.c` compilation units | Sprint 6.5 | **Medium** |
-| **IR Neutrality** | x86 bias (`IR_LEA_RIP`) | Normalize memory & symbol IR opcodes | Sprint 7 (Task 56) | **Low** |
+| **IR Neutrality** | x86 bias (`IR_LEA_RIP`) | Normalize memory & symbol IR opcodes | Sprint 8 (Task 56) | **Low** |
 
 ---
 
@@ -500,4 +513,5 @@ As ZeroCC transitions from an exploratory prototype into an industrial-grade com
 *Updated with Sprint 5.7 full completion (Phases 1-3 + modular lowering split).*
 *Updated 2026-10-03: Task 45 (Rich Diagnostics) & Task 54 (AST->IR Pass 1) complete (118/118 tests pass).*
 *Updated 2026-10-03: Section 7 added documenting design critique and architectural hardening roadmap.*
+*Updated 2026-10-03: Reordered sprints — Sprint 7 now Architectural Hardening (was 8.5), Sprint 8 now Cross-platform backends, Sprint 9 now Two-Pass IR & Optimization.*
 
