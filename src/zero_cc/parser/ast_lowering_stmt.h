@@ -129,9 +129,6 @@ static void lower_stmt_static_assert(ZeroCCCompiler *c, ZeroCCASTArena *arena, Z
     }
 }
 
-/* Synthetic epilogue label used by return statements */
-static uint16_t g_ir_epilogue_label = 0;
-
 static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
@@ -147,7 +144,7 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
             ir_emit_load(2, BE(c)->fp_reg, struct_offset + 8);
             
             // 3. Jump to epilogue (which will emit leave; ret)
-            ir_emit_jmp(g_ir_epilogue_label);
+            ir_emit_jmp(c->lowering.epilogue_label);
             return;
         }
 
@@ -168,7 +165,7 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
         }
         /* Float result is already in xmm0, no move needed */
     }
-    ir_emit_jmp(g_ir_epilogue_label);
+    ir_emit_jmp(c->lowering.epilogue_label);
 }
 
 /* Emit return jumps after IR-to-MC */
@@ -191,22 +188,14 @@ static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNod
     ir_emit_label(end_label);
 }
 
-/* Loop context stack for break/continue lowering via IR */
-#define MAX_LOOP_DEPTH 32
-static struct {
-    uint16_t break_label;
-    uint16_t continue_label;
-} g_loop_label_stack[MAX_LOOP_DEPTH];
-static int g_loop_label_depth = 0;
-
 static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
-        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
-        g_loop_label_stack[g_loop_label_depth].continue_label = loop_start;
-        g_loop_label_depth++;
+    if (c->lowering.loop_depth < 16) {
+        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
+        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_start;
+        c->lowering.loop_depth++;
     }
     ir_emit_label(loop_start);
     int cond_temp = lower_expr(c, arena, node->left);
@@ -214,8 +203,8 @@ static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     lower_node(c, arena, node->right);
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
-    if (g_loop_label_depth > 0) {
-        g_loop_label_depth--;
+    if (c->lowering.loop_depth > 0) {
+        c->lowering.loop_depth--;
     }
 }
 
@@ -224,10 +213,10 @@ static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCC
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_cond = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
-        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
-        g_loop_label_stack[g_loop_label_depth].continue_label = loop_cond;
-        g_loop_label_depth++;
+    if (c->lowering.loop_depth < 16) {
+        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
+        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_cond;
+        c->lowering.loop_depth++;
     }
     ir_emit_label(loop_start);
     lower_node(c, arena, node->right);
@@ -235,8 +224,8 @@ static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCC
     int cond_temp = lower_expr(c, arena, node->left);
     ir_emit_jne((uint8_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
-    if (g_loop_label_depth > 0) {
-        g_loop_label_depth--;
+    if (c->lowering.loop_depth > 0) {
+        c->lowering.loop_depth--;
     }
 }
 
@@ -248,10 +237,10 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_step = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
-    if (g_loop_label_depth < MAX_LOOP_DEPTH) {
-        g_loop_label_stack[g_loop_label_depth].break_label = loop_exit;
-        g_loop_label_stack[g_loop_label_depth].continue_label = loop_step;
-        g_loop_label_depth++;
+    if (c->lowering.loop_depth < 16) {
+        c->lowering.loop_stack[c->lowering.loop_depth].break_label = loop_exit;
+        c->lowering.loop_stack[c->lowering.loop_depth].continue_label = loop_step;
+        c->lowering.loop_depth++;
     }
     ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
@@ -267,8 +256,8 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     }
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
-    if (g_loop_label_depth > 0) {
-        g_loop_label_depth--;
+    if (c->lowering.loop_depth > 0) {
+        c->lowering.loop_depth--;
     }
 }
 
@@ -280,37 +269,29 @@ static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
 }
 
 static void lower_stmt_break(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
-    if (g_loop_label_depth > 0) {
-        ir_emit_jmp(g_loop_label_stack[g_loop_label_depth - 1].break_label);
+    if (c->lowering.loop_depth > 0) {
+        ir_emit_jmp(c->lowering.loop_stack[c->lowering.loop_depth - 1].break_label);
     }
 }
 
 static void lower_stmt_continue(ZeroCCCompiler *c __attribute__((unused)), ZeroCCASTArena *arena __attribute__((unused))) {
-    if (g_loop_label_depth > 0) {
-        ir_emit_jmp(g_loop_label_stack[g_loop_label_depth - 1].continue_label);
+    if (c->lowering.loop_depth > 0) {
+        ir_emit_jmp(c->lowering.loop_stack[c->lowering.loop_depth - 1].continue_label);
     }
 }
 
-/* User label mapping for AST -> IR lowering */
-#define MAX_USER_LABELS 256
-static struct {
-    char name[64];
-    uint16_t ir_label;
-} g_user_labels[MAX_USER_LABELS];
-static int g_user_label_count = 0;
-
 static uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name) {
-    for (int i = 0; i < g_user_label_count; i++) {
-        if (strcmp(g_user_labels[i].name, name) == 0) {
-            return g_user_labels[i].ir_label;
+    for (int i = 0; i < c->lowering.user_label_count; i++) {
+        if (strcmp(c->lowering.user_labels[i].name, name) == 0) {
+            return c->lowering.user_labels[i].ir_label;
         }
     }
     uint16_t lbl = c->ir_next_label++;
-    if (g_user_label_count < MAX_USER_LABELS) {
-        strncpy(g_user_labels[g_user_label_count].name, name, 63);
-        g_user_labels[g_user_label_count].name[63] = '\0';
-        g_user_labels[g_user_label_count].ir_label = lbl;
-        g_user_label_count++;
+    if (c->lowering.user_label_count < 256) {
+        strncpy(c->lowering.user_labels[c->lowering.user_label_count].name, name, 63);
+        c->lowering.user_labels[c->lowering.user_label_count].name[63] = '\0';
+        c->lowering.user_labels[c->lowering.user_label_count].ir_label = lbl;
+        c->lowering.user_label_count++;
     }
     return lbl;
 }

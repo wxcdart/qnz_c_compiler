@@ -33,6 +33,7 @@
 #include "abi_classify.h"
 #include "regalloc.h"
 #include "live_range.h"
+#include "lowering_state.h"
 
 /* Helper: Get current function's return type (last function added to compiler) */
 static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
@@ -42,8 +43,7 @@ static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
     return zero_cc_type_int();
 }
 
-/* IR Emitter Context for state management */
-static IREmitterContext g_ir_emitter_ctx;
+
 
 /* Forward declarations */
 static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
@@ -98,8 +98,9 @@ static void emit_callee_save_loads(ZeroCCCompiler *c) {
  * ========================================================================= */
 
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
-    /* Initialize IR emitter context */
-    ir_emitter_init(&g_ir_emitter_ctx);
+    /* Initialize lowering state */
+    memset(&c->lowering, 0, sizeof(c->lowering));
+    ir_emitter_init(&c->lowering.ir_ctx);
     
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
@@ -107,8 +108,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     c->ir_next_label = 0;
     
     /* Reset user labels and loop label stack for this function */
-    g_user_label_count = 0;
-    g_loop_label_depth = 0;
+    c->lowering.user_label_count = 0;
+    c->lowering.loop_depth = 0;
 
     /* Reset IR buffer */
     ir_reset();
@@ -148,11 +149,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
-    g_ir_epilogue_label = c->ir_next_label++;
+    c->lowering.epilogue_label = c->ir_next_label++;
     
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
-    ir_emit_label(g_ir_epilogue_label);
+    ir_emit_label(c->lowering.epilogue_label);
     
     /* Compute live ranges and allocate registers */
     LiveRangeAnalyzer lra;
@@ -197,12 +198,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Emit epilogue */
     me_emit_leave(c);
     BE(c)->emit_ret(c);
-    for (int i = 0; i < g_ir_emitter_ctx.epilogue_patch_count; i++) {
-        size_t patch_pos = g_ir_emitter_ctx.epilogue_patches[i];
+    for (int i = 0; i < c->lowering.ir_ctx.epilogue_patch_count; i++) {
+        size_t patch_pos = c->lowering.ir_ctx.epilogue_patches[i];
         int32_t rel = (int32_t)(epilogue_target - (patch_pos + 4));
         me_patch_u32(c, patch_pos, (uint32_t)rel);
     }
-    g_ir_emitter_ctx.epilogue_patch_count = 0;
+    c->lowering.ir_ctx.epilogue_patch_count = 0;
     regalloc_destroy(&c->regalloc);
     
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,

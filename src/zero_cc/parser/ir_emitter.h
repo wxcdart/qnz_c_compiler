@@ -10,52 +10,10 @@
 #include "ir.h"
 #include "regalloc.h"
 #include "live_range.h"
+#include "lowering_state.h"
 
 /* Forward declarations */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
-
-/* Temp variable tracking for register allocation */
-typedef struct {
-    int temp_id;
-    size_t live_start;
-    size_t live_end;
-    RegClass reg_class;
-    int assigned_reg;
-    int spill_slot;
-} TempVar;
-
-/* IR Emitter Context - holds state for IR emission */
-typedef struct {
-    TempVar temp_vars[256];
-    size_t temp_var_count;
-    int next_temp_id;
-    
-    /* Loop control flow */
-    size_t break_patch_pos[16][64];
-    int break_patch_count[16];
-    size_t continue_patch_pos[16][64];
-    int continue_patch_count[16];
-    size_t loop_start_pos[16];
-    int loop_depth;
-    
-    /* Label/Goto support */
-    struct {
-        char name[64];
-        size_t position;
-    } label_table[256];
-    int label_count;
-    size_t* goto_patch_list[256];
-    int goto_patch_count[256];
-    int goto_patch_list_count;
-    
-    size_t epilogue_patches[32];
-    int epilogue_patch_count;
-    
-    /* Float argument spill offsets per call index */
-    int32_t call_fp_spills[64][8];
-    int call_fp_spill_counts[64];
-    int call_count;
-} IREmitterContext;
 
 /* Initialize IR emitter context */
 static inline void ir_emitter_init(IREmitterContext *ctx) {

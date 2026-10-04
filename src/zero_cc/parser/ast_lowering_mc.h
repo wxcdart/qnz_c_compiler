@@ -437,10 +437,10 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
                 }
                 
                 /* Load float arguments from spill slots into xmm0..xmmN */
-                if (call_idx < g_ir_emitter_ctx.call_count) {
-                    int fp_count = g_ir_emitter_ctx.call_fp_spill_counts[call_idx];
+                if (call_idx < c->lowering.ir_ctx.call_count) {
+                    int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
                     for (int f = 0; f < fp_count && f < 8; f++) {
-                        int32_t spill_off = g_ir_emitter_ctx.call_fp_spills[call_idx][f];
+                        int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
                         /* movsd xmm<f>, [rbp - spill_off] */
                         if (BE(c)->emit_load_fp) {
                             BE(c)->emit_load_fp(c, f, BE(c)->fp_reg, -spill_off);

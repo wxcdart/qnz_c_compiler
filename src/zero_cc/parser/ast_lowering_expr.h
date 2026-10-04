@@ -1329,11 +1329,11 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 
                 /* Record float spill offsets for this call */
-                if (g_ir_emitter_ctx.call_count < 64) {
-                    int cidx = g_ir_emitter_ctx.call_count++;
-                    g_ir_emitter_ctx.call_fp_spill_counts[cidx] = fp_reg_idx;
+                if (c->lowering.ir_ctx.call_count < 64) {
+                    int cidx = c->lowering.ir_ctx.call_count++;
+                    c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_reg_idx;
                     for (int f = 0; f < fp_reg_idx && f < 8; f++) {
-                        g_ir_emitter_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
+                        c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
                 }
                 
