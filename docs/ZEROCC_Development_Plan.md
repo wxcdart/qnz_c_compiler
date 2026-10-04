@@ -368,6 +368,20 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
+### Sprint 8.5 – Architectural Hardening & Infrastructure Refactoring (Weeks 33.5–34)
+
+> **Strategic Priority**: Eliminate structural design fragility, remove translation-unit static state, unify the prologue/epilogue and label management pipelines, and decouple modular C compilation units.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 60 | **Unified Prologue & Epilogue Pipeline**: Eliminate the split between `compile.h` and `ast_lowering.h`; defer prologue emission until post-regalloc so total frame size (locals, spills, callee-saves, and alignment) is calculated in one cohesive pass; model prologue/epilogue via IR or unified frame allocator | 4 days | ⏳ Planned |
+| 61 | **Global State Encapsulation (Reentrancy)**: Eliminate file-scope globals (`g_ir_emitter_ctx`, `g_user_labels`, `g_loop_label_stack`, and static IR buffers in `ir_emitter.h`); encapsulate all lowering, label, and IR state inside `ZeroCCCompiler` or a per-function `LoweringContext` | 3 days | ⏳ Planned |
+| 62 | **Unified IR Label & Branch Patching**: Consolidate backend ISA labels (`c->labels`), `g_ir_emitter_ctx.epilogue_patches`, and IR labels into a single unified label and jump-patching mechanism handled completely in Pass 2 | 3 days | ⏳ Planned |
+| 63 | **Modular Header Separation (`.h` to `.c`)**: Refactor `ast_lowering_expr.h`, `ast_lowering_stmt.h`, `ast_lowering_mc.h`, and `ast_lowering.h` from header-only inclusions into standard `.c` compilation units with private internal headers (`ast_lowering_internal.h`) | 3 days | ⏳ Planned |
+| 64 | **Target-Independent IR Canonicalization**: Abstract ISA-specific addressing assumptions (such as `IR_LEA_RIP` and base+disp memory addressing) into portable IR operations (`IR_LOAD_SYMBOL`, `IR_ADDR_OF`) lowered per target ISA | 3 days | ⏳ Planned |
+
+---
+
 ## Timeline Overview
 
 | Week | Work |
@@ -382,7 +396,8 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 24–26 | **Sprint 6** – Industrial Testing & Conformance (GCC Torture, Csmith Fuzzing) |
 | 27–29 | **Sprint 7** – Cross-platform backends (AArch64, RISC-V, Windows) |
 | 30–33 | **Sprint 8** – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (-O0 to -O3) |
-| 34 | Final release, docs, tag `v1.0` |
+| 33.5–34 | **Sprint 8.5** – Architectural Hardening & Infrastructure Refactoring (Tasks 60–64) |
+| 35 | Final release, docs, tag `v1.0` |
 
 ---
 
