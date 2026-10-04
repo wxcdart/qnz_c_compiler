@@ -343,17 +343,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             /* Pass 1: Lower AST to IR (instruction selection) */
             zero_cc_lower_ast(c, &arena, body);
             
-            /* Pass 2: Compute live ranges and allocate registers */
-            /* TODO: Enable when register allocation is fully integrated */
-            /* LiveRangeAnalyzer lra;
-            live_range_init(&lra);
-            live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
-            live_range_compute(&lra, &c->regalloc);
-            regalloc_allocate(&c->regalloc);
-            live_range_free(&lra); */
-            
-            /* Pass 3: Generate machine code from IR using allocated registers */
-            /* (Machine code emission will be implemented in future) */
+            /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
+             * are executed inside zero_cc_lower_ast(). */
         } else {
             if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
             /* Error already reported via semantic_print_diagnostics */
