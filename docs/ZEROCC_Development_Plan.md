@@ -430,7 +430,59 @@ Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing clea
 
 ---
 
+## 7. Design Critique & Architectural Hardening Roadmap
+
+As ZeroCC transitions from an exploratory prototype into an industrial-grade compiler with multi-ISA support and optimization pipelines (Sprint 7 & 8), several structural tensions and design fragilities must be addressed.
+
+### Identified Design Fragilities
+
+1. **Fragmented Function Lifecycle & Leaky Prologue/Epilogue**
+   - **Current State:** Function code generation is scattered:
+     - `compile.h` sets `fn->text_offset`, calls `emit_prologue`, dumps ABI caller registers to stack slots, and sets up variadic spill buffers.
+     - `ast_lowering.h` runs Pass 1 AST lowering, performs live-range analysis and register allocation, emits callee-saved stores, runs Pass 2 MC emission, and emits callee-saved loads.
+     - `ast_lowering.h` manually calls `me_emit_leave(c)` and `BE(c)->emit_ret(c)`.
+   - **Risk:** Stack frame size calculation is fragile. Total frame size (callee-saved slots + spilled vregs + alignment) is only known *after* register allocation. Emitting the prologue in `compile.h` before Pass 1 relies on hardcoded assumptions that break on architectures with dynamic frame requirements or unified frame allocators.
+   - **Target Solution:** Lower the prologue and epilogue as abstract IR operations (`IR_PROLOGUE`, `IR_EPILOGUE`), or defer physical prologue emission until post-regalloc when the exact frame layout is finalized.
+
+2. **Heavy Reliance on Translation-Unit Global State**
+   - **Current State:**
+     - `g_ir_emitter_ctx` (in `ast_lowering.h`)
+     - `g_user_labels` and `g_loop_label_stack` (in `ast_lowering_stmt.h`)
+     - Global IR buffer (`ir_instructions[]`, `ir_count`) in `ir_emitter.h`
+   - **Risk:** ZeroCC is non-reentrant. It cannot support multithreaded compilation (parallel function lowering, background worker compilation), and state bleed across functions remains an ongoing regression risk.
+   - **Target Solution:** Encapsulate all lowering state, label tables, and IR buffers inside `ZeroCCCompiler` or an explicit per-function `FunctionLoweringContext`.
+
+3. **Dual Parallel Jump & Label Resolution Mechanisms**
+   - **Current State:** Two separate patch tables operate concurrently:
+     - IR Labels (`IR_LABEL`, `IR_JMP`, `IR_JMP_COND`) resolved in Pass 2 via `ir_label_targets[]` and `ir_patches[]`.
+     - Backend ISA Labels (`c->labels`, `c->label_patches`) and `g_ir_emitter_ctx.epilogue_patches` resolved via `BE(c)->resolve_labels`.
+   - **Risk:** Dual patching engines create divergence and subtle edge cases across function epilogues, loop breaks, and gotos.
+   - **Target Solution:** Unify all control flow into IR labels. Treat function epilogues as standard IR labels (`IR_LABEL`) resolved during Pass 2.
+
+4. **Monolithic Header Compilation Model**
+   - **Current State:** `ast_lowering.h` directly `#include`s large implementation files (`ast_lowering_stmt.h`, `ast_lowering_expr.h`, `ast_lowering_mc.h`), relying on `static` linkage and forward declarations.
+   - **Risk:** Cyclic header dependencies, static variable visibility confusion, and long recompilation times.
+   - **Target Solution:** Refactor into proper `.c` compilation units (`ast_lowering.c`, `ast_lowering_expr.c`, `ast_lowering_stmt.c`, `ast_lowering_mc.c`) linked with private internal headers (`ast_lowering_internal.h`).
+
+5. **Target-Architecture Bias in Intermediate Representation**
+   - **Current State:** IR opcodes expose x86-64 idiosyncrasies (e.g., `IR_LEA_RIP` for PC-relative symbol addressing, base+disp assumptions for memory).
+   - **Risk:** Porting to AArch64 and RISC-V (Task 56) requires target-neutral addressing primitives.
+   - **Target Solution:** Abstract address computation into canonical IR operations (`IR_LOAD_SYMBOL`, `IR_ADDR_OF`) lowered per-target during Pass 2.
+
+### Hardening Priority Matrix
+
+| Component | Issue | Action Item | Target Sprint | Priority |
+|---|---|---|:---:|:---:|
+| **Prologue / Epilogue** | Split across `compile.h` & `ast_lowering.h` | Unified post-regalloc frame layout | Sprint 6.5 / 7 | **High** |
+| **Global State** | Static globals (`g_ir_emitter_ctx`, etc.) | Encapsulate in `CompilerContext` | Sprint 6.5 | **Medium** |
+| **Label Systems** | Dual system (IR labels vs Backend patches) | Unify into single Pass 2 IR label resolver | Sprint 6.5 | **Medium** |
+| **Header Separation** | Header-only implementation includes | Split into `.c` compilation units | Sprint 6.5 | **Medium** |
+| **IR Neutrality** | x86 bias (`IR_LEA_RIP`) | Normalize memory & symbol IR opcodes | Sprint 7 (Task 56) | **Low** |
+
+---
+
 *Prepared by Antigravity AI Assistant — grounded in source inspection 2026-10-03.*
 *Updated with Sprint 5.7 full completion (Phases 1-3 + modular lowering split).*
-*Updated 2026-10-03: Task 45 (Rich Diagnostics) complete - migrated all error reporting to diagnostics API.*
+*Updated 2026-10-03: Task 45 (Rich Diagnostics) & Task 54 (AST->IR Pass 1) complete (118/118 tests pass).*
+*Updated 2026-10-03: Section 7 added documenting design critique and architectural hardening roadmap.*
 
