@@ -105,6 +105,15 @@ static void x86_emit_epilogue(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xc3);
 }
 
+static void x86_emit_leave(ZeroCCCompiler *c) {
+    /* leave */
+    me_emit_u8(c, 0xc9);
+}
+
+static size_t x86_get_code_offset(ZeroCCCompiler *c) {
+    return me_get_offset(c);
+}
+
 static void x86_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     /* mov reg, imm64 */
     x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
@@ -1049,7 +1058,9 @@ const ZeroCCISABackend x86_64_backend = {
     .sp_reg = X86_RSP,  /* hardware encoding 4 */
     
     .emit_prologue = x86_emit_prologue,
+    .emit_leave = x86_emit_leave,
     .emit_epilogue = x86_emit_epilogue,
+    .get_code_offset = x86_get_code_offset,
     
     .emit_mov_imm = x86_emit_mov_imm,
     .emit_add = x86_emit_add,

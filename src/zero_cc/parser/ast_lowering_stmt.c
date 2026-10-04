@@ -1,5 +1,7 @@
 /* AST Lowering - Statement Handlers and Dispatcher */
-#ifndef ZERO_CC_PARSER_AST_LOWERING_STMT_H
+
+#include "ast_lowering_internal.h"
+
 #define ZERO_CC_PARSER_AST_LOWERING_STMT_H
 
 #include <stddef.h>
@@ -22,10 +24,10 @@
 #include "abi_classify.h"
 #include "label_patcher.h"
 
-static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
-static void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     ASTRef stmt = ref;
     while (stmt != AST_NULL) {
         lower_node(c, arena, stmt);
@@ -34,13 +36,13 @@ static void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
     }
 }
 
-static void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node) {
         (void)lower_expr(c, arena, node->left);  /* Result not used */
     }
 }
 
-static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     if (node->flags & NODE_DECL_IS_VLA) {
         /* Variable Length Array (C99 VLA) */
@@ -124,13 +126,13 @@ static void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
     }
 }
 
-static void lower_stmt_static_assert(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_static_assert(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node && node->left != AST_NULL) {
         lower_expr(c, arena, node->left);
     }
 }
 
-static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
@@ -170,11 +172,11 @@ static void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
 }
 
 /* Emit return jumps after IR-to-MC */
-static void emit_return_jumps(ZeroCCCompiler *c) {
+void emit_return_jumps(ZeroCCCompiler *c) {
     (void)c;
 }
 
-static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     int cond_temp = lower_expr(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
@@ -189,7 +191,7 @@ static void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNod
     ir_emit_label(end_label);
 }
 
-static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
@@ -203,7 +205,7 @@ static void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     label_patcher_exit_loop(&c->label_patcher);
 }
 
-static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_cond = c->ir_next_label++;
@@ -218,7 +220,7 @@ static void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCC
     label_patcher_exit_loop(&c->label_patcher);
 }
 
-static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
@@ -244,28 +246,28 @@ static void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     label_patcher_exit_loop(&c->label_patcher);
 }
 
-static void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (node) {
         lower_expr(c, arena, node->left);
     }
     /* TODO: Implement switch statement */
 }
 
-static void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
+void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
     uint16_t lbl = label_patcher_get_break_label(&c->label_patcher);
     if (lbl) {
         ir_emit_jmp(lbl);
     }
 }
 
-static void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
+void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
     uint16_t lbl = label_patcher_get_continue_label(&c->label_patcher);
     if (lbl) {
         ir_emit_jmp(lbl);
     }
 }
 
-static uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name) {
+uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name) {
     uint16_t lbl = label_patcher_find_or_create_user_label(&c->label_patcher, name);
     if (lbl == 0) {
         lbl = c->ir_next_label++;
@@ -280,7 +282,7 @@ static uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name)
     return lbl;
 }
 
-static void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node || !node->s.str) return;
     uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
     ir_emit_label(lbl);
@@ -289,7 +291,7 @@ static void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAST
     }
 }
 
-static void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused)), ZeroCCASTNode *node) {
+void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused)), ZeroCCASTNode *node) {
     if (!node || !node->s.str) return;
     uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
     ir_emit_jmp(lbl);
@@ -299,7 +301,7 @@ static void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute
  * Main Statement Dispatcher
  * ========================================================================= */
 
-static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return;
@@ -359,4 +361,3 @@ static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     }
 }
 
-#endif /* ZERO_CC_PARSER_AST_LOWERING_STMT_H */

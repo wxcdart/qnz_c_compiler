@@ -35,7 +35,9 @@ typedef struct ZeroCCISABackend {
     
     /* Function prologue/epilogue */
     void (*emit_prologue)(ZeroCCCompiler *c, size_t stack_size);
+    void (*emit_leave)(ZeroCCCompiler *c);
     void (*emit_epilogue)(ZeroCCCompiler *c);
+    size_t (*get_code_offset)(ZeroCCCompiler *c);
     
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);

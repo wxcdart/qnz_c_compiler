@@ -11,7 +11,7 @@
 #include "ast_expr.h"
 #include "ast_stmt.h"
 #include "ast_dump.h"
-#include "ast_lowering.h"
+#include "ast_lowering.c"
 
 static __thread ZeroCCTypeNode *g_type_pool_head = NULL;
 

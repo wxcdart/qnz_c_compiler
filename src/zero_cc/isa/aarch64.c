@@ -51,6 +51,19 @@ static void aarch64_emit_epilogue(ZeroCCCompiler *c) {
     arm64_emit_u32(c, 0xD65F03C0);
 }
 
+static void aarch64_emit_leave(ZeroCCCompiler *c) {
+    /* AArch64 doesn't have a direct 'leave' instruction
+     * Equivalent: mov sp, fp; ldr x29, [sp], #8; ldr x30, [sp], #8
+     * But for simplicity, we'll use the epilogue pattern without ret
+     * ldp x29, x30, [sp], #16 (restores fp, lr and adjusts sp)
+     */
+    arm64_emit_u32(c, 0xA8C17BFD);
+}
+
+static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
+    return me_get_offset(c);
+}
+
 static void aarch64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     /* mov reg, imm - use movz/movk sequence for 64-bit */
     if ((imm & 0xFFFF000000000000LL) == 0) {
@@ -348,7 +361,9 @@ const ZeroCCISABackend aarch64_backend = {
     .sp_reg = 31,  /* sp */
     
     .emit_prologue = aarch64_emit_prologue,
+    .emit_leave = aarch64_emit_leave,
     .emit_epilogue = aarch64_emit_epilogue,
+    .get_code_offset = aarch64_get_code_offset,
     
     .emit_mov_imm = aarch64_emit_mov_imm,
     .emit_add = aarch64_emit_add,

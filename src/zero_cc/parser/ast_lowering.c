@@ -1,72 +1,32 @@
-/* AST Lowering - AST to Machine Code Pipeline (Coordinator Header)
+/* AST Lowering - AST to Machine Code Pipeline (Coordinator)
  *
- * This header coordinates the lowering of AST to IR, live range analysis,
+ * This file coordinates the lowering of AST to IR, live range analysis,
  * linear-scan register allocation, callee-save preservation, stack spill
  * slot lowering, and machine code generation.
  *
- * The implementation is organized into modular headers:
- *   - ast_lowering_expr.h: AST expression lowering to IR (lower_expr)
- *   - ast_lowering_stmt.h: AST statement lowering to IR (lower_stmt_*, lower_node)
- *   - ast_lowering_mc.h:   IR to machine code emission (emit_ir_to_machine_code)
+ * The implementation is organized into modular source files:
+ *   - ast_lowering_stmt.c: AST statement lowering to IR (lower_stmt_*, lower_node)
+ *   - ast_lowering_expr.c: AST expression lowering to IR (lower_expr)
+ *   - ast_lowering_mc.c:   IR to machine code emission (emit_ir_to_machine_code)
  */
 
-#ifndef ZERO_CC_PARSER_AST_LOWERING_H
-#define ZERO_CC_PARSER_AST_LOWERING_H
-
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-
-#include "../types/types.h"
-#include "parser.h"
-#include "ir_emitter.h"
-#include "ir_emit_ops.h"
-#include "machine_emitter.h"
-#include "../isa/isa_backend.h"
-#include "../types/vregs.h"
-#include "../types/global_vars.h"
-#include "../semantic/type.h"
-#include "../common/arena.h"
-#include "abi_classify.h"
-#include "regalloc.h"
-#include "live_range.h"
-#include "lowering_state.h"
-#include "label_patcher.h"
-
-/* Helper: Get current function's return type (last function added to compiler) */
-static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
-    if (c->function_count > 0) {
-        return c->functions[c->function_count - 1].return_type;
-    }
-    return zero_cc_type_int();
-}
-
-
-
-/* Forward declarations */
-static void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
+#include "ast_lowering_internal.h"
 
 /* Statement lowering (block, if, while, for, switch, return, decl, etc.) */
-#include "ast_lowering_stmt.h"
+#include "ast_lowering_stmt.c"
 
 /* Expression lowering (arithmetic, calls, member access, casts, ternary, etc.) */
-#include "ast_lowering_expr.h"
+#include "ast_lowering_expr.c"
 
 /* Machine code emission from IR */
-#include "ast_lowering_mc.h"
+#include "ast_lowering_mc.c"
 
 /* =========================================================================
  * Callee-Saved Register Preservation Helpers
  * ========================================================================= */
 
 /* Emit MOV [rbp - slot], reg for each callee-saved GPR that was assigned. */
-static void emit_callee_save_stores(ZeroCCCompiler *c) __attribute__((unused));
-static void emit_callee_save_stores(ZeroCCCompiler *c) {
+void emit_callee_save_stores(ZeroCCCompiler *c) {
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
     while (mask) {
         int idx = __builtin_ctz(mask);
@@ -80,8 +40,7 @@ static void emit_callee_save_stores(ZeroCCCompiler *c) {
 }
 
 /* Emit MOV reg, [rbp - slot] for each callee-saved GPR that was assigned. */
-static void emit_callee_save_loads(ZeroCCCompiler *c) __attribute__((unused));
-static void emit_callee_save_loads(ZeroCCCompiler *c) {
+void emit_callee_save_loads(ZeroCCCompiler *c) {
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
     while (mask) {
         int idx = __builtin_ctz(mask);
@@ -190,19 +149,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         BE(c)->resolve_labels(c);
     }
     
-    /* Patch epilogue jumps - target is the epilogue (before leave/ret) */
-    size_t epilogue_target = me_get_offset(c);
-    
     /* Restore callee-saved registers before the epilogue leave/ret. */
     emit_callee_save_loads(c);
     
     /* Emit epilogue */
-    me_emit_leave(c);
+    BE(c)->emit_leave(c);
     BE(c)->emit_ret(c);
     regalloc_destroy(&c->regalloc);
     
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
 }
-
-#endif /* ZERO_CC_PARSER_AST_LOWERING_H */

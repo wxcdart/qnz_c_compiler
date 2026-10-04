@@ -1,28 +1,9 @@
 /* AST Lowering - IR to Machine Code Emission */
-#ifndef ZERO_CC_PARSER_AST_LOWERING_MC_H
-#define ZERO_CC_PARSER_AST_LOWERING_MC_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-
-#include "../types/types.h"
-#include "parser.h"
-#include "ir_emitter.h"
-#include "ir_emit_ops.h"
-#include "machine_emitter.h"
-#include "../isa/isa_backend.h"
-#include "../types/vregs.h"
-#include "regalloc.h"
-
-/* Forward declarations from ast_lowering.h */
-static void emit_callee_save_stores(ZeroCCCompiler *c);
+#include "ast_lowering_internal.h"
 
 /* Emit machine code from IR with allocated registers */
-static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
+void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
     size_t label_count = c->ir_next_label;
@@ -358,7 +339,7 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
                 /* Store symbol name for relocation patching */
                 if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
                     ZeroCCReloc *r = &c->relocs[c->reloc_count++];
-                    r->text_patch_offset = me_get_offset(c) - 8;
+                    r->text_patch_offset = BE(c)->get_code_offset(c) - 8;
                     snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
                     r->is_call = false;
                 }
@@ -486,7 +467,7 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
                 if (instr->label_idx < label_count) {
                     size_t label_idx = instr->label_idx;
                     label_defined[label_idx] = true;
-                    label_offsets[label_idx] = me_get_offset(c);
+                    label_offsets[label_idx] = BE(c)->get_code_offset(c);
                     for (size_t j = 0; j < label_patch_counts[label_idx]; j++) {
                         BE(c)->patch_jmp(c, label_patches[label_idx][j], label_offsets[label_idx]);
                     }
@@ -561,4 +542,3 @@ static void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset
 }
 
 
-#endif /* ZERO_CC_PARSER_AST_LOWERING_MC_H */

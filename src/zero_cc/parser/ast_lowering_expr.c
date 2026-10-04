@@ -1,27 +1,8 @@
 /* AST Lowering - Expression Lowering (AST to IR) */
-#ifndef ZERO_CC_PARSER_AST_LOWERING_EXPR_H
-#define ZERO_CC_PARSER_AST_LOWERING_EXPR_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
+#include "ast_lowering_internal.h"
 
-#include "../types/types.h"
-#include "parser.h"
-#include "ir_emitter.h"
-#include "ir_emit_ops.h"
-#include "machine_emitter.h"
-#include "../isa/isa_backend.h"
-#include "../types/vregs.h"
-#include "../types/global_vars.h"
-#include "../semantic/type.h"
-#include "../common/arena.h"
-#include "abi_classify.h"
-
-static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return 0xFF;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return 0xFF;
@@ -1370,4 +1351,3 @@ static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     }
 }
 
-#endif /* ZERO_CC_PARSER_AST_LOWERING_EXPR_H */

@@ -90,6 +90,21 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00008067);  /* jalr zero, 0(ra) */
 }
 
+static void riscv64_emit_leave(ZeroCCCompiler *c) {
+    /* RISC-V doesn't have a direct 'leave' instruction
+     * Equivalent: addi sp, s0, 0; ld ra, 0(sp); ld s0, 8(sp)
+     * For simplicity, we'll restore s0 and ra without adjusting sp
+     */
+    /* ld ra, 0(sp) */
+    riscv_emit_u32(c, 0x00002003 | (1 << 15));
+    /* ld s0, 8(sp) */
+    riscv_emit_u32(c, 0x00002003 | (8 << 15) | (8 << 20));
+}
+
+static size_t riscv64_get_code_offset(ZeroCCCompiler *c) {
+    return me_get_offset(c);
+}
+
 static void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     /* Use lui + addi sequence for 64-bit immediates */
     if (imm <= 2047 && imm >= -2048) {
@@ -378,7 +393,9 @@ const ZeroCCISABackend riscv64_backend = {
     .sp_reg = 2,   /* sp */
     
     .emit_prologue = riscv64_emit_prologue,
+    .emit_leave = riscv64_emit_leave,
     .emit_epilogue = riscv64_emit_epilogue,
+    .get_code_offset = riscv64_get_code_offset,
     
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_add = riscv64_emit_add,
@@ -453,6 +470,18 @@ static void riscv32_emit_epilogue(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00002003 | (1 << 15));
     riscv_emit_u32(c, 0x00002003 | (4 << 15) | (8 << 20));
     riscv_emit_u32(c, 0x00008067);
+}
+
+static void riscv32_emit_leave(ZeroCCCompiler *c) {
+    /* RISC-V doesn't have a direct 'leave' instruction
+     * Restore ra and s0 without adjusting sp
+     */
+    riscv_emit_u32(c, 0x00002003 | (1 << 15));
+    riscv_emit_u32(c, 0x00002003 | (4 << 15) | (8 << 20));
+}
+
+static size_t riscv32_get_code_offset(ZeroCCCompiler *c) {
+    return me_get_offset(c);
 }
 
 static void riscv32_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
@@ -700,7 +729,9 @@ const ZeroCCISABackend riscv32_backend = {
     .sp_reg = 2,
     
     .emit_prologue = riscv32_emit_prologue,
+    .emit_leave = riscv32_emit_leave,
     .emit_epilogue = riscv32_emit_epilogue,
+    .get_code_offset = riscv32_get_code_offset,
     
     .emit_mov_imm = riscv32_emit_mov_imm,
     .emit_add = riscv32_emit_add,

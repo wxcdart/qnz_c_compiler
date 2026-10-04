@@ -50,6 +50,26 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
     - `epilogue_patches[32]`, `epilogue_patch_count`
   - Simplified `ir_emitter.h` to only contain temp variable tracking functions.
   - Net result: **-128 lines** of code (165 removed, 37 added).
+- **Modular Header Separation (Task 63)**:
+  - Converted header-only implementation files to proper `.c` source files:
+    - `ast_lowering.h` → `ast_lowering.c` + `ast_lowering_internal.h` (163 + 46 lines)
+    - `ast_lowering_expr.h` → `ast_lowering_expr.c` (1,351 lines)
+    - `ast_lowering_stmt.h` → `ast_lowering_stmt.c` (316 lines)
+    - `ast_lowering_mc.h` → `ast_lowering_mc.c` (546 lines)
+  - Created `ast_lowering_internal.h` with shared forward declarations and types.
+  - Updated `parser.c` to include `ast_lowering.c` instead of `ast_lowering.h`.
+  - Eliminated header-only implementation pattern for AST lowering pipeline.
+- **Target-Independent IR Canonicalization (Task 64)**:
+  - Added `emit_leave()` and `get_code_offset()` to ISA backend abstraction (`isa_backend.h`).
+  - Moved ISA-specific machine code emission from IR layer to backend layer:
+    - `me_emit_leave()` → `BE(c)->emit_leave()` (via backend function pointer)
+    - `me_get_offset()` → `BE(c)->get_code_offset()` (via backend function pointer)
+  - Implemented backend functions for all ISAs:
+    - `x86_64.c`: `x86_emit_leave()`, `x86_get_code_offset()`
+    - `aarch64.c`: `aarch64_emit_leave()`, `aarch64_get_code_offset()`
+    - `riscv.c`: `riscv64_emit_leave()`, `riscv32_emit_leave()`, `get_code_offset()`
+  - Removed `machine_emitter.h` include from IR layer (`ast_lowering_internal.h`).
+  - IR layer is now target-agnostic with no ISA-specific instruction emission.
 
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
