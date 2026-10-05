@@ -11,9 +11,9 @@ static void opt_pass_constant_fold(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 
-// DISABLED - causes bugs with compound assignments
+// Phase 1: Enable constant folding (after moving it before regalloc)
 static const OptPass g_opt_passes[] = {
-    // { "constant_fold", opt_pass_constant_fold, 1, 10 },
+    { "constant_fold", opt_pass_constant_fold, 1, 10 },
     // { "dce", opt_pass_dce, 1, 30 },
     // { "cse", opt_pass_cse, 0, 40 },
 };

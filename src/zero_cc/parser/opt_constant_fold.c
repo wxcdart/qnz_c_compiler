@@ -8,7 +8,7 @@
  * Constant value storage
  * Maps temp index to constant value
  */
-#define CONST_MAP_SIZE 1024
+#define CONST_MAP_SIZE 4096
 static int g_const_values[CONST_MAP_SIZE];
 static bool g_is_const[CONST_MAP_SIZE];
 
@@ -51,34 +51,6 @@ static void clear_constants(void) {
 }
 
 /**
- * Replace instruction with constant
- */
-void ir_replace_with_const(int instr_idx, int value) {
-    Instr *instr = ir_get(instr_idx);
-    if (!instr) return;
-
-    instr->op = OP_MOV_IMM;
-    instr->temp_dest = instr->temp_dest;  // Keep same dest
-    instr->imm = value;
-    instr->temp_src1 = 0xFF;
-    instr->temp_src2 = 0xFF;
-    instr->label_idx = 0;
-}
-
-/**
- * Replace instruction with MOV from another temp
- */
-void ir_replace_with_mov(int instr_idx, int src_temp) {
-    // For now, just mark the destination as constant if src is constant
-    Instr *instr = ir_get(instr_idx);
-    if (!instr) return;
-    
-    if (ir_is_constant(src_temp)) {
-        ir_replace_with_const(instr_idx, ir_get_constant(src_temp));
-    }
-}
-
-/**
  * Fold binary operation with two constants
  */
 static int fold_binop(int op, int left, int right) {
@@ -101,8 +73,11 @@ static int fold_binop(int op, int left, int right) {
 /**
  * Constant folding pass
  * 
- * This pass only folds operations where BOTH operands are already constants.
- * It does NOT track new constants to avoid issues with complex IR patterns.
+ * Strategy: Only fold binary operations where BOTH operands are constants.
+ * We replace the entire instruction with OP_MOV_IMM to the result.
+ * 
+ * IMPORTANT: This pass runs BEFORE register allocation, so we can safely
+ * modify the IR structure without breaking live range analysis.
  */
 void opt_fold_constants(ZeroCCCompiler *c) {
     (void)c;
@@ -111,7 +86,7 @@ void opt_fold_constants(ZeroCCCompiler *c) {
     
     int count = (int)ir_get_count();
     
-    // First pass: collect all constant definitions
+    // First pass: collect all constant definitions from OP_MOV_IMM
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
@@ -121,7 +96,8 @@ void opt_fold_constants(ZeroCCCompiler *c) {
         
         // Track constants from OP_MOV_IMM
         if (instr->op == OP_MOV_IMM) {
-            mark_constant(dest, instr->imm);
+            // Use imm64 for full 64-bit precision
+            mark_constant(dest, (int)instr->imm64);
         }
     }
     
@@ -147,7 +123,18 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 int right_val = ir_get_constant(instr->temp_src2);
                 int result = fold_binop(instr->op, left_val, right_val);
                 
-                ir_replace_with_const(i, result);
+                // Replace with MOV_IMM - preserve dest, set src to 0xFF
+                int dest = instr->temp_dest;
+                instr->op = OP_MOV_IMM;
+                instr->temp_dest = dest;
+                instr->imm = (int16_t)result;      // 16-bit for compatibility
+                instr->imm64 = result;              // 64-bit for emitter
+                instr->temp_src1 = 0xFF;
+                instr->temp_src2 = 0xFF;
+                instr->label_idx = 0;
+                
+                // Mark the result as constant for future folding
+                mark_constant(dest, result);
             }
         }
     }

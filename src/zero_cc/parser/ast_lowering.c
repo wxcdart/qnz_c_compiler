@@ -118,7 +118,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     lower_node(c, arena, root);
     ir_emit_label(c->lowering.epilogue_label);
     
-    /* Compute live ranges and allocate registers */
+    /* 1. Run IR optimization passes FIRST (before register allocation) */
+    opt_init(OPT_LEVEL_O1);
+    opt_run_passes(c);
+    opt_shutdown();
+    
+    /* 2. Compute live ranges and allocate registers on optimized IR */
     LiveRangeAnalyzer lra;
     live_range_init(&lra);
     live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
@@ -126,11 +131,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     regalloc_allocate(&c->regalloc);
     
     live_range_free(&lra);
-    
-    /* Run optimization passes */
-    opt_init(OPT_LEVEL_O1);
-    opt_run_passes(c);
-    opt_shutdown();
     
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
