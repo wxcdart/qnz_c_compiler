@@ -11,10 +11,10 @@ static void opt_pass_constant_fold(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 
-// Phase 2: Only constant folding (DCE needs more work)
+// Phase 3: Only constant folding (DCE has remaining issues)
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
-    // { "dce", opt_pass_dce, 1, 30 },  // Disabled - too aggressive
+    // { "dce", opt_pass_dce, 1, 30 },  // Disabled - 5 tests still fail
     // { "cse", opt_pass_cse, 0, 40 },
 };
 
