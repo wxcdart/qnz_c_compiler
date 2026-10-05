@@ -3,6 +3,7 @@
 #include "regalloc.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 /**
  * Liveness tracking
@@ -201,23 +202,34 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        // If instruction produces a result, mark it live if used
+        bool has_side_effects = instr_has_side_effects(instr);
+        
+        // Special handling for OP_CALL: temp_dest holds arg_count, not a temp ID
+        // Always mark call arguments as live because calls have side effects
+        if (instr->op == OP_CALL) {
+            mark_uses(instr);
+            continue;
+        }
+        
+        // If instruction produces a result, mark it live if used OR has side effects
         if (instr->temp_dest != 0xFF) {
-            if (is_live(instr->temp_dest)) {
-                // Result is used, mark uses as live
+            if (is_live(instr->temp_dest) || has_side_effects) {
+                // Result is used OR instruction must execute for its side effects:
+                // mark all its source operands as live!
                 mark_uses(instr);
-            } else if (!instr_has_side_effects(instr)) {
+            } else {
                 // Result not used and no side effects - mark as dead
                 instr->op = OP_DEAD;
             }
         } else {
-            // No destination, just mark uses as live
+            // No destination (e.g., stores, jumps, calls, fences), mark uses as live
             mark_uses(instr);
         }
     }
     
     // Forward pass: compact IR (remove dead instructions)
     int write_idx = 0;
+    int dead_count = 0;
     
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
@@ -241,8 +253,12 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 }
             }
             write_idx++;
+        } else {
+            dead_count++;
         }
     }
+    
+    fprintf(stderr, "DEBUG DCE: removed %d dead instructions\n", dead_count);
     
     // Update IR count
     instr_count = (size_t)write_idx;

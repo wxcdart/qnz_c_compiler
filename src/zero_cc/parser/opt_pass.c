@@ -11,7 +11,7 @@ static void opt_pass_constant_fold(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 
-// Only constant folding for now
+// Only constant folding for now (DCE has edge cases)
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
     // { "dce", opt_pass_dce, 1, 30 },
