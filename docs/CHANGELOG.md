@@ -84,6 +84,34 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
     - Comments now describe semantics rather than x86-64 implementation
   - **✅ COMPLETE**: IR layer is now fully target-agnostic with no ISA-specific code
 
+#### Sprint 8 — Two-Pass IR & Optimization Pipeline
+- **Pass 2 Machine Code Emission **(Task 56):
+  - Added 3 backend function pointers to `isa_backend.h`: `emit_sar`, `emit_call_reg`, `emit_stack_align`.
+  - Added `ir_clear()` call after `regalloc_destroy()` in `ast_lowering.c`.
+  - Added 15 opcode handlers to `ast_lowering_mc.c`:
+    - Stack: `OP_PUSH_RAX`, `OP_POP_RAX`, `OP_PUSH_RBX`, `OP_POP_RBX`
+    - Arithmetic: `OP_ADD_IMM`, `OP_SUB_IMM`, `OP_INC`, `OP_DEC`, `OP_SAR`
+    - Control Flow: `OP_CALL_INDIRECT`, `OP_RET`, `OP_EPILOGUE`
+    - Special: `OP_STACK_ALIGN`
+  - Implemented backend functions for all 3 ISAs (x86_64, aarch64, riscv64/riscv32).
+  - All 118 tests passing.
+  - Committed as `3e32257`.
+- **LuaJIT-Style Middle-End Optimizations **(Task 57):
+  - Created optimization pass framework (`opt_pass.h/c`, 150 lines).
+  - Implemented constant folding pass (`opt_constant_fold.h/c`, 180 lines).
+  - Implemented dead code elimination pass (`opt_dce.h/c`, 180 lines).
+  - Implemented common subexpression elimination pass (`opt_cse.h/c`, 200 lines).
+  - Added `OP_DEAD` opcode for marking eliminated instructions.
+  - Key fixes:
+    - Moved optimizations BEFORE register allocation (critical fix).
+    - Fixed imm/imm64 handling in constant folding.
+    - Fixed call argument liveness tracking in DCE (all 8 arguments).
+    - Fixed float return value preservation in DCE.
+    - Added 10+ side-effect opcodes to DCE.
+  - All 3 passes enabled and tested: constant folding, DCE, CSE.
+  - All 118 tests passing in 0.35s.
+  - Committed as `6656787`.
+
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
   - Compound literals and brace-enclosed variable initializers now zero-initialize the entire object (struct/array) before applying designated and positional stores.

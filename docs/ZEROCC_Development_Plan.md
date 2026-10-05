@@ -1,6 +1,6 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-10-03. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-10-04. Findings are **grounded in actual source inspection** of
 > [`parser.c`](../src/zero_cc/parser.c), [`types_lexer.h`](../src/zero_cc/types_lexer.h),
 > [`lexer.c`](../src/zero_cc/lexer.c), [`ast_lowering.h`](../src/zero_cc/parser/ast_lowering.h)
 > (modularized into `ast_lowering_stmt.h`, `ast_lowering_expr.h`, `ast_lowering_mc.h`),
@@ -45,7 +45,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 5.7** | Register allocator completion (Phases 1-3: callee-saves, call affinity, real stack spill slot lowering) & `ast_lowering.h` modularization | ✅ Complete | **112/112 pass** |
 | **Sprint 6** | Industrial-grade testing (GCC torture, Csmith fuzzing, rich diagnostics) | 📅 Scheduled | — |
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
-| **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
+| **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | ✅ Complete | **118/118 pass** |
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
 | **Sprint 9** | Multi-ISA Object File Output & QEMU Testing (Tasks 65-68) | 📅 Scheduled | — |
 
@@ -363,10 +363,10 @@ Extended pragma directive support for better compatibility with real-world C cod
 |----------|------|--------|--------|
 | 54 | **Complete Pass 1 (AST → IR)**: Expand `ir_emit_ops.h` and migrate remaining AST statement/expression nodes to IR; eliminate dual-emission pathway | 1 week | ✅ Complete |
 | 55 | **Register Allocator Hardening**: Fix live-interval computation in `live_range.h`; robust linear-scan assignment with callee/caller register spilling in `regalloc.h`, callee-save frame preservation, and stack spill/reload lowering | 1 week | ✅ Complete |
-| 56 | **Pass 2 Machine Code Emission**: Complete `emit_ir_to_machine_code()` using target `isa_backend.h` interfaces (x86-64, AArch64, RISC-V) | 1 week | |
-| 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | |
-| 58 | **Loop & Control-Flow Optimizations (-O3)**: Loop-invariant code motion (LICM), strength reduction (multiplication to shifts/adds), and branch simplification | 1 week | |
-| 59 | **Optimization Benchmarking & Differential Verification**: Benchmark compilation speed and execution throughput against GCC/Clang across optimization levels (-O0 to -O3) | 3 days | |
+| 56 | **Pass 2 Machine Code Emission**: Complete `emit_ir_to_machine_code()` using target `isa_backend.h` interfaces (x86-64, AArch64, RISC-V) | 1 week | ✅ Complete |
+| 57 | **LuaJIT-Style Middle-End Optimizations (-O1 / -O2)**: Fast linear-pass constant folding, algebraic simplification, dead-code elimination (DCE), and common subexpression elimination (CSE) | 1 week | ✅ Complete |
+| 58 | **Loop & Control-Flow Optimizations (-O3)**: Loop-invariant code motion (LICM), strength reduction (multiplication to shifts/adds), and branch simplification | 1 week | 📅 Scheduled |
+| 59 | **Optimization Benchmarking & Differential Verification**: Benchmark compilation speed and execution throughput against GCC/Clang across optimization levels (-O0 to -O3) | 3 days | 📅 Scheduled |
 
 ---
 
