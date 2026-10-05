@@ -29,6 +29,7 @@ static int is_live(int temp) {
 
 /**
  * Mark a temp as live
+ * Note: temp 0 (VREG_0/rax) is a valid temporary, not "no temp"
  */
 static void mark_live(int temp) {
     if (temp >= 0 && temp < MAX_VREGS) {
@@ -67,6 +68,10 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
+        // Comparison/flag-setting instructions have side effects (affect jumps)
+        case OP_CMP:
+        case OP_CMP_ZERO:
+        case OP_TEST:
             return 1;
         
         // Stack operations have side effects
@@ -93,22 +98,29 @@ static int instr_has_side_effects(Instr *instr) {
  * Handles args 1-2 (temp_src1/src2), args 3-4 (packed in imm), args 5+ (call args table)
  */
 static void mark_call_args_live(Instr *instr) {
+    int arg_count = instr->temp_dest;
+    
     // Args 1-2 from temp_src1/temp_src2
-    if (instr->temp_src1 != 0xFF && instr->temp_src1 != 0) {
+    if (arg_count > 0 && instr->temp_src1 != 0xFF) {
         mark_live(instr->temp_src1);
     }
-    if (instr->temp_src2 != 0xFF && instr->temp_src2 != 0) {
+    if (arg_count > 1 && instr->temp_src2 != 0xFF) {
         mark_live(instr->temp_src2);
     }
     
-    // Args 3-4 packed in imm (lower 16 bits = arg3, upper 16 bits = arg4)
-    int arg3 = instr->imm & 0xFFFF;
-    int arg4 = (instr->imm >> 16) & 0xFFFF;
-    if (arg3 != 0 && arg3 != 0xFF) {
-        mark_live(arg3);
+    // Args 3-4 packed in imm (byte 0 = arg3, byte 1 = arg4)
+    // Note: instr->imm is int16_t, so we extract bytes, not 16-bit words
+    if (arg_count > 2) {
+        int arg3 = (instr->imm >> 0) & 0xFF;
+        if (arg3 != 0xFF) {
+            mark_live(arg3);
+        }
     }
-    if (arg4 != 0 && arg4 != 0xFF) {
-        mark_live(arg4);
+    if (arg_count > 3) {
+        int arg4 = (instr->imm >> 8) & 0xFF;
+        if (arg4 != 0xFF) {
+            mark_live(arg4);
+        }
     }
     
     // Args 5+ from call args table
@@ -118,7 +130,7 @@ static void mark_call_args_live(Instr *instr) {
             // This is a call arg entry for this instruction
             for (int a = 0; a < entry->count; a++) {
                 int arg_temp = entry->temps[a];
-                if (arg_temp != 0 && arg_temp != 0xFF) {
+                if (arg_temp != 0xFF) {
                     mark_live(arg_temp);
                 }
             }
@@ -137,12 +149,28 @@ static void mark_uses(Instr *instr) {
             mark_call_args_live(instr);
             return;
         
-        default:
-            // Standard handling for most instructions
-            if (instr->temp_src1 != 0xFF && instr->temp_src1 != 0) {
+        case OP_ATOMIC_CMPXCHG:
+        case OP_ATOMIC_CMPXCHG_BOOL:
+            // Atomic compare-and-exchange uses label_idx as the expected operand temp
+            if (instr->temp_src1 != 0xFF) {
                 mark_live(instr->temp_src1);
             }
-            if (instr->temp_src2 != 0xFF && instr->temp_src2 != 0) {
+            if (instr->temp_src2 != 0xFF) {
+                mark_live(instr->temp_src2);
+            }
+            // label_idx holds the expected temp (not a label!)
+            if (instr->label_idx != 0xFF) {
+                mark_live(instr->label_idx);
+            }
+            return;
+        
+        default:
+            // Standard handling for most instructions
+            // Note: temp 0 (VREG_0/rax) is valid, only 0xFF means "no temp"
+            if (instr->temp_src1 != 0xFF) {
+                mark_live(instr->temp_src1);
+            }
+            if (instr->temp_src2 != 0xFF) {
                 mark_live(instr->temp_src2);
             }
             return;
@@ -174,7 +202,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         if (!instr) continue;
         
         // If instruction produces a result, mark it live if used
-        if (instr->temp_dest != 0xFF && instr->temp_dest != 0) {
+        if (instr->temp_dest != 0xFF) {
             if (is_live(instr->temp_dest)) {
                 // Result is used, mark uses as live
                 mark_uses(instr);
