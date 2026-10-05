@@ -208,41 +208,37 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
         return 0;
     }
 
-    // ELF64 Header: 52 bytes
-    size_t size = 52;
+    // ELF64 Header: 64 bytes (note: ELF header is 64 bytes for ELF64)
+    size_t offset = 64;
 
-    // Section data (with alignment)
-    size_t data_offset = 52;  // Start after ELF header
-    
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
         if (sec->align > 1) {
-            data_offset = (data_offset + sec->align - 1) & ~(sec->align - 1);
+            offset = (offset + sec->align - 1) & ~(sec->align - 1);
         }
-        data_offset += sec->size;
+        offset += sec->size;
     }
-    
+
     // Symbol string table (.strtab)
     if (ctx->strtab_size > 0) {
-        data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
-        data_offset += ctx->strtab_size;
+        offset = (offset + 7) & ~7;  // Align to 8 bytes
+        offset += ctx->strtab_size;
     }
-    
+
     // Symbol table (.symtab)
-    data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
-    data_offset += (ctx->symbol_count + 1) * 24;  // 24 bytes per Elf64_Sym
-    
+    offset = (offset + 7) & ~7;  // Align to 8 bytes
+    offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
+
     // Section name string table (.shstrtab)
-    data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
-    data_offset += ctx->shstrtab_size;
-    
-    size = data_offset;
+    offset = (offset + 7) & ~7;  // Align to 8 bytes
+    offset += ctx->shstrtab_size;
 
-    // Section headers: (section_count + 1) * 64 bytes
-    size += (ctx->section_count + 1) * 64;
+    // Section headers: (section_count + 4) * 64 bytes
+    // (+4 for null, .strtab, .symtab, .shstrtab)
+    offset += (ctx->section_count + 4) * sizeof(Elf64SectionHeader);
 
-    return size;
+    return offset;
 }
 
 bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
@@ -319,6 +315,11 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // Section headers will be written at the end
     // ========================================================================
 
+    // Track offsets for section headers
+    size_t strtab_offset = 0;
+    size_t symtab_offset = 0;
+    size_t shstrtab_offset = 0;
+
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
@@ -337,17 +338,19 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     }
 
     // Symbol string table (.strtab)
-    size_t strtab_offset = offset;
     if (ctx->strtab_size > 0) {
         // Align to 8 bytes
         offset = (offset + 7) & ~7;
+        strtab_offset = offset;
         memcpy(buffer + offset, ctx->strtab, ctx->strtab_size);
         offset += ctx->strtab_size;
+    } else {
+        strtab_offset = 0;
     }
 
     // Symbol table (.symtab)
-    size_t symtab_offset = offset;
     offset = (offset + 7) & ~7;
+    symtab_offset = offset;
     Elf64Sym* symtab = (Elf64Sym*)(buffer + offset);
 
     // Null symbol entry
@@ -370,8 +373,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
     // Section name string table (.shstrtab)
-    size_t shstrtab_offset = offset;
     offset = (offset + 7) & ~7;
+    shstrtab_offset = offset;
     memcpy(buffer + offset, ctx->shstrtab, ctx->shstrtab_size);
     offset += ctx->shstrtab_size;
 
@@ -453,13 +456,18 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr->sh_info = 0;
     shdr->sh_addralign = 8;
     shdr->sh_entsize = 0;
+    shdr++;  // Advance past .shstrtab section header
+
+    // Update offset to point after section headers
+    // Total: null + data sections + .strtab + .symtab + .shstrtab
+    offset = section_headers_offset + (ctx->section_count + 4) * sizeof(Elf64SectionHeader);
 
     // ========================================================================
     // Update ELF Header
     // ========================================================================
     ehdr = (Elf64Header*)buffer;
     ehdr->e_shoff = section_headers_offset;
-    ehdr->e_shnum = ctx->section_count + 3;  // +3 for .strtab, .symtab, .shstrtab
+    ehdr->e_shnum = ctx->section_count + 4;  // +4 for null, .strtab, .symtab, .shstrtab
     ehdr->e_shstrndx = ctx->section_count + 2;  // Index of .shstrtab
 
     if (written) {
