@@ -626,3 +626,29 @@ Completed the two-pass IR architecture by implementing all missing opcode handle
 ### Next Steps
 
 Task 56 complete. Ready to proceed with Sprint 8 optimization work (Tasks 57-59).
+
+### Sprint Planning Update
+
+Based on GCC comparison investigation results, two additional sprints have been added:
+
+**Sprint 10: SIMD Vectorization Support (Weeks 37-38)**
+- **Root Cause**: GCC uses SIMD (124 xmm instructions) for loop-heavy code
+- **Impact**: call_heavy.c fails (ZeroCC: 1, GCC: 17)
+- **Tasks**:
+  - Task 70: SIMD IR Opcode Design (2 days)
+  - Task 71: SSE2 Instruction Lowering (3 days)
+  - Task 72: Loop Vectorization Pass (3 days)
+  - Task 73: Auto-Vectorization Heuristics (2 days)
+- **Goal**: 2-4x speedup on array-heavy code
+
+**Sprint 11: Stack Allocation & VLA Support (Weeks 38-39)**
+- **Root Cause**: ZeroCC fails on large stack allocations (>32KB)
+- **Impact**: memory_heavy.c fails (ZeroCC: error, GCC: 80)
+- **Tasks**:
+  - Task 74: Stack Frame Expansion (2 days)
+  - Task 75: VLA Runtime Allocation (3 days)
+  - Task 76: Stack Canary Support (1 day)
+  - Task 77: Large Array Testing (1 day)
+- **Goal**: Support stack frames up to 1MB, fix memory_heavy.c
+
+Total new timeline: +4 weeks (Weeks 37-39)

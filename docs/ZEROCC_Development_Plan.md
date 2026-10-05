@@ -47,7 +47,54 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | ✅ Complete | **118/118 pass** |
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
-| **Sprint 9** | Multi-ISA Object File Output & QEMU Testing (Tasks 65-68) | 📅 Scheduled | — |
+| **Sprint 9** | CLI Driver & Object File Output (Tasks 65-66) | 📅 In Progress | CLI driver complete |
+| **Sprint 10** | SIMD Vectorization Support (Tasks 70-73) | 📅 Scheduled | — |
+| **Sprint 11** | Stack Allocation & VLA Support (Tasks 74-77) | 📅 Scheduled | — |
+
+---
+
+
+## Sprint 10: SIMD Vectorization Support (Weeks 37-38) 📅 Scheduled
+
+> **Strategic Priority**: Implement SIMD vectorization to match GCC's performance on loop-heavy code. GCC uses SSE/AVX instructions for array operations and loop unrolling, which significantly improves throughput.
+
+### Tasks
+
+| Task | Description | Duration | Status |
+|------|-------------|----------|--------|
+| 70 | SIMD IR Opcode Design | 2 days | 📅 Scheduled |
+| 71 | SSE2 Instruction Lowering | 3 days | 📅 Scheduled |
+| 72 | Loop Vectorization Pass | 3 days | 📅 Scheduled |
+| 73 | Auto-Vectorization Heuristics | 2 days | 📅 Scheduled |
+
+### Deliverables
+
+- SIMD IR opcodes (OP_VADD, OP_VMUL, OP_VLOAD, OP_VSTORE)
+- SSE2 instruction emission for x86-64
+- Loop vectorization optimization pass
+- Benchmark: 2-4x speedup on array-heavy code
+
+---
+
+## Sprint 11: Stack Allocation & VLA Support (Weeks 38-39) 📅 Scheduled
+
+> **Strategic Priority**: Fix large stack allocation failures and implement proper VLA (Variable Length Array) support. Current implementation fails on arrays > 32KB.
+
+### Tasks
+
+| Task | Description | Duration | Status |
+|------|-------------|----------|--------|
+| 74 | Stack Frame Expansion | 2 days | 📅 Scheduled |
+| 75 | VLA Runtime Allocation | 3 days | 📅 Scheduled |
+| 76 | Stack Canary Support | 1 day | 📅 Scheduled |
+| 77 | Large Array Testing | 1 day | 📅 Scheduled |
+
+### Deliverables
+
+- Support for stack frames up to 1MB
+- Proper VLA handling with runtime allocation
+- Optional stack canary for security
+- Benchmark: memory_heavy.c passes (exit code 80)
 
 ---
 
