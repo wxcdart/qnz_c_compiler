@@ -123,7 +123,17 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - All 118 tests passing in 0.31s.
   - Committed as `3db3fdb`.
 
-#### Sprint 9 — CLI Driver & Object File Output
+#### Sprint 8 — Two-Pass IR & Optimization Pipeline (continued)
+- **Optimization Benchmarking & Differential Verification (Task 59)**:
+  - Created benchmark suite (`tools/benchmark_suite.py`, 179 lines).
+  - Created differential verification framework (`tools/differential_verify.py`, 180 lines).
+  - Created perf/valgrind analysis tools (`tools/perf_analysis.py`, 179 lines).
+  - Created report generator (`tools/generate_report.py`, 173 lines).
+  - Created benchmark test suite (`test/bench/`, 4 files).
+  - Ran benchmarks against GCC (-O0 to -O3).
+  - Generated HTML and JSON reports.
+  - Committed as 891fd14.
+
 - **CLI Driver Implementation**:
   - Created CLI driver (`src/main.c`, 258 lines).
   - GCC-compatible argument parsing:
@@ -136,18 +146,8 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - Integrated with optimization pipeline (`opt_init()`).
   - JIT mode working (all 118 tests passing).
   - Built as `build/bin/zerocc`.
-  - Committed as 6befca2.
+  - Committed as bbd7f17.
 
-#### Sprint 8 — Two-Pass IR & Optimization Pipeline (continued)
-- **Optimization Benchmarking & Differential Verification (Task 59)**:
-  - Created benchmark suite (`tools/benchmark_suite.py`, 179 lines).
-  - Created differential verification framework (`tools/differential_verify.py`, 180 lines).
-  - Created perf/valgrind analysis tools (`tools/perf_analysis.py`, 179 lines).
-  - Created report generator (`tools/generate_report.py`, 173 lines).
-  - Created benchmark test suite (`test/bench/`, 4 files).
-  - Ran benchmarks against GCC (-O0 to -O3).
-  - Generated HTML and JSON reports.
-  - Committed as 891fd14.
 
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
