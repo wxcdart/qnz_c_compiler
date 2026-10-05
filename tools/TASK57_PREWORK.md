@@ -203,32 +203,6 @@ opt_shutdown();
 
 ---
 
-## ⚠️ IMPORTANT: Stale Object Files
-
-**This project has had issues with stale .o files causing false bugs.**
-
-### If you see strange bugs after adding new files:
-
-```bash
-# Option 1: Use rebuild target (recommended)
-make rebuild
-
-# Option 2: Manual clean
-make clean && make -j4
-
-# Option 3: Use cleanup script
-./tools/fix_stale_objects.sh
-make -j4
-```
-
-### Prevention:
-- **Always** run `make rebuild` after adding new `.c` files
-- **Always** verify clean build works before committing
-- Don't trust incremental builds after major changes
-
-See `docs/TASK57_STALE_OBJECT_FIX.md` for full explanation.
-
----
 
 ## Pre-Work Tools
 

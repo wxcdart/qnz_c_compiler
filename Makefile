@@ -1,11 +1,14 @@
 # ZeroCC Makefile
 #
-# IMPORTANT: If you add new source files (.c) or header files (.h),
-# and encounter strange bugs or compilation errors, run:
-#   make rebuild
-# This forces a complete clean rebuild to remove stale object files.
+# Incremental builds work correctly - trust the system!
 #
-# See tools/fix_stale_objects.sh for manual cleanup if needed.
+# Use 'make rebuild' when:
+#   - Adding new source files to Makefile
+#   - Changing Makefile itself (EXTRA_OBJS, CFLAGS, etc.)
+#   - Switching branches
+#   - Unexplained build errors
+#
+# See docs/INCREMENTAL_BUILD_NOTES.md for details.
 
 CC ?= gcc
 CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon -g -MMD -MP
