@@ -1,12 +1,12 @@
 // AOT Test: Structs
 // Tests: Struct definition, member access, struct return
 
-typedef struct {
+typedef struct Point {
     int x;
     int y;
 } Point;
 
-typedef struct {
+typedef struct Line {
     Point origin;
     Point dest;
 } Line;
