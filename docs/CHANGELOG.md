@@ -112,6 +112,17 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - All 118 tests passing in 0.35s.
   - Committed as `6656787`.
 
+#### Sprint 8 — Two-Pass IR & Optimization Pipeline (continued)
+- **Loop & Control-Flow Optimizations (Task 58)**:
+  - Created loop analysis framework (`opt_loop.h/c`, 282 lines).
+  - Implemented loop detection algorithm (backedge-based detection).
+  - Implemented loop-invariant code motion (LICM) pass.
+  - Implemented strength reduction pass (mul → shifts/adds).
+  - Implemented branch simplification pass.
+  - Integrated all passes into optimization pipeline.
+  - All 118 tests passing in 0.31s.
+  - Committed as `3db3fdb`.
+
 #### Sprint 5.8 — Designated Initializers, VLA Validation & Compound Literal Hardening ✅
 - **Zero-Initialization of Omitted Elements (C99 §6.7.8)**:
   - Compound literals and brace-enclosed variable initializers now zero-initialize the entire object (struct/array) before applying designated and positional stores.
