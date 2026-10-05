@@ -1,14 +1,14 @@
 # Multi-ISA Backend Testing Notes
 
-## Status: Testing Blocked (No Object File Output)
+## Status: Scheduled for Sprint 9
 
 ### Current Situation
 
 - **QEMU available**: `/usr/bin/qemu-aarch64-static`, `/usr/bin/qemu-riscv64-static`
-- **Backend implementations complete**: AArch64 and RISC-V backends implemented
+- **Backend implementations complete**: AArch64 and RISC-V backends implemented (Task 56)
 - **Testing blocked**: Compiler only supports JIT execution (x86-64), no object file output
 
-### What Was Implemented
+### What Was Implemented (Task 56)
 
 ✅ **AArch64 Backend** (7 new functions):
 - `aarch64_emit_sar` - Arithmetic shift right
@@ -32,93 +32,51 @@
 
 ✅ **x86-64**: All 118 tests passing (native JIT execution)
 
-### What Was NOT Tested
+### What Is Scheduled (Sprint 9)
 
-❌ **AArch64**: Backend implemented, cannot execute (no object file output)
-❌ **RISC-V 64**: Backend implemented, cannot execute (no object file output)
-❌ **RISC-V 32**: Backend implemented, cannot execute (no object file output)
+📅 **Task 65: Object File Output (ELF Generation)**
+- Add .o output mode for all ISAs
+- Generate ELF64 with sections, symbols, relocations
+- Support -c flag for compile-only mode
 
-### Why Testing Is Blocked
+📅 **Task 66: Linker Support & Standalone Execution**
+- Add executable output mode with system linker
+- Support -o output flag for final executables
 
-The compiler currently only supports **JIT execution mode**:
-- Emits machine code directly to executable memory
-- Uses x86-64 native execution via `mprotect` + function pointer
-- No object file (.o) output mode exists
+📅 **Task 67: QEMU Testing Pipeline**
+- Integrate QEMU user-mode emulation
+- Add `make test TARGET=aarch64/riscv64`
+- Run 118 tests via qemu-aarch64-static/qemu-riscv64-static
 
-To test AArch64/RISC-V, we need:
-1. **Object file output** - ELF format generation for each ISA
-2. **Linker support** - Link object files into executables
-3. **QEMU execution** - Run via `qemu-aarch64-static` / `qemu-riscv64-static`
-
-This is a significant feature addition (Task 65+).
+📅 **Task 68: Multi-ISA Test Suite Expansion**
+- Add ISA-specific test cases
+- Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs
 
 ### Risk Assessment
 
 | Risk | Level | Mitigation |
 |------|-------|------------|
-| Backend emits invalid instructions | Medium | Code review + future QEMU testing |
+| Backend emits invalid instructions | Medium | Code review + QEMU testing in Sprint 9 |
 | Calling convention bugs | Medium | Followed standard ABIs (AAPCS64, LP64D) |
 | Stack alignment issues | Low | Reused existing alignment logic |
 | Immediate encoding issues | Medium | Used conservative immediate ranges |
 
-### Testing Requirements (Future)
-
-To enable multi-ISA testing, we need:
-
-**Phase 1: Object File Output**
-```c
-// Add to isa_backend.h
-void (*emit_object_header)(ZeroCCCompiler *c);
-void (*emit_text_section)(ZeroCCCompiler *c);
-void (*emit_data_section)(ZeroCCCompiler *c);
-void (*emit_relocations)(ZeroCCCompiler *c);
-void (*write_object_file)(ZeroCCCompiler *c, const char *path);
-```
-
-**Phase 2: ELF Generation**
-- x86-64: ELF64 with x86-64 machine type
-- AArch64: ELF64 with AArch64 machine type
-- RISC-V: ELF32/64 with RISC-V machine type
-
-**Phase 3: Testing**
-```bash
-# Compile to object file
-./build/qnz_cc -target aarch64 -c test.c -o test.o
-
-# Link with libc
-gcc -nostdlib test.o -o test
-
-# Run via QEMU
-qemu-aarch64-static ./test
-```
-
 ### Recommendation
 
-**Proceed with Sprint 8 optimization work** - the backend implementations:
-1. Follow standard ISA patterns
-2. Use correct calling conventions
-3. Reuse tested alignment logic
-4. Have been code-reviewed
+**Proceed with Sprint 8 optimization work** - the backends follow standard ABIs:
+- AArch64: AAPCS64 (x0-x7 int args, v0-v7 FP args)
+- RISC-V: LP64D/ILP32D (a0-a7 int args, fa0-fa7 FP args)
 
-Multi-ISA testing can be done after adding object file output support.
-
-### Code Review Checklist
-
-Before using multi-ISA backends in production:
-
-- [ ] Add object file output support (ELF generation)
-- [ ] Verify immediate encoding ranges for each ISA
-- [ ] Test FP operations on AArch64 and RISC-V
-- [ ] Verify stack alignment on both ISAs
-- [ ] Test variadic functions
-- [ ] Test function pointers
-- [ ] Test recursive functions
-- [ ] Run full test suite via QEMU
+Multi-ISA testing is scheduled for Sprint 9 after object file output is added.
 
 ### Next Steps
 
 1. ✅ Task 56 complete (x86-64 verified)
-2. ✅ Ready for Sprint 8 optimization work
-3. ⏳ Object file output (Task 65+)
-4. ⏳ Multi-ISA testing via QEMU
-5. ⏳ Bug fixes as needed based on testing
+2. ✅ Sprint 8 optimization work ready to start
+3. 📅 Sprint 9: Object file output + QEMU testing
+4. 📅 Bug fixes as needed based on testing
+
+---
+
+*Last updated: 2024-10-04*
+*Scheduled for: Sprint 9 (Weeks 34.5-36)*
