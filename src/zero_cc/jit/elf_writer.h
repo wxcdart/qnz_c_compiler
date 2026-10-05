@@ -168,6 +168,7 @@ typedef struct {
     uint64_t flags;
     uint64_t align;
     uint64_t offset;  // File offset
+    uint32_t sh_name; // Offset in shstrtab
 } ElfWriterSection;
 
 typedef enum {

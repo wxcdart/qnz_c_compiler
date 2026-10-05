@@ -146,9 +146,7 @@ bool elf_writer_add_section(ElfWriterCtx* ctx, const char* name,
         return false;
     }
 
-    // Store name index in section (we'll use this for sh_name)
-    // Note: We need to track this separately since section structure doesn't have it
-    // For now, we'll compute it during write
+    sec->sh_name = (uint32_t)name_idx;
 
     return true;
 }
@@ -213,20 +211,36 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     // ELF64 Header: 52 bytes
     size_t size = 52;
 
+    // Section data (with alignment)
+    size_t data_offset = 52;  // Start after ELF header
+    
+    // Data sections (text, data, rodata, etc.)
+    for (int i = 0; i < ctx->section_count; i++) {
+        ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->align > 1) {
+            data_offset = (data_offset + sec->align - 1) & ~(sec->align - 1);
+        }
+        data_offset += sec->size;
+    }
+    
+    // Symbol string table (.strtab)
+    if (ctx->strtab_size > 0) {
+        data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
+        data_offset += ctx->strtab_size;
+    }
+    
+    // Symbol table (.symtab)
+    data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
+    data_offset += (ctx->symbol_count + 1) * 24;  // 24 bytes per Elf64_Sym
+    
+    // Section name string table (.shstrtab)
+    data_offset = (data_offset + 7) & ~7;  // Align to 8 bytes
+    data_offset += ctx->shstrtab_size;
+    
+    size = data_offset;
+
     // Section headers: (section_count + 1) * 64 bytes
     size += (ctx->section_count + 1) * 64;
-
-    // Section data
-    for (int i = 0; i < ctx->section_count; i++) {
-        size += ctx->sections[i].size;
-    }
-
-    // String tables
-    size += ctx->strtab_size;
-    size += ctx->shstrtab_size;
-
-    // Symbol table: (symbol_count + 1) * 24 bytes (+1 for null entry)
-    size += (ctx->symbol_count + 1) * 24;
 
     return size;
 }
@@ -301,18 +315,9 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     ehdr->e_shstrndx = 0;
 
     // ========================================================================
-    // Sections (in order: null, text, data, rodata, symtab, strtab, shstrtab)
+    // Sections (in order: text, data, rodata, symtab, strtab, shstrtab)
+    // Section headers will be written at the end
     // ========================================================================
-
-    // Store section header offsets for later computation
-    size_t section_header_offsets[ELF_MAX_SECTIONS + 1];
-    int actual_section_count = 1;  // Start with null section
-
-    // Null section header (index 0)
-    Elf64SectionHeader* shdr = (Elf64SectionHeader*)(buffer + offset);
-    section_header_offsets[0] = offset;
-    memset(shdr, 0, sizeof(Elf64SectionHeader));
-    offset += sizeof(Elf64SectionHeader);
 
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
@@ -329,8 +334,6 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         // Copy section data
         memcpy(buffer + offset, sec->data, sec->size);
         offset += sec->size;
-
-        actual_section_count++;
     }
 
     // Symbol string table (.strtab)
@@ -391,7 +394,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // ========================================================================
 
     // Null section
-    shdr = (Elf64SectionHeader*)(buffer + section_headers_offset);
+    Elf64SectionHeader* shdr = (Elf64SectionHeader*)(buffer + section_headers_offset);
     memset(shdr, 0, sizeof(Elf64SectionHeader));
     shdr++;
 
@@ -399,15 +402,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
 
-        // Find section name in shstrtab
-        const char* name = sec->name;
-        size_t name_offset = 1;  // Skip null byte
-        for (int j = 0; j < ctx->section_count; j++) {
-            if (j == i) break;
-            name_offset += strlen(ctx->sections[j].name) + 1;
-        }
-
-        shdr->sh_name = (uint32_t)name_offset;
+        shdr->sh_name = sec->sh_name;
         shdr->sh_type = sec->type;
         shdr->sh_flags = sec->flags;
         shdr->sh_addr = 0;
@@ -441,7 +436,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr->sh_addr = 0;
     shdr->sh_offset = symtab_offset;
     shdr->sh_size = (ctx->symbol_count + 1) * sizeof(Elf64Sym);
-    shdr->sh_link = (uint32_t)(actual_section_count + 1);  // Index of .strtab
+    shdr->sh_link = (uint32_t)(ctx->section_count + 1);  // Index of .strtab
     shdr->sh_info = 0;
     shdr->sh_addralign = 8;
     shdr->sh_entsize = sizeof(Elf64Sym);
@@ -464,8 +459,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // ========================================================================
     ehdr = (Elf64Header*)buffer;
     ehdr->e_shoff = section_headers_offset;
-    ehdr->e_shnum = actual_section_count + 3;  // +3 for .strtab, .symtab, .shstrtab
-    ehdr->e_shstrndx = actual_section_count + 2;  // Index of .shstrtab
+    ehdr->e_shnum = ctx->section_count + 3;  // +3 for .strtab, .symtab, .shstrtab
+    ehdr->e_shstrndx = ctx->section_count + 2;  // Index of .shstrtab
 
     if (written) {
         *written = offset;

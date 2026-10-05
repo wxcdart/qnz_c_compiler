@@ -29,14 +29,15 @@ typedef struct {
     int define_macros[10]; /* -D (placeholder) */
     int define_count;
     int dump_ir;          /* -dump-ir */
+    int link_mode;        /* Link with system linker (default when -o specified) */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "Usage: %s [options] <source.c>\n", prog);
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -o <file>       Output file name\n");
-    fprintf(stderr, "  -c              Compile to object file (.o)\n");
+    fprintf(stderr, "  -o <file>       Output file (executable or object with -c)\n");
+    fprintf(stderr, "  -c              Compile to object file (.o) only\n");
     fprintf(stderr, "  -S              Emit assembly\n");
     fprintf(stderr, "  -O0             No optimization\n");
     fprintf(stderr, "  -O1             Basic optimization (default)\n");
@@ -392,6 +393,61 @@ static int compile_object(CompileOptions *opts) {
     return 0;
 }
 
+static int compile_and_link(CompileOptions *opts) {
+    /* Generate temporary object file */
+    char obj_path[512];
+    if (opts->verbose) {
+        printf("Generating intermediate object file...\n");
+    }
+    
+    /* Create temp object file path */
+    snprintf(obj_path, sizeof(obj_path), "/tmp/zerocc_%d.o", getpid());
+    
+    /* First, compile to object file */
+    CompileOptions obj_opts = *opts;
+    obj_opts.emit_object = 1;
+    obj_opts.output_file = obj_path;
+    obj_opts.verbose = 0;  /* Suppress verbose during object generation */
+    
+    int ret = compile_object(&obj_opts);
+    if (ret != 0) {
+        fprintf(stderr, "Error: Compilation to object file failed\n");
+        return ret;
+    }
+    
+    if (opts->verbose) {
+        printf("Linking with system linker...\n");
+    }
+    
+    /* Invoke system linker (gcc) to create executable */
+    char cmd[1024];
+    const char *output = opts->output_file ? opts->output_file : "a.out";
+    
+    snprintf(cmd, sizeof(cmd),
+             "gcc -o %s %s -lc 2>&1",
+             output, obj_path);
+    
+    if (opts->verbose) {
+        printf("  %s\n", cmd);
+    }
+    
+    ret = system(cmd);
+    
+    /* Clean up temporary object file */
+    unlink(obj_path);
+    
+    if (ret != 0) {
+        fprintf(stderr, "Error: Linking failed\n");
+        return 1;
+    }
+    
+    if (opts->verbose) {
+        printf("Executable created: %s\n", output);
+    }
+    
+    return 0;
+}
+
 int main(int argc, char **argv) {
     CompileOptions opts;
     
@@ -400,8 +456,12 @@ int main(int argc, char **argv) {
         return ret == 0 ? 0 : 1;
     }
     
+    /* Determine mode: -c -> object file, -o without -c -> executable, else JIT */
     if (opts.emit_object) {
         return compile_object(&opts);
+    } else if (opts.output_file) {
+        /* Generate executable via system linker */
+        return compile_and_link(&opts);
     } else {
         return compile_jit(&opts);
     }
