@@ -482,3 +482,82 @@ typedef struct __attribute__((packed)) {
 - Fixed stack offset sign convention (use -offset for [fp - offset])
 - Fixed jump patch position (return position of rel32 field, not opcode)
 - Fixed push/pop REX prefix (not needed in 64-bit mode)
+
+## Task 56: Pass 2 Machine Code Emission (COMPLETE)
+
+**Date**: 2024-10-04
+
+**Status**: ✅ Complete - All 118 tests passing
+
+### Summary
+
+Completed the two-pass IR architecture by implementing all missing opcode handlers in Pass 2 (IR → Machine Code).
+
+### Changes
+
+#### Opcode Handlers (15 in `ast_lowering_mc.c`)
+
+**Stack Operations:**
+- `OP_PUSH_RAX`, `OP_POP_RAX` - Push/pop RAX register
+- `OP_PUSH_RBX`, `OP_POP_RBX` - Push/pop RBX register
+
+**Arithmetic Operations:**
+- `OP_ADD_IMM` - Add immediate to register
+- `OP_SUB_IMM` - Subtract immediate from register
+- `OP_INC` - Increment register
+- `OP_DEC` - Decrement register
+- `OP_SAR` - Arithmetic shift right
+
+**Control Flow:**
+- `OP_CALL_INDIRECT` - Call through register pointer
+- `OP_RET` - Return from function
+- `OP_EPILOGUE` - Function epilogue
+
+**Special:**
+- `OP_STACK_ALIGN` - Align stack pointer
+
+#### Backend Functions (3 new in `isa_backend.h`)
+
+- `emit_sar` - Arithmetic shift right
+- `emit_call_reg` - Call through register
+- `emit_stack_align` - Stack alignment
+
+#### Backend Implementations
+
+**x86_64.c:**
+- `x86_emit_sar` - SAR instruction with REX prefix
+- `x86_emit_call_reg` - CALL r/m64 instruction
+- `x86_emit_stack_align` - No-op (handled by prologue)
+
+**aarch64.c:**
+- `aarch64_emit_sar` - ASR instruction
+- `aarch64_emit_call_reg` - BLR instruction
+- `aarch64_emit_stack_align` - No-op (handled by prologue)
+- `aarch64_emit_add_imm` - ADD immediate
+- `aarch64_emit_sub_imm` - SUB immediate
+- `aarch64_emit_inc` - ADD #1
+- `aarch64_emit_dec` - SUB #1
+
+**riscv.c:**
+- `riscv64/riscv32_emit_sar` - SRA instruction
+- `riscv64/riscv32_emit_call_reg` - JALR instruction
+- `riscv64/riscv32_emit_stack_align` - No-op (handled by prologue)
+- `riscv64/riscv32_emit_add_imm` - ADDI instruction
+- `riscv64/riscv32_emit_sub_imm` - ADDI with negation
+- `riscv64/riscv32_emit_inc` - ADDI #1
+- `riscv64/riscv32_emit_dec` - ADDI #-1
+
+#### IR Buffer Management
+
+- Added `ir_clear()` call after function compilation in `ast_lowering.c`
+- Added `ir_clear()` declaration in `ir.h`
+
+### Testing
+
+- All 118 tests passing (67 JIT + 51 unit tests)
+- No regressions from previous implementation
+- Two-pass IR architecture fully functional
+
+### Next Steps
+
+Task 56 complete. Ready to proceed with Sprint 8 optimization work (Tasks 57-59).
