@@ -454,7 +454,15 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr->sh_offset = symtab_offset;
     shdr->sh_size = (ctx->symbol_count + 1) * sizeof(Elf64Sym);
     shdr->sh_link = (uint32_t)(ctx->section_count + 1);  // Index of .strtab
-    shdr->sh_info = 0;
+    // sh_info = index of first global symbol (count local symbols, starting from 1 for null symbol)
+    {
+        int local_count = 1;  // Start with 1 for null symbol
+        for (int i = 0; i < ctx->symbol_count; i++) {
+            int binding = (ctx->symbols[i].info >> 4) & 0xF;
+            if (binding == ELF_STB_LOCAL) local_count++;
+        }
+        shdr->sh_info = (uint32_t)local_count;
+    }
     shdr->sh_addralign = 8;
     shdr->sh_entsize = sizeof(Elf64Sym);
     shdr++;

@@ -355,12 +355,16 @@ static int compile_object(CompileOptions *opts) {
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
-        if (fn->name[0] && fn->text_offset > 0) {
+        if (fn->name[0]) {
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
+            int section_idx = SHN_UNDEF;  // Default to undefined
+            if (!fn->is_prototype) {
+                section_idx = 1;  // Compiled functions go in .text section
+            }
             elf_writer_add_symbol(&elf_ctx, fn->name,
                                   ELF_STB_GLOBAL, ELF_STT_FUNC,
-                                  1,  // Section index (1 = .text)
+                                  section_idx,
                                   fn->text_offset,
                                   fn_size);
         }

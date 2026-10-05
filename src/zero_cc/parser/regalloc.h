@@ -248,11 +248,8 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
 static void regalloc_allocate(RegAllocator *ra) __attribute__((unused));
 static void regalloc_allocate(RegAllocator *ra) {
     if (!ra || ra->interval_count == 0) {
-        printf("DEBUG: regalloc_allocate called with interval_count=%zu\n", ra ? ra->interval_count : 0);
         return;
     }
-    
-    printf("DEBUG: regalloc_allocate called with interval_count=%zu\n", ra->interval_count);
     
     /* Sort intervals by start position */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));
