@@ -396,12 +396,13 @@ static int compile_object(CompileOptions *opts) {
             }
             
             /* Add relocation entry */
-            /* Use PC32 for function calls - linker will resolve to PLT for external functions */
+            /* Use PLT32 for function calls - linker will resolve to PLT with -4 PC bias */
+            #define R_X86_64_PLT32 4
             elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
                                       r->text_patch_offset,
                                       symbol_idx,
-                                      R_X86_64_PC32,
-                                      0);  /* addend */
+                                      R_X86_64_PLT32,
+                                      -4);  /* addend */
         }
     }
     

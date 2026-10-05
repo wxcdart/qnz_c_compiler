@@ -47,9 +47,17 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     for (size_t i = 0; i < c->reloc_count; i++) {
         if (c->relocs[i].is_call) {
             ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
-            if (target_fn) {
+            if (target_fn && !target_fn->is_prototype) {
                 int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
+            } else {
+                void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+                if (host_fn) {
+                    uintptr_t call_site = (uintptr_t)mem + c->relocs[i].text_patch_offset + 4;
+                    intptr_t delta = (intptr_t)host_fn - (intptr_t)call_site;
+                    int32_t rel = (int32_t)delta;
+                    memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
+                }
             }
         } else if (strncmp(c->relocs[i].target_symbol, "__data_", 7) == 0) {
             /* Data reference (global variable) - calculate RIP-relative offset to data_offset */
