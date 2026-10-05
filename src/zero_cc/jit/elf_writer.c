@@ -104,7 +104,7 @@ bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->machine = machine;
     ctx->strtab_size = 1;  // First byte is always null
-    ctx->shstrtab_size = 1;
+    ctx->shstrtab_size = 1;  // First byte is always null
     ctx->output = NULL;
     ctx->output_size = 0;
     ctx->output_capacity = 0;
@@ -231,8 +231,14 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
     // Section name string table (.shstrtab)
+    // Add space for .strtab, .symtab, .shstrtab section names that will be added during write
+    size_t shstrtab_size = ctx->shstrtab_size;
+    shstrtab_size += strlen(".strtab") + 1;
+    shstrtab_size += strlen(".symtab") + 1;
+    shstrtab_size += strlen(".shstrtab") + 1;
+    
     offset = (offset + 7) & ~7;  // Align to 8 bytes
-    offset += ctx->shstrtab_size;
+    offset += shstrtab_size;
 
     // Section headers: (section_count + 4) * 64 bytes
     // (+4 for null, .strtab, .symtab, .shstrtab)
@@ -373,6 +379,14 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
     // Section name string table (.shstrtab)
+    // First, add the section names for .strtab, .symtab, .shstrtab
+    size_t strtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".strtab");
+    size_t symtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".symtab");
+    size_t shstrtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".shstrtab");
+    
     offset = (offset + 7) & ~7;
     shstrtab_offset = offset;
     memcpy(buffer + offset, ctx->shstrtab, ctx->shstrtab_size);
@@ -420,7 +434,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     }
 
     // .strtab section header
-    shdr->sh_name = 0;  // Will be computed
+    shdr->sh_name = (uint32_t)strtab_name_idx;
     shdr->sh_type = ELF_SHT_STRTAB;
     shdr->sh_flags = 0;
     shdr->sh_addr = 0;
@@ -433,7 +447,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr++;
 
     // .symtab section header
-    shdr->sh_name = 0;
+    shdr->sh_name = (uint32_t)symtab_name_idx;
     shdr->sh_type = ELF_SHT_SYMTAB;
     shdr->sh_flags = 0;
     shdr->sh_addr = 0;
@@ -446,7 +460,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr++;
 
     // .shstrtab section header
-    shdr->sh_name = 0;
+    shdr->sh_name = (uint32_t)shstrtab_name_idx;
     shdr->sh_type = ELF_SHT_STRTAB;
     shdr->sh_flags = 0;
     shdr->sh_addr = 0;
@@ -468,7 +482,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     ehdr = (Elf64Header*)buffer;
     ehdr->e_shoff = section_headers_offset;
     ehdr->e_shnum = ctx->section_count + 4;  // +4 for null, .strtab, .symtab, .shstrtab
-    ehdr->e_shstrndx = ctx->section_count + 2;  // Index of .shstrtab
+    ehdr->e_shstrndx = ctx->section_count + 3;  // Index of .shstrtab (null + data + .strtab + .symtab + .shstrtab)
 
     if (written) {
         *written = offset;
