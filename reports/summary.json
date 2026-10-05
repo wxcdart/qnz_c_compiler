@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-10-04T23:31:56.166780",
+  "benchmark": {
+    "total_tests": 4,
+    "successful_tests": 4,
+    "avg_compile_time_ms": 30.32120631178259,
+    "avg_exec_time_ms": 0.9231115092006803,
+    "total_compile_time_ms": 485.1393009885214,
+    "total_exec_time_ms": 14.769784147210885
+  },
+  "differential": {},
+  "performance": {}
+}

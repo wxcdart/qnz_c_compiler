@@ -1,0 +1,74 @@
+{
+  "timestamp": "2026-10-04T23:31:45.759238",
+  "tests": [
+    {
+      "name": "arith_heavy",
+      "file": "test/bench/arith_heavy.c",
+      "opt_level": "-O2",
+      "perf": {
+        "success": false,
+        "compile_time_ms": 29.879391004214995,
+        "perf_data": "/tmp/perf_compile.data",
+        "top_functions": []
+      },
+      "valgrind": {
+        "success": true,
+        "valgrind_time_ms": 571.0152200044831,
+        "callgrind_data": "/tmp/callgrind.out"
+      }
+    },
+    {
+      "name": "call_heavy",
+      "file": "test/bench/call_heavy.c",
+      "opt_level": "-O2",
+      "perf": {
+        "success": false,
+        "compile_time_ms": 22.474519995739684,
+        "perf_data": "/tmp/perf_compile.data",
+        "top_functions": []
+      },
+      "valgrind": {
+        "success": true,
+        "valgrind_time_ms": 324.2651150067104,
+        "callgrind_data": "/tmp/callgrind.out"
+      }
+    },
+    {
+      "name": "loop_heavy",
+      "file": "test/bench/loop_heavy.c",
+      "opt_level": "-O2",
+      "perf": {
+        "success": false,
+        "compile_time_ms": 22.550433001015335,
+        "perf_data": "/tmp/perf_compile.data",
+        "top_functions": []
+      },
+      "valgrind": {
+        "success": true,
+        "valgrind_time_ms": 381.0691480030073,
+        "callgrind_data": "/tmp/callgrind.out"
+      }
+    },
+    {
+      "name": "memory_heavy",
+      "file": "test/bench/memory_heavy.c",
+      "opt_level": "-O2",
+      "perf": {
+        "success": false,
+        "compile_time_ms": 28.793874007533304,
+        "perf_data": "/tmp/perf_compile.data",
+        "top_functions": []
+      },
+      "valgrind": {
+        "success": true,
+        "valgrind_time_ms": 344.71345201018266,
+        "callgrind_data": "/tmp/callgrind.out"
+      }
+    }
+  ],
+  "summary": {
+    "total_tests": 4,
+    "perf_success": 0,
+    "avg_perf_time_ms": 0
+  }
+}

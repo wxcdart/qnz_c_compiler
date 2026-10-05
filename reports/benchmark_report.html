@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ZeroCC Benchmark Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #333; }
+        h2 { color: #666; border-bottom: 1px solid #ddd; }
+        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .pass { color: green; }
+        .fail { color: red; }
+        .summary { background-color: #f9f9f9; padding: 20px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>ZeroCC Benchmark Report</h1>
+    <p>Generated: 2026-10-04 23:31:56</p>
+
+    <h2>Benchmark Summary</h2>
+    <div class="summary">
+        <p><strong>Total Tests:</strong> 4</p>
+        <p><strong>Successful:</strong> 4</p>
+        <p><strong>Avg Compile Time:</strong> 30.32 ms</p>
+        <p><strong>Avg Exec Time:</strong> 0.9231 ms</p>
+    </div>
+
+    <h2>Detailed Results</h2>
+    <table>
+        <tr><th>Test</th><th>-O0 (ms)</th><th>-O1 (ms)</th><th>-O2 (ms)</th><th>-O3 (ms)</th></tr>
+        <tr><td>arith_heavy</td><td>0.9239</td><td>0.9560</td><td>0.8783</td><td>0.8862</td></tr>
+        <tr><td>call_heavy</td><td>0.8444</td><td>0.9395</td><td>0.9119</td><td>0.9352</td></tr>
+        <tr><td>loop_heavy</td><td>0.9401</td><td>0.9871</td><td>0.9405</td><td>0.8746</td></tr>
+        <tr><td>memory_heavy</td><td>0.9630</td><td>0.9451</td><td>0.9129</td><td>0.9310</td></tr>
+    </table>
+
+</body>
+</html>
