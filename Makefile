@@ -51,7 +51,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	valgrind test-valgrind
 
-all: $(TESTS)
+all: $(TESTS) build/bin/zerocc
 
 PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/parser/*.h) \
@@ -112,6 +112,16 @@ $(OBJ_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 .SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
+
+
+# ZeroCC CLI driver
+ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS)
+	@mkdir -p build/bin
+	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(LDFLAGS)
+
+.PHONY: zerocc
+zerocc: build/bin/zerocc
 
 $(TEST_BIN_DIR)/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
 	@mkdir -p $(dir $@)

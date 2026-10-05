@@ -123,6 +123,21 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
   - All 118 tests passing in 0.31s.
   - Committed as `3db3fdb`.
 
+#### Sprint 9 — CLI Driver & Object File Output
+- **CLI Driver Implementation**:
+  - Created CLI driver (`src/main.c`, 258 lines).
+  - GCC-compatible argument parsing:
+    - `-o <file>`: Output file name
+    - `-c`: Compile to object file (placeholder for Task 65)
+    - `-O0`/`-O1`/`-O2`/`-O3`: Optimization levels
+    - `-v`: Verbose output
+    - `--version`: Print version
+    - `-h`: Help
+  - Integrated with optimization pipeline (`opt_init()`).
+  - JIT mode working (all 118 tests passing).
+  - Built as `build/bin/zerocc`.
+  - Committed as 6befca2.
+
 #### Sprint 8 — Two-Pass IR & Optimization Pipeline (continued)
 - **Optimization Benchmarking & Differential Verification (Task 59)**:
   - Created benchmark suite (`tools/benchmark_suite.py`, 179 lines).
