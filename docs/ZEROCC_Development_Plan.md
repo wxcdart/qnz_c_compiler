@@ -26,7 +26,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | Types & Declarations | 17 | 2 | 2 |
 | Preprocessor | 11 | 0 | 0 |
 | Code Generation / Runtime | 11 | 2 | 0 |
-| Diagnostics | 0 | 1 | 2 |
+| Diagnostics | 3 | 0 | 0 |
 | **Total Constructs** | **73** | **5** | **5** |
 
 ### Sprint Progress Summary
@@ -47,7 +47,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | ✅ Complete | **118/118 pass** |
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
-| **Sprint 9** | CLI Driver & Object File Output (Tasks 65-66) | 📅 In Progress | CLI driver complete |
+| **Sprint 9** | CLI Driver & Object File Output (Tasks 65-66) | 📅 In Progress | CLI driver complete, ELF writer infrastructure ready |
 | **Sprint 10** | SIMD Vectorization Support (Tasks 70-73) | 📅 Scheduled | — |
 | **Sprint 11** | Stack Allocation & VLA Support (Tasks 74-77) | 📅 Scheduled | — |
 
@@ -437,10 +437,10 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 | Priority | Task | Effort | Status |
 |----------|------|--------|--------|
-| 65 | **Object File Output (ELF Generation)**: Add object file (.o) output mode for all ISAs. Generate ELF64 format with proper headers, sections (.text, .data, .rodata), symbol tables, and relocations. Support x86-64, AArch64, and RISC-V machine types. | 5 days | 📅 Scheduled |
+| 65 | **Object File Output (ELF Generation)**: Add object file (.o) output mode for all ISAs. Generate ELF64 format with proper headers, sections (.text, .data, .rodata), symbol tables, and relocations. Support x86-64, AArch64, and RISC-V machine types. <br> *(Note: Use `readelf` and `objdump` for static verification to break the verification loop with Tasks 66/67)* <br> *(Infrastructure: `src/zero_cc/jit/elf_writer.c/h` created)* | 5 days | 🟡 Infrastructure Ready |
 | 66 | **Linker Support & Standalone Execution**: Add standalone executable output mode. Link object files with libc via system linker. Support `-o output` flag for final executables. | 3 days | 📅 Scheduled |
 | 67 | **QEMU Testing Pipeline**: Integrate QEMU user-mode emulation into test suite. Add `make test TARGET=aarch64` and `make test TARGET=riscv64` targets. Run all 118 tests via `qemu-aarch64-static` and `qemu-riscv64-static`. | 3 days | 📅 Scheduled |
-| 68 | **Multi-ISA Test Suite Expansion**: Add ISA-specific test cases for calling conventions, stack alignment, FP operations, and variadic functions. Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs. | 2 days | 📅 Scheduled |
+| 68 | **Multi-ISA Test Suite Expansion**: Add ISA-specific test cases for calling conventions, stack alignment, FP operations, and variadic functions. Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs. <br> *(Infrastructure: `test/aot/` test suite created)* | 2 days | 📅 Scheduled |
 
 ---
 
@@ -466,109 +466,48 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ## Immediate Next Actions
 
-### Current Focus: Sprint 6 – Industrial-Grade Testing, Fuzzing & Conformance
+### Current Focus: Sprint 9 – Multi-ISA Object File Output & QEMU Testing
 
-Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing cleanly under both standard builds and AddressSanitizer/UBSan:
+The compiler has successfully transitioned to a Two-Pass IR architecture (Sprint 8) and undergone significant architectural hardening (Sprint 8.5). All 118 tests pass cleanly under both standard builds and AddressSanitizer/UBSan.
 
-1. **Sprint 5.6: Register Allocation & Calling Convention Hardening** — ✅ Complete:
-   - AMD64 callee-saved register preservation (`rbx`, `r12`–`r15`) with top-of-frame slot allocation.
-   - Calling convention expanded to support up to 16 arguments: arguments 1–6 in registers, arguments 7+ on stack with 16-byte alignment.
-   - Fixed caller-saved clobbering across nested function call expressions via sequential argument spilling and pre-call reloading.
-   - Preserved 9–16 byte struct returns across `rax` and `rdx`.
-   - Comprehensive JIT testing in `test/jit/regalloc_test.c`.
+**Current Priority: Sprint 9 (Tasks 65–68)**
+- **Task 65: Object File Output (ELF Generation)** — 🟡 Infrastructure Ready: ELF writer (`elf_writer.c/h`) implemented. Awaiting CLI integration and testing.
+- **Task 66: Linker Support** — 📅 Scheduled: Integration with system linker for standalone executables.
+- **Task 67: QEMU Pipeline** — 📅 Scheduled: Integration of `qemu-aarch64-static` and `qemu-riscv64-static` into the test suite.
+- **Task 68: Multi-ISA Test Expansion** — 📅 Scheduled: Validation of AArch64 AAPCS64 and RISC-V LP64D ABIs.
 
-2. **Sprint 5.7: Register Allocator Completion & Lowering Modularization** — ✅ Complete:
-   - **Phase 2 (Call-Boundary Affinity)** — ✅ Complete:
-     - In `live_range.h`, `LiveRangeAnalyzer` tracks all `OP_CALL` positions and flags `spans_call = true` on intervals that cross call boundaries.
-     - In `regalloc.h`, `alloc_reg()` prioritizes callee-saved registers (`rbx`, `r12`–`r15`) for intervals spanning calls.
-     - Fixed `VREG_0` (RAX) pre-coloring so caller-saved RAX is not erroneously marked free when active.
-     - Verified with Test 8 in `test/jit/regalloc_test.c`.
-   - **Phase 3 (Real Stack Spill Slot Lowering)** — ✅ Complete:
-     - Implemented `regalloc_get_spill_slot_for_temp()` to track spilled intervals.
-     - Dynamically reserved spill stack space (`c->current_stack_frame += c->regalloc.next_spill_slot * 8`) with aligned `spill_base_offset`.
-     - In `emit_ir_to_machine_code()`, emitted reload instructions into distinct scratch registers (`phys_src1 = r10`, `phys_src2 = r11`) before opcode execution to protect 2-address operations, and stored back `phys_dst = r10` to the stack frame slot at `[rbp - (spill_base_offset + (slot + 1) * 8)]`.
-     - Handled spilled arguments in `OP_CALL` for both stack-passed and register-passed arguments.
-     - Added Tests 9 & 10 in `test/jit/regalloc_test.c` (18 simultaneously live variables and spilled call-spanning arithmetic).
-   - **Architectural Modularization** — ✅ Complete:
-     - Decomposed 2,320-line `ast_lowering.h` into clean single-responsibility modules:
-       - `ast_lowering_stmt.h` (360 lines)
-       - `ast_lowering_expr.h` (1,385 lines)
-       - `ast_lowering_mc.h` (452 lines)
-       - `ast_lowering.h` (178 lines coordinator)
-     - Test Suite status: **112/112 passed** cleanly under `make test` and `make asan`.
+**New Infrastructure Created**:
+- `tools/elf_verify.py`: Static ELF verification tool
+- `tools/test_runner.py`: Extended with AOT mode support
+- `src/zero_cc/jit/elf_writer.c/h`: ELF64 object file generation
+- `test/aot/`: AOT test suite (hello_world, arithmetic, loops, pointers, structs)
 
-3. **Sprint 8.5: Architectural Hardening & Infrastructure Refactoring** — ✅ **COMPLETE**:
-   - **Task 60: Unified Prologue & Epilogue Pipeline** — ✅ **Complete**:
-     - Eliminated the split between `compile.h` and `ast_lowering.h`: early prologue and early parameter register saves in `compile.h` removed.
-     - Deferred prologue emission until post-regalloc: `OP_PROLOGUE` is emitted as a placeholder during IR lowering, and its `imm64` (frame size) is patched after register allocation with exact total size (`locals + spills + callee_saves + 16_byte_alignment`).
-     - Added IR instructions `OP_PARAM_SAVE_INT`, `OP_PARAM_SAVE_FP`, and `OP_VARIADIC_SPILL` to uniformly represent incoming ABI argument and variadic register spills in IR before instruction selection.
-     - Fixed variadic register spill offset calculation so `x86_emit_variadic_spill` uses the exact base offset following fixed parameters without corrupting `current_stack_frame`.
-     - Added `-MMD -MP` automatic header dependency generation to the `Makefile` to prevent translation unit header desynchronization.
-   - **Task 61: Global State Encapsulation (Reentrancy)** — ✅ **Complete**:
-     - Created `LoweringState` struct to encapsulate all per-function lowering state (`ir_ctx`, `epilogue_label`).
-     - Created `LabelPatcherState` struct to encapsulate all label/patching state (`loop_stack`, `user_labels`).
-     - Replaced all global variables with encapsulated state in `ZeroCCCompiler`:
-       - `g_ir_emitter_ctx` → `c->lowering.ir_ctx`
-       - `g_ir_epilogue_label` → `c->lowering.epilogue_label`
-       - `g_loop_label_stack` → `c->label_patcher.loop_stack`
-       - `g_loop_label_depth` → `c->label_patcher.loop_depth`
-       - `g_user_labels` → `c->label_patcher.user_labels`
-       - `g_user_label_count` → `c->label_patcher.user_label_count`
-     - Enabled reentrant compilation: multiple `ZeroCCCompiler` instances can now compile concurrently without state collision.
-     - Removed ~70KB of dead `IREmitterContext` code (unused break/continue patch arrays, label tables, goto patch lists).
-   - **Task 62: Unified IR Label & Branch Patching** — ✅ **Complete**:
-     - Created new `label_patcher.h` with unified API for loop control and label management.
-     - Moved loop control state (`loop_stack`, `loop_depth`) from `LoweringState` to `LabelPatcherState`.
-     - Moved user label state (`user_labels`, `user_label_count`) from `LoweringState` to `LabelPatcherState`.
-     - Updated all AST lowering code to use `label_patcher_*` API.
-     - Removed dead code from `IREmitterContext` (break/continue patch arrays, label tables, goto patch lists, epilogue patches).
-     - Simplified `ir_emitter.h` to only contain temp variable tracking functions.
-     - Net result: **-128 lines** of code (165 removed, 37 added).
-   - **Task 63: Modular Header Separation** — ✅ **Complete**:
-     - Converted header-only implementation files to proper `.c` source files:
-       - `ast_lowering.h` → `ast_lowering.c` + `ast_lowering_internal.h` (163 + 46 lines)
-       - `ast_lowering_expr.h` → `ast_lowering_expr.c` (1,351 lines)
-       - `ast_lowering_stmt.h` → `ast_lowering_stmt.c` (316 lines)
-       - `ast_lowering_mc.h` → `ast_lowering_mc.c` (546 lines)
-     - Created `ast_lowering_internal.h` with shared forward declarations and types.
-     - Updated `parser.c` to include `ast_lowering.c` instead of `ast_lowering.h`.
-     - Eliminated header-only implementation pattern for AST lowering pipeline.
-   - **Task 64: Target-Independent IR Canonicalization** — ✅ **Complete**:
-     - **Phase 1**: Added `emit_leave()` and `get_code_offset()` to ISA backend abstraction (`isa_backend.h`).
-     - **Phase 1**: Moved ISA-specific machine code emission from IR layer to backend layer.
-     - **Phase 2**: Added `ISACallingConvention` struct to `isa_backend.h` with calling convention tables for all ISAs (x86-64, aarch64, riscv64, riscv32).
-     - **Phase 2**: Replaced hardcoded `int_arg_regs` table in `ast_lowering_mc.c` with `backend_get_int_arg_reg()`.
-     - **Phase 2**: Updated all IR opcode comments in `ir.h` to be target-agnostic (removed references to specific registers).
-     - **✅ COMPLETE**: IR layer is now fully target-agnostic with no ISA-specific instruction emission.
-   - Test Suite status: **118/118 passed** cleanly under `make test`.
+---
 
-4. **Sprint 9: Multi-ISA Object File Output & QEMU Testing** — 📅 Scheduled:
-   - **Task 65: Object File Output (ELF Generation)** — 📅 Scheduled:
-     - Add object file (.o) output mode for all ISAs (x86-64, AArch64, RISC-V).
-     - Generate ELF64 format with proper headers, sections (.text, .data, .rodata), symbol tables, and relocations.
-     - Support `-c` flag for compile-only mode (output object file, no linking).
-   - **Task 66: Linker Support & Standalone Execution** — 📅 Scheduled:
-     - Add standalone executable output mode with system linker integration.
-     - Support `-o output` flag for final executables.
-     - Link object files with libc for full program execution.
-   - **Task 67: QEMU Testing Pipeline** — 📅 Scheduled:
-     - Integrate QEMU user-mode emulation into test suite.
-     - Add `make test TARGET=aarch64` and `make test TARGET=riscv64` targets.
-     - Run all 118 tests via `qemu-aarch64-static` and `qemu-riscv64-static`.
-   - **Task 68: Multi-ISA Test Suite Expansion** — 📅 Scheduled:
-     - Add ISA-specific test cases for calling conventions, stack alignment, FP operations, and variadic functions.
-     - Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs.
-   - Current Status: Backend implementations complete (Task 56), testing blocked pending object file output.
+### Pending Industrial Validation: Sprint 6
 
-5. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
-   - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction. ✅ **Complete**:
-     - Migrated all parser error reporting from `c->had_error = 1; snprintf(...)` to `diag_report_error_at_token()` API.
-     - Rich diagnostics with `file:line:col: error: message` format and caret `^` pointers.
-     - Warning vs. error distinction implemented via `DiagSeverity` enum (DIAG_ERROR, DIAG_WARNING, DIAG_NOTE).
-     - Macro expansion context tracking for nested macro diagnostics.
-     - All raw `fprintf(stderr, ...)` error calls migrated to diagnostics API.
-     - All 114 tests pass with proper diagnostic output.
+While Sprint 9 is the primary path to multi-ISA validation, the following "industrial-grade" tasks from Sprint 6 remain as high-priority targets for the stability phase:
+- **Task 46: GCC C-Torture** (1,500+ tests) — ❌ Pending
+- **Task 47: Differential Fuzzing** (Csmith) — ❌ Pending
+- **Task 48: Regression Suite** (TCC corpus) — ❌ Pending
+- **Task 49: GitHub Actions CI** — ❌ Pending
 
+---
+
+### Recently Completed Milestones
+
+1. **Sprint 8.5: Architectural Hardening** — ✅ **COMPLETE**:
+   - **Task 60**: Unified post-regalloc frame layout.
+   - **Task 61**: Global state encapsulation (Reentrancy).
+   - **Task 62**: Unified IR label and branch patching.
+   - **Task 63**: Modular source file separation (`.c` files instead of header-only).
+   - **Task 64**: Target-independent IR canonicalization.
+2. **Sprint 5.7: Register Allocator Completion** — ✅ Complete:
+   - Phase 2: Call-boundary affinity.
+   - Phase 3: Real stack spill slot lowering.
+   - Modularization of the lowering engine.
+3. **Sprint 5.6: Calling Convention Hardening** — ✅ Complete:
+   - Callee-saved preservation, 16-argument support, and nested call clobbering resolution.
 ---
 
 ## 7. Design Critique & Architectural Hardening Roadmap

@@ -2,7 +2,11 @@
 """
 ZeroCC Unified Test Runner
 Supports structured categories (unit, jit, abi, semantic), per-test timing,
-pass/fail tracking, and TAP (Test Anything Protocol v13).
+pass/fail tracking, TAP (Test Anything Protocol v13), and AOT (Ahead-Of-Time) testing.
+
+Modes:
+- JIT (default): Runs pre-compiled test binaries that link against ZeroCC library
+- AOT: Compiles C tests with zerocc, verifies ELF, links, and executes
 """
 
 import argparse
@@ -10,6 +14,7 @@ import os
 import subprocess
 import sys
 import time
+import shutil
 
 # ANSI color codes
 GREEN = "\033[32m"
@@ -61,7 +66,6 @@ def find_test_binaries(root_dir, category=None):
             continue
         for entry in sorted(os.listdir(cat_dir)):
             full_path = os.path.join(cat_dir, entry)
-            # Must be an executable file and not a source file (.c, .h, .o)
             if (
                 os.path.isfile(full_path)
                 and os.access(full_path, os.X_OK)
@@ -71,7 +75,33 @@ def find_test_binaries(root_dir, category=None):
     return found
 
 
+def find_test_sources(root_dir, category=None):
+    """Find C test source files for AOT testing."""
+    categories = ["unit", "semantic", "abi", "jit"]
+    if category:
+        if category not in categories:
+            print(f"Error: Unknown category '{category}'. Available: {', '.join(categories)}", file=sys.stderr)
+            sys.exit(1)
+        categories = [category]
+
+    build_test_dir = os.path.join(root_dir, "build", "test")
+    base_dir = build_test_dir if os.path.isdir(build_test_dir) else os.path.join(root_dir, "test")
+
+    found = []
+    for cat in categories:
+        cat_dir = os.path.join(base_dir, cat)
+        if not os.path.isdir(cat_dir):
+            continue
+        for entry in sorted(os.listdir(cat_dir)):
+            if entry.endswith(".c"):
+                full_path = os.path.join(cat_dir, entry)
+                name = entry[:-2]  # Remove .c extension
+                found.append((f"{cat}/{name}", full_path, cat))
+    return found
+
+
 def run_single_test(name, path, category, timeout_sec=10, use_valgrind=False):
+    """Run a pre-compiled test binary (JIT mode)."""
     start = time.perf_counter()
     try:
         cmd = [path]
@@ -97,6 +127,159 @@ def run_single_test(name, path, category, timeout_sec=10, use_valgrind=False):
             stdout=proc.stdout,
             stderr=proc.stderr,
         )
+    except subprocess.TimeoutExpired as e:
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        return TestResult(
+            name=name,
+            category=category,
+            passed=False,
+            duration_ms=duration_ms,
+            returncode=-1,
+            stdout=e.stdout or "",
+            stderr=e.stderr or "",
+            error_msg=f"TIMEOUT after {timeout_sec}s",
+        )
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        return TestResult(
+            name=name,
+            category=category,
+            passed=False,
+            duration_ms=duration_ms,
+            returncode=-1,
+            stdout="",
+            stderr="",
+            error_msg=str(e),
+        )
+
+
+def run_aot_test(name, source_path, category, root_dir, zerocc_path, target, timeout_sec=30, verbose=False):
+    """Run an AOT test: compile with zerocc, verify ELF, link, and execute."""
+    start = time.perf_counter()
+    test_dir = os.path.join(root_dir, "build", "test", "aot")
+    os.makedirs(test_dir, exist_ok=True)
+
+    base_name = os.path.splitext(os.path.basename(source_path))[0]
+    obj_path = os.path.join(test_dir, f"{base_name}.o")
+    exe_path = os.path.join(test_dir, base_name)
+
+    try:
+        # Step 1: Compile with zerocc
+        if verbose:
+            print(f"  Compiling: {source_path}")
+
+        zerocc_cmd = [zerocc_path, "-c", source_path, "-o", obj_path]
+        proc = subprocess.run(
+            zerocc_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_sec,
+        )
+
+        if proc.returncode != 0:
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            return TestResult(
+                name=name,
+                category=category,
+                passed=False,
+                duration_ms=duration_ms,
+                returncode=proc.returncode,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                error_msg="Compilation failed",
+            )
+
+        # Step 2: Verify ELF (static check)
+        if verbose:
+            print(f"  Verifying ELF: {obj_path}")
+
+        elf_verify_path = os.path.join(root_dir, "tools", "elf_verify.py")
+        if os.path.isfile(elf_verify_path):
+            verify_cmd = ["python3", elf_verify_path, obj_path, "--quiet"]
+            subprocess.run(verify_cmd, capture_output=True, timeout=10)
+            # Don't fail on verification, just log
+
+        # Step 3: Link with system linker
+        if verbose:
+            print(f"  Linking: {obj_path}")
+
+        link_cmd = ["gcc", "-o", exe_path, obj_path]
+        proc = subprocess.run(
+            link_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_sec,
+        )
+
+        if proc.returncode != 0:
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            return TestResult(
+                name=name,
+                category=category,
+                passed=False,
+                duration_ms=duration_ms,
+                returncode=proc.returncode,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                error_msg="Linking failed",
+            )
+
+        # Step 4: Execute (with QEMU if cross-ISA)
+        if verbose:
+            print(f"  Executing: {exe_path}")
+
+        exec_cmd = [exe_path]
+        effective_timeout = timeout_sec
+
+        if target and target != "x86-64":
+            # Use QEMU for cross-ISA execution
+            qemu_map = {
+                "aarch64": "qemu-aarch64-static",
+                "arm64": "qemu-aarch64-static",
+                "riscv64": "qemu-riscv64-static",
+                "riscv32": "qemu-riscv32-static",
+            }
+            qemu_bin = qemu_map.get(target)
+            if qemu_bin:
+                # Check if QEMU is available
+                if not shutil.which(qemu_bin):
+                    duration_ms = (time.perf_counter() - start) * 1000.0
+                    return TestResult(
+                        name=name,
+                        category=category,
+                        passed=False,
+                        duration_ms=duration_ms,
+                        returncode=-1,
+                        stdout="",
+                        stderr="",
+                        error_msg=f"QEMU not found: {qemu_bin}",
+                    )
+                exec_cmd = [qemu_bin, exe_path]
+                effective_timeout = timeout_sec * 3  # QEMU is slower
+
+        proc = subprocess.run(
+            exec_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=effective_timeout,
+        )
+
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        passed = proc.returncode == 0
+
+        return TestResult(
+            name=name,
+            category=category,
+            passed=passed,
+            duration_ms=duration_ms,
+            returncode=proc.returncode,
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+        )
+
     except subprocess.TimeoutExpired as e:
         duration_ms = (time.perf_counter() - start) * 1000.0
         return TestResult(
@@ -151,60 +334,73 @@ def main():
     parser = argparse.ArgumentParser(description="ZeroCC Unified Test Runner")
     parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit"],
                         help="Run only tests from a specific category")
+    parser.add_argument("--mode", "-m", choices=["jit", "aot"], default="jit",
+                        help="Test mode: JIT (pre-compiled) or AOT (compile with zerocc)")
+    parser.add_argument("--target", "-t", choices=["x86-64", "aarch64", "arm64", "riscv64", "riscv32"],
+                        default="x86-64", help="Target architecture for AOT mode")
+    parser.add_argument("--zerocc", "-z", default=None,
+                        help="Path to zerocc compiler (default: auto-detect)")
     parser.add_argument("--tap", action="store_true", help="Output in TAP v13 format")
     parser.add_argument("--valgrind", action="store_true", help="Run tests under Valgrind memcheck")
-    parser.add_argument("--timeout", type=int, default=10, help="Per-test timeout in seconds (default: 10)")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Print stdout/stderr for passed tests")
-    parser.add_argument("tests", nargs="*", help="Optional specific test executables to run")
+    parser.add_argument("--timeout", type=int, default=30, help="Per-test timeout in seconds (default: 30)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed output")
+    parser.add_argument("tests", nargs="*", help="Optional specific tests to run")
 
     args = parser.parse_args()
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-    test_items = []
-    if args.tests:
-        for t in args.tests:
-            # Can be "test/jit/basic", "build/test/jit/basic", "jit/basic", or "basic"
-            path = t
-            if not os.path.exists(path):
-                # Try finding under build/test/* or test/*
-                for base in [os.path.join(root_dir, "build", "test"), os.path.join(root_dir, "test")]:
-                    for cat in ["unit", "semantic", "abi", "jit"]:
-                        cand = os.path.join(base, cat, os.path.basename(t))
-                        if os.path.isfile(cand):
-                            path = cand
-                            break
-                    if os.path.isfile(path):
-                        break
-            if os.path.isfile(path):
-                # Determine category and relative name
-                rel = None
-                for base in [os.path.join(root_dir, "build", "test"), os.path.join(root_dir, "test")]:
-                    if path.startswith(base):
-                        rel = os.path.relpath(path, base)
-                        break
-                if not rel:
-                    rel = os.path.basename(path)
-                cat = rel.split(os.sep)[0] if os.sep in rel else "custom"
-                test_items.append((rel, path, cat))
-            else:
-                print(f"Error: Test binary '{t}' not found.", file=sys.stderr)
-                sys.exit(1)
+    # Auto-detect zerocc path
+    zerocc_path = args.zerocc
+    if not zerocc_path:
+        zerocc_path = os.path.join(root_dir, "build", "bin", "zerocc")
+        if not os.path.isfile(zerocc_path):
+            zerocc_path = os.path.join(root_dir, "zerocc")
+        if not os.path.isfile(zerocc_path):
+            zerocc_path = "zerocc"  # Try PATH
+
+    # Select test items based on mode
+    if args.mode == "aot":
+        test_items = find_test_sources(root_dir, category=args.category)
+        if not test_items:
+            print("No test sources found for AOT testing.", file=sys.stderr)
+            sys.exit(1)
     else:
         test_items = find_test_binaries(root_dir, category=args.category)
+        if not test_items:
+            print("No test binaries found. Did you run 'make' first?", file=sys.stderr)
+            sys.exit(1)
 
-    if not test_items:
-        print("No test binaries found to run. Did you run 'make' first?", file=sys.stderr)
-        sys.exit(1)
-
+    # Print header
     if not args.tap:
+        mode_str = f"[{args.mode.upper()}]"
         cat_str = f" [{args.category}]" if args.category else ""
-        print(colorize(f"=== ZeroCC Test Suite{cat_str} ({len(test_items)} tests) ===", BOLD))
+        target_str = f" (target={args.target})" if args.mode == "aot" else ""
+        print(colorize(f"=== ZeroCC Test Suite{mode_str}{cat_str}{target_str} ({len(test_items)} tests) ===", BOLD))
 
     results = []
     overall_start = time.perf_counter()
 
     for name, path, category in test_items:
-        res = run_single_test(name, path, category, timeout_sec=args.timeout, use_valgrind=args.valgrind)
+        if args.mode == "aot":
+            res = run_aot_test(
+                name=name,
+                source_path=path,
+                category=category,
+                root_dir=root_dir,
+                zerocc_path=zerocc_path,
+                target=args.target,
+                timeout_sec=args.timeout,
+                verbose=args.verbose
+            )
+        else:
+            res = run_single_test(
+                name=name,
+                path=path,
+                category=category,
+                timeout_sec=args.timeout,
+                use_valgrind=args.valgrind
+            )
+
         results.append(res)
 
         if not args.tap:

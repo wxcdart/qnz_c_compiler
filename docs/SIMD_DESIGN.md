@@ -405,3 +405,266 @@ add     rdi, 4                   ; i += 4
 *Last updated: 2024-10-05*
 *Status: Design complete, ready for implementation*
 *Target: Sprint 10 (Weeks 37-38)*
+
+## Multi-ISA Support
+
+### SIMD Across Architectures
+
+| ISA | SIMD Extension | Vector Width | Status |
+|-----|----------------|--------------|--------|
+| **x86-64** | SSE2 | 128-bit | ✅ Primary target |
+| **x86-64** | AVX | 256-bit | 📅 Future |
+| **x86-64** | AVX-512 | 512-bit | 📅 Future |
+| **AArch64** | NEON | 128-bit | 📅 Phase 2 |
+| **AArch64** | SVE | 128-2048-bit | 📅 Future |
+| **RISC-V** | RVV | 128-512-bit | 📅 Future |
+
+### Design for Portability
+
+The IR layer must be **ISA-agnostic**:
+
+```c
+/* IR opcodes are universal - same for all ISAs */
+OP_VADD_INT,        /* Vector add integers */
+OP_VMUL_INT,        /* Vector multiply */
+OP_VLOAD,           /* Vector load from memory */
+OP_VSTORE,          /* Vector store to memory */
+
+/* Backend-specific implementation */
+void (*emit_vadd_int)(ZeroCCCompiler *c, int dest_vec, int src_vec);
+```
+
+### AArch64 NEON Support
+
+**Register Mapping:**
+```c
+/* XMM registers (x86-64) → Q registers (AArch64) */
+xmm0 → q0,  xmm1 → q1,  ...,  xmm15 → q15
+```
+
+**Instruction Mapping:**
+```c
+/* x86-64 SSE2 → AArch64 NEON */
+paddd   →   add q0, q1, q2          /* vector add */
+pmuludq →   mul q0, q1, q2          /* vector multiply */
+movdqa  →   ld1 {v0.4s}, [x0]       /* vector load */
+movdqa  →   st1 {v0.4s}, [x0]       /* vector store */
+```
+
+**AArch64 Backend Implementation:**
+```c
+/* AArch64 vector add (add q0, q1, q2) */
+static void aarch64_emit_vadd_int(ZeroCCCompiler *c, int dest_q, int src_q) {
+    /* 0F 4C 00 00 (add v0.4s, v1.4s, v2.4s) */
+    me_emit_u8(c, 0x4E);
+    me_emit_u8(c, 0x2C);
+    me_emit_u8(c, 0x00 | dest_q);
+    me_emit_u8(c, 0x20 | src_q);
+}
+```
+
+### RISC-V RVV Support
+
+**Register Mapping:**
+```c
+/* XMM registers (x86-64) → V registers (RISC-V) */
+xmm0 → v0,  xmm1 → v1,  ...,  xmm15 → v15
+```
+
+**Instruction Mapping:**
+```c
+/* x86-64 SSE2 → RISC-V RVV */
+paddd   →   vadd.vv v0, v1, v2      /* vector add */
+pmuludq →   vmul.vv v0, v1, v2      /* vector multiply */
+movdqa  →   vlw.v v0, (a0)          /* vector load */
+movdqa  →   vsw.v v0, (a0)          /* vector store */
+```
+
+**RISC-V Backend Implementation:**
+```c
+/* RISC-V vector add (vadd.vv v0, v1, v2) */
+static void riscv_emit_vadd_int(ZeroCCCompiler *c, int dest_v, int src_v) {
+    /* 0x47 (vadd.vv opcode) */
+    me_emit_u8(c, 0x47);
+    me_emit_u8(c, 0x00 | dest_v);
+    me_emit_u8(c, 0x00 | src_v);
+}
+```
+
+### ISA-Agnostic Vector Types
+
+```c
+/* Vector types are ISA-agnostic */
+typedef enum {
+    TYPE_INT32_VEC4,    /* 4 × int32 - works on all ISAs */
+    TYPE_FLOAT_VEC4,    /* 4 × float - works on all ISAs */
+    TYPE_INT64_VEC2,    /* 2 × int64 - works on all ISAs */
+    TYPE_DOUBLE_VEC2,   /* 2 × double - works on all ISAs */
+} VectorType;
+
+/* Backend specifies actual implementation */
+typedef struct {
+    int vector_width;       /* 128, 256, 512 bits */
+    int max_lanes;          /* Max vector lanes */
+    bool has_vector_regs;   /* Does ISA support vectors? */
+} ISAVectorSupport;
+```
+
+### Implementation Strategy
+
+#### Phase 1: x86-64 SSE2 (Sprint 10)
+- [ ] Implement SSE2 backend
+- [ ] Test with call_heavy.c
+- [ ] Benchmark performance
+
+#### Phase 2: AArch64 NEON (Future)
+- [ ] Add NEON backend functions
+- [ ] Map XMM → Q registers
+- [ ] Translate SSE2 → NEON instructions
+- [ ] Test on AArch64 hardware/QEMU
+
+#### Phase 3: RISC-V RVV (Future)
+- [ ] Add RVV backend functions
+- [ ] Map XMM → V registers
+- [ ] Translate SSE2 → RVV instructions
+- [ ] Test on RISC-V hardware/QEMU
+
+### Backend Abstraction
+
+```c
+/* isa_backend.h - Vector support abstraction */
+typedef struct {
+    /* Existing backend functions */
+    void (*emit_prologue)(ZeroCCCompiler *c, int frame_size);
+    void (*emit_epilogue)(ZeroCCCompiler *c);
+    
+    /* Vector functions (NEW) */
+    void (*emit_vload)(ZeroCCCompiler *c, int dest_vec, int base, int offset);
+    void (*emit_vstore)(ZeroCCCompiler *c, int src_vec, int base, int offset);
+    void (*emit_vadd_int)(ZeroCCCompiler *c, int dest_vec, int src_vec);
+    void (*emit_vsub_int)(ZeroCCCompiler *c, int dest_vec, int src_vec);
+    void (*emit_vmul_int)(ZeroCCCompiler *c, int dest_vec, int src_vec);
+    
+    /* Vector support info */
+    ISAVectorSupport vector_support;
+} ISABackend;
+
+/* x86_64.c */
+static const ISABackend x86_64_backend = {
+    .emit_prologue = x86_emit_prologue,
+    .emit_epilogue = x86_emit_epilogue,
+    .emit_vload = x86_emit_vload,
+    .emit_vstore = x86_emit_vstore,
+    .emit_vadd_int = x86_emit_vadd_int,
+    .emit_vmul_int = x86_emit_vmul_int,
+    .vector_support = {
+        .vector_width = 128,
+        .max_lanes = 4,
+        .has_vector_regs = true,
+    },
+};
+
+/* aarch64.c */
+static const ISABackend aarch64_backend = {
+    .emit_prologue = aarch64_emit_prologue,
+    .emit_epilogue = aarch64_emit_epilogue,
+    .emit_vload = aarch64_emit_vload,
+    .emit_vstore = aarch64_emit_vstore,
+    .emit_vadd_int = aarch64_emit_vadd_int,
+    .emit_vmul_int = aarch64_emit_vmul_int,
+    .vector_support = {
+        .vector_width = 128,
+        .max_lanes = 4,
+        .has_vector_regs = true,
+    },
+};
+
+/* riscv.c */
+static const ISABackend riscv64_backend = {
+    .emit_prologue = riscv64_emit_prologue,
+    .emit_epilogue = riscv64_emit_epilogue,
+    .emit_vload = riscv64_emit_vload,
+    .emit_vstore = riscv64_emit_vstore,
+    .emit_vadd_int = riscv64_emit_vadd_int,
+    .emit_vmul_int = riscv64_emit_vmul_int,
+    .vector_support = {
+        .vector_width = 128,  /* Configurable at runtime */
+        .max_lanes = 4,
+        .has_vector_regs = true,  /* Requires RVV extension */
+    },
+};
+```
+
+### Fallback for Non-SIMD ISAs
+
+If an ISA doesn't support SIMD:
+
+```c
+/* opt_vectorize.c - Check if vectorization is supported */
+static bool can_vectorize(ZeroCCCompiler *c) {
+    return BE(c)->vector_support.has_vector_regs;
+}
+
+/* If no SIMD support, skip vectorization pass */
+static void opt_pass_vectorize(ZeroCCCompiler *c) {
+    if (!can_vectorize(c)) {
+        return;  /* Skip vectorization */
+    }
+    /* ... vectorization logic ... */
+}
+```
+
+### Stack Allocation Multi-ISA Support
+
+Stack allocation works similarly across all ISAs:
+
+| Aspect | x86-64 | AArch64 | RISC-V |
+|--------|--------|---------|--------|
+| **Stack pointer** | RSP | SP | SP |
+| **Frame pointer** | RBP | FP/X29 | FP/X8 |
+| **Alignment** | 16-byte | 16-byte | 16-byte |
+| **Red zone** | 128 bytes | None | None |
+| **Page probing** | OS-dependent | OS-dependent | OS-dependent |
+
+**Backend-specific prologue:**
+```c
+/* x86_64.c */
+static void x86_emit_prologue(ZeroCCCompiler *c, int frame_size) {
+    me_emit_u8(c, 0x55);        /* push rbp */
+    me_emit_u8(c, 0x48);        /* REX.W */
+    me_emit_u8(c, 0x89);        /* mov rbp, rsp */
+    me_emit_u8(c, 0xE5);
+    /* sub rsp, frame_size */
+}
+
+/* aarch64.c */
+static void aarch64_emit_prologue(ZeroCCCompiler *c, int frame_size) {
+    /* stp x29, x30, [sp, #-16]! */
+    /* mov x29, sp */
+    /* sub sp, sp, #frame_size */
+}
+
+/* riscv.c */
+static void riscv64_emit_prologue(ZeroCCCompiler *c, int frame_size) {
+    /* addi sp, sp, -frame_size */
+    /* sd ra, 0(sp) */
+    /* sd s0, 8(sp) */
+    /* addi s0, sp, frame_size */
+}
+```
+
+### Conclusion
+
+**Yes, the design works for AArch64 and RISC-V!**
+
+Key points:
+1. **IR layer is ISA-agnostic** - Same opcodes for all ISAs
+2. **Backend implementations differ** - Each ISA has its own instruction emission
+3. **SSE2 → NEON → RVV mapping** - Similar vector operations, different encodings
+4. **Fallback support** - Non-SIMD ISAs skip vectorization pass
+5. **Stack allocation is portable** - Same concept, different prologue code
+
+**Implementation order:**
+1. Sprint 10: x86-64 SSE2 (primary target)
+2. Future: AArch64 NEON (128-bit, similar to SSE2)
+3. Future: RISC-V RVV (scalable vectors, more complex)
