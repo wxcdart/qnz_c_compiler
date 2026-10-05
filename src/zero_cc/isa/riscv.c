@@ -277,6 +277,64 @@ static void riscv64_emit_ret(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00008067);
 }
 
+/* sar dst_reg, src1, src2 (arithmetic shift right: dst = src1 >> src2) */
+static void riscv64_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    if (dst_reg != src1) {
+        /* mv dst, src1 */
+        riscv_emit_u32(c, 0x00000033 | (RV_REG(dst_reg) << 7) | (RV_REG(src1) << 15));
+    }
+    /* sra dst, dst, src2 */
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15) | (RV_REG(src2) << 20));
+}
+
+/* call [reg] - call through register */
+static void riscv64_emit_call_reg(ZeroCCCompiler *c, int reg) {
+    /* jalr ra, 0(reg) */
+    riscv_emit_u32(c, 0x00000067 | (RV_REG(reg) << 15) | (1 << 7));
+}
+
+/* stack_align - ensure 16-byte stack alignment (RISC-V already handles this) */
+static void riscv64_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
+    /* RISC-V ABI requires 16-byte alignment. 
+     * This is typically handled by prologue/epilogue. */
+    (void)c;
+    (void)alignment;
+}
+
+/* add_imm dst_reg, imm (add immediate) */
+static void riscv64_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* addi dst, dst, imm */
+        riscv_emit_u32(c, ((imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    } else {
+        /* addi dst, dst, imm (negative) */
+        riscv_emit_u32(c, ((imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    }
+}
+
+/* sub_imm dst_reg, imm (subtract immediate) */
+static void riscv64_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* addi dst, dst, -imm */
+        riscv_emit_u32(c, ((-imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15) | (0x400 << 20));
+    } else {
+        /* addi dst, dst, -imm (negative = add) */
+        riscv_emit_u32(c, ((-imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    }
+}
+
+/* inc dst_reg (increment) */
+static void riscv64_emit_inc(ZeroCCCompiler *c, int dst_reg) {
+    /* addi dst, dst, 1 */
+    riscv_emit_u32(c, (1 << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+}
+
+/* dec dst_reg (decrement) */
+static void riscv64_emit_dec(ZeroCCCompiler *c, int dst_reg) {
+    /* addi dst, dst, -1 */
+    riscv_emit_u32(c, ((-1 & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+}
+
 /* Floating point operations */
 static void riscv64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* fld fa, offset(base) */
@@ -457,6 +515,7 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_jgt = riscv64_emit_jgt,
     .emit_jge = riscv64_emit_jge,
     .emit_call = riscv64_emit_call,
+    .emit_call_reg = riscv64_emit_call_reg,
     .emit_ret = riscv64_emit_ret,
     
     /* VREG mapping */
@@ -478,8 +537,14 @@ const ZeroCCISABackend riscv64_backend = {
     
     .emit_const = riscv64_emit_const,
     .emit_stack_adjust = riscv64_emit_stack_adjust,
+    .emit_stack_align = riscv64_emit_stack_align,
     .emit_push_reg = riscv64_emit_push_reg,
     .emit_pop_reg = riscv64_emit_pop_reg,
+    .emit_add_imm = riscv64_emit_add_imm,
+    .emit_sub_imm = riscv64_emit_sub_imm,
+    .emit_inc = riscv64_emit_inc,
+    .emit_dec = riscv64_emit_dec,
+    .emit_sar = riscv64_emit_sar,
     .emit_label = riscv64_emit_label,
 };
 
@@ -632,6 +697,64 @@ static void riscv32_emit_call(ZeroCCCompiler *c, const char *func_name) {
 
 static void riscv32_emit_ret(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00008067);
+}
+
+/* sar dst_reg, src1, src2 (arithmetic shift right: dst = src1 >> src2) */
+static void riscv32_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    if (dst_reg != src1) {
+        /* mv dst, src1 */
+        riscv_emit_u32(c, 0x00000033 | (RV_REG(dst_reg) << 7) | (RV_REG(src1) << 15));
+    }
+    /* sra dst, dst, src2 */
+    riscv_emit_u32(c, 0x40000033 | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15) | (RV_REG(src2) << 20));
+}
+
+/* call [reg] - call through register */
+static void riscv32_emit_call_reg(ZeroCCCompiler *c, int reg) {
+    /* jalr ra, 0(reg) */
+    riscv_emit_u32(c, 0x00000067 | (RV_REG(reg) << 15) | (1 << 7));
+}
+
+/* stack_align - ensure 16-byte stack alignment (RISC-V already handles this) */
+static void riscv32_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
+    /* RISC-V ABI requires 16-byte alignment. 
+     * This is typically handled by prologue/epilogue. */
+    (void)c;
+    (void)alignment;
+}
+
+/* add_imm dst_reg, imm (add immediate) */
+static void riscv32_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* addi dst, dst, imm */
+        riscv_emit_u32(c, ((imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    } else {
+        /* addi dst, dst, imm (negative) */
+        riscv_emit_u32(c, ((imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    }
+}
+
+/* sub_imm dst_reg, imm (subtract immediate) */
+static void riscv32_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* addi dst, dst, -imm */
+        riscv_emit_u32(c, ((-imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15) | (0x400 << 20));
+    } else {
+        /* addi dst, dst, -imm (negative = add) */
+        riscv_emit_u32(c, ((-imm & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+    }
+}
+
+/* inc dst_reg (increment) */
+static void riscv32_emit_inc(ZeroCCCompiler *c, int dst_reg) {
+    /* addi dst, dst, 1 */
+    riscv_emit_u32(c, (1 << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
+}
+
+/* dec dst_reg (decrement) */
+static void riscv32_emit_dec(ZeroCCCompiler *c, int dst_reg) {
+    /* addi dst, dst, -1 */
+    riscv_emit_u32(c, ((-1 & 0xFFF) << 20) | (RV_REG(dst_reg) << 7) | (RV_REG(dst_reg) << 15));
 }
 
 static void riscv32_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
@@ -798,6 +921,7 @@ const ZeroCCISABackend riscv32_backend = {
     .emit_jgt = riscv32_emit_jgt,
     .emit_jge = riscv32_emit_jge,
     .emit_call = riscv32_emit_call,
+    .emit_call_reg = riscv32_emit_call_reg,
     .emit_ret = riscv32_emit_ret,
     
     .emit_load_fp = riscv32_emit_load_fp,
@@ -815,7 +939,13 @@ const ZeroCCISABackend riscv32_backend = {
     
     .emit_const = riscv32_emit_const,
     .emit_stack_adjust = riscv32_emit_stack_adjust,
+    .emit_stack_align = riscv32_emit_stack_align,
     .emit_push_reg = riscv32_emit_push_reg,
     .emit_pop_reg = riscv32_emit_pop_reg,
+    .emit_add_imm = riscv32_emit_add_imm,
+    .emit_sub_imm = riscv32_emit_sub_imm,
+    .emit_inc = riscv32_emit_inc,
+    .emit_dec = riscv32_emit_dec,
+    .emit_sar = riscv32_emit_sar,
     .emit_label = riscv32_emit_label,
 };

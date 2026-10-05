@@ -653,6 +653,34 @@ static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
     x86_modrm(c, 3, 1, dst_reg & 7);
 }
 
+/* sar dst_reg, cl (arithmetic shift right) */
+static void x86_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    if (dst_reg != src1) {
+        x86_mov_rr(c, dst_reg, src1);
+    }
+    if (src2 != 1 /* rcx */) {
+        x86_mov_rr(c, 1, src2);
+    }
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+    me_emit_u8(c, 0xd3);
+    x86_modrm(c, 3, 7, dst_reg & 7); /* sar dst_reg, cl */
+}
+
+/* call [reg] - call through register */
+static void x86_emit_call_reg(ZeroCCCompiler *c, int reg) {
+    x86_rex(c, 1, 0, 0, (reg >> 3) & 1);
+    me_emit_u8(c, 0xff);
+    x86_modrm(c, 3, 2, reg & 7); /* call r/m64 */
+}
+
+/* stack_align - ensure 16-byte stack alignment (x86-64 already handles this) */
+static void x86_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
+    /* x86-64 ABI requires 16-byte alignment before call. 
+     * This is typically handled by prologue/epilogue. */
+    (void)c;
+    (void)alignment;
+}
+
 /* shr dst_reg, cl (dst = src1 >> src2) */
 static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
     if (dst_reg != src1) {
@@ -1112,6 +1140,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_jgt = x86_emit_jgt,
     .emit_jge = x86_emit_jge,
     .emit_call = x86_emit_call,
+    .emit_call_reg = x86_emit_call_reg,
     .emit_ret = x86_emit_ret,
     
     .emit_load_fp = x86_emit_load_fp,
@@ -1129,6 +1158,7 @@ const ZeroCCISABackend x86_64_backend = {
     
     .emit_const = x86_emit_const,
     .emit_stack_adjust = x86_emit_stack_adjust,
+    .emit_stack_align = x86_emit_stack_align,
     .emit_push_reg = x86_emit_push_reg,
     .emit_pop_reg = x86_emit_pop_reg,
     
@@ -1138,6 +1168,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_sub_imm = x86_emit_sub_imm,
     .emit_inc = x86_emit_inc,
     .emit_dec = x86_emit_dec,
+    .emit_sar = x86_emit_sar,
     .emit_shr = x86_emit_shr,
     .emit_setl = x86_emit_setl,
     .emit_setle = x86_emit_setle,

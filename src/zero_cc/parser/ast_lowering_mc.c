@@ -521,6 +521,96 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             }
             
+            case OP_CALL_INDIRECT:
+                /* Call through register pointer */
+                if (BE(c)->emit_call_reg) {
+                    BE(c)->emit_call_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                }
+                break;
+            
+            case OP_PUSH_RAX:
+                /* Push register to stack */
+                if (BE(c)->emit_push_reg) {
+                    BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                }
+                break;
+            
+            case OP_POP_RAX:
+                /* Pop register from stack */
+                if (BE(c)->emit_pop_reg) {
+                    BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
+                }
+                break;
+            
+            case OP_PUSH_RBX:
+                /* Push register to stack */
+                if (BE(c)->emit_push_reg) {
+                    BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                }
+                break;
+            
+            case OP_POP_RBX:
+                /* Pop register from stack */
+                if (BE(c)->emit_pop_reg) {
+                    BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
+                }
+                break;
+            
+            case OP_ADD_IMM:
+                /* Add immediate to register */
+                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+                if (BE(c)->emit_add_imm) {
+                    BE(c)->emit_add_imm(c, phys_dst, (int16_t)instr->imm);
+                }
+                break;
+            
+            case OP_SUB_IMM:
+                /* Subtract immediate from register */
+                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+                if (BE(c)->emit_sub_imm) {
+                    BE(c)->emit_sub_imm(c, phys_dst, (int16_t)instr->imm);
+                }
+                break;
+            
+            case OP_INC:
+                /* Increment register */
+                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+                if (BE(c)->emit_inc) {
+                    BE(c)->emit_inc(c, phys_dst);
+                }
+                break;
+            
+            case OP_DEC:
+                /* Decrement register */
+                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+                if (BE(c)->emit_dec) {
+                    BE(c)->emit_dec(c, phys_dst);
+                }
+                break;
+            
+            case OP_SAR:
+                /* Arithmetic shift right */
+                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+                if (BE(c)->emit_sar) {
+                    BE(c)->emit_sar(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+            
+            case OP_RET:
+                /* Return from function - already handled by emit_leave/emit_ret after loop */
+                break;
+            
+            case OP_EPILOGUE:
+                /* Function epilogue - already handled by emit_leave/emit_ret after loop */
+                break;
+            
+            case OP_STACK_ALIGN:
+                /* Align stack pointer */
+                if (BE(c)->emit_stack_align) {
+                    BE(c)->emit_stack_align(c, (uint8_t)instr->imm);
+                }
+                break;
+            
             default:
                 break;
         }

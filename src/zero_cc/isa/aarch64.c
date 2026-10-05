@@ -219,6 +219,64 @@ static void aarch64_emit_ret(ZeroCCCompiler *c) {
     arm64_emit_u32(c, 0xD65F03C0);
 }
 
+/* sar dst_reg, src1, src2 (arithmetic shift right: dst = src1 >> src2) */
+static void aarch64_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    if (dst_reg != src1) {
+        /* mov dst, src1 */
+        arm64_emit_u32(c, 0xAA0003E0 | (dst_reg << 5) | src1);
+    }
+    /* asr dst, dst, src2 */
+    arm64_emit_u32(c, 0x9AC02000 | (dst_reg << 10) | (dst_reg << 5) | src2);
+}
+
+/* call [reg] - call through register */
+static void aarch64_emit_call_reg(ZeroCCCompiler *c, int reg) {
+    /* blr reg */
+    arm64_emit_u32(c, 0xD63F0000 | (reg << 5));
+}
+
+/* stack_align - ensure 16-byte stack alignment (AArch64 already handles this) */
+static void aarch64_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
+    /* AArch64 ABI requires 16-byte alignment. 
+     * This is typically handled by prologue/epilogue. */
+    (void)c;
+    (void)alignment;
+}
+
+/* add_imm dst_reg, imm (add immediate) */
+static void aarch64_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* add dst, dst, #imm */
+        arm64_emit_u32(c, 0x91000000 | ((imm & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+    } else {
+        /* sub dst, dst, #-imm */
+        arm64_emit_u32(c, 0xD1000000 | (((-imm) & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+    }
+}
+
+/* sub_imm dst_reg, imm (subtract immediate) */
+static void aarch64_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
+    if (imm >= 0) {
+        /* sub dst, dst, #imm */
+        arm64_emit_u32(c, 0xD1000000 | ((imm & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+    } else {
+        /* add dst, dst, #-imm */
+        arm64_emit_u32(c, 0x91000000 | (((-imm) & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+    }
+}
+
+/* inc dst_reg (increment) */
+static void aarch64_emit_inc(ZeroCCCompiler *c, int dst_reg) {
+    /* add dst, dst, #1 */
+    arm64_emit_u32(c, 0x91000400 | (dst_reg << 5) | dst_reg);
+}
+
+/* dec dst_reg (decrement) */
+static void aarch64_emit_dec(ZeroCCCompiler *c, int dst_reg) {
+    /* sub dst, dst, #1 */
+    arm64_emit_u32(c, 0xD1000400 | (dst_reg << 5) | dst_reg);
+}
+
 /* Floating point operations */
 static void aarch64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* ldr dX, [base, #offset] */
@@ -415,6 +473,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_jgt = aarch64_emit_jgt,
     .emit_jge = aarch64_emit_jge,
     .emit_call = aarch64_emit_call,
+    .emit_call_reg = aarch64_emit_call_reg,
     .emit_ret = aarch64_emit_ret,
     
     .emit_load_fp = aarch64_emit_load_fp,
@@ -432,8 +491,14 @@ const ZeroCCISABackend aarch64_backend = {
     
     .emit_const = aarch64_emit_const,
     .emit_stack_adjust = aarch64_emit_stack_adjust,
+    .emit_stack_align = aarch64_emit_stack_align,
     .emit_push_reg = aarch64_emit_push_reg,
     .emit_pop_reg = aarch64_emit_pop_reg,
+    .emit_add_imm = aarch64_emit_add_imm,
+    .emit_sub_imm = aarch64_emit_sub_imm,
+    .emit_inc = aarch64_emit_inc,
+    .emit_dec = aarch64_emit_dec,
+    .emit_sar = aarch64_emit_sar,
     .emit_label = aarch64_emit_label,
 };
 /* =========================================================================

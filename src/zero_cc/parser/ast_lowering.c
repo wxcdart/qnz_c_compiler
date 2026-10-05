@@ -157,6 +157,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     BE(c)->emit_ret(c);
     regalloc_destroy(&c->regalloc);
     
+    /* Clear IR buffer for next function */
+    ir_clear();
+    
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
 }

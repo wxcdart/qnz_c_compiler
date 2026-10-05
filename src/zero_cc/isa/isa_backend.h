@@ -83,6 +83,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_inc)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_dec)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_shr)(ZeroCCCompiler *c, int dst_reg, int src1, int src2);
+    void (*emit_sar)(ZeroCCCompiler *c, int dst_reg, int src1, int src2);
     void (*emit_setl)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_setle)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_setg)(ZeroCCCompiler *c, int dst_reg);
@@ -115,6 +116,7 @@ typedef struct ZeroCCISABackend {
     size_t (*emit_jgt)(ZeroCCCompiler *c, const char *label);
     size_t (*emit_jge)(ZeroCCCompiler *c, const char *label);
     void (*emit_call)(ZeroCCCompiler *c, const char *func_name);
+    void (*emit_call_reg)(ZeroCCCompiler *c, int reg);
     void (*emit_ret)(ZeroCCCompiler *c);
     
     /* Floating point */
@@ -145,7 +147,8 @@ typedef struct ZeroCCISABackend {
     
     /* Stack frame */
     void (*emit_stack_adjust)(ZeroCCCompiler *c, int32_t delta);
-    
+    void (*emit_stack_align)(ZeroCCCompiler *c, uint8_t alignment);
+
     /* Labels */
     void (*emit_label)(ZeroCCCompiler *c, const char *name);
     

@@ -283,6 +283,9 @@ static inline void ir_reset(void) {
     ir_call_args_count = 0;
 }
 
+/* Clear IR buffer after machine code emission */
+void ir_clear(void);
+
 /* Get instruction count */
 static inline size_t ir_get_count(void) {
     return instr_count;
