@@ -204,6 +204,7 @@ typedef struct {
 
 #define ELF_MAX_SECTIONS    32
 #define ELF_MAX_SYMBOLS     1024
+#define ELF_MAX_RELOCATIONS 512
 #define ELF_MAX_STRING_LEN  4096
 
 typedef struct {
@@ -218,6 +219,13 @@ typedef struct {
     // Symbol table
     ElfWriterSymbol symbols[ELF_MAX_SYMBOLS];
     int symbol_count;
+
+    // Relocation entries
+    uint64_t reloc_offsets[ELF_MAX_RELOCATIONS];
+    uint16_t reloc_symbol_indices[ELF_MAX_RELOCATIONS];
+    uint32_t reloc_types[ELF_MAX_RELOCATIONS];
+    int64_t reloc_addends[ELF_MAX_RELOCATIONS];
+    int relocation_count;
 
     // String tables
     char strtab[ELF_MAX_STRING_LEN];      // Symbol names

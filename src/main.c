@@ -370,6 +370,32 @@ static int compile_object(CompileOptions *opts) {
         }
     }
     
+    /* Add relocation entries for external function calls */
+    /* R_X86_64_PC32 = 2 for x86-64 (standard PC-relative call) */
+    #define R_X86_64_PC32 2
+    for (size_t i = 0; i < comp->reloc_count; i++) {
+        ZeroCCReloc *r = &comp->relocs[i];
+        if (r->is_call) {
+            int symbol_idx = 0;  /* Default to null symbol */
+            
+            /* Find symbol in ELF writer's symbol table */
+            for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                if (strcmp(elf_ctx.symbols[j].name, r->target_symbol) == 0) {
+                    symbol_idx = j + 1;  /* +1 for null symbol */
+                    break;
+                }
+            }
+            
+            /* Add relocation entry */
+            /* Use PC32 for function calls - linker will resolve to PLT for external functions */
+            elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
+                                      r->text_patch_offset,
+                                      symbol_idx,
+                                      R_X86_64_PC32,
+                                      0);  /* addend */
+        }
+    }
+    
     /* Write ELF file */
     if (!elf_writer_write(&elf_ctx, output_path)) {
         fprintf(stderr, "ELF writer error: %s\n", elf_writer_get_error(&elf_ctx));

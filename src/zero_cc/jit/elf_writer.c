@@ -192,14 +192,21 @@ bool elf_writer_add_symbol(ElfWriterCtx* ctx, const char* name,
 bool elf_writer_add_relocation(ElfWriterCtx* ctx, uint16_t section_idx,
                                uint64_t offset, uint16_t symbol_idx,
                                uint32_t rel_type, int64_t addend) {
-    // Relocations are handled implicitly during write for now
-    // Full relocation table support can be added later
-    (void)ctx;
-    (void)section_idx;
-    (void)offset;
-    (void)symbol_idx;
-    (void)rel_type;
-    (void)addend;
+    if (!ctx) {
+        return false;
+    }
+    
+    if (ctx->relocation_count >= ELF_MAX_RELOCATIONS) {
+        set_error(ctx, "Too many relocation entries");
+        return false;
+    }
+    
+    ctx->reloc_offsets[ctx->relocation_count] = offset;
+    ctx->reloc_symbol_indices[ctx->relocation_count] = symbol_idx;
+    ctx->reloc_types[ctx->relocation_count] = rel_type;
+    ctx->reloc_addends[ctx->relocation_count] = addend;
+    ctx->relocation_count++;
+    
     return true;
 }
 
@@ -230,19 +237,29 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
+    // Relocation section (.rela.text) - only if we have relocations
+    if (ctx->relocation_count > 0) {
+        offset = (offset + 7) & ~7;  // Align to 8 bytes
+        offset += ctx->relocation_count * sizeof(Elf64Rela);
+    }
+
     // Section name string table (.shstrtab)
-    // Add space for .strtab, .symtab, .shstrtab section names that will be added during write
+    // Add space for .strtab, .symtab, .shstrtab, .rela.text section names that will be added during write
     size_t shstrtab_size = ctx->shstrtab_size;
     shstrtab_size += strlen(".strtab") + 1;
     shstrtab_size += strlen(".symtab") + 1;
     shstrtab_size += strlen(".shstrtab") + 1;
+    if (ctx->relocation_count > 0) {
+        shstrtab_size += strlen(".rela.text") + 1;
+    }
     
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += shstrtab_size;
 
-    // Section headers: (section_count + 4) * 64 bytes
-    // (+4 for null, .strtab, .symtab, .shstrtab)
-    offset += (ctx->section_count + 4) * sizeof(Elf64SectionHeader);
+    // Section headers: (section_count + 4 + has_reloc) * 64 bytes
+    // (+4 for null, .strtab, .symtab, .shstrtab, +1 for .rela.text if present)
+    int extra_sections = 4 + (ctx->relocation_count > 0 ? 1 : 0);
+    offset += (ctx->section_count + extra_sections) * sizeof(Elf64SectionHeader);
 
     return offset;
 }
@@ -378,6 +395,23 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     }
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
+    // Relocation section (.rela.text) - write relocations if we have any
+    size_t rela_text_offset = 0;
+    if (ctx->relocation_count > 0) {
+        offset = (offset + 7) & ~7;  // Align to 8 bytes
+        rela_text_offset = offset;
+        Elf64Rela* rela = (Elf64Rela*)(buffer + offset);
+        
+        for (int i = 0; i < ctx->relocation_count; i++) {
+            rela->r_offset = ctx->reloc_offsets[i];
+            // r_info = (symbol_index << 32) | relocation_type
+            rela->r_info = ((uint64_t)ctx->reloc_symbol_indices[i] << 32) | ctx->reloc_types[i];
+            rela->r_addend = ctx->reloc_addends[i];
+            rela++;
+        }
+        offset += ctx->relocation_count * sizeof(Elf64Rela);
+    }
+
     // Section name string table (.shstrtab)
     // First, add the section names for .strtab, .symtab, .shstrtab
     size_t strtab_name_idx = ctx->shstrtab_size;
@@ -386,6 +420,13 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".symtab");
     size_t shstrtab_name_idx = ctx->shstrtab_size;
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".shstrtab");
+    
+    // Add .rela.text section name if we have relocations
+    size_t rela_text_name_idx = 0;
+    if (ctx->relocation_count > 0) {
+        rela_text_name_idx = ctx->shstrtab_size;
+        add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".rela.text");
+    }
     
     offset = (offset + 7) & ~7;
     shstrtab_offset = offset;
@@ -467,6 +508,25 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr->sh_entsize = sizeof(Elf64Sym);
     shdr++;
 
+    // .rela.text section header (if we have relocations)
+    if (ctx->relocation_count > 0) {
+        // Calculate .rela.text offset (after .symtab)
+        size_t rela_text_offset = symtab_offset + (ctx->symbol_count + 1) * sizeof(Elf64Sym);
+        rela_text_offset = (rela_text_offset + 7) & ~7;  // Align to 8 bytes
+        
+        shdr->sh_name = (uint32_t)rela_text_name_idx;
+        shdr->sh_type = ELF_SHT_RELA;
+        shdr->sh_flags = ELF_SHF_ALLOC;
+        shdr->sh_addr = 0;
+        shdr->sh_offset = rela_text_offset;
+        shdr->sh_size = ctx->relocation_count * sizeof(Elf64Rela);
+        shdr->sh_link = ctx->section_count + 2;  // Index of .symtab (null + data + .strtab + .symtab)
+        shdr->sh_info = 1;  // Relocations for .text section (index 1)
+        shdr->sh_addralign = 8;
+        shdr->sh_entsize = sizeof(Elf64Rela);
+        shdr++;
+    }
+
     // .shstrtab section header
     shdr->sh_name = (uint32_t)shstrtab_name_idx;
     shdr->sh_type = ELF_SHT_STRTAB;
@@ -481,16 +541,17 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr++;  // Advance past .shstrtab section header
 
     // Update offset to point after section headers
-    // Total: null + data sections + .strtab + .symtab + .shstrtab
-    offset = section_headers_offset + (ctx->section_count + 4) * sizeof(Elf64SectionHeader);
+    // Total: null + data sections + .strtab + .symtab + (.rela.text) + .shstrtab
+    int extra_sections = 3 + (ctx->relocation_count > 0 ? 1 : 0);  // .strtab, .symtab, (.rela.text), .shstrtab
+    offset = section_headers_offset + (ctx->section_count + extra_sections + 1) * sizeof(Elf64SectionHeader);
 
     // ========================================================================
     // Update ELF Header
     // ========================================================================
     ehdr = (Elf64Header*)buffer;
     ehdr->e_shoff = section_headers_offset;
-    ehdr->e_shnum = ctx->section_count + 4;  // +4 for null, .strtab, .symtab, .shstrtab
-    ehdr->e_shstrndx = ctx->section_count + 3;  // Index of .shstrtab (null + data + .strtab + .symtab + .shstrtab)
+    ehdr->e_shnum = ctx->section_count + extra_sections + 1;  // +1 for null section
+    ehdr->e_shstrndx = ctx->section_count + extra_sections;  // Index of .shstrtab
 
     if (written) {
         *written = offset;
