@@ -87,42 +87,18 @@ void opt_fold_constants(ZeroCCCompiler *c);
 #endif
 ```
 
-```c
-// src/zero_cc/parser/opt_constant_fold.c
-#include "opt_constant_fold.h"
-#include "ir.h"
-#include "regalloc.h"
-
-void opt_fold_constants(ZeroCCCompiler *c) {
-    // Iterate through IR and fold constant expressions
-    // Example: OP_ADD with two constants → OP_CONST
-}
-```
-
 #### 2.2 Pattern Matching Examples
 ```c
-// Detect constant patterns
-if (instr->op == OP_ADD && is_constant(instr->temp_left) && is_constant(instr->temp_right)) {
-    int left = get_constant(instr->temp_left);
-    int right = get_constant(instr->temp_right);
-    int result = left + right;
+// Fold constant arithmetic
+if (instr->op == OP_ADD && ir_is_constant(src1) && ir_is_constant(src2)) {
+    int result = ir_get_constant(src1) + ir_get_constant(src2);
     replace_with_const(instr, result);
 }
 
 // Algebraic simplification
-if (instr->op == OP_ADD && instr->imm_right == 0) {
+if (instr->op == OP_ADD && ir_is_constant(src2) && ir_get_constant(src2) == 0) {
     // x + 0 → x
-    replace_with_mov(instr, instr->temp_left);
-}
-
-if (instr->op == OP_MUL && instr->imm_right == 1) {
-    // x * 1 → x
-    replace_with_mov(instr, instr->temp_left);
-}
-
-if (instr->op == OP_MUL && instr->imm_right == 0) {
-    // x * 0 → 0
-    replace_with_const(instr, 0);
+    replace_with_mov(instr, src1);
 }
 ```
 
@@ -143,15 +119,9 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c);
 
 #### 3.2 DCE Algorithm
 ```c
-// src/zero_cc/parser/opt_dce.c
-#include "opt_dce.h"
-#include "ir.h"
-
-void opt_eliminate_dead_code(ZeroCCCompiler *c) {
-    // Backward pass: compute liveness
-    // Forward pass: eliminate dead instructions
-    // Compact IR array
-}
+// Backward pass: compute liveness
+// Forward pass: eliminate dead instructions
+// Compact IR array
 ```
 
 ---
@@ -171,16 +141,9 @@ void opt_eliminate_cse(ZeroCCCompiler *c);
 
 #### 4.2 CSE Algorithm
 ```c
-// src/zero_cc/parser/opt_cse.c
-#include "opt_cse.h"
-#include "ir.h"
-#include "../common/hash_table_tpht.h"
-
-void opt_eliminate_cse(ZeroCCCompiler *c) {
-    // Build expression hash table
-    // Detect duplicate computations
-    // Replace with copy from existing
-}
+// Build expression hash table
+// Detect duplicate computations
+// Replace with copy from existing
 ```
 
 ---
@@ -189,89 +152,26 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
 
 #### 5.1 Connect to Compiler
 ```c
-// Update src/zero_cc/jit/compile.h
-void compile_function(ZeroCCCompiler *c, OptLevel opt_level);
-
-// Run optimization passes between Pass 1 and Pass 2
-void compile_function(ZeroCCCompiler *c, OptLevel opt_level) {
-    // Pass 1: AST → IR
-    zero_cc_lower_ast(c, arena, ast);
-    
-    // Run optimizations (between Pass 1 and Pass 2)
-    opt_init(opt_level);
-    opt_run_passes(c);
-    
-    // Register allocation
-    regalloc_analyze(c);
-    regalloc_allocate(c);
-    
-    // Pass 2: IR → Machine Code
-    emit_ir_to_machine_code(c, spill_base_offset);
-    
-    opt_shutdown();
-}
-```
-
-#### 5.2 Command Line Interface
-```c
-// Add -O flag support
-int main(int argc, char **argv) {
-    OptLevel opt_level = OPT_LEVEL_NONE;
-    
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-O0") == 0) {
-            opt_level = OPT_LEVEL_NONE;
-        } else if (strcmp(argv[i], "-O1") == 0) {
-            opt_level = OPT_LEVEL_O1;
-        } else if (strcmp(argv[i], "-O2") == 0) {
-            opt_level = OPT_LEVEL_O2;
-        } else if (strcmp(argv[i], "-O3") == 0) {
-            opt_level = OPT_LEVEL_O3;
-        }
-    }
-    
-    compile_function(c, opt_level);
-}
+// In ast_lowering.c, between regalloc and machine code emission:
+opt_init(OPT_LEVEL_O1);
+opt_run_passes(c);
+opt_shutdown();
 ```
 
 ---
 
 ### Phase 6: Testing (Day 6-7)
 
-#### 6.1 Constant Folding Tests
+#### 6.1 Test Cases
 ```c
-// test/unit/opt_constant_fold.c
-#include <stdio.h>
-#include <stdlib.h>
-#include "zero_cc.h"
+// Constant folding
+"int x = 2 + 3; return x;"  // Should compile to: return 5;
 
-void test_fold_add_constants() {
-    const char *src = "int x = 2 + 3; return x;";
-    // Should compile to: return 5;
-}
+// DCE
+"int x = 5; int y = 10; return x;"  // Should eliminate: y = 10
 
-void test_fold_mul_by_one() {
-    const char *src = "int x = 5; return x * 1;";
-    // Should compile to: return x;
-}
-```
-
-#### 6.2 DCE Tests
-```c
-// test/unit/opt_dce.c
-void test_eliminate_unused() {
-    const char *src = "int x = 5; int y = 10; return x;";
-    // Should eliminate: y = 10 (unused)
-}
-```
-
-#### 6.3 CSE Tests
-```c
-// test/unit/opt_cse.c
-void test_eliminate_duplicate() {
-    const char *src = "int x = a + b; int y = a + b; return x + y;";
-    // Should compute a + b once, reuse result
-}
+// CSE  
+"int x = a + b; int y = a + b; return x + y;"  // Compute a+b once
 ```
 
 ---
@@ -298,43 +198,35 @@ void test_eliminate_duplicate() {
 | File | Changes |
 |------|---------|
 | `Makefile` | Add opt_*.o to EXTRA_OBJS |
-| `ir.h` | Add optimization-related declarations |
-| `ir.c` | Add optimization helper functions |
-| `jit/compile.h` | Add OptLevel parameter |
-| `compile.h` | Integrate optimization passes |
-
-### Makefile Changes
-
-Add to `EXTRA_OBJS` in Makefile:
-```makefile
-EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
-    ...
-    src/zero_cc/parser/ir.o \
-    src/zero_cc/parser/opt_pass.o \
-    src/zero_cc/parser/opt_constant_fold.o \
-    src/zero_cc/parser/opt_dce.o \
-    src/zero_cc/parser/opt_cse.o \
-    ...
-)
-```
+| `ir.h` | Add OP_DEAD opcode |
+| `ast_lowering.c` | Integrate optimization passes |
 
 ---
 
-## Verification Checklist
+## ⚠️ IMPORTANT: Stale Object Files
 
-After Task 57 implementation:
+**This project has had issues with stale .o files causing false bugs.**
 
+### If you see strange bugs after adding new files:
+
+```bash
+# Option 1: Use rebuild target (recommended)
+make rebuild
+
+# Option 2: Manual clean
+make clean && make -j4
+
+# Option 3: Use cleanup script
+./tools/fix_stale_objects.sh
+make -j4
 ```
-[ ] Constant folding works (2 + 3 → 5)
-[ ] Algebraic simplification works (x + 0 → x)
-[ ] DCE removes unused code
-[ ] CSE eliminates duplicate computations
-[ ] -O1 flag enables basic optimizations
-[ ] -O2 flag enables all -O1 + CSE
-[ ] All 118 tests still pass
-[ ] Optimization tests added and passing
-[ ] No performance regression at -O0
-```
+
+### Prevention:
+- **Always** run `make rebuild` after adding new `.c` files
+- **Always** verify clean build works before committing
+- Don't trust incremental builds after major changes
+
+See `docs/TASK57_STALE_OBJECT_FIX.md` for full explanation.
 
 ---
 
@@ -373,11 +265,6 @@ cat src/zero_cc/parser/regalloc.h
 
 ---
 
-*Last updated: 2024-10-04*
-*Scheduled for: Sprint 8 (Weeks 30-33)*
-
----
-
 ## Current Status (Post-Implementation)
 
 **Date**: 2024-10-04
@@ -385,39 +272,21 @@ cat src/zero_cc/parser/regalloc.h
 **Infrastructure Complete**: ✅ All 8 files created in `src/zero_cc/parser/`
 
 **Passes Status**:
-- Constant folding: ❌ Disabled (corrupts IR)
-- DCE: ❌ Disabled (needs better analysis)
-- CSE: ❌ Disabled (needs work)
+- Constant folding: ⚠️ Disabled (needs testing)
+- DCE: ⚠️ Disabled (needs testing)
+- CSE: ⚠️ Disabled (needs testing)
 
 **Tests**: ✅ All 118 tests passing (with passes disabled)
 
 **Next Steps**:
-1. Fix constant folding to not corrupt IR
-2. Improve DCE side-effect analysis
-3. Enable passes incrementally with testing
-4. Add optimization-specific test cases
+1. Enable constant folding pass and test
+2. Enable DCE pass and test
+3. Enable CSE pass and test
+4. Proceed to Task 58 (loop optimizations)
 
----
-
-*Implementation note: Infrastructure is complete but optimization algorithms need debugging before enabling.*
-
----
-
-## Build Notes
-
-### Cleaning Stale Object Files
-
-If you encounter strange bugs after adding optimization passes, run:
-
-```bash
-make clean
-make -j4
-```
-
-This removes all stale `.o` files from the `build/` directory.
-
-**Note**: `make clean` already removes all object files including `opt_*.o`. No manual cleanup needed.
+**Note**: Task 58 can proceed with passes disabled. The framework is ready.
 
 ---
 
 *Last updated: 2024-10-04*
+*Scheduled for: Sprint 8 (Weeks 30-33)*
