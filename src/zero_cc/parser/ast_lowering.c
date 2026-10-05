@@ -21,6 +21,9 @@
 /* Machine code emission from IR */
 #include "ast_lowering_mc.c"
 
+/* Optimization passes */
+#include "opt_pass.c"
+
 /* =========================================================================
  * Callee-Saved Register Preservation Helpers
  * ========================================================================= */
@@ -123,6 +126,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     regalloc_allocate(&c->regalloc);
     
     live_range_free(&lra);
+    
+    /* Run optimization passes */
+    opt_init(OPT_LEVEL_O1);
+    opt_run_passes(c);
+    opt_shutdown();
     
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;

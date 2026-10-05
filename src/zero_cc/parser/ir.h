@@ -72,6 +72,7 @@ typedef enum {
     /* Frame Management (5) */
     OP_PROLOGUE,       /* function prologue (frame setup) */
     OP_EPILOGUE,       /* callee-save loads; return sequence */
+    OP_DEAD,           /* dead instruction (removed by DCE) */
     OP_PARAM_SAVE_INT, /* save integer argument register to stack slot */
     OP_PARAM_SAVE_FP,  /* save floating-point argument register to stack slot */
     OP_VARIADIC_SPILL, /* spill variadic argument registers to stack */
@@ -161,6 +162,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_RET: return "RET";
         case OP_PROLOGUE: return "PROLOGUE";
         case OP_EPILOGUE: return "EPILOGUE";
+        case OP_DEAD: return "DEAD";
         case OP_PARAM_SAVE_INT: return "PARAM_SAVE_INT";
         case OP_PARAM_SAVE_FP: return "PARAM_SAVE_FP";
         case OP_VARIADIC_SPILL: return "VARIADIC_SPILL";
