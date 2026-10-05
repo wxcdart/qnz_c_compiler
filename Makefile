@@ -192,11 +192,18 @@ golden_test: $(TEST_BIN_DIR)/unit/golden_error_test
 DEPS = $(shell find $(BUILD_DIR) -name "*.d" 2>/dev/null)
 -include $(DEPS)
 
-# Run a single test (e.g., make test-jit/vla_test, make test-unit/ir_test)
-# This ensures fresh compilation of the test
+# Run a single test with fresh compilation
+# Usage: make run-test CATEGORY=<category> TEST=<test_name>
+# Examples:
+#   make run-test CATEGORY=jit TEST=vla_test
+#   make run-test CATEGORY=unit TEST=ir_test
+run-test:
+	@python3 tools/test_wrapper.py $(CATEGORY)/$(TEST)
+
+# Shortcut: make test-jit-vla_test
+# Equivalent to: make run-test CATEGORY=jit TEST=vla_test
 test-%:
-	@$(MAKE) $(TEST_BIN_DIR)/$*
-	@./$(TEST_BIN_DIR)/$*
+	@CATEGORY=$(shell echo $* | sed 's/-.*//') && TEST=$(shell echo $* | sed 's/.*-//') && python3 tools/test_wrapper.py $$CATEGORY/$$TEST
 
 # List available tests
 list-tests:
@@ -213,17 +220,3 @@ list-tests:
 	@echo ""
 	@echo "ABI Tests:"
 	@ls test/abi/*.c | sed 's|test/abi/||; s|\.c$$||' | sed 's|^|  - test-|'
-
-# Run a single test with fresh compilation
-# Usage: make run-test CATEGORY=<category> TEST=<test_name>
-# Examples:
-#   make run-test CATEGORY=jit TEST=vla_test
-#   make run-test CATEGORY=unit TEST=ir_test
-#   make run-test CATEGORY=abi TEST=abi_sum_jit
-run-test:
-	@python3 tools/test_wrapper.py $(CATEGORY)/$(TEST)
-
-# Shortcut: make test-jit-vla_test
-# Equivalent to: make run-test CATEGORY=jit TEST=vla_test
-test-%:
-	@CATEGORY=$(shell echo $* | sed 's/-.*//') && TEST=$(shell echo $* | sed 's/.*-//') && python3 tools/test_wrapper.py $$CATEGORY/$$TEST
