@@ -400,3 +400,24 @@ cat src/zero_cc/parser/regalloc.h
 ---
 
 *Implementation note: Infrastructure is complete but optimization algorithms need debugging before enabling.*
+
+---
+
+## Build Notes
+
+### Cleaning Stale Object Files
+
+If you encounter strange bugs after adding optimization passes, run:
+
+```bash
+make clean
+make -j4
+```
+
+This removes all stale `.o` files from the `build/` directory.
+
+**Note**: `make clean` already removes all object files including `opt_*.o`. No manual cleanup needed.
+
+---
+
+*Last updated: 2024-10-04*
