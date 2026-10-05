@@ -244,7 +244,7 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     }
 
     // Section name string table (.shstrtab)
-    // Add space for .strtab, .symtab, .shstrtab, .rela.text section names that will be added during write
+    // Add space for .strtab, .symtab, .shstrtab, .rela.text, .note.GNU-stack section names that will be added during write
     size_t shstrtab_size = ctx->shstrtab_size;
     shstrtab_size += strlen(".strtab") + 1;
     shstrtab_size += strlen(".symtab") + 1;
@@ -252,13 +252,14 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     if (ctx->relocation_count > 0) {
         shstrtab_size += strlen(".rela.text") + 1;
     }
+    shstrtab_size += strlen(".note.GNU-stack") + 1;
     
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += shstrtab_size;
 
-    // Section headers: (section_count + 4 + has_reloc) * 64 bytes
-    // (+4 for null, .strtab, .symtab, .shstrtab, +1 for .rela.text if present)
-    int extra_sections = 4 + (ctx->relocation_count > 0 ? 1 : 0);
+    // Section headers: (section_count + 5 + has_reloc) * 64 bytes
+    // (+5 for null, .strtab, .symtab, .note.GNU-stack, .shstrtab, +1 for .rela.text if present)
+    int extra_sections = 5 + (ctx->relocation_count > 0 ? 1 : 0);
     offset += (ctx->section_count + extra_sections) * sizeof(Elf64SectionHeader);
 
     return offset;
@@ -428,6 +429,10 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".rela.text");
     }
     
+    // Add .note.GNU-stack section name
+    size_t note_gnu_stack_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".note.GNU-stack");
+    
     offset = (offset + 7) & ~7;
     shstrtab_offset = offset;
     memcpy(buffer + offset, ctx->shstrtab, ctx->shstrtab_size);
@@ -516,7 +521,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         
         shdr->sh_name = (uint32_t)rela_text_name_idx;
         shdr->sh_type = ELF_SHT_RELA;
-        shdr->sh_flags = ELF_SHF_ALLOC;
+        shdr->sh_flags = 0;  /* Relocation sections are not loaded into memory */
         shdr->sh_addr = 0;
         shdr->sh_offset = rela_text_offset;
         shdr->sh_size = ctx->relocation_count * sizeof(Elf64Rela);
@@ -526,6 +531,29 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         shdr->sh_entsize = sizeof(Elf64Rela);
         shdr++;
     }
+
+    // .note.GNU-stack section (signals non-executable stack)
+    size_t note_gnu_stack_offset = 0;
+    if (ctx->relocation_count > 0) {
+        note_gnu_stack_offset = rela_text_offset + ctx->relocation_count * sizeof(Elf64Rela);
+    } else {
+        /* Calculate from symtab if no relocations */
+        note_gnu_stack_offset = symtab_offset + (ctx->symbol_count + 1) * sizeof(Elf64Sym);
+    }
+    note_gnu_stack_offset = (note_gnu_stack_offset + 7) & ~7;  // Align to 8 bytes
+
+    // .note.GNU-stack section header (signals non-executable stack)
+    shdr->sh_name = (uint32_t)note_gnu_stack_name_idx;
+    shdr->sh_type = ELF_SHT_PROGBITS;
+    shdr->sh_flags = 0;  /* Not allocated, no special flags */
+    shdr->sh_addr = 0;
+    shdr->sh_offset = note_gnu_stack_offset;
+    shdr->sh_size = 0;  /* Empty section */
+    shdr->sh_link = 0;
+    shdr->sh_info = 0;
+    shdr->sh_addralign = 1;
+    shdr->sh_entsize = 0;
+    shdr++;
 
     // .shstrtab section header
     shdr->sh_name = (uint32_t)shstrtab_name_idx;
@@ -541,8 +569,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr++;  // Advance past .shstrtab section header
 
     // Update offset to point after section headers
-    // Total: null + data sections + .strtab + .symtab + (.rela.text) + .shstrtab
-    int extra_sections = 3 + (ctx->relocation_count > 0 ? 1 : 0);  // .strtab, .symtab, (.rela.text), .shstrtab
+    // Total: null + data sections + .strtab + .symtab + (.rela.text) + .note.GNU-stack + .shstrtab
+    int extra_sections = 4 + (ctx->relocation_count > 0 ? 1 : 0);  // .strtab, .symtab, (.rela.text), .note.GNU-stack, .shstrtab
     offset = section_headers_offset + (ctx->section_count + extra_sections + 1) * sizeof(Elf64SectionHeader);
 
     // ========================================================================

@@ -352,6 +352,15 @@ static int compile_object(CompileOptions *opts) {
                                8);
     }
     
+    /* Add .rodata section symbol first (needed for string literal relocations) */
+    /* Section symbols must come before global symbols for correct sh_info calculation */
+    if (comp->rodata_section.length > 0) {
+        elf_writer_add_symbol(&elf_ctx, ".rodata",
+                              ELF_STB_LOCAL, ELF_STT_SECTION,
+                              2,  /* .rodata section index */
+                              0, 0);
+    }
+    
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
@@ -394,6 +403,22 @@ static int compile_object(CompileOptions *opts) {
                                       R_X86_64_PC32,
                                       0);  /* addend */
         }
+    }
+    
+    /* Add relocation entries for string literals (.rodata references) */
+    /* The .rodata section symbol was added earlier (index 1 after null symbol) */
+    int rodata_symbol_idx = 1;  /* .rodata section symbol is always at index 1 if present */
+    
+    for (size_t i = 0; i < comp->str_reloc_count; i++) {
+        ZeroCCStringReloc *sr = &comp->str_relocs[i];
+        
+        /* Add relocation entry with addend = rodata_offset - 4 */
+        /* The -4 accounts for the PC being at patch_offset + 4 (end of 4-byte displacement) */
+        elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
+                                  sr->text_patch_offset,
+                                  rodata_symbol_idx,
+                                  R_X86_64_PC32,
+                                  (int64_t)sr->rodata_offset - 4);  /* addend */
     }
     
     /* Write ELF file */
