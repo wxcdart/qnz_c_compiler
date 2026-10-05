@@ -11,10 +11,10 @@ static void opt_pass_constant_fold(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 
-// Only constant folding for now (DCE has edge cases)
+// Enable constant folding + DCE (with float return fix)
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
-    // { "dce", opt_pass_dce, 1, 30 },
+    { "dce", opt_pass_dce, 1, 30 },
     // { "cse", opt_pass_cse, 0, 40 },
 };
 

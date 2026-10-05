@@ -3,7 +3,6 @@
 #include "regalloc.h"
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 /**
  * Liveness tracking
@@ -197,6 +196,20 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     mark_live(VREG_0);
     mark_live(VREG_2);
     
+    // For float/double return functions, find the last float-producing instruction
+    // and mark its destination as live (the return value in xmm0)
+    for (int i = count - 1; i >= 0; i--) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        // Look for float-producing instructions before the epilogue
+        if (instr->temp_dest != 0xFF && 
+            (ir_opcode_is_float(instr->op) || instr->op == OP_CVTSI2SD)) {
+            mark_live(instr->temp_dest);
+            break;
+        }
+    }
+    
     // Backward pass: compute liveness
     for (int i = count - 1; i >= 0; i--) {
         Instr *instr = ir_get(i);
@@ -229,7 +242,6 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     
     // Forward pass: compact IR (remove dead instructions)
     int write_idx = 0;
-    int dead_count = 0;
     
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
@@ -253,12 +265,8 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 }
             }
             write_idx++;
-        } else {
-            dead_count++;
         }
     }
-    
-    fprintf(stderr, "DEBUG DCE: removed %d dead instructions\n", dead_count);
     
     // Update IR count
     instr_count = (size_t)write_idx;
