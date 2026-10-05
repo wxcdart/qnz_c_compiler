@@ -1,3 +1,12 @@
+# ZeroCC Makefile
+#
+# IMPORTANT: If you add new source files (.c) or header files (.h),
+# and encounter strange bugs or compilation errors, run:
+#   make rebuild
+# This forces a complete clean rebuild to remove stale object files.
+#
+# See tools/fix_stale_objects.sh for manual cleanup if needed.
+
 CC ?= gcc
 CFLAGS ?= -Wall -Wextra -Isrc -Iinclude -fcommon -g -MMD -MP
 LDFLAGS ?=
@@ -165,6 +174,13 @@ benchmark: $(TEST_BIN_DIR)/abi/benchmark_struct_by_value
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Force complete rebuild (clean + build)
+# Use this if you encounter strange bugs after adding new source files
+rebuild: clean all
+
+# Alternative alias for rebuild
+force-rebuild: rebuild
 
 # Target to build and run the golden error test
 golden_test: $(TEST_BIN_DIR)/unit/golden_error_test
