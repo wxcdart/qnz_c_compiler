@@ -31,8 +31,16 @@
 #### 1.1 Optimization Pass Framework
 ```c
 // src/zero_cc/parser/opt_pass.h
+#ifndef ZERO_CC_PARSER_OPT_PASS_H
+#define ZERO_CC_PARSER_OPT_PASS_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct ZeroCCCompiler ZeroCCCompiler;
+
 typedef enum {
-    OPT_LEVEL_NONE = 0,    // -O0
+    OPT_LEVEL_NONE = 0,    // -O0: No optimizations
     OPT_LEVEL_O1 = 1,      // -O1: Constant folding, DCE
     OPT_LEVEL_O2 = 2,      // -O2: + CSE, algebraic simplification
     OPT_LEVEL_O3 = 3,      // -O3: + LICM, strength reduction
@@ -42,12 +50,16 @@ typedef struct OptPass {
     const char *name;
     void (*run)(ZeroCCCompiler *c);
     int enabled_by_default;
+    int priority;  // Lower = run first
 } OptPass;
 
 // Pass manager
 void opt_init(OptLevel level);
 void opt_run_passes(ZeroCCCompiler *c);
 void opt_shutdown(void);
+OptLevel opt_get_level(void);
+
+#endif /* ZERO_CC_PARSER_OPT_PASS_H */
 ```
 
 #### 1.2 Pass List for -O1
@@ -67,21 +79,37 @@ void opt_shutdown(void);
 #### 2.1 IR-Level Constant Folding
 ```c
 // src/zero_cc/parser/opt_constant_fold.h
+#ifndef ZERO_CC_PARSER_OPT_CONSTANT_FOLD_H
+#define ZERO_CC_PARSER_OPT_CONSTANT_FOLD_H
+
 void opt_fold_constants(ZeroCCCompiler *c);
 
-// Fold binary operations
-int opt_fold_int_binop(int op, int left, int right);
-double opt_fold_float_binop(int op, double left, double right);
-
-// Examples:
-// OP_ADD: 2 + 3 → OP_CONST 5
-// OP_MUL: x * 1 → OP_MOV x (eliminate multiply)
-// OP_AND: x & 0 → OP_CONST 0
+#endif
 ```
 
-#### 2.2 Pattern Matching
+```c
+// src/zero_cc/parser/opt_constant_fold.c
+#include "opt_constant_fold.h"
+#include "ir.h"
+#include "regalloc.h"
+
+void opt_fold_constants(ZeroCCCompiler *c) {
+    // Iterate through IR and fold constant expressions
+    // Example: OP_ADD with two constants → OP_CONST
+}
+```
+
+#### 2.2 Pattern Matching Examples
 ```c
 // Detect constant patterns
+if (instr->op == OP_ADD && is_constant(instr->temp_left) && is_constant(instr->temp_right)) {
+    int left = get_constant(instr->temp_left);
+    int right = get_constant(instr->temp_right);
+    int result = left + right;
+    replace_with_const(instr, result);
+}
+
+// Algebraic simplification
 if (instr->op == OP_ADD && instr->imm_right == 0) {
     // x + 0 → x
     replace_with_mov(instr, instr->temp_left);
@@ -105,37 +133,25 @@ if (instr->op == OP_MUL && instr->imm_right == 0) {
 #### 3.1 Liveness Analysis
 ```c
 // src/zero_cc/parser/opt_dce.h
+#ifndef ZERO_CC_PARSER_OPT_DCE_H
+#define ZERO_CC_PARSER_OPT_DCE_H
+
 void opt_eliminate_dead_code(ZeroCCCompiler *c);
 
-// Compute liveness
-typedef struct LiveAnalysis {
-    bool *live_in;   // Live at instruction entry
-    bool *live_out;  // Live at instruction exit
-} LiveAnalysis;
-
-void live_analyze(ZeroCCCompiler *c, LiveAnalysis *la);
+#endif
 ```
 
 #### 3.2 DCE Algorithm
 ```c
-// Mark live instructions
-for (int i = count - 1; i >= 0; i--) {
-    Instr *instr = &ir[i];
-    
-    // If destination is never used, mark as dead
-    if (!is_live(instr->temp_dest)) {
-        // Check if instruction has side effects
-        if (!has_side_effects(instr)) {
-            mark_dead(instr);
-        }
-    }
-    
-    // Update liveness
-    update_liveness(instr, la);
-}
+// src/zero_cc/parser/opt_dce.c
+#include "opt_dce.h"
+#include "ir.h"
 
-// Remove dead instructions
-compact_ir();
+void opt_eliminate_dead_code(ZeroCCCompiler *c) {
+    // Backward pass: compute liveness
+    // Forward pass: eliminate dead instructions
+    // Compact IR array
+}
 ```
 
 ---
@@ -145,35 +161,25 @@ compact_ir();
 #### 4.1 Hash Table for CSE
 ```c
 // src/zero_cc/parser/opt_cse.h
+#ifndef ZERO_CC_PARSER_OPT_CSE_H
+#define ZERO_CC_PARSER_OPT_CSE_H
+
 void opt_eliminate_cse(ZeroCCCompiler *c);
 
-// Hash function for IR instructions
-uint64_t hash_instruction(Instr *instr);
-
-// Check if expression already computed
-int find_existing_cse(ZeroCCCompiler *c, Instr *instr);
+#endif
 ```
 
 #### 4.2 CSE Algorithm
 ```c
-// Build expression table
-for (int i = 0; i < count; i++) {
-    Instr *instr = &ir[i];
-    
-    // Only pure expressions (no side effects)
-    if (is_pure_expression(instr)) {
-        uint64_t hash = hash_instruction(instr);
-        
-        // Check if we've seen this before
-        int existing = lookup_cse_table(hash, instr);
-        if (existing >= 0) {
-            // Replace with copy from existing
-            replace_with_copy(instr, existing);
-        } else {
-            // Add to table
-            add_to_cse_table(hash, instr, i);
-        }
-    }
+// src/zero_cc/parser/opt_cse.c
+#include "opt_cse.h"
+#include "ir.h"
+#include "../common/hash_table_tpht.h"
+
+void opt_eliminate_cse(ZeroCCCompiler *c) {
+    // Build expression hash table
+    // Detect duplicate computations
+    // Replace with copy from existing
 }
 ```
 
@@ -183,16 +189,15 @@ for (int i = 0; i < count; i++) {
 
 #### 5.1 Connect to Compiler
 ```c
-// src/zero_cc/jit/compile.h
-// Add optimization level parameter
+// Update src/zero_cc/jit/compile.h
 void compile_function(ZeroCCCompiler *c, OptLevel opt_level);
 
-// Run optimization passes
+// Run optimization passes between Pass 1 and Pass 2
 void compile_function(ZeroCCCompiler *c, OptLevel opt_level) {
     // Pass 1: AST → IR
     zero_cc_lower_ast(c, arena, ast);
     
-    // Run optimizations
+    // Run optimizations (between Pass 1 and Pass 2)
     opt_init(opt_level);
     opt_run_passes(c);
     
@@ -236,6 +241,10 @@ int main(int argc, char **argv) {
 #### 6.1 Constant Folding Tests
 ```c
 // test/unit/opt_constant_fold.c
+#include <stdio.h>
+#include <stdlib.h>
+#include "zero_cc.h"
+
 void test_fold_add_constants() {
     const char *src = "int x = 2 + 3; return x;";
     // Should compile to: return 5;
@@ -267,7 +276,7 @@ void test_eliminate_duplicate() {
 
 ---
 
-## Files to Create
+## Files to Create (in src/zero_cc/parser/)
 
 | File | Purpose | Lines |
 |------|---------|-------|
@@ -288,11 +297,26 @@ void test_eliminate_duplicate() {
 
 | File | Changes |
 |------|---------|
+| `Makefile` | Add opt_*.o to EXTRA_OBJS |
 | `ir.h` | Add optimization-related declarations |
 | `ir.c` | Add optimization helper functions |
-| `compile.h` | Add OptLevel parameter |
-| `jit/compile.h` | Integrate optimization passes |
-| `Makefile` | Add new .o files |
+| `jit/compile.h` | Add OptLevel parameter |
+| `compile.h` | Integrate optimization passes |
+
+### Makefile Changes
+
+Add to `EXTRA_OBJS` in Makefile:
+```makefile
+EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
+    ...
+    src/zero_cc/parser/ir.o \
+    src/zero_cc/parser/opt_pass.o \
+    src/zero_cc/parser/opt_constant_fold.o \
+    src/zero_cc/parser/opt_dce.o \
+    src/zero_cc/parser/opt_cse.o \
+    ...
+)
+```
 
 ---
 
@@ -338,10 +362,16 @@ cat src/zero_cc/parser/regalloc.h
 
 1. ✅ deps_graph.json updated
 2. ✅ task57_precheck.py created
-3. ⏳ Review optimization algorithms (LuaJIT docs, LLVM docs)
-4. ⏳ Start Task 57 implementation
-5. ⏳ Run tests after each phase
+3. ✅ TASK57_PREWORK.md created
+4. ⏳ Review optimization algorithms (LuaJIT docs, LLVM docs)
+5. ⏳ Start Task 57 implementation
+6. ⏳ Run tests after each phase
 
-**Estimated Time**: 5-7 days
-**Risk**: Medium - Optimizations can introduce subtle bugs
+**Estimated Time**: 5-7 days  
+**Risk**: Medium - Optimizations can introduce subtle bugs  
 **Mitigation**: Test after each optimization pass
+
+---
+
+*Last updated: 2024-10-04*
+*Scheduled for: Sprint 8 (Weeks 30-33)*
