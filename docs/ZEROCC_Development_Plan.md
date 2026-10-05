@@ -47,6 +47,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 7** | Cross-platform backends (AArch64, RISC-V, Windows PE/COFF) | 📅 Scheduled | — |
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | 📅 Scheduled | — |
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
+| **Sprint 9** | Multi-ISA Object File Output & QEMU Testing (Tasks 65-68) | 📅 Scheduled | — |
 
 ---
 
@@ -383,6 +384,19 @@ Extended pragma directive support for better compatibility with real-world C cod
 
 ---
 
+### Sprint 9 – Multi-ISA Object File Output & QEMU Testing (Weeks 34.5–36) 📅 SCHEDULED
+
+> **Strategic Priority**: Enable cross-ISA testing by adding object file output (ELF generation), linker support, and QEMU execution pipeline. This validates AArch64 and RISC-V backend implementations beyond code review.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 65 | **Object File Output (ELF Generation)**: Add object file (.o) output mode for all ISAs. Generate ELF64 format with proper headers, sections (.text, .data, .rodata), symbol tables, and relocations. Support x86-64, AArch64, and RISC-V machine types. | 5 days | 📅 Scheduled |
+| 66 | **Linker Support & Standalone Execution**: Add standalone executable output mode. Link object files with libc via system linker. Support `-o output` flag for final executables. | 3 days | 📅 Scheduled |
+| 67 | **QEMU Testing Pipeline**: Integrate QEMU user-mode emulation into test suite. Add `make test TARGET=aarch64` and `make test TARGET=riscv64` targets. Run all 118 tests via `qemu-aarch64-static` and `qemu-riscv64-static`. | 3 days | 📅 Scheduled |
+| 68 | **Multi-ISA Test Suite Expansion**: Add ISA-specific test cases for calling conventions, stack alignment, FP operations, and variadic functions. Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs. | 2 days | 📅 Scheduled |
+
+---
+
 ## Timeline Overview
 
 | Week | Work |
@@ -398,7 +412,8 @@ Extended pragma directive support for better compatibility with real-world C cod
 | 27–29 | **Sprint 7** – Cross-platform backends (AArch64, RISC-V, Windows) |
 | 30–33 | **Sprint 8** – Two-Pass IR & LuaJIT-Inspired Optimization Pipeline (-O0 to -O3) |
 | 33.5–34 | **Sprint 8.5** – Architectural Hardening & Infrastructure Refactoring (Tasks 60–64) |
-| 35 | Final release, docs, tag `v1.0` |
+| 34.5–36 | **Sprint 9** – Multi-ISA Object File Output & QEMU Testing (Tasks 65–68) |
+| 37 | Final release, docs, tag `v1.0` |
 
 ---
 
@@ -480,7 +495,25 @@ Sprints 0.5 through 5.7 are fully complete with all 112 test suites passing clea
      - **✅ COMPLETE**: IR layer is now fully target-agnostic with no ISA-specific instruction emission.
    - Test Suite status: **118/118 passed** cleanly under `make test`.
 
-4. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
+4. **Sprint 9: Multi-ISA Object File Output & QEMU Testing** — 📅 Scheduled:
+   - **Task 65: Object File Output (ELF Generation)** — 📅 Scheduled:
+     - Add object file (.o) output mode for all ISAs (x86-64, AArch64, RISC-V).
+     - Generate ELF64 format with proper headers, sections (.text, .data, .rodata), symbol tables, and relocations.
+     - Support `-c` flag for compile-only mode (output object file, no linking).
+   - **Task 66: Linker Support & Standalone Execution** — 📅 Scheduled:
+     - Add standalone executable output mode with system linker integration.
+     - Support `-o output` flag for final executables.
+     - Link object files with libc for full program execution.
+   - **Task 67: QEMU Testing Pipeline** — 📅 Scheduled:
+     - Integrate QEMU user-mode emulation into test suite.
+     - Add `make test TARGET=aarch64` and `make test TARGET=riscv64` targets.
+     - Run all 118 tests via `qemu-aarch64-static` and `qemu-riscv64-static`.
+   - **Task 68: Multi-ISA Test Suite Expansion** — 📅 Scheduled:
+     - Add ISA-specific test cases for calling conventions, stack alignment, FP operations, and variadic functions.
+     - Validate AArch64 AAPCS64 and RISC-V LP64D/ILP32D ABIs.
+   - Current Status: Backend implementations complete (Task 56), testing blocked pending object file output.
+
+5. **Sprint 6: Industrial-Grade Testing, Fuzzing & Conformance** — 📅 Current Priority:
    - **Task 45: Rich diagnostics**: `file:line:col: error: ...` format, caret pointers, and warning vs. error distinction. ✅ **Complete**:
      - Migrated all parser error reporting from `c->had_error = 1; snprintf(...)` to `diag_report_error_at_token()` API.
      - Rich diagnostics with `file:line:col: error: message` format and caret `^` pointers.
