@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-04T23:29:04.906241",
+  "timestamp": "2026-10-05T06:23:57.476223",
   "tests": [
     {
       "name": "arith_heavy",
@@ -7,37 +7,37 @@
       "optimizations": [
         {
           "success": true,
-          "compile_time_ms": 22.332191991154104,
-          "exec_avg_ms": 0.9238636704685632,
-          "exec_min_ms": 0.7435610023094341,
-          "exec_max_ms": 1.3384100020630285,
+          "compile_time_ms": 20.662433991674334,
+          "exec_avg_ms": 1.028572269860888,
+          "exec_min_ms": 0.8455260103801265,
+          "exec_max_ms": 1.5127520018722862,
           "iterations": 100,
           "opt_level": "-O0"
         },
         {
           "success": true,
-          "compile_time_ms": 53.36014799831901,
-          "exec_avg_ms": 0.9560326887003612,
-          "exec_min_ms": 0.7989870064193383,
-          "exec_max_ms": 2.175233996240422,
+          "compile_time_ms": 28.662555996561423,
+          "exec_avg_ms": 1.0236645996337757,
+          "exec_min_ms": 0.8824739925330505,
+          "exec_max_ms": 1.30030199943576,
           "iterations": 100,
           "opt_level": "-O1"
         },
         {
           "success": true,
-          "compile_time_ms": 34.43300101207569,
-          "exec_avg_ms": 0.8783156498975586,
-          "exec_min_ms": 0.7082949887262657,
-          "exec_max_ms": 1.237087999470532,
+          "compile_time_ms": 38.793961997726,
+          "exec_avg_ms": 1.0745398201106582,
+          "exec_min_ms": 0.8454830094706267,
+          "exec_max_ms": 2.3423110105795786,
           "iterations": 100,
           "opt_level": "-O2"
         },
         {
           "success": true,
-          "compile_time_ms": 30.141017996356823,
-          "exec_avg_ms": 0.8862496505025774,
-          "exec_min_ms": 0.7238240068545565,
-          "exec_max_ms": 1.2915179977426305,
+          "compile_time_ms": 27.121666993480176,
+          "exec_avg_ms": 1.0893960604153108,
+          "exec_min_ms": 0.8416280033998191,
+          "exec_max_ms": 2.332397998543456,
           "iterations": 100,
           "opt_level": "-O3"
         }
@@ -49,121 +49,37 @@
       "optimizations": [
         {
           "success": true,
-          "compile_time_ms": 20.010499996715225,
-          "exec_avg_ms": 0.8443762801471166,
-          "exec_min_ms": 0.7144659903133288,
-          "exec_max_ms": 1.1780509958043694,
+          "compile_time_ms": 23.182418997748755,
+          "exec_avg_ms": 1.0330768091080245,
+          "exec_min_ms": 0.8889049931894988,
+          "exec_max_ms": 1.4193370006978512,
           "iterations": 100,
           "opt_level": "-O0"
         },
         {
           "success": true,
-          "compile_time_ms": 28.38902300572954,
-          "exec_avg_ms": 0.939527149166679,
-          "exec_min_ms": 0.774341999203898,
-          "exec_max_ms": 1.323577991570346,
+          "compile_time_ms": 42.580890003591776,
+          "exec_avg_ms": 0.9997816101531498,
+          "exec_min_ms": 0.8436579955741763,
+          "exec_max_ms": 1.318652997724712,
           "iterations": 100,
           "opt_level": "-O1"
         },
         {
           "success": true,
-          "compile_time_ms": 62.64686700887978,
-          "exec_avg_ms": 0.9118755596864503,
-          "exec_min_ms": 0.7696519896853715,
-          "exec_max_ms": 1.1781400098698214,
+          "compile_time_ms": 44.57579900918063,
+          "exec_avg_ms": 0.9948857798008248,
+          "exec_min_ms": 0.8616109989816323,
+          "exec_max_ms": 1.2687949929386377,
           "iterations": 100,
           "opt_level": "-O2"
         },
         {
           "success": true,
-          "compile_time_ms": 28.63504500419367,
-          "exec_avg_ms": 0.9351945192611311,
-          "exec_min_ms": 0.7984160038176924,
-          "exec_max_ms": 1.8747410067589954,
-          "iterations": 100,
-          "opt_level": "-O3"
-        }
-      ]
-    },
-    {
-      "name": "loop_heavy",
-      "file": "test/bench/loop_heavy.c",
-      "optimizations": [
-        {
-          "success": true,
-          "compile_time_ms": 19.39868000044953,
-          "exec_avg_ms": 0.9401165808958467,
-          "exec_min_ms": 0.8092909993138164,
-          "exec_max_ms": 1.2980239989701658,
-          "iterations": 100,
-          "opt_level": "-O0"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 21.895273006521165,
-          "exec_avg_ms": 0.9871002899308223,
-          "exec_min_ms": 0.7955070032039657,
-          "exec_max_ms": 1.4819530042586848,
-          "iterations": 100,
-          "opt_level": "-O1"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 21.056490993942134,
-          "exec_avg_ms": 0.9404980503313709,
-          "exec_min_ms": 0.7817440055077896,
-          "exec_max_ms": 1.393372003803961,
-          "iterations": 100,
-          "opt_level": "-O2"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 21.93381499091629,
-          "exec_avg_ms": 0.8746372601308394,
-          "exec_min_ms": 0.7490190037060529,
-          "exec_max_ms": 1.182092004455626,
-          "iterations": 100,
-          "opt_level": "-O3"
-        }
-      ]
-    },
-    {
-      "name": "memory_heavy",
-      "file": "test/bench/memory_heavy.c",
-      "optimizations": [
-        {
-          "success": true,
-          "compile_time_ms": 19.00748499610927,
-          "exec_avg_ms": 0.9630318397830706,
-          "exec_min_ms": 0.8165089966496453,
-          "exec_max_ms": 1.2300239905016497,
-          "iterations": 100,
-          "opt_level": "-O0"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 28.01352899405174,
-          "exec_avg_ms": 0.9450521785765886,
-          "exec_min_ms": 0.8124279993353412,
-          "exec_max_ms": 1.216097007272765,
-          "iterations": 100,
-          "opt_level": "-O1"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 40.54437500599306,
-          "exec_avg_ms": 0.912890469917329,
-          "exec_min_ms": 0.7794319972163066,
-          "exec_max_ms": 1.2001629947917536,
-          "iterations": 100,
-          "opt_level": "-O2"
-        },
-        {
-          "success": true,
-          "compile_time_ms": 33.34185898711439,
-          "exec_avg_ms": 0.9310223098145798,
-          "exec_min_ms": 0.7935960020404309,
-          "exec_max_ms": 1.2268240097910166,
+          "compile_time_ms": 27.877542001078837,
+          "exec_avg_ms": 1.0448010700929444,
+          "exec_min_ms": 0.9010749927256256,
+          "exec_max_ms": 3.422994996071793,
           "iterations": 100,
           "opt_level": "-O3"
         }
@@ -171,11 +87,11 @@
     }
   ],
   "summary": {
-    "total_tests": 4,
-    "successful_tests": 4,
-    "avg_compile_time_ms": 30.32120631178259,
-    "avg_exec_time_ms": 0.9231115092006803,
-    "total_compile_time_ms": 485.1393009885214,
-    "total_exec_time_ms": 14.769784147210885
+    "total_tests": 2,
+    "successful_tests": 2,
+    "avg_compile_time_ms": 31.68215862388024,
+    "avg_exec_time_ms": 1.036089752396947,
+    "total_compile_time_ms": 253.45726899104193,
+    "total_exec_time_ms": 8.288718019175576
   }
 }

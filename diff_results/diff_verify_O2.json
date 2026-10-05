@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-04T23:31:41.844815",
+  "timestamp": "2026-10-05T06:24:01.123127",
   "tests": [
     {
       "name": "arith_heavy",
@@ -42,54 +42,12 @@
       },
       "match": false,
       "message": "Exit code mismatch: 0 vs 17"
-    },
-    {
-      "name": "loop_heavy",
-      "file": "test/bench/loop_heavy.c",
-      "opt_level": "-O2",
-      "gcc": {
-        "success": true,
-        "exit_code": 41,
-        "stdout": "",
-        "stderr": "",
-        "compile_time_ms": 0
-      },
-      "zerocc": {
-        "success": true,
-        "exit_code": 0,
-        "stdout": "",
-        "stderr": "",
-        "compile_time_ms": 0
-      },
-      "match": false,
-      "message": "Exit code mismatch: 0 vs 41"
-    },
-    {
-      "name": "memory_heavy",
-      "file": "test/bench/memory_heavy.c",
-      "opt_level": "-O2",
-      "gcc": {
-        "success": true,
-        "exit_code": 80,
-        "stdout": "",
-        "stderr": "",
-        "compile_time_ms": 0
-      },
-      "zerocc": {
-        "success": true,
-        "exit_code": 0,
-        "stdout": "",
-        "stderr": "",
-        "compile_time_ms": 0
-      },
-      "match": false,
-      "message": "Exit code mismatch: 0 vs 80"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 2,
     "passed": 0,
-    "failed": 4,
+    "failed": 2,
     "errors": 0
   }
 }
