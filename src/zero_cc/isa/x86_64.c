@@ -1199,6 +1199,9 @@ const ZeroCCISABackend x86_64_backend = {
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
     switch (isa) {
         case ISA_X86_64: return &x86_64_backend;
+        case ISA_AARCH64: return &aarch64_backend;
+        case ISA_RISCV64: return &riscv64_backend;
+        case ISA_RISCV32: return &riscv32_backend;
         default: return NULL;
     }
 }

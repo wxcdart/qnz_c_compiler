@@ -77,15 +77,15 @@ def find_test_binaries(root_dir, category=None):
 
 def find_test_sources(root_dir, category=None):
     """Find C test source files for AOT testing."""
-    categories = ["unit", "semantic", "abi", "jit"]
+    categories = ["unit", "semantic", "abi", "jit", "aot"]
     if category:
         if category not in categories:
             print(f"Error: Unknown category '{category}'. Available: {', '.join(categories)}", file=sys.stderr)
             sys.exit(1)
         categories = [category]
 
-    build_test_dir = os.path.join(root_dir, "build", "test")
-    base_dir = build_test_dir if os.path.isdir(build_test_dir) else os.path.join(root_dir, "test")
+    # For AOT testing, always look in source directory (test/) for .c files
+    base_dir = os.path.join(root_dir, "test")
 
     found = []
     for cat in categories:
@@ -169,6 +169,8 @@ def run_aot_test(name, source_path, category, root_dir, zerocc_path, target, tim
             print(f"  Compiling: {source_path}")
 
         zerocc_cmd = [zerocc_path, "-c", source_path, "-o", obj_path]
+        if target and target != "x86-64":
+            zerocc_cmd.extend(["--target", target])
         proc = subprocess.run(
             zerocc_cmd,
             stdout=subprocess.PIPE,
@@ -332,7 +334,7 @@ def write_tap_report(results, total_duration_s):
 
 def main():
     parser = argparse.ArgumentParser(description="ZeroCC Unified Test Runner")
-    parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit"],
+    parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit", "aot"],
                         help="Run only tests from a specific category")
     parser.add_argument("--mode", "-m", choices=["jit", "aot"], default="jit",
                         help="Test mode: JIT (pre-compiled) or AOT (compile with zerocc)")

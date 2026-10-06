@@ -13,8 +13,13 @@
 #include "zero_cc.h"
 #include "zero_cc/parser/opt_pass.h"
 #include "zero_cc/jit/elf_writer.h"
+#include "zero_cc/isa/isa_backend.h"
 
 #define VERSION "0.1.0-dev"
+
+/* Forward declarations */
+static ZeroCCISA parse_target_arch(const char *target);
+static void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa);
 
 typedef struct {
     const char *input_file;
@@ -30,6 +35,7 @@ typedef struct {
     int define_count;
     int dump_ir;          /* -dump-ir */
     int link_mode;        /* Link with system linker (default when -o specified) */
+    const char *target_arch; /* --target */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -50,6 +56,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
+    fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
 }
 
 static void print_version(void) {
@@ -98,6 +105,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-O3") == 0) {
             opts->opt_level = 3;
+        }
+        else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
+            opts->target_arch = argv[++i];
         }
         else if (strncmp(arg, "-I", 2) == 0) {
             if (opts->include_count < 10) {
@@ -169,7 +179,8 @@ static int compile_jit(CompileOptions *opts) {
             case 2: opt_name = "O2"; break;
             case 3: opt_name = "O3"; break;
         }
-        printf("Compiling %s with -O%s\n", opts->input_file, opt_name);
+        printf("Compiling %s with -O%s (target: %s)\n", opts->input_file, opt_name,
+               opts->target_arch ? opts->target_arch : "x86-64");
     }
     
     /* Create compiler */
@@ -179,6 +190,10 @@ static int compile_jit(CompileOptions *opts) {
         free(source);
         return 1;
     }
+    
+    /* Initialize target ISA */
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    zero_cc_init_compiler_with_target(comp, target_isa);
     
     /* Preprocess */
     char *prep = zero_cc_preprocess(source, NULL);
@@ -237,6 +252,26 @@ static int compile_jit(CompileOptions *opts) {
     return result;
 }
 
+ZeroCCISA parse_target_arch(const char *target) {
+    if (!target) return ISA_X86_64;  // Default
+    if (strcmp(target, "x86-64") == 0 || strcmp(target, "x86_64") == 0) return ISA_X86_64;
+    if (strcmp(target, "aarch64") == 0 || strcmp(target, "arm64") == 0) return ISA_AARCH64;
+    if (strcmp(target, "riscv64") == 0) return ISA_RISCV64;
+    if (strcmp(target, "riscv32") == 0) return ISA_RISCV32;
+    fprintf(stderr, "Warning: Unknown target architecture '%s', defaulting to x86-64\n", target);
+    return ISA_X86_64;
+}
+
+void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa) {
+    const ZeroCCISABackend *backend = zero_cc_get_backend(target_isa);
+    if (!backend) {
+        fprintf(stderr, "Error: Target architecture not supported\n");
+        return;
+    }
+    comp->isa = target_isa;
+    comp->isa_backend = backend;
+}
+
 static int compile_object(CompileOptions *opts) {
     /* Read source file */
     char *source = read_file(opts->input_file);
@@ -245,7 +280,8 @@ static int compile_object(CompileOptions *opts) {
     }
     
     if (opts->verbose) {
-        printf("Compiling %s to object file\n", opts->input_file);
+        printf("Compiling %s to object file (target: %s)\n", opts->input_file, 
+               opts->target_arch ? opts->target_arch : "x86-64");
     }
     
     /* Create compiler */
@@ -255,6 +291,10 @@ static int compile_object(CompileOptions *opts) {
         free(source);
         return 1;
     }
+    
+    /* Initialize target ISA */
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    zero_cc_init_compiler_with_target(comp, target_isa);
     
     /* Preprocess */
     char *prep = zero_cc_preprocess(source, NULL);
@@ -318,9 +358,19 @@ static int compile_object(CompileOptions *opts) {
         printf("Writing object file: %s\n", output_path);
     }
     
+    /* Determine ELF machine type for target */
+    ElfMachineType elf_machine;
+    switch (comp->isa) {
+        case ISA_X86_64: elf_machine = ELF_MACHINE_X86_64; break;
+        case ISA_AARCH64: elf_machine = ELF_MACHINE_AARCH64; break;
+        case ISA_RISCV64: elf_machine = ELF_MACHINE_RISCV64; break;
+        case ISA_RISCV32: elf_machine = ELF_MACHINE_RISCV32; break;
+        default: elf_machine = ELF_MACHINE_X86_64; break;
+    }
+    
     /* Initialize ELF writer */
     ElfWriterCtx elf_ctx;
-    elf_writer_init(&elf_ctx, ELF_MACHINE_X86_64);
+    elf_writer_init(&elf_ctx, elf_machine);
     
     /* Add .text section */
     if (comp->text_section.length > 0) {
@@ -379,47 +429,66 @@ static int compile_object(CompileOptions *opts) {
         }
     }
     
+    /* Architecture-specific relocation types */
+    int reloc_type_call, reloc_type_rodata;
+    int addend_call, addend_rodata;
+    
+    switch (comp->isa) {
+        case ISA_X86_64:
+            reloc_type_call = 4;   /* R_X86_64_PLT32 */
+            reloc_type_rodata = 2; /* R_X86_64_PC32 */
+            addend_call = -4;
+            addend_rodata = -4;
+            break;
+        case ISA_AARCH64:
+            reloc_type_call = 28;  /* R_AARCH64_CALL26 */
+            reloc_type_rodata = 26; /* R_AARCH64_ADR_PREL_LO21 */
+            addend_call = 0;
+            addend_rodata = 0;
+            break;
+        case ISA_RISCV64:
+            reloc_type_call = 85;  /* R_RISCV_CALL */
+            reloc_type_rodata = 5; /* R_RISCV_PCREL_LO12_I */
+            addend_call = 0;
+            addend_rodata = 0;
+            break;
+        default:
+            reloc_type_call = 4;
+            reloc_type_rodata = 2;
+            addend_call = -4;
+            addend_rodata = -4;
+            break;
+    }
+    
     /* Add relocation entries for external function calls */
-    /* R_X86_64_PC32 = 2 for x86-64 (standard PC-relative call) */
-    #define R_X86_64_PC32 2
     for (size_t i = 0; i < comp->reloc_count; i++) {
         ZeroCCReloc *r = &comp->relocs[i];
         if (r->is_call) {
-            int symbol_idx = 0;  /* Default to null symbol */
-            
-            /* Find symbol in ELF writer's symbol table */
+            int symbol_idx = 0;
             for (int j = 0; j < elf_ctx.symbol_count; j++) {
                 if (strcmp(elf_ctx.symbols[j].name, r->target_symbol) == 0) {
-                    symbol_idx = j + 1;  /* +1 for null symbol */
+                    symbol_idx = j + 1;
                     break;
                 }
             }
-            
-            /* Add relocation entry */
-            /* Use PLT32 for function calls - linker will resolve to PLT with -4 PC bias */
-            #define R_X86_64_PLT32 4
             elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
                                       r->text_patch_offset,
                                       symbol_idx,
-                                      R_X86_64_PLT32,
-                                      -4);  /* addend */
+                                      reloc_type_call,
+                                      addend_call);
         }
     }
     
     /* Add relocation entries for string literals (.rodata references) */
-    /* The .rodata section symbol was added earlier (index 1 after null symbol) */
-    int rodata_symbol_idx = 1;  /* .rodata section symbol is always at index 1 if present */
+    int rodata_symbol_idx = 1;
     
     for (size_t i = 0; i < comp->str_reloc_count; i++) {
         ZeroCCStringReloc *sr = &comp->str_relocs[i];
-        
-        /* Add relocation entry with addend = rodata_offset - 4 */
-        /* The -4 accounts for the PC being at patch_offset + 4 (end of 4-byte displacement) */
-        elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
+        elf_writer_add_relocation(&elf_ctx, 1,
                                   sr->text_patch_offset,
                                   rodata_symbol_idx,
-                                  R_X86_64_PC32,
-                                  (int64_t)sr->rodata_offset - 4);  /* addend */
+                                  reloc_type_rodata,
+                                  (int64_t)sr->rodata_offset + addend_rodata);
     }
     
     /* Write ELF file */

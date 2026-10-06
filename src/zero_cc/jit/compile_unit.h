@@ -97,9 +97,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     regalloc_init(&c->regalloc);
     c->next_temp_id = 0;
 
-    /* Initialize ISA backend */
-    c->isa = zero_cc_get_native_backend()->isa;
-    c->isa_backend = zero_cc_get_native_backend();
+    /* Initialize ISA backend if not already set */
+    if (!c->isa_backend) {
+        c->isa = zero_cc_get_native_backend()->isa;
+        c->isa_backend = zero_cc_get_native_backend();
+    }
 
     /* Create shared semantic context for all functions */
     DiagBuf shared_diags;

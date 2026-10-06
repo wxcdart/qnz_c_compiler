@@ -162,6 +162,10 @@ typedef struct ZeroCCISABackend {
 } ZeroCCISABackend;
 
 /* Backend registry */
+extern const ZeroCCISABackend x86_64_backend;
+extern const ZeroCCISABackend aarch64_backend;
+extern const ZeroCCISABackend riscv64_backend;
+extern const ZeroCCISABackend riscv32_backend;
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa);
 const ZeroCCISABackend *zero_cc_get_native_backend(void);
 
