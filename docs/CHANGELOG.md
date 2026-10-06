@@ -2,6 +2,55 @@
 
 ## [Unreleased] - Multi-ISA Backend & C11 Support
 
+### Sprint 9 – AArch64 Backend Completion & Debugging Infrastructure (Tasks 67-68) ✅ COMPLETE
+
+> **Strategic Priority**: Fix AArch64 backend segfault and establish cross-ISA debugging infrastructure for multi-ISA development.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 67 | **AArch64 Backend Implementation**: Complete missing backend functions in `src/zero_cc/isa/aarch64.c`. Fix segfault caused by NULL pointer dereference in `emit_mov_reg`. Add 23 missing functions including memory operations, comparisons, ABI support, and atomic operations. | 3 days | ✅ Complete (5/5 AArch64 AOT tests pass) |
+| 68 | **Cross-ISA Debugging Infrastructure**: Build 16 Python debugging tools for multi-ISA development. Tools include segfault debugger, backend function validator, crash analyzer, coverage tracker, and ABI verifier. | 2 days | ✅ Complete |
+
+#### Changes
+
+**AArch64 Backend Functions Added** (`src/zero_cc/isa/aarch64.c`):
+- Core emission: `emit_mov_reg`, `emit_not`, `emit_shr`
+- Memory ops: `emit_deref`, `emit_load_32/16/byte`, `emit_store_32/16/byte`, `emit_lea_rip`
+- Comparisons: `emit_setl/le/g/ge/e/ne`, `emit_cmp_zero`, `emit_lnot`
+- Function ABI: `emit_param_save_int`, `emit_param_save_fp`, `emit_variadic_spill`, `emit_variadic_al_setup`
+- Special ops: `emit_vla_alloc`, `emit_atomic_cmpxchg/xadd/xchg`, `emit_mfence`
+
+**Bug Fixes**:
+- Fixed AArch64 compilation segfault (exit code 139) - caused by missing `emit_mov_reg` implementation
+- Added ISA guard for `emit_callee_save_stores` in `ast_lowering_mc.c` to prevent x86-specific code from running on AArch64
+
+**Debugging Tools Created** (`tools/`):
+- `segfault_debugger.py` - Debug compiler crashes with gdb/valgrind
+- `backend_function_validator.py` - Validate backend function registration
+- `backend_init_checker.py` - Check backend initialization patterns
+- `compiler_crash_analyzer.py` - Systematic crash pattern analysis
+- `backend_coverage.py` - Track implemented vs missing backend functions
+- `backend_stub_generator.py` - Generate stub implementations
+- `backend_impl_tracker.py` - Implementation checklist & progress tracker
+- `backend_test_harness.py` - Generate minimal test cases
+- `cross_isa_test_gen.py` - Generate ISA-specific test cases
+- `abi_verify.py` - Validate ABI compliance across architectures
+- `aarch64_backend_debugger.py` - Detect x86 patterns in AArch64 objects
+- `find_callee_save_calls.py` - Find stray callee-save calls
+- `prologue_verifier.py` - Verify prologue/epilogue patterns
+- `cross_isa_comparator.py` - Compare compilation across ISAs
+- `qemu_test_runner.py` - Run tests under QEMU
+- `stack_offset_analyzer.py` - Analyze stack frame offsets
+
+**Test Results**:
+- AArch64 AOT compilation: 5/5 PASS (previously segfaulted)
+- x86_64 AOT compilation: 5/5 PASS
+- JIT tests: 118/118 PASS
+
+---
+
+## [Previous Releases]
+
 ### Goal: Self-Hosting Compiler
 
 ZeroCC is designed to eventually **self-host** (compile itself). Architecture supports:

@@ -127,6 +127,15 @@ For fully static, GLIBC-free binaries:
 musl-gcc -Isrc -Iinclude example.c -o example -static
 ```
 
+## Test Results
+
+| Test Suite | Status | Count |
+|------------|--------|-------|
+| **JIT Tests** | ✅ Pass | 118/118 |
+| **x86-64 AOT** | ✅ Pass | 5/5 |
+| **AArch64 AOT** | ✅ Pass | 5/5 |
+| **RISC-V64 AOT** | 🟡 In Progress | — |
+
 ## C11/C23 Support
 
 ### Implemented Features
@@ -178,6 +187,32 @@ make test
 | [`VREG.md`](VREG.md) | Virtual register system and ISA mapping |
 | [`TLS_IMPLEMENTATION_PLAN.md`](TLS_IMPLEMENTATION_PLAN.md) | TLS and cross-platform backend plan |
 | [`TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md) | Two-pass code generation details |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Release notes and changelog |
+| [`docs/MULTI_ISA_SUPPORT_PLAN.md`](docs/MULTI_ISA_SUPPORT_PLAN.md) | Multi-ISA backend implementation status |
+| [`tools/README.md`](tools/README.md) | Debugging tools documentation |
+
+## Debugging Tools
+
+ZeroCC includes 16 Python debugging tools for cross-ISA backend development:
+
+```bash
+# Debug compiler crashes
+python3 tools/segfault_debugger.py --target aarch64 test.c
+
+# Validate backend functions
+python3 tools/backend_function_validator.py --isa aarch64
+
+# Compare ISA compilation
+python3 tools/cross_isa_comparator.py test.c --isas x86_64 aarch64
+
+# Track implementation coverage
+python3 tools/backend_coverage.py
+
+# Run tests under QEMU
+python3 tools/qemu_test_runner.py --isa aarch64 test/aot/
+```
+
+See [`tools/README.md`](tools/README.md) for full documentation.
 
 ## License
 
