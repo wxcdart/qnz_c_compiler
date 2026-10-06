@@ -415,6 +415,9 @@ static int compile_object(CompileOptions *opts) {
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
         if (fn->name[0]) {
+            /* Skip stdin - it's a variable, not a function */
+            if (strcmp(fn->name, "stdin") == 0) continue;
+            
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
             int section_idx = SHN_UNDEF;  // Default to undefined
@@ -441,8 +444,8 @@ static int compile_object(CompileOptions *opts) {
             addend_rodata = -4;
             break;
         case ISA_AARCH64:
-            reloc_type_call = 28;  /* R_AARCH64_CALL26 */
-            reloc_type_rodata = 26; /* R_AARCH64_ADR_PREL_LO21 */
+            reloc_type_call = 283;  /* R_AARCH64_CALL26 */
+            reloc_type_rodata = 274; /* R_AARCH64_ADR_PREL_LO21 */
             addend_call = 0;
             addend_rodata = 0;
             break;
