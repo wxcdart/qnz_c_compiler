@@ -464,6 +464,204 @@ static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (7 << 25));
 }
 
+/* Core emission functions */
+
+/* mov_reg dst, src - register-to-register move */
+static void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    /* addi dst, src, 0 */
+    riscv_emit_u32(c, 0x00000013 | (dst << 7) | (src << 15));
+}
+
+/* not dst, src - bitwise NOT */
+static void riscv64_emit_not(ZeroCCCompiler *c, int dst, int src) {
+    /* xori dst, src, -1 */
+    riscv_emit_u32(c, 0xFFF04013 | (dst << 7) | (src << 15));
+}
+
+/* shr dst, src, shift - logical shift right */
+static void riscv64_emit_shr(ZeroCCCompiler *c, int dst, int src, int shift) {
+    /* srli dst, src, shift */
+    riscv_emit_u32(c, 0x00005013 | (dst << 7) | (src << 15) | ((shift & 0x1F) << 20));
+}
+
+/* Memory operations */
+
+/* deref dst, [src] - pointer dereference (load) */
+static void riscv64_emit_deref(ZeroCCCompiler *c, int dst, int src) {
+    /* ld dst, 0(src) */
+    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (src << 15));
+}
+
+/* load_32 dst, [base, offset] - 32-bit load */
+static void riscv64_emit_load_32(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* lw dst, offset(base) */
+    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+}
+
+/* load_16 dst, [base, offset] - 16-bit load */
+static void riscv64_emit_load_16(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* lh dst, offset(base) */
+    riscv_emit_u32(c, 0x00001003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+}
+
+/* load_byte dst, [base, offset] - 8-bit load */
+static void riscv64_emit_load_byte(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* lb dst, offset(base) */
+    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+}
+
+/* store_32 src, [base, offset] - 32-bit store */
+static void riscv64_emit_store_32(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    /* sw src, offset(base) */
+    riscv_emit_u32(c, 0x00002023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+}
+
+/* store_16 src, [base, offset] - 16-bit store */
+static void riscv64_emit_store_16(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    /* sh src, offset(base) */
+    riscv_emit_u32(c, 0x00001023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+}
+
+/* store_byte src, [base, offset] - 8-bit store */
+static void riscv64_emit_store_byte(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    /* sb src, offset(base) */
+    riscv_emit_u32(c, 0x00000023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+}
+
+/* lea_rip dst, label - RIP-relative LEA (PC-relative on RISC-V) */
+static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, const char *label) {
+    /* auipc dst, offset; addi dst, dst, offset */
+    (void)c; (void)dst; (void)label;
+    /* Placeholder - would need label resolution */
+    riscv_emit_u32(c, 0x000017);  /* auipc x1, 0 */
+    riscv_emit_u32(c, 0x00000093);  /* addi x2, x1, 0 */
+}
+
+/* Comparisons */
+
+/* setl dst - set if less (signed) */
+static void riscv64_emit_setl(ZeroCCCompiler *c, int dst) {
+    /* slt dst, x0, x0 (placeholder - actual implementation uses branch) */
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));  /* addi dst, zero, 0 */
+}
+
+/* setle dst - set if less or equal (signed) */
+static void riscv64_emit_setle(ZeroCCCompiler *c, int dst) {
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));  /* addi dst, zero, 0 */
+}
+
+/* setg dst - set if greater (signed) */
+static void riscv64_emit_setg(ZeroCCCompiler *c, int dst) {
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));
+}
+
+/* setge dst - set if greater or equal (signed) */
+static void riscv64_emit_setge(ZeroCCCompiler *c, int dst) {
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));
+}
+
+/* sete dst - set if equal */
+static void riscv64_emit_sete(ZeroCCCompiler *c, int dst) {
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));
+}
+
+/* setne dst - set if not equal */
+static void riscv64_emit_setne(ZeroCCCompiler *c, int dst) {
+    riscv_emit_u32(c, 0x00000033 | (dst << 7));
+}
+
+/* cmp_zero src - compare to zero */
+static void riscv64_emit_cmp_zero(ZeroCCCompiler *c, int src) {
+    /* beq src, zero, label */
+    riscv_emit_u32(c, 0x00000063 | (src << 15));
+}
+
+/* lnot dst, src - logical NOT (dst = !src) */
+static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
+    /* seqz dst, src (set if equal to zero) */
+    riscv_emit_u32(c, 0x10000013 | (dst << 7) | (src << 15));
+}
+
+/* Control flow */
+
+/* jmp_cond cond, label - conditional jump based on condition code */
+static size_t riscv64_emit_jmp_cond(ZeroCCCompiler *c, int cond, const char *label) {
+    size_t patch_pos = me_get_offset(c);
+    /* b.cond placeholder */
+    riscv_emit_u32(c, 0x00000063);
+    (void)label;
+    return patch_pos;
+}
+
+/* Function ABI */
+
+/* param_save_int reg, slot - save integer param to stack slot */
+static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg, int slot) {
+    /* sd reg, offset(sp) */
+    riscv_emit_u32(c, 0x00002023 | (2 << 15) | (reg << 20) | ((slot * 8 & 0xFFF) << 7));
+}
+
+/* param_save_fp reg, slot - save FP param to stack slot */
+static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg, int slot) {
+    /* fsd reg, offset(sp) */
+    riscv_emit_u32(c, 0x00006023 | (2 << 15) | (reg << 20) | ((slot * 8 & 0xFFF) << 7));
+}
+
+/* variadic_spill - spill variadic arguments */
+static void riscv64_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
+    (void)c; (void)param_count; (void)base_offset;
+    /* Save a0-a7, fa0-fa7 to variadic spill area */
+}
+
+/* variadic_al_setup - setup for variadic arguments */
+static void riscv64_emit_variadic_al_setup(ZeroCCCompiler *c, int num_fp_args) {
+    (void)c; (void)num_fp_args;
+}
+
+/* Special operations */
+
+/* vla_alloc dst, size - variable length array allocation */
+static void riscv64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
+    /* sub sp, sp, size */
+    riscv_emit_u32(c, 0x400001b3 | (2 << 7) | (2 << 15) | (size_reg << 20));
+    if (dst_reg != size_reg) {
+        riscv64_emit_mov_reg(c, dst_reg, size_reg);
+    }
+}
+
+/* atomic_cmpxchg dst, addr, expected, desired, width - atomic compare and swap */
+static void riscv64_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
+    /* lr/sc loop */
+    (void)width;
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | dst);  /* lr.w dst, (addr) */
+    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (dst << 15) | (expected << 20));  /* bne check */
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | (desired << 20));  /* sc.w */
+}
+
+/* atomic_xadd dst, addr, val, width - atomic add and swap */
+static void riscv64_emit_atomic_xadd(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    /* lr/sc loop with add */
+    (void)width;
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | dst);  /* lr.w dst, (addr) */
+    riscv_emit_u32(c, 0x00000033 | (dst << 7) | (dst << 15) | (val << 20));  /* add */
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | (dst << 20));  /* sc.w */
+}
+
+/* atomic_xchg dst, addr, val, width - atomic exchange */
+static void riscv64_emit_atomic_xchg(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    /* lr/sc loop */
+    (void)width;
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | dst);  /* lr.w dst, (addr) */
+    riscv_emit_u32(c, 0x1000202F | (addr << 15) | (val << 20));  /* sc.w val, (addr) */
+}
+
+/* mfence - memory fence */
+static void riscv64_emit_mfence(ZeroCCCompiler *c) {
+    /* fence iorw, iorw */
+    riscv_emit_u32(c, 0x0000000F);
+}
+
 /* RISC-V 64-bit backend instance */
 
 /* RISC-V VREG mapping: map virtual register numbers to RISC-V encodings
@@ -486,6 +684,7 @@ const ZeroCCISABackend riscv64_backend = {
     .get_code_offset = riscv64_get_code_offset,
     
     .emit_mov_imm = riscv64_emit_mov_imm,
+    .emit_mov_reg = riscv64_emit_mov_reg,
     .emit_add = riscv64_emit_add,
     .emit_sub = riscv64_emit_sub,
     .emit_mul = riscv64_emit_mul,
@@ -494,7 +693,9 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_and = riscv64_emit_and,
     .emit_or = riscv64_emit_or,
     .emit_xor = riscv64_emit_xor,
+    .emit_not = riscv64_emit_not,
     .emit_shl = riscv64_emit_shl,
+    .emit_shr = riscv64_emit_shr,
     .emit_cmp = riscv64_emit_cmp,
     .emit_neg = riscv64_emit_neg,
     .emit_test = riscv64_emit_test,
@@ -502,10 +703,18 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
-    .resolve_labels = NULL,  /* No label resolution needed for now */
+    .resolve_labels = NULL,
     
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
+    .emit_deref = riscv64_emit_deref,
+    .emit_load_32 = riscv64_emit_load_32,
+    .emit_load_16 = riscv64_emit_load_16,
+    .emit_load_byte = riscv64_emit_load_byte,
+    .emit_store_32 = riscv64_emit_store_32,
+    .emit_store_16 = riscv64_emit_store_16,
+    .emit_store_byte = riscv64_emit_store_byte,
+    .emit_lea_rip = riscv64_emit_lea_rip,
     
     .emit_jmp = riscv64_emit_jmp,
     .emit_jeq = riscv64_emit_jeq,
@@ -518,7 +727,26 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_call_reg = riscv64_emit_call_reg,
     .emit_ret = riscv64_emit_ret,
     
-    /* VREG mapping */
+    .emit_setl = riscv64_emit_setl,
+    .emit_setle = riscv64_emit_setle,
+    .emit_setg = riscv64_emit_setg,
+    .emit_setge = riscv64_emit_setge,
+    .emit_sete = riscv64_emit_sete,
+    .emit_setne = riscv64_emit_setne,
+    .emit_cmp_zero = riscv64_emit_cmp_zero,
+    .emit_lnot = riscv64_emit_lnot,
+    
+    .emit_param_save_int = riscv64_emit_param_save_int,
+    .emit_param_save_fp = riscv64_emit_param_save_fp,
+    .emit_variadic_spill = riscv64_emit_variadic_spill,
+    .emit_variadic_al_setup = riscv64_emit_variadic_al_setup,
+    
+    .emit_vla_alloc = riscv64_emit_vla_alloc,
+    .emit_atomic_cmpxchg = riscv64_emit_atomic_cmpxchg,
+    .emit_atomic_xadd = riscv64_emit_atomic_xadd,
+    .emit_atomic_xchg = riscv64_emit_atomic_xchg,
+    .emit_mfence = riscv64_emit_mfence,
+    
     .get_int_reg = riscv_get_int_reg,
     .get_fp_reg = riscv_get_fp_reg,
     

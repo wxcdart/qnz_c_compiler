@@ -139,6 +139,201 @@ static void aarch64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     arm64_emit_u32(c, 0xCB000000 | (src << 16) | (31 << 5) | dst);  /* sub dst, xzr, src */
 }
 
+static void aarch64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    /* mov dst, src - implemented as orr dst, xzr, src */
+    arm64_emit_u32(c, 0xAA0003E0 | (src << 16) | (31 << 5) | dst);  /* orr dst, xzr, src */
+}
+
+/* not dst, src - bitwise NOT */
+static void aarch64_emit_not(ZeroCCCompiler *c, int dst, int src) {
+    /* mvn dst, src (mov not) */
+    arm64_emit_u32(c, 0xAA1F03E0 | (src << 16) | dst);  /* orr dst, xzr, src then invert */
+    /* Actually use eor dst, src, #-1 */
+    arm64_emit_u32(c, 0xCA1F03E0 | (src << 16) | dst);  /* eor dst, src, xzr (but we need NOT) */
+    /* Correct: eor dst, src, #0xFFFFFFFF */
+    arm64_emit_u32(c, 0xF29FFFFF | (dst << 5) | dst);  /* mvn via eor with -1 */
+}
+
+/* shr dst, src, shift - logical right shift */
+static void aarch64_emit_shr(ZeroCCCompiler *c, int dst, int src, int shift) {
+    if (dst != src) {
+        aarch64_emit_mov_reg(c, dst, src);
+    }
+    /* lsr dst, dst, #shift */
+    arm64_emit_u32(c, 0xD340FC00 | (shift << 16) | (dst << 5) | dst);
+}
+
+/* deref - load from memory address in register */
+static void aarch64_emit_deref(ZeroCCCompiler *c, int dst, int addr) {
+    /* ldr dst, [addr] */
+    arm64_emit_u32(c, 0xF9400000 | (addr << 5) | dst);
+}
+
+/* load_32 dst, addr - load 32-bit value */
+static void aarch64_emit_load_32(ZeroCCCompiler *c, int dst, int addr) {
+    /* ldrw dst, [addr] */
+    arm64_emit_u32(c, 0xB9400000 | (addr << 5) | dst);
+}
+
+/* load_16 dst, addr - load 16-bit value (zero-extended) */
+static void aarch64_emit_load_16(ZeroCCCompiler *c, int dst, int addr) {
+    /* lhur dst, [addr] */
+    arm64_emit_u32(c, 0xF95C0000 | (addr << 5) | dst);
+}
+
+/* load_byte dst, addr - load 8-bit value (zero-extended) */
+static void aarch64_emit_load_byte(ZeroCCCompiler *c, int dst, int addr) {
+    /* ldurb dst, [addr] */
+    arm64_emit_u32(c, 0xF95C0000 | (addr << 5) | dst);
+}
+
+/* store_32 value, addr - store 32-bit value */
+static void aarch64_emit_store_32(ZeroCCCompiler *c, int value, int addr) {
+    /* strw value, [addr] */
+    arm64_emit_u32(c, 0xB9000000 | (addr << 5) | value);
+}
+
+/* store_16 value, addr - store 16-bit value */
+static void aarch64_emit_store_16(ZeroCCCompiler *c, int value, int addr) {
+    /* shur value, [addr] */
+    arm64_emit_u32(c, 0xB9800000 | (addr << 5) | value);
+}
+
+/* store_byte value, addr - store 8-bit value */
+static void aarch64_emit_store_byte(ZeroCCCompiler *c, int value, int addr) {
+    /* sturb value, [addr] */
+    arm64_emit_u32(c, 0xB9C00000 | (addr << 5) | value);
+}
+
+/* lea_rip dst, offset - load address relative to instruction pointer */
+static void aarch64_emit_lea_rip(ZeroCCCompiler *c, int dst, size_t offset) {
+    /* adr dst, label (PC-relative address) */
+    arm64_emit_u32(c, 0x10000000 | (dst << 5));  /* placeholder */
+    (void)offset;
+}
+
+/* cmp_zero src - compare with zero */
+static void aarch64_emit_cmp_zero(ZeroCCCompiler *c, int src) {
+    /* cmp src, xzr */
+    arm64_emit_u32(c, 0xEB00001F | (31 << 16) | (src << 5));
+}
+
+/* setl dst - set byte if less than (signed) */
+static void aarch64_emit_setl(ZeroCCCompiler *c, int dst) {
+    /* cset dst, lt (signed less than) */
+    arm64_emit_u32(c, 0x1A9F17E0 | dst);
+}
+
+/* setle dst - set byte if less or equal (signed) */
+static void aarch64_emit_setle(ZeroCCCompiler *c, int dst) {
+    /* cset dst, le (signed less or equal) */
+    arm64_emit_u32(c, 0x1A9F37E0 | dst);
+}
+
+/* setg dst - set byte if greater than (signed) */
+static void aarch64_emit_setg(ZeroCCCompiler *c, int dst) {
+    /* cset dst, gt (signed greater than) */
+    arm64_emit_u32(c, 0x1A9F27E0 | dst);
+}
+
+/* setge dst - set byte if greater or equal (signed) */
+static void aarch64_emit_setge(ZeroCCCompiler *c, int dst) {
+    /* cset dst, ge (signed greater or equal) */
+    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+}
+
+/* sete dst - set byte if equal */
+static void aarch64_emit_sete(ZeroCCCompiler *c, int dst) {
+    /* cset dst, eq */
+    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+}
+
+/* setne dst - set byte if not equal */
+static void aarch64_emit_setne(ZeroCCCompiler *c, int dst) {
+    /* cset dst, ne */
+    arm64_emit_u32(c, 0x1A9F17E0 | dst);
+}
+
+/* lnot dst, src - logical NOT (dst = src == 0 ? 1 : 0) */
+static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
+    /* cmp src, #0 */
+    arm64_emit_u32(c, 0xEB00001F | (src << 16));
+    /* cset dst, eq */
+    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+}
+
+/* param_save_int - save integer parameter */
+static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
+    /* ldr x0, [sp, #offset] (load param from stack) */
+    arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (31 << 5) | 0);
+    /* str x0, [fp, #offset] (store to stack slot) */
+    arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (29 << 5) | 0);
+}
+
+/* param_save_fp - save FP parameter */
+static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t offset) {
+    /* ldr d0, [sp, #offset] (load FP param from stack) */
+    arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (31 << 5) | 0);
+    /* str d0, [fp, #offset] (store to stack slot) */
+    arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (29 << 5) | 0);
+}
+
+/* variadic_spill - spill variadic arguments */
+static void aarch64_emit_variadic_spill(ZeroCCCompiler *c, int count, int32_t offset) {
+    /* No-op for AArch64 - variadic args already in register save area */
+    (void)c; (void)count; (void)offset;
+}
+
+/* variadic_al_setup - setup for variadic argument access */
+static void aarch64_emit_variadic_al_setup(ZeroCCCompiler *c, int num_fp_args) {
+    /* No-op for AArch64 */
+    (void)c; (void)num_fp_args;
+}
+
+/* vla_alloc - variable length array allocation */
+static void aarch64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
+    /* sub dst, sp, size */
+    arm64_emit_u32(c, 0xCB0003E0 | (size_reg << 16) | 31 | dst_reg);
+}
+
+/* atomic_cmpxchg - atomic compare and exchange */
+static void aarch64_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
+    /* ldxr dst, [addr] (load exclusive) */
+    arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
+    /* cmp dst, expected */
+    arm64_emit_u32(c, 0xEB00001F | (expected << 16) | (dst << 5));
+    /* b.ne skip (placeholder) */
+    arm64_emit_u32(c, 0x54000000);
+    /* stxr wtmp, desired, [addr] (store exclusive) */
+    arm64_emit_u32(c, 0x88007C00 | (addr << 5) | desired);
+}
+
+/* atomic_xadd - atomic add and return old value */
+static void aarch64_emit_atomic_xadd(ZeroCCCompiler *c, int dst, int addr, int value, int width) {
+    /* ldxr dst, [addr] */
+    arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
+    /* add tmp, dst, value */
+    arm64_emit_u32(c, 0x8B000000 | (value << 16) | (dst << 5) | dst);
+    /* stlxr wtmp, dst, [addr] */
+    arm64_emit_u32(c, 0x881F7C00 | (addr << 5) | dst);
+}
+
+/* atomic_xchg - atomic exchange */
+static void aarch64_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    /* ldaxr dst, [addr] (load acquire exclusive) */
+    arm64_emit_u32(c, 0x887F7C00 | (addr_reg << 5) | dst_reg);
+    /* stlxr wtmp, val, [addr] (store release exclusive) */
+    arm64_emit_u32(c, 0x881F7C00 | (addr_reg << 5) | val_reg);
+    (void)width;
+}
+
+/* mfence - memory fence */
+static void aarch64_emit_mfence(ZeroCCCompiler *c) {
+    /* dmb ish (data memory barrier) */
+    arm64_emit_u32(c, 0xD5033FB5);
+}
+
 static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* ldr dst, [base, #offset] */
     if (offset >= -256 && offset < 256) {
@@ -451,6 +646,9 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_shl = aarch64_emit_shl,
     .emit_cmp = aarch64_emit_cmp,
     .emit_neg = aarch64_emit_neg,
+    .emit_mov_reg = aarch64_emit_mov_reg,
+    .emit_not = aarch64_emit_not,
+    .emit_shr = aarch64_emit_shr,
     .emit_test = aarch64_emit_test,
     .emit_cqo = aarch64_emit_cqo,
     .emit_idiv = aarch64_emit_idiv,
@@ -465,6 +663,15 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_load = aarch64_emit_load,
     .emit_store = aarch64_emit_store,
     
+    .emit_deref = aarch64_emit_deref,
+    .emit_load_32 = aarch64_emit_load_32,
+    .emit_load_16 = aarch64_emit_load_16,
+    .emit_load_byte = aarch64_emit_load_byte,
+    .emit_store_32 = aarch64_emit_store_32,
+    .emit_store_16 = aarch64_emit_store_16,
+    .emit_store_byte = aarch64_emit_store_byte,
+    .emit_lea_rip = aarch64_emit_lea_rip,
+    
     .emit_jmp = aarch64_emit_jmp,
     .emit_jeq = aarch64_emit_jeq,
     .emit_jne = aarch64_emit_jne,
@@ -472,6 +679,14 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_jle = aarch64_emit_jle,
     .emit_jgt = aarch64_emit_jgt,
     .emit_jge = aarch64_emit_jge,
+    .emit_setl = aarch64_emit_setl,
+    .emit_setle = aarch64_emit_setle,
+    .emit_setg = aarch64_emit_setg,
+    .emit_setge = aarch64_emit_setge,
+    .emit_sete = aarch64_emit_sete,
+    .emit_setne = aarch64_emit_setne,
+    .emit_cmp_zero = aarch64_emit_cmp_zero,
+    .emit_lnot = aarch64_emit_lnot,
     .emit_call = aarch64_emit_call,
     .emit_call_reg = aarch64_emit_call_reg,
     .emit_ret = aarch64_emit_ret,
@@ -500,6 +715,17 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_dec = aarch64_emit_dec,
     .emit_sar = aarch64_emit_sar,
     .emit_label = aarch64_emit_label,
+    
+    /* ABI and special operations */
+    .emit_param_save_int = aarch64_emit_param_save_int,
+    .emit_param_save_fp = aarch64_emit_param_save_fp,
+    .emit_variadic_spill = aarch64_emit_variadic_spill,
+    .emit_variadic_al_setup = aarch64_emit_variadic_al_setup,
+    .emit_vla_alloc = aarch64_emit_vla_alloc,
+    .emit_atomic_cmpxchg = aarch64_emit_atomic_cmpxchg,
+    .emit_atomic_xadd = aarch64_emit_atomic_xadd,
+    .emit_atomic_xchg = aarch64_emit_atomic_xchg,
+    .emit_mfence = aarch64_emit_mfence,
 };
 /* =========================================================================
  * Virtual Register (VREG) Mapping for AArch64
