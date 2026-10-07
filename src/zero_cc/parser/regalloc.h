@@ -450,26 +450,4 @@ static size_t regalloc_get_interval_count(RegAllocator *ra) {
 /* Number of bytes reserved at the top of every frame for callee-save slots. */
 #define CALLEE_SAVE_FRAME_RESERVE 48
 
-/* Maps allocator pool index → frame slot offset (for callee-saved regs only).
- * Use with: BE(c)->emit_store(c, vreg, fp_reg, -(int32_t)callee_save_slot_offset[idx]) */
-static const int32_t callee_save_slot_offset[] __attribute__((unused)) = {
-    /* idx 0 (rax)  */ 0,  /* not callee-saved */
-    /* idx 1 (rbx)  */ 8,
-    /* idx 2 (rsi)  */ 0,  /* not callee-saved */
-    /* idx 3 (rdi)  */ 0,  /* not callee-saved */
-    /* idx 4 (r8)   */ 0,  /* not callee-saved */
-    /* idx 5 (r9)   */ 0,  /* not callee-saved */
-    /* idx 6 (r10)  */ 0,  /* not callee-saved */
-    /* idx 7 (r11)  */ 0,  /* not callee-saved */
-    /* idx 8 (r12)  */ 16,
-    /* idx 9 (r13)  */ 24,
-    /* idx 10 (r14) */ 32,
-    /* idx 11 (r15) */ 40,
-};
-
-/* Physical VREG for each allocator pool index (matches idx_to_vreg[] in regalloc_idx_to_vreg) */
-static const int callee_save_pool_to_vreg[] __attribute__((unused)) = {
-    0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
-};
-
 #endif /* ZERO_CC_PARSER_REGALLOC_H */

@@ -41,8 +41,4 @@ static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
     return zero_cc_type_int();
 }
 
-/* Callee-save register helpers */
-void emit_callee_save_stores(ZeroCCCompiler *c);
-void emit_callee_save_loads(ZeroCCCompiler *c);
-
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

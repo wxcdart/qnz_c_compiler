@@ -25,38 +25,6 @@
 #include "opt_pass.c"
 
 /* =========================================================================
- * Callee-Saved Register Preservation Helpers
- * ========================================================================= */
-
-/* Emit MOV [rbp - slot], reg for each callee-saved GPR that was assigned. */
-void emit_callee_save_stores(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int idx = __builtin_ctz(mask);
-        int vreg = callee_save_pool_to_vreg[idx];
-        int32_t slot = callee_save_slot_offset[idx];
-        if (BE(c)->emit_store) {
-            BE(c)->emit_store(c, vreg, BE(c)->fp_reg, -slot);
-        }
-        mask &= mask - 1;
-    }
-}
-
-/* Emit MOV reg, [rbp - slot] for each callee-saved GPR that was assigned. */
-void emit_callee_save_loads(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int idx = __builtin_ctz(mask);
-        int vreg = callee_save_pool_to_vreg[idx];
-        int32_t slot = callee_save_slot_offset[idx];
-        if (BE(c)->emit_load) {
-            BE(c)->emit_load(c, vreg, BE(c)->fp_reg, -slot);
-        }
-        mask &= mask - 1;
-    }
-}
-
-/* =========================================================================
  * Main Entry Point
  * ========================================================================= */
 
@@ -162,14 +130,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         BE(c)->resolve_labels(c);
     }
     
-    /* Restore callee-saved registers before the epilogue leave/ret.
-     * NOTE: Only x86-64 uses callee-saved GPR preservation in the epilogue.
-     * AArch64 and RISC-V handle their own callee-saved registers differently
-     * (or not at all for simple functions). This is ISA-specific and should
-     * eventually be moved into the backend's emit_epilogue() implementation.
-     */
-    if (c->isa == ISA_X86_64) {
-        emit_callee_save_loads(c);
+    /* Restore callee-saved registers before the epilogue leave/ret. */
+    if (BE(c)->conv && BE(c)->conv->emit_callee_save_loads) {
+        BE(c)->conv->emit_callee_save_loads(c);
     }
     
     /* Emit epilogue */

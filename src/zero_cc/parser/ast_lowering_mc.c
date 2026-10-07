@@ -51,8 +51,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (BE(c)->emit_prologue) {
                     BE(c)->emit_prologue(c, (size_t)instr->imm64);
                 }
-                if (c->isa == ISA_X86_64) {
-                    emit_callee_save_stores(c);
+                if (BE(c)->conv && BE(c)->conv->emit_callee_save_stores) {
+                    BE(c)->conv->emit_callee_save_stores(c);
                 }
                 break;
 

@@ -26,6 +26,55 @@ static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, 
 static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
 static const int x86_64_callee_saved_gpr[] = {3, 5, 12, 13, 14, 15};  /* rbx, rbp, r12-r15 */
 
+/* Callee-save slot offsets (x86-64 specific) */
+static const int32_t x86_64_callee_save_slot_offset[] = {
+    /* idx 0 (rax)  */ 0,  /* not callee-saved */
+    /* idx 1 (rbx)  */ 8,
+    /* idx 2 (rsi)  */ 0,  /* not callee-saved */
+    /* idx 3 (rdi)  */ 0,  /* not callee-saved */
+    /* idx 4 (r8)   */ 0,  /* not callee-saved */
+    /* idx 5 (r9)   */ 0,  /* not callee-saved */
+    /* idx 6 (r10)  */ 0,  /* not callee-saved */
+    /* idx 7 (r11)  */ 0,  /* not callee-saved */
+    /* idx 8 (r12)  */ 16,
+    /* idx 9 (r13)  */ 24,
+    /* idx 10 (r14) */ 32,
+    /* idx 11 (r15) */ 40,
+};
+
+/* Physical VREG for each allocator pool index */
+static const int x86_64_callee_save_pool_to_vreg[] = {
+    0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+};
+
+/* Emit STORE for callee-saved registers that were assigned */
+static void x86_64_emit_callee_save_stores(ZeroCCCompiler *c) {
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    while (mask) {
+        int idx = __builtin_ctz(mask);
+        int vreg = x86_64_callee_save_pool_to_vreg[idx];
+        int32_t slot = x86_64_callee_save_slot_offset[idx];
+        if (BE(c)->emit_store) {
+            BE(c)->emit_store(c, vreg, BE(c)->fp_reg, -slot);
+        }
+        mask &= mask - 1;
+    }
+}
+
+/* Emit LOAD for callee-saved registers that were assigned */
+static void x86_64_emit_callee_save_loads(ZeroCCCompiler *c) {
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    while (mask) {
+        int idx = __builtin_ctz(mask);
+        int vreg = x86_64_callee_save_pool_to_vreg[idx];
+        int32_t slot = x86_64_callee_save_slot_offset[idx];
+        if (BE(c)->emit_load) {
+            BE(c)->emit_load(c, vreg, BE(c)->fp_reg, -slot);
+        }
+        mask &= mask - 1;
+    }
+}
+
 static const ISACallingConvention x86_64_conv = {
     .int_arg_regs = x86_64_int_arg_regs,
     .int_arg_reg_count = 6,
@@ -33,6 +82,8 @@ static const ISACallingConvention x86_64_conv = {
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = x86_64_callee_saved_gpr,
     .callee_saved_gpr_count = 6,
+    .emit_callee_save_stores = x86_64_emit_callee_save_stores,
+    .emit_callee_save_loads = x86_64_emit_callee_save_loads,
 };
 
 /* Register numbers used by this backend are the hardware encodings:

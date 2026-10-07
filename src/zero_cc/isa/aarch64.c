@@ -37,6 +37,8 @@ static const ISACallingConvention aarch64_conv = {
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = aarch64_callee_saved_gpr,
     .callee_saved_gpr_count = 12,
+    .emit_callee_save_stores = NULL,  /* AArch64 handles differently */
+    .emit_callee_save_loads = NULL,   /* AArch64 handles differently */
 };
 
 /* ARM64 instruction encoding helpers */

@@ -67,6 +67,8 @@ static const ISACallingConvention riscv64_conv = {
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = riscv64_callee_saved_gpr,
     .callee_saved_gpr_count = 12,
+    .emit_callee_save_stores = NULL,  /* RISC-V handles differently */
+    .emit_callee_save_loads = NULL,   /* RISC-V handles differently */
 };
 
 /* RISC-V 32-bit calling convention (similar but different register sizes) */
@@ -81,6 +83,8 @@ static const ISACallingConvention riscv32_conv = {
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = riscv32_callee_saved_gpr,
     .callee_saved_gpr_count = 12,
+    .emit_callee_save_stores = NULL,  /* RISC-V handles differently */
+    .emit_callee_save_loads = NULL,   /* RISC-V handles differently */
 };
 
 /* RISC-V instruction encoding helpers */

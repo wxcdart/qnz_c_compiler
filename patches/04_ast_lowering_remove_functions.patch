@@ -1,0 +1,48 @@
+--- a/src/zero_cc/parser/ast_lowering.c
++++ b/src/zero_cc/parser/ast_lowering.c
+@@ -29,26 +29,6 @@
+ /* ========================================================================= */
+ 
+ /* Emit MOV [rbp - slot], reg for each callee-saved GPR that was assigned. */
+-void emit_callee_save_stores(ZeroCCCompiler *c) {
+-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+-    while (mask) {
+-        int idx = __builtin_ctz(mask);
+-        int vreg = callee_save_pool_to_vreg[idx];
+-        int32_t slot = callee_save_slot_offset[idx];
+-        if (BE(c)->emit_store) {
+-            BE(c)->emit_store(c, vreg, BE(c)->fp_reg, -slot);
+-        }
+-        mask &= mask - 1;
+-    }
+-}
+-
+-/* Emit MOV reg, [rbp - slot] for each callee-saved GPR that was assigned. */
+-void emit_callee_save_loads(ZeroCCCompiler *c) {
+-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+-    while (mask) {
+-        int idx = __builtin_ctz(mask);
+-        int vreg = callee_save_pool_to_vreg[idx];
+-        int32_t slot = callee_save_slot_offset[idx];
+-        if (BE(c)->emit_load) {
+-            BE(c)->emit_load(c, vreg, BE(c)->fp_reg, -slot);
+-        }
+-        mask &= mask - 1;
+-    }
+-}
+-
+ /* =========================================================================
+  * Main Entry Point
+  * ========================================================================= */
+@@ -169,10 +149,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
+     ir_emit_prologue(0);
+ 
+     /* Restore callee-saved registers before the epilogue leave/ret. */
+-    if (c->isa == ISA_X86_64) {
+-        emit_callee_save_loads(c);
+-    }
++    if (BE(c)->emit_callee_save_loads) {
++        BE(c)->emit_callee_save_loads(c);
+     }
+     
+     /* Emit epilogue */
