@@ -9,15 +9,17 @@
 static OptLevel g_opt_level = OPT_LEVEL_NONE;
 
 static void opt_pass_constant_fold(ZeroCCCompiler *c);
+static void opt_pass_flag_dce(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
 static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
 
-// Enable all passes: constant folding -> DCE -> CSE -> LICM -> strength reduction -> branch simplify
+// Enable all passes: constant folding -> flag DCE -> DCE -> CSE -> LICM -> strength reduction -> branch simplify
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
+    { "flag_dce", opt_pass_flag_dce, 1, 20 },
     { "dce", opt_pass_dce, 1, 30 },
     { "cse", opt_pass_cse, 1, 40 },
     { "licm", opt_pass_licm, 1, 50 },
@@ -57,6 +59,7 @@ OptLevel opt_get_level(void) { return g_opt_level; }
 int opt_is_enabled(OptLevel required_level) { return g_opt_level >= required_level; }
 
 static void opt_pass_constant_fold(ZeroCCCompiler *c) { opt_fold_constants(c); }
+static void opt_pass_flag_dce(ZeroCCCompiler *c) { opt_flag_dce(c); }
 static void opt_pass_dce(ZeroCCCompiler *c) { opt_eliminate_dead_code(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }

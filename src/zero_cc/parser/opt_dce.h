@@ -13,4 +13,12 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
  */
 void opt_eliminate_dead_code(ZeroCCCompiler *c);
 
+/**
+ * Flag DCE: Remove CMP instructions whose flags are never used
+ * 
+ * This pass runs BEFORE general DCE and specifically targets flag-setting
+ * instructions (OP_CMP, OP_CMP_ZERO) that have no flag-reading successors.
+ */
+void opt_flag_dce(ZeroCCCompiler *c);
+
 #endif /* ZERO_CC_PARSER_OPT_DCE_H */

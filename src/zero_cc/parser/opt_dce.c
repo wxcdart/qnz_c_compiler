@@ -5,6 +5,59 @@
 #include <string.h>
 
 /**
+ * Flag DCE: Remove CMP instructions whose flags are never used
+ * 
+ * This pass runs BEFORE general DCE and specifically targets flag-setting
+ * instructions (OP_CMP, OP_CMP_ZERO) that have no flag-reading successors.
+ */
+void opt_flag_dce(ZeroCCCompiler *c) {
+    (void)c;
+    
+    int count = (int)ir_get_count();
+    if (count == 0) {
+        return;
+    }
+    
+    // Forward pass: find dead flag-setting instructions
+    for (int i = 0; i < count; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        // Only analyze flag-setting instructions
+        if (instr->op != OP_CMP && instr->op != OP_CMP_ZERO) {
+            continue;
+        }
+        
+        // Check if flags are used by subsequent instructions
+        bool flags_used = false;
+        for (int j = i + 1; j < count; j++) {
+            Instr *next = ir_get(j);
+            if (!next) continue;
+            
+            // Stop at control flow boundary
+            if (next->op == OP_JMP || next->op == OP_JCOND || 
+                next->op == OP_JE || next->op == OP_JNE ||
+                next->op == OP_JL || next->op == OP_JLE ||
+                next->op == OP_JG || next->op == OP_RET || 
+                next->op == OP_LABEL || next->op == OP_CALL) {
+                break;
+            }
+            
+            // Check if this instruction reads flags
+            if (next->flags_in == REG_FLAGS) {
+                flags_used = true;
+                break;
+            }
+        }
+        
+        // Mark as dead if flags never used
+        if (!flags_used) {
+            instr->op = OP_DEAD;
+        }
+    }
+}
+
+/**
  * Liveness tracking
  */
 #define MAX_VREGS 4096
