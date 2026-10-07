@@ -43,42 +43,9 @@ static const int32_t aarch64_callee_save_slot_offset[] = {
     /* x26 */ 64,
     /* x27 */ 72,
     /* x28 */ 80,
-    /* x29, x30 are handled by prologue/epilogue */
+    /* x29 */ 88,
+    /* x30 */ 96,
 };
-
-/* Emit STORE for callee-saved registers that were assigned */
-static void aarch64_emit_callee_save_stores(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int reg = __builtin_ctz(mask);
-        /* x19-x28 are callee-saved (x29, x30 handled by prologue/epilogue) */
-        if (reg >= 19 && reg <= 28) {
-            int slot_idx = reg - 19;
-            int32_t slot = aarch64_callee_save_slot_offset[slot_idx];
-            if (BE(c)->emit_store) {
-                BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot);
-            }
-        }
-        mask &= mask - 1;
-    }
-}
-
-/* Emit LOAD for callee-saved registers that were assigned */
-static void aarch64_emit_callee_save_loads(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int reg = __builtin_ctz(mask);
-        /* x19-x28 are callee-saved (x29, x30 handled by prologue/epilogue) */
-        if (reg >= 19 && reg <= 28) {
-            int slot_idx = reg - 19;
-            int32_t slot = aarch64_callee_save_slot_offset[slot_idx];
-            if (BE(c)->emit_load) {
-                BE(c)->emit_load(c, reg, BE(c)->fp_reg, -slot);
-            }
-        }
-        mask &= mask - 1;
-    }
-}
 
 static const ISACallingConvention aarch64_conv = {
     .int_arg_regs = aarch64_int_arg_regs,
@@ -87,8 +54,7 @@ static const ISACallingConvention aarch64_conv = {
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = aarch64_callee_saved_gpr,
     .callee_saved_gpr_count = 12,
-    .emit_callee_save_stores = aarch64_emit_callee_save_stores,
-    .emit_callee_save_loads = aarch64_emit_callee_save_loads,
+    .callee_save_slot_offsets = aarch64_callee_save_slot_offset,
 };
 
 /* ARM64 instruction encoding helpers */

@@ -48,9 +48,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
         switch (instr->op) {
             case OP_PROLOGUE:
-                /* Pass callee_save_mask to emit_prologue so it can emit callee-save stores */
+                /* Emit prologue with stack frame size (callee-save handled by separate IR instructions) */
                 if (BE(c)->emit_prologue) {
-                    BE(c)->emit_prologue(c, (size_t)instr->imm64, c->regalloc.used_callee_saved_gpr_mask);
+                    BE(c)->emit_prologue(c, (size_t)instr->imm64, 0);
                 }
                 break;
 
@@ -212,6 +212,44 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_VLA_ALLOC:
                 if (BE(c)->emit_vla_alloc) {
                     BE(c)->emit_vla_alloc(c, phys_dst, phys_src1);
+                }
+                break;
+
+            case OP_CALLEE_SAVE_STORES:
+                /* Emit callee-saved register stores using mask from IR instruction */
+                /* Generic implementation using backend's callee_saved_gpr array and slot offsets */
+                if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->emit_store) {
+                    uint32_t mask = (uint32_t)instr->imm64;
+                    const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+                    const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+                    int count = BE(c)->conv->callee_saved_gpr_count;
+                    for (int i = 0; i < count; i++) {
+                        int reg = callee_regs[i];
+                        if ((mask >> reg) & 1u) {
+                            /* slot_offsets is indexed by array position (i), not physical reg number */
+                            int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                            BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot);
+                        }
+                    }
+                }
+                break;
+
+            case OP_CALLEE_SAVE_LOADS:
+                /* Emit callee-saved register loads using mask from IR instruction */
+                /* Generic implementation using backend's callee_saved_gpr array and slot offsets */
+                if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->emit_load) {
+                    uint32_t mask = (uint32_t)instr->imm64;
+                    const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+                    const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+                    int count = BE(c)->conv->callee_saved_gpr_count;
+                    for (int i = 0; i < count; i++) {
+                        int reg = callee_regs[i];
+                        if ((mask >> reg) & 1u) {
+                            /* slot_offsets is indexed by array position (i), not physical reg number */
+                            int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                            BE(c)->emit_load(c, reg, BE(c)->fp_reg, -slot);
+                        }
+                    }
                 }
                 break;
 

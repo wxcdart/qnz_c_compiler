@@ -44,10 +44,7 @@ typedef struct {
     int fp_arg_reg_count;         /* Number of FP arg registers */
     const int *callee_saved_gpr;  /* Array of callee-saved GPR indices */
     int callee_saved_gpr_count;   /* Number of callee-saved GPRs */
-    
-    /* Callee-saved register preservation hooks */
-    void (*emit_callee_save_stores)(ZeroCCCompiler *c);
-    void (*emit_callee_save_loads)(ZeroCCCompiler *c);
+    const int32_t *callee_save_slot_offsets; /* Slot offsets for each callee-saved GPR (indexed by array position) */
 } ISACallingConvention;
 
 /* Emit backend - instruction generation */

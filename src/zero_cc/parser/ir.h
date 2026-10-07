@@ -90,6 +90,8 @@ typedef enum {
     OP_STORE_32,       /* store 32-bit value to address */
     OP_STORE_64,       /* store 64-bit value to address */
     OP_VLA_ALLOC,      /* allocate variable-length array on stack */
+    OP_CALLEE_SAVE_STORES, /* emit callee-saved register stores */
+    OP_CALLEE_SAVE_LOADS,  /* emit callee-saved register loads */
     OP_ATOMIC_XADD,         /* atomic exchange and add */
     OP_ATOMIC_CMPXCHG,      /* atomic compare and exchange (returns old value) */
     OP_ATOMIC_CMPXCHG_BOOL, /* atomic compare and exchange (returns success) */
@@ -396,6 +398,16 @@ static inline void ir_emit_store_64(uint8_t temp_val, uint8_t temp_addr) {
 
 static inline void ir_emit_vla_alloc(uint8_t temp_dest, uint8_t temp_size) {
     ir_emit((Instr){.op = OP_VLA_ALLOC, .temp_dest = temp_dest, .temp_src1 = temp_size, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* Emit callee-saved register stores (after register allocation) */
+static inline void ir_emit_callee_save_stores(uint32_t callee_save_mask) {
+    ir_emit((Instr){.op = OP_CALLEE_SAVE_STORES, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
+}
+
+/* Emit callee-saved register loads (after register allocation) */
+static inline void ir_emit_callee_save_loads(uint32_t callee_save_mask) {
+    ir_emit((Instr){.op = OP_CALLEE_SAVE_LOADS, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
 }
 
 static inline void ir_emit_atomic_xadd(uint8_t temp_dest, uint8_t temp_addr, uint8_t temp_val, int16_t width) {

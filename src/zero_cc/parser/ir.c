@@ -162,6 +162,10 @@ void ir_dump(FILE *f) {
                                 break;
             case OP_VLA_ALLOC: fprintf(f, "VLA_ALLOC r%u, r%u", instr->temp_dest, instr->temp_src1);
                                break;
+            case OP_CALLEE_SAVE_STORES: fprintf(f, "CALLEE_SAVE_STORES mask=0x%x", (unsigned)instr->imm);
+                                       break;
+            case OP_CALLEE_SAVE_LOADS: fprintf(f, "CALLEE_SAVE_LOADS mask=0x%x", (unsigned)instr->imm);
+                                       break;
             case OP_ATOMIC_XADD: fprintf(f, "ATOMIC_XADD r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                                  break;
             case OP_ATOMIC_XCHG: fprintf(f, "ATOMIC_XCHG r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

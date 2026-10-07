@@ -24,22 +24,15 @@ static const ISARegInfo x86_64_regs = {
 /* Register numbers: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15 */
 static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
 static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
-static const int x86_64_callee_saved_gpr[] = {3, 5, 12, 13, 14, 15};  /* rbx, rbp, r12-r15 */
+static const int x86_64_callee_saved_gpr[] = {3, 12, 13, 14, 15};  /* rbx, r12-r15 (rbp handled by prologue/epilogue) */
 
-/* Callee-save slot offsets (x86-64 specific) */
+/* Callee-save slot offsets (indexed by array position in callee_saved_gpr) */
 static const int32_t x86_64_callee_save_slot_offset[] = {
-    /* idx 0 (rax)  */ 0,  /* not callee-saved */
-    /* idx 1 (rbx)  */ 8,
-    /* idx 2 (rsi)  */ 0,  /* not callee-saved */
-    /* idx 3 (rdi)  */ 0,  /* not callee-saved */
-    /* idx 4 (r8)   */ 0,  /* not callee-saved */
-    /* idx 5 (r9)   */ 0,  /* not callee-saved */
-    /* idx 6 (r10)  */ 0,  /* not callee-saved */
-    /* idx 7 (r11)  */ 0,  /* not callee-saved */
-    /* idx 8 (r12)  */ 16,
-    /* idx 9 (r13)  */ 24,
-    /* idx 10 (r14) */ 32,
-    /* idx 11 (r15) */ 40,
+    /* rbx */ 8,
+    /* r12 */ 16,
+    /* r13 */ 24,
+    /* r14 */ 32,
+    /* r15 */ 40,
 };
 
 /* Physical VREG for each allocator pool index */
@@ -47,47 +40,14 @@ static const int x86_64_callee_save_pool_to_vreg[] = {
     0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 };
 
-/* Emit STORE for callee-saved registers that were assigned */
-static void x86_64_emit_callee_save_stores(ZeroCCCompiler *c) {
-    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
-    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
-    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
-    
-    for (int i = 0; i < 5; i++) {
-        int reg = callee_saved_regs[i];
-        if ((c->regalloc.used_callee_saved_gpr_mask >> reg) & 1u) {
-            if (BE(c)->emit_store) {
-                BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot_offsets[i]);
-            }
-        }
-    }
-}
-
-/* Emit LOAD for callee-saved registers that were assigned */
-static void x86_64_emit_callee_save_loads(ZeroCCCompiler *c) {
-    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
-    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
-    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
-    
-    for (int i = 0; i < 5; i++) {
-        int reg = callee_saved_regs[i];
-        if ((c->regalloc.used_callee_saved_gpr_mask >> reg) & 1u) {
-            if (BE(c)->emit_load) {
-                BE(c)->emit_load(c, reg, BE(c)->fp_reg, -slot_offsets[i]);
-            }
-        }
-    }
-}
-
 static const ISACallingConvention x86_64_conv = {
     .int_arg_regs = x86_64_int_arg_regs,
     .int_arg_reg_count = 6,
     .fp_arg_regs = x86_64_fp_arg_regs,
     .fp_arg_reg_count = 8,
     .callee_saved_gpr = x86_64_callee_saved_gpr,
-    .callee_saved_gpr_count = 6,
-    .emit_callee_save_stores = x86_64_emit_callee_save_stores,
-    .emit_callee_save_loads = x86_64_emit_callee_save_loads,
+    .callee_saved_gpr_count = 5,
+    .callee_save_slot_offsets = x86_64_callee_save_slot_offset,  /* indexed by array position */
 };
 
 /* Register numbers used by this backend are the hardware encodings:

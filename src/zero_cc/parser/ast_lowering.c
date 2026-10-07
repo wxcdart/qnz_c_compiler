@@ -100,6 +100,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     regalloc_allocate(&c->regalloc);
 
+    /* Emit callee-save IR instructions after register allocation (Phase D: IR-based callee-save) */
+    uint32_t callee_save_mask = c->regalloc.used_callee_saved_gpr_mask;
+    if (callee_save_mask) {
+        ir_emit_callee_save_stores(callee_save_mask);
+        ir_emit_callee_save_loads(callee_save_mask);
+    }
     
     live_range_free(&lra);
     
@@ -134,10 +140,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         BE(c)->resolve_labels(c);
     }
     
-    /* Restore callee-saved registers before the epilogue leave/ret. */
-    if (BE(c)->conv && BE(c)->conv->emit_callee_save_loads) {
-        BE(c)->conv->emit_callee_save_loads(c);
-    }
+    /* Callee-saved register loads are now handled by OP_CALLEE_SAVE_LOADS IR instruction */
     
     /* Emit epilogue */
     BE(c)->emit_leave(c);
