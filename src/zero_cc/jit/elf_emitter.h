@@ -37,6 +37,16 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     FILE *f = fopen(filepath, "wb");
     if (!f) return false;
 
+    /* Determine ELF machine type based on target ISA */
+    uint16_t e_machine = EM_X86_64;  /* Default */
+    switch (c->isa) {
+        case ISA_X86_64:   e_machine = EM_X86_64;   break;
+        case ISA_AARCH64:  e_machine = EM_AARCH64;  break;
+        case ISA_RISCV64:  e_machine = EM_RISCV;    break;
+        case ISA_RISCV32:  e_machine = EM_RISCV;    break;
+        default:           e_machine = EM_X86_64;   break;
+    }
+
     Elf64_Ehdr ehdr;
     memset(&ehdr, 0, sizeof(ehdr));
     ehdr.e_ident[EI_MAG0] = ELFMAG0;
@@ -48,7 +58,7 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     ehdr.e_ident[EI_VERSION] = EV_CURRENT;
     ehdr.e_ident[EI_OSABI] = ELFOSABI_SYSV;
     ehdr.e_type = ET_REL;
-    ehdr.e_machine = EM_X86_64;
+    ehdr.e_machine = e_machine;
     ehdr.e_version = EV_CURRENT;
     ehdr.e_ehsize = sizeof(Elf64_Ehdr);
     ehdr.e_shentsize = sizeof(Elf64_Shdr);
@@ -112,6 +122,16 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
     FILE *f = fopen(filepath, "wb");
     if (!f) return false;
 
+    /* Determine ELF machine type based on target ISA */
+    uint16_t e_machine = EM_X86_64;  /* Default */
+    switch (c->isa) {
+        case ISA_X86_64:   e_machine = EM_X86_64;   break;
+        case ISA_AARCH64:  e_machine = EM_AARCH64;  break;
+        case ISA_RISCV64:  e_machine = EM_RISCV;    break;
+        case ISA_RISCV32:  e_machine = EM_RISCV;    break;
+        default:           e_machine = EM_X86_64;   break;
+    }
+
     /* Patch internal function calls and string literal RIP offsets */
     for (size_t i = 0; i < c->reloc_count; i++) {
         if (c->relocs[i].is_call) {
@@ -161,7 +181,7 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
     ehdr.e_ident[EI_VERSION] = EV_CURRENT;
     ehdr.e_ident[EI_OSABI] = ELFOSABI_SYSV;
     ehdr.e_type = ET_EXEC;
-    ehdr.e_machine = EM_X86_64;
+    ehdr.e_machine = e_machine;
     ehdr.e_version = EV_CURRENT;
     ehdr.e_entry = base_vaddr + header_sz;
     ehdr.e_phoff = sizeof(Elf64_Ehdr);

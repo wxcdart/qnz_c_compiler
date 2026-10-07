@@ -637,6 +637,24 @@ static size_t aarch64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t t
     return patch_offset;
 }
 
+/* Resolve all label patches for AArch64 */
+static void aarch64_resolve_labels(ZeroCCCompiler *c) {
+    for (int i = 0; i < c->label_count; i++) {
+        size_t target = c->labels[i].offset;
+        for (int j = 0; j < c->labels[i].patch_count; j++) {
+            size_t patch_offset = c->labels[i].patches[j];
+            /* AArch64 uses 26-bit signed relative branch (>> 2 for word alignment) */
+            int32_t rel = (int32_t)((target - patch_offset) >> 2);
+            
+            if (patch_offset + 4 <= c->text_section.length) {
+                uint8_t *buf = (uint8_t *)c->text_section.data;
+                uint32_t *insn = (uint32_t*)(buf + patch_offset);
+                *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
+            }
+        }
+    }
+}
+
 
 
 static void aarch64_emit_test(ZeroCCCompiler *c, int src1, int src2) {
@@ -714,7 +732,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_idiv = aarch64_emit_idiv,
     .emit_lea = aarch64_emit_lea,
     .patch_jmp = aarch64_patch_jmp,
-    .resolve_labels = NULL,  /* No label resolution needed for now */
+    .resolve_labels = aarch64_resolve_labels,
     
     /* VREG mapping */
     .get_int_reg = aarch64_get_int_reg,
