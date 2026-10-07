@@ -144,10 +144,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_cmp(c, phys_src1, phys_src2);
                 break;
             
-            case OP_CMP_BRANCH:
-                /* compare and set dst based on condition */
-                if (BE(c)->emit_cmp_branch) {
-                    BE(c)->emit_cmp_branch(c, phys_dst, phys_src1, phys_src2, (int)instr->imm);
+            case OP_COND_SET:
+                /* set dst based on flags and condition code */
+                if (BE(c)->emit_cond_set) {
+                    BE(c)->emit_cond_set(c, phys_dst, (int)instr->cond);
                 }
                 break;
             
@@ -444,10 +444,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_not(c, phys_dst, phys_src1);
                 break;
             
-            case OP_LNOT:  /* Logical NOT: test src, src; sete dst */
+            case OP_LNOT:  /* Logical NOT: cmp_zero src; cond_set dst, EQ */
                 BE(c)->emit_cmp_zero(c, phys_src1);
-                if (BE(c)->emit_cmp_branch) {
-                    BE(c)->emit_cmp_branch(c, phys_dst, 0xFF, 0xFF, CC_EQ);
+                if (BE(c)->emit_cond_set) {
+                    BE(c)->emit_cond_set(c, phys_dst, CC_EQ);
                 }
                 break;
 

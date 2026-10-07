@@ -46,8 +46,8 @@ typedef enum {
     OP_SAR,            /* shift right register by register (signed) */
 
     /* Comparison (2) */
-    OP_CMP,            /* compare two registers */
-    OP_CMP_BRANCH,     /* compare and set dst based on condition (ISA-neutral) */
+    OP_CMP,            /* compare src1, src2; sets flags */
+    OP_COND_SET,       /* set dst based on flags and condition code */
 
     /* Control Flow (6) */
     OP_JMP,            /* jmp label */
@@ -105,6 +105,14 @@ typedef enum {
     OP_MOV_GLOBAL,     /* load global variable (position-independent) */
 } Opcode;
 
+/* Condition codes for OP_COND_SET */
+#define CC_LT  0  /* signed less than */
+#define CC_LE  1  /* signed less or equal */
+#define CC_GT  2  /* signed greater */
+#define CC_GE  3  /* signed greater or equal */
+#define CC_EQ  4  /* equal */
+#define CC_NE  5  /* not equal */
+
 /* Helper: Get opcode name for debugging */
 static inline const char* ir_opcode_name(Opcode op) {
     switch (op) {
@@ -135,7 +143,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SHR: return "SHR";
         case OP_SAR: return "SAR";
         case OP_CMP: return "CMP";
-        case OP_CMP_BRANCH: return "CMP_BRANCH";
+        case OP_COND_SET: return "COND_SET";
         case OP_JMP: return "JMP";
         case OP_JE: return "JE";
         case OP_JNE: return "JNE";
@@ -210,6 +218,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  temp_dest; /* Destination temp (0-255, 0xFF if none) */
     uint8_t  temp_src1; /* Source temp 1 (0-255, 0xFF if none) */
     uint8_t  temp_src2; /* Source temp 2 (0-255, 0xFF if none) */
+    uint8_t  cond;      /* Condition code for OP_COND_SET (0-5) */
     int16_t  imm;       /* Immediate value (-32768 to 32767) */
     int64_t  imm64;     /* 64-bit immediate value */
     uint16_t label_idx; /* Label index for jumps (0-65535) */

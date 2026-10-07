@@ -70,7 +70,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_xor)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_shl)(ZeroCCCompiler *c, int dst, int src, int shift);
     void (*emit_cmp)(ZeroCCCompiler *c, int src1, int src2);
-    void (*emit_cmp_branch)(ZeroCCCompiler *c, int dst, int src1, int src2, int cond);
+    void (*emit_cond_set)(ZeroCCCompiler *c, int dst, int cond);
     void (*emit_neg)(ZeroCCCompiler *c, int dst, int src);
     void (*emit_test)(ZeroCCCompiler *c, int src1, int src2);
     void (*emit_cqo)(ZeroCCCompiler *c);

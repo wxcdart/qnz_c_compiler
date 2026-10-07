@@ -181,7 +181,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         case TK_GE: cond = CC_GE; break;
                         default: cond = CC_EQ; break;
                     }
-                    ir_emit_cmp_branch(result_temp, left_temp, right_temp, cond);
+                    ir_emit_cmp(left_temp, right_temp);
+                    ir_emit_cond_set(result_temp, cond);
                     break;
                 }
                 default:
@@ -298,7 +299,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     break;
                 case TK_BANG:  /* Logical NOT: !operand */
                     ir_emit_cmp_zero(operand_temp);
-                    ir_emit_cmp_branch(result_temp, 0xFF, 0xFF, CC_EQ);
+                    ir_emit_cond_set(result_temp, CC_EQ);
                     break;
                 case TK_TILDE:  /* Bitwise NOT */
                     ir_emit_not(result_temp, operand_temp);
@@ -1245,7 +1246,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_atomic_cmpxchg(actual_old, ptr_temp, exp_val_temp, desired_temp, 4);
                     ir_emit_store_32(actual_old, exp_ptr_temp);
                     int bool_res = c->next_temp_id++;
-                    ir_emit_cmp_branch(bool_res, actual_old, exp_val_temp, CC_EQ);
+                    ir_emit_cmp(actual_old, exp_val_temp);
+                    ir_emit_cond_set(bool_res, CC_EQ);
                     c->last_expr_is_float = 0;
                     return bool_res;
                 }

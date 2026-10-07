@@ -251,13 +251,14 @@ static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
 }
 
 /* cmp and set dst based on condition (ISA-neutral) */
-static inline void ir_emit_cmp_branch(int temp_dest, int temp_src1, int temp_src2, int cond) {
+static inline void ir_emit_cond_set(int temp_dest, int cond) {
     ir_emit((Instr){
-        .op = OP_CMP_BRANCH,
+        .op = OP_COND_SET,
         .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
-        .imm = (int16_t)cond,
+        .temp_src1 = 0xFF,
+        .temp_src2 = 0xFF,
+        .cond = (uint8_t)cond,
+        .imm = 0,
         .imm64 = 0,
         .label_idx = 0
     });
