@@ -49,29 +49,33 @@ static const int x86_64_callee_save_pool_to_vreg[] = {
 
 /* Emit STORE for callee-saved registers that were assigned */
 static void x86_64_emit_callee_save_stores(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int idx = __builtin_ctz(mask);
-        int vreg = x86_64_callee_save_pool_to_vreg[idx];
-        int32_t slot = x86_64_callee_save_slot_offset[idx];
-        if (BE(c)->emit_store) {
-            BE(c)->emit_store(c, vreg, BE(c)->fp_reg, -slot);
+    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
+    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
+    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
+    
+    for (int i = 0; i < 5; i++) {
+        int reg = callee_saved_regs[i];
+        if ((c->regalloc.used_callee_saved_gpr_mask >> reg) & 1u) {
+            if (BE(c)->emit_store) {
+                BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot_offsets[i]);
+            }
         }
-        mask &= mask - 1;
     }
 }
 
 /* Emit LOAD for callee-saved registers that were assigned */
 static void x86_64_emit_callee_save_loads(ZeroCCCompiler *c) {
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    while (mask) {
-        int idx = __builtin_ctz(mask);
-        int vreg = x86_64_callee_save_pool_to_vreg[idx];
-        int32_t slot = x86_64_callee_save_slot_offset[idx];
-        if (BE(c)->emit_load) {
-            BE(c)->emit_load(c, vreg, BE(c)->fp_reg, -slot);
+    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
+    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
+    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
+    
+    for (int i = 0; i < 5; i++) {
+        int reg = callee_saved_regs[i];
+        if ((c->regalloc.used_callee_saved_gpr_mask >> reg) & 1u) {
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, reg, BE(c)->fp_reg, -slot_offsets[i]);
+            }
         }
-        mask &= mask - 1;
     }
 }
 
@@ -148,7 +152,8 @@ static void x86_alu3_comm(ZeroCCCompiler *c, uint8_t opcode, int dst, int src1, 
 }
 
 /* x86-64 backend implementation */
-static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
+static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
+
     /* push rbp */
     me_emit_u8(c, 0x55);
     /* mov rbp, rsp */
@@ -161,6 +166,20 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
         me_emit_u8(c, 0x81);
         me_emit_u8(c, 0xec);
         me_emit_u32(c, (uint32_t)stack_size);
+    }
+    
+    /* Emit callee-saved register stores (after prologue, when mask is populated) */
+    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
+    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
+    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
+    
+    for (int i = 0; i < 5; i++) {
+        int reg = callee_saved_regs[i];
+        if ((callee_save_mask >> reg) & 1u) {
+            /* mov [rbp - offset], reg */
+            static const uint8_t mov_rm64_r64[] = {0x89};
+            x86_rm(c, mov_rm64_r64[0], reg, X86_RBP, -slot_offsets[i]);
+        }
     }
 }
 

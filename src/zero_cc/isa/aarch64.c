@@ -100,7 +100,7 @@ static inline void arm64_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 }
 
 /* ARM64 backend implementation */
-static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
+static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     /* Ensure 16-byte alignment as required by AArch64 ABI */
     stack_size = (stack_size + 15) & ~15;
     
@@ -127,6 +127,20 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
 
     /* Step 3: mov x29, sp */
     arm64_emit_u32(c, 0x910003FD);
+    
+    /* Emit callee-saved register stores (after prologue, when mask is populated) */
+    /* AArch64 callee-saved registers: x19-x28 (physical regs 19-28) */
+    /* Slot offsets: x19=8, x20=16, x21=24, x22=32, x23=40, x24=48, x25=56, x26=64, x27=72, x28=80 */
+    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80};
+    
+    for (int i = 0; i < 10; i++) {
+        int reg = 19 + i;
+        if ((callee_save_mask >> reg) & 1u) {
+            /* str xreg, [x29, -offset] */
+            uint32_t offset = (uint32_t)slot_offsets[i];
+            arm64_emit_u32(c, 0xF9000000 | ((reg & 0x1F) << 5) | ((reg & 0x1F) << 0) | ((offset & 0x1FF) << 10));
+        }
+    }
 }
 
 static void aarch64_emit_epilogue(ZeroCCCompiler *c) {

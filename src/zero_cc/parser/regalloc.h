@@ -216,11 +216,12 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 /* Callee-saved registers exhausted: fall through to allocate any free GPR */
             } else {
                 /* x86-64: prefer callee-saved registers (rbx, r12-r15) */
-                static const int callee_saved_indices[] = {1, 8, 9, 10, 11};
-                for (size_t k = 0; k < sizeof(callee_saved_indices)/sizeof(callee_saved_indices[0]); k++) {
-                    int i = callee_saved_indices[k];
+                static const int callee_saved_phys_regs[] = {3, 12, 13, 14, 15};  /* Physical register numbers */
+                for (size_t k = 0; k < sizeof(callee_saved_phys_regs)/sizeof(callee_saved_phys_regs[0]); k++) {
+                    int i = callee_saved_phys_regs[k];
                     if (ra->gpr_free[i]) {
                         ra->gpr_free[i] = false;
+
                         ra->used_callee_saved_gpr_mask |= (1u << i);
                         return i;
                     }
@@ -231,6 +232,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
 
         for (int i = 0; i < GPR_COUNT; i++) {
             if (ra->gpr_free[i]) {
+
                 ra->gpr_free[i] = false;
                 /* Track callee-saved register usage (ISA-specific) */
                 if (is_aarch64) {
@@ -243,6 +245,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                     static const uint32_t x86_callee_saved_mask =
                         (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
                     if ((x86_callee_saved_mask >> i) & 1u) {
+
                         ra->used_callee_saved_gpr_mask |= (1u << i);
                     }
                 }
@@ -363,17 +366,15 @@ static void regalloc_allocate(RegAllocator *ra) {
     free(sorted);
 }
 
-/* Map register allocator index to VREG number (for x86-64) */
+/* Map register allocator index to VREG number (for x86-64)
+ * NOTE: This function is misnamed - it should return the physical register number,
+ * not a VREG number. The machine code emitter expects physical register numbers.
+ * For now, we return the physical register number directly (identity mapping).
+ */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
 static int regalloc_idx_to_vreg(int idx) {
-    /* System V AMD64 ABI register order, excluding rsp/rbp/rdx/rcx which are reserved. */
-    /* rdx (2) is reserved for struct return second eightbyte */
-    /* rcx (1) is reserved for shift count (cl) */
-    static const int idx_to_vreg[] = {0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-    if (idx >= 0 && idx < 12) {
-        return idx_to_vreg[idx];
-    }
-    return 0;  /* Default to VREG_0 */
+    /* Return physical register number directly */
+    return idx;
 }
 
 /* Get the physical register assigned to a temp ID */

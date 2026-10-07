@@ -96,7 +96,7 @@ static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 }
 
 /* RISC-V RV64 backend implementation */
-static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
+static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     /* addi sp, sp, -stack_size */
     if (stack_size > 0) {
         uint32_t off = (stack_size + 15) & ~15;  /* align to 16 bytes */
@@ -109,6 +109,20 @@ static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
     /* addi s0, sp, stack_size */
     if (stack_size > 0) {
         riscv_emit_u32(c, 0x00000113 | ((stack_size & 0xFFF) << 20) | (8 << 15) | (2 << 7));
+    }
+    
+    /* Emit callee-saved register stores (after prologue, when mask is populated) */
+    /* RISC-V callee-saved registers: s0-s11 (physical regs 8-9, 18-27) */
+    /* Note: s0 is already saved above, so we save s1-s11 */
+    static const int32_t slot_offsets[] = {16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96};
+    static const int regs[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
+    
+    for (int i = 0; i < 11; i++) {
+        int reg = regs[i];
+        if ((callee_save_mask >> reg) & 1u) {
+            /* sd reg, offset(sp) */
+            riscv_emit_u32(c, 0x00002023 | ((reg & 0x1F) << 15) | ((reg & 0x1F) << 7) | ((slot_offsets[i] & 0x1FF) << 20));
+        }
     }
 }
 
@@ -781,7 +795,7 @@ const ZeroCCISABackend riscv64_backend = {
 };
 
 /* RISC-V 32-bit backend (for ESP32-C3/C6/H2) - similar but 32-bit */
-static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
+static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     if (stack_size > 0) {
         uint32_t off = (stack_size + 3) & ~3;  /* align to 4 bytes */
         riscv_emit_u32(c, 0x00000113 | ((off & 0xFFF) << 20) | (2 << 7));
@@ -790,6 +804,19 @@ static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
     riscv_emit_u32(c, 0x00002023 | (4 << 7) | (1 << 15) | (8 << 20));
     if (stack_size > 0) {
         riscv_emit_u32(c, 0x00000113 | ((stack_size & 0xFFF) << 20) | (8 << 15) | (2 << 7));
+    }
+    
+    /* Emit callee-saved register stores (after prologue, when mask is populated) */
+    /* RISC-V callee-saved registers: s0-s11 (physical regs 8-9, 18-27) */
+    static const int32_t slot_offsets[] = {16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96};
+    static const int regs[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
+    
+    for (int i = 0; i < 11; i++) {
+        int reg = regs[i];
+        if ((callee_save_mask >> reg) & 1u) {
+            /* sw reg, offset(sp) */
+            riscv_emit_u32(c, 0x00002023 | ((reg & 0x1F) << 15) | ((reg & 0x1F) << 7) | ((slot_offsets[i] & 0x1FF) << 20));
+        }
     }
 }
 

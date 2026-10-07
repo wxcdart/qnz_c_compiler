@@ -48,11 +48,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
         switch (instr->op) {
             case OP_PROLOGUE:
+                /* Pass callee_save_mask to emit_prologue so it can emit callee-save stores */
                 if (BE(c)->emit_prologue) {
-                    BE(c)->emit_prologue(c, (size_t)instr->imm64);
-                }
-                if (BE(c)->conv && BE(c)->conv->emit_callee_save_stores) {
-                    BE(c)->conv->emit_callee_save_stores(c);
+                    BE(c)->emit_prologue(c, (size_t)instr->imm64, c->regalloc.used_callee_saved_gpr_mask);
                 }
                 break;
 

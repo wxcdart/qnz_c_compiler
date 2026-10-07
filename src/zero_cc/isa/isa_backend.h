@@ -57,7 +57,7 @@ typedef struct ZeroCCISABackend {
     const ISACallingConvention *conv;  /* Calling convention tables */
     
     /* Function prologue/epilogue */
-    void (*emit_prologue)(ZeroCCCompiler *c, size_t stack_size);
+    void (*emit_prologue)(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask);
     void (*emit_leave)(ZeroCCCompiler *c);
     void (*emit_epilogue)(ZeroCCCompiler *c);
     size_t (*get_code_offset)(ZeroCCCompiler *c);

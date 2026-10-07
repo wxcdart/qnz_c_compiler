@@ -97,7 +97,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     live_range_init(&lra);
     live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
     live_range_compute(&lra, &c->regalloc);
+
     regalloc_allocate(&c->regalloc);
+
     
     live_range_free(&lra);
     
@@ -120,7 +122,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
     
     /* Emit machine code from IR with allocated registers */
+
     emit_ir_to_machine_code(c, spill_base_offset);
+
     
     /* Emit return jumps after IR-to-MC */
     emit_return_jumps(c);
