@@ -58,6 +58,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_JL:
         case OP_JLE:
         case OP_JG:
+        case OP_JCOND:
         case OP_JMP_LABEL:
         case OP_LABEL:
         case OP_PROLOGUE:
