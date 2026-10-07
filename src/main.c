@@ -120,6 +120,7 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             }
         }
         else if (strcmp(arg, "-dump-ir") == 0) {
+            fprintf(stderr, "DEBUG: Parsed -dump-ir flag\n");
             opts->dump_ir = 1;
         }
         else if (arg[0] != '-') {
@@ -217,6 +218,12 @@ static int compile_jit(CompileOptions *opts) {
         opt_init(OPT_LEVEL_NONE);
     }
     
+    /* Enable IR dump if requested */
+    if (opts->dump_ir) {
+        fprintf(stderr, "DEBUG: Setting dump_ir flag\n");
+        comp->dump_ir = 1;
+    }
+    
     /* Compile */
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
@@ -227,12 +234,6 @@ static int compile_jit(CompileOptions *opts) {
         free(comp->tokens);
         free(comp);
         return 1;
-    }
-    
-    if (opts->dump_ir) {
-        printf("\n=== IR (before optimization) ===\n");
-        /* TODO: Add IR dump function */
-        printf("(IR dump not yet implemented)\n");
     }
     
     /* Execute */
@@ -316,6 +317,12 @@ static int compile_object(CompileOptions *opts) {
         opt_init(OPT_LEVEL_O1);
     } else {
         opt_init(OPT_LEVEL_NONE);
+    }
+    
+    /* Enable IR dump if requested */
+    if (opts->dump_ir) {
+        fprintf(stderr, "DEBUG: Setting dump_ir flag in compile_object\n");
+        comp->dump_ir = 1;
     }
     
     /* Compile */

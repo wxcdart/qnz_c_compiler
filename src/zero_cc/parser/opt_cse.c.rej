@@ -1,0 +1,11 @@
+--- src/zero_cc/parser/opt_cse.c
++++ src/zero_cc/parser/opt_cse.c
+@@ -149,6 +149,8 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
+         if (!instr) continue;
+         
+         // Skip non-pure operations
++        if (instr->op == OP_MOV) {
++            fprintf(stderr, "DEBUG CSE: skipping OP_MOV dest=%d src1=%d imm=%d\n", instr->temp_dest, instr->temp_src1, instr->imm);
+         }
+         if (!instr_is_pure(instr)) {
+             continue;

@@ -289,6 +289,9 @@ static inline void ir_reset(void) {
 /* Clear IR buffer after machine code emission */
 void ir_clear(void);
 
+/* Debug: Dump IR to file */
+void ir_dump(FILE *f);
+
 /* Get instruction count */
 static inline size_t ir_get_count(void) {
     return instr_count;

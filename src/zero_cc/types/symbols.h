@@ -99,6 +99,9 @@ typedef struct ZeroCCCompiler {
         char *disabled_warnings[64];
         int disabled_warning_count;
     } diag_pragma_state;
+    
+    /* Debug flags */
+    bool dump_ir;  /* Dump IR after lowering */
 
     /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;

@@ -68,6 +68,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
+    c->regalloc.target_isa = c->isa;  /* Set target ISA for ISA-specific allocation */
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
     
@@ -134,6 +135,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area */
+    if (c->current_stack_frame < CALLEE_SAVE_FRAME_RESERVE) {
+        c->current_stack_frame = CALLEE_SAVE_FRAME_RESERVE;
+    }
     int32_t spill_base_offset = c->current_stack_frame;
     if (c->regalloc.next_spill_slot > 0) {
         c->current_stack_frame += c->regalloc.next_spill_slot * 8;
@@ -157,13 +162,33 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         BE(c)->resolve_labels(c);
     }
     
-    /* Restore callee-saved registers before the epilogue leave/ret. */
-    emit_callee_save_loads(c);
+    /* Restore callee-saved registers before the epilogue leave/ret.
+     * NOTE: Only x86-64 uses callee-saved GPR preservation in the epilogue.
+     * AArch64 and RISC-V handle their own callee-saved registers differently
+     * (or not at all for simple functions). This is ISA-specific and should
+     * eventually be moved into the backend's emit_epilogue() implementation.
+     */
+    if (c->isa == ISA_X86_64) {
+        emit_callee_save_loads(c);
+    }
     
     /* Emit epilogue */
     BE(c)->emit_leave(c);
     BE(c)->emit_ret(c);
     regalloc_destroy(&c->regalloc);
+    
+    /* Debug: Dump IR if requested */
+    if (c->dump_ir) {
+        fprintf(stderr, "DEBUG: dump_ir flag is SET, function_count=%zu\n", c->function_count);
+        if (c->function_count > 0) {
+            ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+            fprintf(stderr, "=== IR for function '%s' ===\n", fn->name);
+            ir_dump(stderr);
+            fprintf(stderr, "\n");
+        } else {
+            fprintf(stderr, "DEBUG: No functions found!\n");
+        }
+    }
     
     /* Clear IR buffer for next function */
     ir_clear();

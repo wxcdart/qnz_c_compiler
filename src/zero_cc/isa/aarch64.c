@@ -8,7 +8,7 @@ static const ISARegInfo aarch64_regs = {
         "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
         "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
         "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
-        "x24", "x25", "x26", "x27", "x28", "x29", "x30", "sp",
+        "x24", "x25", "x26", "x27", "x28", "x30",  /* x29 reserved as FP */
     },
     .fp_regs = {
         "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
@@ -20,7 +20,7 @@ static const ISARegInfo aarch64_regs = {
     .fp_arg_regs = {"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"},
     .int_ret_reg = "x0",
     .fp_ret_reg = "v0",
-    .num_int_regs = 31,
+    .num_int_regs = 30,  /* Reduced from 31 (excluded x29) */
     .num_fp_regs = 32,
 };
 
@@ -49,30 +49,75 @@ static inline void arm64_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 
 /* ARM64 backend implementation */
 static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size) {
-    /* stp x29, x30, [sp, #-16]!  - save frame pointer and link register */
-    arm64_emit_u32(c, 0xA9BD7BFD | ((stack_size / 16) << 15));
-    /* mov x29, sp */
-    arm64_emit_u32(c, 0x910003FD);
-    /* sub sp, sp, #stack_size (additional space) */
-    if (stack_size > 0) {
-        arm64_emit_u32(c, 0xD1000000 | ((stack_size / 16) << 10) | 31);
+    /* Ensure 16-byte alignment as required by AArch64 ABI */
+    stack_size = (stack_size + 15) & ~15;
+    
+    /* Minimum frame allocation to hold saved FP/LR (16 bytes) */
+    if (stack_size < 16) {
+        stack_size = 16;
     }
+
+    /* Pattern B (original working version):
+     * 1. sub sp, sp, #stack_size
+     * 2. stp x29, x30, [sp]
+     * 3. mov x29, sp
+     * 
+     * Note: Frontend uses negative offsets from x29 (Pattern A convention).
+     * This works because frame is large enough to cover accessed offsets.
+     */
+
+    /* Step 1: sub sp, sp, #stack_size */
+    uint32_t imm12 = (uint32_t)stack_size & 0xFFF;
+    arm64_emit_u32(c, 0xD10003FF | (imm12 << 10));
+
+    /* Step 2: stp x29, x30, [sp, #0] */
+    arm64_emit_u32(c, 0xA9007BFD);
+
+    /* Step 3: mov x29, sp */
+    arm64_emit_u32(c, 0x910003FD);
 }
 
 static void aarch64_emit_epilogue(ZeroCCCompiler *c) {
-    /* ldp x29, x30, [sp], #16 */
-    arm64_emit_u32(c, 0xA8C17BFD);
-    /* ret */
+    /* AArch64 epilogue (Pattern B):
+     * 1. ldp x29, x30, [sp]
+     * 2. add sp, sp, #stack_size
+     * 3. ret
+     */
+    
+    /* Step 1: ldp x29, x30, [sp] */
+    arm64_emit_u32(c, 0xA9407BFD);
+    
+    /* Step 2: add sp, sp, #stack_size */
+    size_t stack_size = (c->current_stack_frame + 15) & ~15;
+    if (stack_size <= 4095) {
+        uint32_t imm12 = (uint32_t)stack_size & 0xFFF;
+        arm64_emit_u32(c, 0x910003FF | (imm12 << 10));
+    } else {
+        arm64_emit_u32(c, 0x910003FF | (0xFFF << 10));
+    }
+    
+    /* Step 3: ret */
     arm64_emit_u32(c, 0xD65F03C0);
 }
 
 static void aarch64_emit_leave(ZeroCCCompiler *c) {
-    /* AArch64 doesn't have a direct 'leave' instruction
-     * Equivalent: mov sp, fp; ldr x29, [sp], #8; ldr x30, [sp], #8
-     * But for simplicity, we'll use the epilogue pattern without ret
-     * ldp x29, x30, [sp], #16 (restores fp, lr and adjusts sp)
+    /* AArch64 leave equivalent (Pattern B):
+     * 1. ldp x29, x30, [sp]
+     * 2. add sp, sp, #stack_size
+     * (no ret - caller will emit ret separately)
      */
-    arm64_emit_u32(c, 0xA8C17BFD);
+    
+    /* Step 1: ldp x29, x30, [sp] */
+    arm64_emit_u32(c, 0xA9407BFD);
+    
+    /* Step 2: add sp, sp, #stack_size */
+    size_t stack_size = (c->current_stack_frame + 15) & ~15;
+    if (stack_size <= 4095) {
+        uint32_t imm12 = (uint32_t)stack_size & 0xFFF;
+        arm64_emit_u32(c, 0x910003FF | (imm12 << 10));
+    } else {
+        arm64_emit_u32(c, 0x910003FF | (0xFFF << 10));
+    }
 }
 
 static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
@@ -125,8 +170,12 @@ static void aarch64_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void aarch64_emit_shl(ZeroCCCompiler *c, int dst, int src, int shift) {
-    /* lsl dst, src, #shift */
-    arm64_emit_u32(c, 0xD3400000 | (shift << 16) | (src << 5) | dst);
+    /* lsl dst, src, #shift - uses UBFM encoding */
+    /* lsl Xd, Xn, #s = ubfm Xd, Xn, #(64-s), #(63-s) */
+    /* Base: 0x93400000 | ((-shift & 63) << 16) | ((63-shift) << 10) | (src << 5) | dst */
+    int neg_shift = (-shift) & 63;
+    int end_bit = 63 - shift;
+    arm64_emit_u32(c, 0x93400000 | ((neg_shift & 0x3F) << 16) | ((end_bit & 0x3F) << 10) | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -147,12 +196,9 @@ static void aarch64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
 
 /* not dst, src - bitwise NOT */
 static void aarch64_emit_not(ZeroCCCompiler *c, int dst, int src) {
-    /* mvn dst, src (mov not) */
-    arm64_emit_u32(c, 0xAA1F03E0 | (src << 16) | dst);  /* orr dst, xzr, src then invert */
-    /* Actually use eor dst, src, #-1 */
-    arm64_emit_u32(c, 0xCA1F03E0 | (src << 16) | dst);  /* eor dst, src, xzr (but we need NOT) */
-    /* Correct: eor dst, src, #0xFFFFFFFF */
-    arm64_emit_u32(c, 0xF29FFFFF | (dst << 5) | dst);  /* mvn via eor with -1 */
+    /* mvn dst, src (move NOT) = orn dst, xzr, src */
+    /* orn: 0xAA2003E0 | (src << 16) | dst */
+    arm64_emit_u32(c, 0xAA2003E0 | ((src & 0x1F) << 16) | (dst & 0x1F));
 }
 
 /* shr dst, src, shift - logical right shift */
@@ -160,14 +206,16 @@ static void aarch64_emit_shr(ZeroCCCompiler *c, int dst, int src, int shift) {
     if (dst != src) {
         aarch64_emit_mov_reg(c, dst, src);
     }
-    /* lsr dst, dst, #shift */
-    arm64_emit_u32(c, 0xD340FC00 | (shift << 16) | (dst << 5) | dst);
+    /* lsr dst, dst, #shift - uses UBFM encoding */
+    /* lsr Xd, Xn, #s = ubfm Xd, Xn, #0, #(63-s) */
+    int end_bit = 63 - shift;
+    arm64_emit_u32(c, 0x93400000 | (0 << 16) | ((end_bit & 0x3F) << 10) | ((dst & 0x1F) << 5) | (dst & 0x1F));
 }
 
 /* deref - load from memory address in register */
 static void aarch64_emit_deref(ZeroCCCompiler *c, int dst, int addr) {
-    /* ldr dst, [addr] */
-    arm64_emit_u32(c, 0xF9400000 | (addr << 5) | dst);
+    /* ldr dst, [addr] - use LDUR for unscaled offset 0 */
+    arm64_emit_u32(c, 0xF8400000 | ((addr & 0x1F) << 5) | (dst & 0x1F));
 }
 
 /* load_32 dst, addr - load 32-bit value */
@@ -178,14 +226,14 @@ static void aarch64_emit_load_32(ZeroCCCompiler *c, int dst, int addr) {
 
 /* load_16 dst, addr - load 16-bit value (zero-extended) */
 static void aarch64_emit_load_16(ZeroCCCompiler *c, int dst, int addr) {
-    /* lhur dst, [addr] */
-    arm64_emit_u32(c, 0xF95C0000 | (addr << 5) | dst);
+    /* ldrh dst, [addr] - halfword load */
+    arm64_emit_u32(c, 0x79400000 | ((addr & 0x1F) << 5) | (dst & 0x1F));
 }
 
 /* load_byte dst, addr - load 8-bit value (zero-extended) */
 static void aarch64_emit_load_byte(ZeroCCCompiler *c, int dst, int addr) {
-    /* ldurb dst, [addr] */
-    arm64_emit_u32(c, 0xF95C0000 | (addr << 5) | dst);
+    /* ldrb dst, [addr] - byte load */
+    arm64_emit_u32(c, 0x39400000 | ((addr & 0x1F) << 5) | (dst & 0x1F));
 }
 
 /* store_32 value, addr - store 32-bit value */
@@ -221,95 +269,96 @@ static void aarch64_emit_cmp_zero(ZeroCCCompiler *c, int src) {
 
 /* setl dst - set byte if less than (signed) */
 static void aarch64_emit_setl(ZeroCCCompiler *c, int dst) {
-    /* cset dst, lt (signed less than) */
-    arm64_emit_u32(c, 0x1A9F17E0 | dst);
+    /* cset dst, lt (CSINC dst, xzr, xzr, ge) */
+    arm64_emit_u32(c, 0x9A9FA7E0 | (dst & 0x1F));
 }
 
 /* setle dst - set byte if less or equal (signed) */
 static void aarch64_emit_setle(ZeroCCCompiler *c, int dst) {
-    /* cset dst, le (signed less or equal) */
-    arm64_emit_u32(c, 0x1A9F37E0 | dst);
+    /* cset dst, le (CSINC dst, xzr, xzr, gt) */
+    arm64_emit_u32(c, 0x9A9FC7E0 | (dst & 0x1F));
 }
 
 /* setg dst - set byte if greater than (signed) */
 static void aarch64_emit_setg(ZeroCCCompiler *c, int dst) {
-    /* cset dst, gt (signed greater than) */
-    arm64_emit_u32(c, 0x1A9F27E0 | dst);
+    /* cset dst, gt (CSINC dst, xzr, xzr, le) */
+    arm64_emit_u32(c, 0x9A9FD7E0 | (dst & 0x1F));
 }
 
 /* setge dst - set byte if greater or equal (signed) */
 static void aarch64_emit_setge(ZeroCCCompiler *c, int dst) {
-    /* cset dst, ge (signed greater or equal) */
-    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+    /* cset dst, ge (CSINC dst, xzr, xzr, lt) */
+    arm64_emit_u32(c, 0x9A9FB7E0 | (dst & 0x1F));
 }
 
 /* sete dst - set byte if equal */
 static void aarch64_emit_sete(ZeroCCCompiler *c, int dst) {
-    /* cset dst, eq */
-    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+    /* cset dst, eq (CSINC dst, xzr, xzr, ne) */
+    arm64_emit_u32(c, 0x9A9F17E0 | (dst & 0x1F));
 }
 
 /* setne dst - set byte if not equal */
 static void aarch64_emit_setne(ZeroCCCompiler *c, int dst) {
-    /* cset dst, ne */
-    arm64_emit_u32(c, 0x1A9F17E0 | dst);
+    /* cset dst, ne (CSINC dst, xzr, xzr, eq) */
+    arm64_emit_u32(c, 0x9A9F07E0 | (dst & 0x1F));
 }
 
-/* Unified conditional set based on IR condition code */
+/* Unified conditional set based on IR condition code
+ * IR condition codes:
+ *   CC_LT = 0
+ *   CC_LE = 1
+ *   CC_GT = 2
+ *   CC_GE = 3
+ *   CC_EQ = 4
+ *   CC_NE = 5
+ *
+ * CSET Xd, cond -> CSINC Xd, XZR, XZR, !cond
+ * Bits 15:12 hold the INVERTED condition code.
+ */
 static void aarch64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
-    /* cset dst, cond
-     * IR condition codes:
-     *   CC_LT = 0  → mi (signed less than)
-     *   CC_LE = 1  → le (signed less or equal)
-     *   CC_GT = 2  → gt (signed greater than)
-     *   CC_GE = 3  → ge (signed greater or equal)
-     *   CC_EQ = 4  → eq (equal)
-     *   CC_NE = 5  → ne (not equal)
-     */
     static const uint32_t cset_encodings[] = {
-        0x1A9F17E0,  /* CC_LT: cset dst, mi */
-        0x1A9F37E0,  /* CC_LE: cset dst, le */
-        0x1A9F27E0,  /* CC_GT: cset dst, gt */
-        0x1A9F07E0,  /* CC_GE: cset dst, ge */
-        0x1A9F07E0,  /* CC_EQ: cset dst, eq */
-        0x1A9F17E0,  /* CC_NE: cset dst, ne */
+        0x9A9FA7E0,  /* CC_LT: cset Xd, lt (CSINC Xd, XZR, XZR, ge) */
+        0x9A9FC7E0,  /* CC_LE: cset Xd, le (CSINC Xd, XZR, XZR, gt) */
+        0x9A9FD7E0,  /* CC_GT: cset Xd, gt (CSINC Xd, XZR, XZR, le) */
+        0x9A9FB7E0,  /* CC_GE: cset Xd, ge (CSINC Xd, XZR, XZR, lt) */
+        0x9A9F17E0,  /* CC_EQ: cset Xd, eq (CSINC Xd, XZR, XZR, ne) */
+        0x9A9F07E0,  /* CC_NE: cset Xd, ne (CSINC Xd, XZR, XZR, eq) */
     };
-    
+
     if (cond < 0 || cond > 5) {
         fprintf(stderr, "Invalid condition code: %d\n", cond);
         abort();
     }
-    
-    arm64_emit_u32(c, cset_encodings[cond] | dst);
+
+    arm64_emit_u32(c, cset_encodings[cond] | (dst & 0x1F));
 }
 
-/* Unified conditional jump based on IR condition code */
+/* Unified conditional jump based on IR condition code
+ * IR condition codes map directly to B.cond bits [3:0]:
+ *   CC_LT = 0 -> b.lt (0xB)
+ *   CC_LE = 1 -> b.le (0xD)
+ *   CC_GT = 2 -> b.gt (0xC)
+ *   CC_GE = 3 -> b.ge (0xA)
+ *   CC_EQ = 4 -> b.eq (0x0)
+ *   CC_NE = 5 -> b.ne (0x1)
+ */
 static size_t aarch64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
-    /* b.cond label
-     * IR condition codes map to AArch64 branch conditions:
-     *   CC_LT = 0  → b.mi
-     *   CC_LE = 1  → b.le
-     *   CC_GT = 2  → b.gt
-     *   CC_GE = 3  → b.ge
-     *   CC_EQ = 4  → b.eq
-     *   CC_NE = 5  → b.ne
-     */
     static const uint32_t b_cond_encodings[] = {
-        0x54000000 | 0x04,  /* CC_LT: b.mi (0x4 = 0100) */
-        0x54000000 | 0x0A,  /* CC_LE: b.le (0xa = 1010) */
-        0x54000000 | 0x08,  /* CC_GT: b.gt (0x8 = 1000) */
-        0x54000000 | 0x05,  /* CC_GE: b.ge (0x5 = 0101) */
-        0x54000000 | 0x00,  /* CC_EQ: b.eq (0x0 = 0000) */
-        0x54000000 | 0x01,  /* CC_NE: b.ne (0x1 = 0001) */
+        0x5400000B,  /* CC_LT: b.lt */
+        0x5400000D,  /* CC_LE: b.le */
+        0x5400000C,  /* CC_GT: b.gt */
+        0x5400000A,  /* CC_GE: b.ge */
+        0x54000000,  /* CC_EQ: b.eq */
+        0x54000001,  /* CC_NE: b.ne */
     };
-    
+
     if (cond < 0 || cond > 5) {
         fprintf(stderr, "Invalid condition code: %d\n", cond);
         abort();
     }
-    
+
     size_t patch_pos = me_get_offset(c);
-    arm64_emit_u32(c, b_cond_encodings[cond]);  /* placeholder */
+    arm64_emit_u32(c, b_cond_encodings[cond]);
     (void)label;
     return patch_pos;
 }
@@ -317,25 +366,25 @@ static size_t aarch64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label)
 /* lnot dst, src - logical NOT (dst = src == 0 ? 1 : 0) */
 static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
     /* cmp src, #0 */
-    arm64_emit_u32(c, 0xEB00001F | (src << 16));
-    /* cset dst, eq */
-    arm64_emit_u32(c, 0x1A9F07E0 | dst);
+    aarch64_emit_cmp_zero(c, src);
+    /* cset dst, eq (inverted: 0x1 at bits [15:12]) */
+    aarch64_emit_sete(c, dst);
 }
 
 /* param_save_int - save integer parameter */
 static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
-    /* ldr x0, [sp, #offset] (load param from stack) */
-    arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (31 << 5) | 0);
-    /* str x0, [fp, #offset] (store to stack slot) */
-    arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (29 << 5) | 0);
+    if (param_idx < 0 || param_idx >= 8) return; /* Stack params handled by caller */
+    int src_reg = aarch64_int_arg_regs[param_idx];
+    /* stur x<src_reg>, [fp, #-offset] */
+    arm64_emit_u32(c, 0xF8000000 | ((-offset & 0x1FF) << 12) | (29 << 5) | (src_reg & 0x1F));
 }
 
 /* param_save_fp - save FP parameter */
 static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t offset) {
-    /* ldr d0, [sp, #offset] (load FP param from stack) */
-    arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (31 << 5) | 0);
-    /* str d0, [fp, #offset] (store to stack slot) */
-    arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (29 << 5) | 0);
+    if (param_idx < 0 || param_idx >= 8) return;
+    int src_reg = aarch64_fp_arg_regs[param_idx];
+    /* stur d<src_reg>, [fp, #-offset] */
+    arm64_emit_u32(c, 0xFC000000 | ((-offset & 0x1FF) << 12) | (29 << 5) | (src_reg & 0x1F));
 }
 
 /* variadic_spill - spill variadic arguments */
@@ -394,21 +443,43 @@ static void aarch64_emit_mfence(ZeroCCCompiler *c) {
 }
 
 static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    /* ldr dst, [base, #offset] */
-    if (offset >= -256 && offset < 256) {
-        arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (base_reg << 5) | dst_reg);
+    /* Load from [base_reg + offset]
+     * For positive 8-byte aligned offsets (0 to 4095): use LDR (scaled)
+     * For negative offsets (-256 to 255): use LDUR (unscaled)
+     */
+    if (offset >= 0 && offset <= 4095 && (offset % 8) == 0) {
+        /* LDR (64-bit, scaled): 0xF9400000 | ((offset/8) << 10) | (base << 5) | dst */
+        arm64_emit_u32(c, 0xF9400000 | (((offset / 8) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* LDUR (64-bit, unscaled): 0xF8400000 | (imm9<<12) | (base<<5) | dst */
+        /* imm9 is 9-bit signed offset in two's complement */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xF8400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
-        /* Use ldr with register offset */
-        arm64_emit_u32(c, 0xF8606800 | (offset << 10) | (base_reg << 5) | dst_reg);
+        /* For large offsets, need to load address into register first */
+        /* Simplified: use LDUR with truncation (may be incorrect for very large offsets) */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xF8400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
 }
 
 static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    /* str src, [base, #offset] */
-    if (offset >= -256 && offset < 256) {
-        arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (base_reg << 5) | src_reg);
+    /* Store to [base_reg + offset]
+     * For positive 8-byte aligned offsets (0 to 4095): use STR (scaled)
+     * For negative offsets (-256 to 255): use STUR (unscaled)
+     */
+    if (offset >= 0 && offset <= 4095 && (offset % 8) == 0) {
+        /* STR (64-bit, scaled): 0xF9000000 | ((offset/8) << 10) | (base << 5) | src */
+        arm64_emit_u32(c, 0xF9000000 | (((offset / 8) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* STUR (64-bit, unscaled): 0xF8000000 | (imm9<<12) | (base<<5) | src */
+        /* imm9 is 9-bit signed offset in two's complement */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xF8000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     } else {
-        arm64_emit_u32(c, 0xF8206800 | (offset << 10) | (base_reg << 5) | src_reg);
+        /* For large offsets, need to load address into register first */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xF8000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     }
 }
 
@@ -464,8 +535,16 @@ static size_t aarch64_emit_jge(ZeroCCCompiler *c, const char *label) {
 
 static void aarch64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     /* bl label */
+    size_t patch_pos = me_get_offset(c);
     arm64_emit_u32(c, 0x94000000);  /* bl . (placeholder) */
-    (void)func_name;
+    
+    /* Add relocation entry for linker to patch */
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = patch_pos;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
+        r->is_call = true;
+    }
 }
 
 static void aarch64_emit_ret(ZeroCCCompiler *c) {
@@ -500,22 +579,22 @@ static void aarch64_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
 /* add_imm dst_reg, imm (add immediate) */
 static void aarch64_emit_add_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
     if (imm >= 0) {
-        /* add dst, dst, #imm */
-        arm64_emit_u32(c, 0x91000000 | ((imm & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+        /* add dst, dst, #imm - Rn=Rd=dst_reg */
+        arm64_emit_u32(c, 0x91000000 | (((uint32_t)imm & 0xFFF) << 10) | ((dst_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
-        /* sub dst, dst, #-imm */
-        arm64_emit_u32(c, 0xD1000000 | (((-imm) & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+        /* sub dst, dst, #-imm - Rn=Rd=dst_reg */
+        arm64_emit_u32(c, 0xD1000000 | (((uint32_t)(-imm) & 0xFFF) << 10) | ((dst_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
 }
 
 /* sub_imm dst_reg, imm (subtract immediate) */
 static void aarch64_emit_sub_imm(ZeroCCCompiler *c, int dst_reg, int16_t imm) {
     if (imm >= 0) {
-        /* sub dst, dst, #imm */
-        arm64_emit_u32(c, 0xD1000000 | ((imm & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+        /* sub dst, dst, #imm - Rn=Rd=dst_reg */
+        arm64_emit_u32(c, 0xD1000000 | (((uint32_t)imm & 0xFFF) << 10) | ((dst_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
-        /* add dst, dst, #-imm */
-        arm64_emit_u32(c, 0x91000000 | (((-imm) & 0xFFF) << 10) | (dst_reg << 5) | dst_reg);
+        /* add dst, dst, #-imm - Rn=Rd=dst_reg */
+        arm64_emit_u32(c, 0x91000000 | (((uint32_t)(-imm) & 0xFFF) << 10) | ((dst_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
 }
 
@@ -533,13 +612,41 @@ static void aarch64_emit_dec(ZeroCCCompiler *c, int dst_reg) {
 
 /* Floating point operations */
 static void aarch64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    /* ldr dX, [base, #offset] */
-    arm64_emit_u32(c, 0xF9400000 | ((offset & 0x3FF) << 10) | (base_reg << 5) | dst_reg);
+    /* ldr dX, [base, #offset] - scalar double-precision load
+     * For positive 8-byte aligned offsets (0 to 4095): use LDR (scaled by 8)
+     * For negative offsets (-256 to 255): use LDUR (unscaled)
+     */
+    if (offset >= 0 && offset <= 4095 && (offset % 8) == 0) {
+        /* LDR D (scaled): 0xFD400000 | ((offset/8) << 10) | (base << 5) | dst */
+        arm64_emit_u32(c, 0xFD400000 | (((offset / 8) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* LDUR D (unscaled): 0xFC400000 | (imm9<<12) | (base<<5) | dst */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xFC400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    } else {
+        /* For large offsets, use LDUR with truncation */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xFC400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    }
 }
 
 static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    /* str dX, [base, #offset] */
-    arm64_emit_u32(c, 0xF9000000 | ((offset & 0x3FF) << 10) | (base_reg << 5) | src_reg);
+    /* str dX, [base, #offset] - scalar double-precision store
+     * For positive 8-byte aligned offsets (0 to 4095): use STR (scaled by 8)
+     * For negative offsets (-256 to 255): use STUR (unscaled)
+     */
+    if (offset >= 0 && offset <= 4095 && (offset % 8) == 0) {
+        /* STR D (scaled): 0xFD000000 | ((offset/8) << 10) | (base << 5) | src */
+        arm64_emit_u32(c, 0xFD000000 | (((offset / 8) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* STUR D (unscaled): 0xFC000000 | (imm9<<12) | (base<<5) | src */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xFC000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    } else {
+        /* For large offsets, use STUR with truncation */
+        uint32_t imm9 = (offset >= 0) ? (uint32_t)offset : (uint32_t)(512 + offset);
+        arm64_emit_u32(c, 0xFC000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    }
 }
 
 static void aarch64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
@@ -549,30 +656,33 @@ static void aarch64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t r
 }
 
 static void aarch64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* fadd dD, dN, dM */
-    arm64_emit_u32(c, 0x4E208400 | (src2 << 16) | (src1 << 5) | dst);
+    /* fadd dD, dN, dM - scalar double-precision */
+    arm64_emit_u32(c, 0x1E602800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    arm64_emit_u32(c, 0x4E209400 | (src2 << 16) | (src1 << 5) | dst);
+    /* fsub dD, dN, dM - scalar double-precision */
+    arm64_emit_u32(c, 0x1E603800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    arm64_emit_u32(c, 0x4E20A400 | (src2 << 16) | (src1 << 5) | dst);
+    /* fmul dD, dN, dM - scalar double-precision */
+    arm64_emit_u32(c, 0x1E600800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    arm64_emit_u32(c, 0x4E20B400 | (src2 << 16) | (src1 << 5) | dst);
+    /* fdiv dD, dN, dM - scalar double-precision */
+    arm64_emit_u32(c, 0x1E601800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
-    /* fneg dD, dN */
-    arm64_emit_u32(c, 0x4E200400 | (src << 5) | dst);
+    /* fneg dD, dN - scalar double-precision */
+    arm64_emit_u32(c, 0x1E614000 | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
-    /* fcmp dN, dM */
-    arm64_emit_u32(c, 0x4E20E400 | (src2 << 16) | (src1 << 5));
+    /* fcmp dN, dM - scalar double-precision */
+    arm64_emit_u32(c, 0x1E602000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
 }
 
 static void aarch64_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
@@ -587,8 +697,8 @@ static void aarch64_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
 
 static void aarch64_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
-    /* fmov dD, dN */
-    arm64_emit_u32(c, 0x4E200400 | (src << 5) | dst | 0x00008000);
+    /* fmov dD, dN - scalar double-precision move */
+    arm64_emit_u32(c, 0x1E604000 | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_const(ZeroCCCompiler *c, int64_t value) {
@@ -597,21 +707,32 @@ static void aarch64_emit_const(ZeroCCCompiler *c, int64_t value) {
 
 static void aarch64_emit_stack_adjust(ZeroCCCompiler *c, int32_t delta) {
     if (delta == 0) return;
+    
+    /* ADD/SUB (immediate): unscaled 12-bit byte offset
+     * Base for add sp, sp, #0: 0x910003FF
+     * Base for sub sp, sp, #0: 0xD10003FF
+     * Rn = Rd = sp = 31, imm12 in bits 21:10
+     */
     if (delta > 0) {
-        arm64_emit_u32(c, 0x91000000 | ((delta / 4) << 10) | 31);  /* add sp, sp, #delta */
+        arm64_emit_u32(c, 0x910003FF | (((uint32_t)delta & 0xFFF) << 10));
     } else {
-        arm64_emit_u32(c, 0xD1000000 | ((-delta / 4) << 10) | 31);  /* sub sp, sp, #-delta */
+        arm64_emit_u32(c, 0xD10003FF | (((uint32_t)(-delta) & 0xFFF) << 10));
     }
 }
 
 static void aarch64_emit_push_reg(ZeroCCCompiler *c, int reg) {
-    /* stp xZ, xZ, [sp, #-16]! */
-    arm64_emit_u32(c, 0xA9BF7BFD | (reg << 10) | (reg << 5));
+    /* stp reg, x16, [sp, #-16]! */
+    /* Use x16 (IP0 - caller-saved scratch) as second register */
+    /* Base: 0xA9BF07E0 for stp x0, x1, [sp, #-16]! */
+    /* Clear Rt (bits 4:0) and Rt2 (bits 14:10), set to reg and 16 */
+    arm64_emit_u32(c, (0xA9BF07E0 & ~((0x1F << 10) | 0x1F)) | (16 << 10) | (reg & 0x1F));
 }
 
 static void aarch64_emit_pop_reg(ZeroCCCompiler *c, int reg) {
-    /* ldp xZ, xZ, [sp], #16 */
-    arm64_emit_u32(c, 0xA8C17BFD | (reg << 10) | (reg << 5));
+    /* ldp reg, x16, [sp], #16 */
+    /* Base: 0xA8C17FE0 for ldp x0, x1, [sp], #16 */
+    /* Clear Rt (bits 4:0) and Rt2 (bits 14:10), set to reg and 16 */
+    arm64_emit_u32(c, (0xA8C17FE0 & ~((0x1F << 10) | 0x1F)) | (16 << 10) | (reg & 0x1F));
 }
 
 static void aarch64_emit_label(ZeroCCCompiler *c, const char *name) {
@@ -619,20 +740,31 @@ static void aarch64_emit_label(ZeroCCCompiler *c, const char *name) {
 }
 
 static inline void aarch64_emit_fp_sqrt(ZeroCCCompiler *c, int dst, int src) {
-    /* fsqrt dD, dN */
-    arm64_emit_u32(c, 0x4E200400 | (src << 5) | dst | 0x00180000);
+    /* fsqrt dD, dN - scalar double-precision */
+    arm64_emit_u32(c, 0x1E61C000 | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 
 
 static size_t aarch64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
-    /* ARM64 uses 26-bit signed relative branch (B, BL, B.cond) */
+    /* ARM64 branch instruction encoding:
+     * - Unconditional B/BL: 26-bit signed offset (bits 25:0)
+     * - Conditional B.COND: 19-bit signed offset (bits 23:5), condition in bits [3:0]
+     */
     int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
     
     if (patch_offset + 4 <= c->text_section.length) {
         uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
-        *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
+        
+        /* Check if this is a conditional branch (0x54xxxxxx) or unconditional (0x14xxxxxx, 0x94xxxxxx) */
+        if ((*insn & 0xFF000010) == 0x54000000) {
+            /* B.COND: 19-bit offset in bits [23:5], preserve condition in bits [3:0] */
+            *insn = (*insn & 0xFF00001F) | ((rel & 0x7FFFF) << 5);
+        } else {
+            /* Unconditional B/BL: 26-bit offset */
+            *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
+        }
     }
     return patch_offset;
 }
@@ -643,13 +775,20 @@ static void aarch64_resolve_labels(ZeroCCCompiler *c) {
         size_t target = c->labels[i].offset;
         for (int j = 0; j < c->labels[i].patch_count; j++) {
             size_t patch_offset = c->labels[i].patches[j];
-            /* AArch64 uses 26-bit signed relative branch (>> 2 for word alignment) */
-            int32_t rel = (int32_t)((target - patch_offset) >> 2);
             
             if (patch_offset + 4 <= c->text_section.length) {
                 uint8_t *buf = (uint8_t *)c->text_section.data;
                 uint32_t *insn = (uint32_t*)(buf + patch_offset);
-                *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
+                int32_t rel = (int32_t)((target - patch_offset) >> 2);
+                
+                /* Check if this is a conditional branch (0x54xxxxxx) or unconditional */
+                if ((*insn & 0xFF000010) == 0x54000000) {
+                    /* B.COND: 19-bit offset in bits [23:5], preserve condition in bits [3:0] */
+                    *insn = (*insn & 0xFF00001F) | ((rel & 0x7FFFF) << 5);
+                } else {
+                    /* Unconditional B/BL: 26-bit offset */
+                    *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
+                }
             }
         }
     }
@@ -658,8 +797,8 @@ static void aarch64_resolve_labels(ZeroCCCompiler *c) {
 
 
 static void aarch64_emit_test(ZeroCCCompiler *c, int src1, int src2) {
-    /* tst Xn, Xm */
-    arm64_emit_u32(c, 0x72000000 | ((src1 & 0x1F) << 5) | (src2 & 0x1F));
+    /* tst Xn, Xm -> ands xzr, Xn, Xm (64-bit) */
+    arm64_emit_u32(c, 0xEA00001F | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
 }
 
 static void aarch64_emit_cqo(ZeroCCCompiler *c) {
@@ -672,11 +811,20 @@ static void aarch64_emit_idiv(ZeroCCCompiler *c, int src) {
 }
 
 static void aarch64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
-    if (offset >= -4096 && offset < 4096) {
-        arm64_emit_u32(c, 0x91000000 | ((offset & 0x3FFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    /* lea dst, [base + offset]
+     * ADD (immediate): 12-bit unscaled offset, 0 to 4095
+     * SUB (immediate): 12-bit unscaled offset, 0 to 4095
+     */
+    if (offset >= 0 && offset <= 4095) {
+        /* add dst, base, #offset */
+        arm64_emit_u32(c, 0x91000000 | (((uint32_t)offset & 0xFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else if (offset >= -4096 && offset < 0) {
+        /* sub dst, base, #-offset */
+        arm64_emit_u32(c, 0xD1000000 | (((uint32_t)(-offset) & 0xFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
     } else {
+        /* Large offset: load immediate then add */
         aarch64_emit_mov_imm(c, dst, offset);
-        arm64_emit_u32(c, 0x8B000000 | ((base & 0x1F) << 16) | (dst & 0x1F) | (dst & 0x1F));
+        arm64_emit_u32(c, 0x8B000000 | ((base & 0x1F) << 16) | ((dst & 0x1F) << 5) | (dst & 0x1F));
     }
 }
 
@@ -684,13 +832,17 @@ static void aarch64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offse
 
 static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* Modulo: dst = src1 % src2
-     * ARM64 udiv/sdiv don't provide remainder directly
-     * Use: tmp = src1 / src2; dst = src1 - tmp * src2
-     * For simplicity, use the same approach as div but with msub */
-    (void)src1;
-    /* msub dst, src2, tmp, src1 */
-    arm64_emit_u32(c, 0x9B007C00 | ((src2 & 0x1F) << 16) | ((10 & 0x1F) << 10) | (dst & 0x1F));
-    /* This is a simplified implementation - real implementation would be more complex */
+     * ARM64: tmp = src1 / src2; dst = src1 - tmp * src2
+     * Use x16 (IP0 - caller-saved scratch) as temporary */
+    int tmp = 16; /* x16 */
+    
+    /* tmp = src1 / src2 (sdiv tmp, src1, src2)
+     * sdiv: 0x9AC00800 | (Rm << 16) | (Rn << 5) | Rd */
+    arm64_emit_u32(c, 0x9AC00800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (tmp & 0x1F));
+    
+    /* dst = src1 - (tmp * src2) (msub dst, tmp, src2, src1)
+     * msub: 0x9B008000 | (Rm << 16) | (Ra << 10) | (Rn << 5) | Rd */
+    arm64_emit_u32(c, 0x9B008000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 10) | ((tmp & 0x1F) << 5) | (dst & 0x1F));
 }
 
 /* ARM64 backend instance */

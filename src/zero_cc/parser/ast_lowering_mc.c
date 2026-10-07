@@ -421,8 +421,39 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_variadic_al_setup(c, fp_reg_idx);
                 }
                 
+                /* Caller-saved register fix for AArch64:
+                 * x0-x18 are caller-saved. The callee may clobber these registers.
+                 * We need to save/restore any caller-saved registers that contain
+                 * live values across the call.
+                 * For now, always save x3-x7 BEFORE the call and restore after.
+                 * TODO: Proper fix is to mark intervals as spanning calls in register allocator.
+                 */
+                if (c->isa == ISA_AARCH64) {
+                    /* Save x3-x7 before the call */
+                    for (int r = 3; r <= 7; r++) {
+                        int spill = regalloc_get_spill_slot_for_temp(&c->regalloc, r);
+                        if (spill >= 0) {
+                            /* Register r has a spill slot - save it */
+                            int32_t off = spill_base_offset + (spill + 1) * 8;
+                            if (BE(c)->emit_store) BE(c)->emit_store(c, r, BE(c)->fp_reg, -off);
+                        }
+                    }
+                }
+                
                 /* Emit the call */
                 BE(c)->emit_call(c, fn_name);
+                
+                /* Restore x3-x7 after the call */
+                if (c->isa == ISA_AARCH64) {
+                    for (int r = 3; r <= 7; r++) {
+                        int spill = regalloc_get_spill_slot_for_temp(&c->regalloc, r);
+                        if (spill >= 0) {
+                            /* Register r has a spill slot - restore it */
+                            int32_t off = spill_base_offset + (spill + 1) * 8;
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, r, BE(c)->fp_reg, -off);
+                        }
+                    }
+                }
 
                 /* Caller cleans up stack-passed arguments (and alignment pad) */
                 if (n_stack > 0) {

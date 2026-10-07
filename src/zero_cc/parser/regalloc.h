@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../isa/isa_backend.h"
 
 #include "../types/vregs.h"
 
@@ -36,7 +37,8 @@ typedef enum RegClass {
 static const char *gpr_registers[] __attribute__((unused)) = {
     "rax", "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
 };
-#define GPR_COUNT 12
+/* GPR_COUNT: x86-64 uses 12, AArch64 uses 30 (x0-x28, x30), RISC-V uses 32 */
+#define GPR_COUNT 32
 
 static const char *xmm_registers[] __attribute__((unused)) = {
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
@@ -60,6 +62,9 @@ typedef struct RegAllocator {
     LiveInterval *intervals;      /* Array of live intervals */
     size_t interval_count;        /* Number of intervals */
     size_t interval_capacity;     /* Capacity of intervals array */
+    
+    /* ISA target (for ISA-specific register allocation) */
+    ZeroCCISA target_isa;               /* Target ISA: ISA_X86_64, ISA_AARCH64, etc. */
     
     /* Active intervals (sorted by end position) */
     LiveInterval **active;
@@ -114,6 +119,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->next_spill_slot = 0;
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
+    ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
 }
@@ -193,32 +199,46 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) __attribute__((un
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     if (!ra || !interval) return -1;
     
-    /* Callee-saved allocator pool indices: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15 */
-    static const uint32_t callee_saved_mask =
-        (1u << 1) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+    /* Check if we're using AArch64 backend */
+    bool is_aarch64 = (ra->target_isa == ISA_AARCH64);
     
     /* Find a free register in the appropriate class */
     if (interval->reg_class == REG_CLASS_GPR) {
         if (interval->spans_call) {
-            /* Interval spans OP_CALL: prioritize callee-saved registers (rbx, r12-r15) */
-            static const int callee_saved_indices[] = {1, 8, 9, 10, 11};
-            for (size_t k = 0; k < sizeof(callee_saved_indices)/sizeof(callee_saved_indices[0]); k++) {
-                int i = callee_saved_indices[k];
-                if (ra->gpr_free[i]) {
-                    ra->gpr_free[i] = false;
-                    ra->used_callee_saved_gpr_mask |= (1u << i);
-                    return i;
+            if (is_aarch64) {
+                /* AArch64: prefer callee-saved registers (x19-x28) */
+                for (int i = 19; i <= 28; i++) {
+                    if (i < GPR_COUNT && ra->gpr_free[i]) {
+                        ra->gpr_free[i] = false;
+                        return i;
+                    }
                 }
+                /* Callee-saved registers exhausted: fall through to allocate any free GPR */
+            } else {
+                /* x86-64: prefer callee-saved registers (rbx, r12-r15) */
+                static const int callee_saved_indices[] = {1, 8, 9, 10, 11};
+                for (size_t k = 0; k < sizeof(callee_saved_indices)/sizeof(callee_saved_indices[0]); k++) {
+                    int i = callee_saved_indices[k];
+                    if (ra->gpr_free[i]) {
+                        ra->gpr_free[i] = false;
+                        ra->used_callee_saved_gpr_mask |= (1u << i);
+                        return i;
+                    }
+                }
+                /* Callee-saved registers exhausted: fall through to allocate any free GPR */
             }
-            /* Callee-saved registers exhausted: fall through to allocate any free GPR */
         }
 
         for (int i = 0; i < GPR_COUNT; i++) {
             if (ra->gpr_free[i]) {
                 ra->gpr_free[i] = false;
-                /* Track if this is a callee-saved register */
-                if ((callee_saved_mask >> i) & 1u) {
-                    ra->used_callee_saved_gpr_mask |= (1u << i);
+                /* Track if this is a callee-saved register (x86-64 only) */
+                if (!is_aarch64) {
+                    static const uint32_t callee_saved_mask =
+                        (1u << 1) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+                    if ((callee_saved_mask >> i) & 1u) {
+                        ra->used_callee_saved_gpr_mask |= (1u << i);
+                    }
                 }
                 return i;
             }
