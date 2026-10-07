@@ -216,40 +216,41 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 /* Callee-saved registers exhausted: fall through to allocate any free GPR */
             } else {
                 /* x86-64: prefer callee-saved registers (rbx, r12-r15) */
-                static const int callee_saved_phys_regs[] = {3, 12, 13, 14, 15};  /* Physical register numbers */
-                for (size_t k = 0; k < sizeof(callee_saved_phys_regs)/sizeof(callee_saved_phys_regs[0]); k++) {
-                    int i = callee_saved_phys_regs[k];
-                    if (ra->gpr_free[i]) {
-                        ra->gpr_free[i] = false;
-
-                        ra->used_callee_saved_gpr_mask |= (1u << i);
-                        return i;
+                /* Pool indices 1,8,9,10,11 map to physical regs 3,12,13,14,15 (rbx, r12-r15) */
+                static const int callee_saved_pool_to_phys[] = {3, 12, 13, 14, 15};
+                for (size_t k = 0; k < sizeof(callee_saved_pool_to_phys)/sizeof(callee_saved_pool_to_phys[0]); k++) {
+                    int phys_reg = callee_saved_pool_to_phys[k];
+                    if (ra->gpr_free[phys_reg]) {
+                        ra->gpr_free[phys_reg] = false;
+                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
+                        return phys_reg;
                     }
                 }
                 /* Callee-saved registers exhausted: fall through to allocate any free GPR */
             }
         }
 
-        for (int i = 0; i < GPR_COUNT; i++) {
-            if (ra->gpr_free[i]) {
-
-                ra->gpr_free[i] = false;
+        /* General pool: iterate over pool indices, not physical register numbers */
+        static const int pool_to_phys[] = {0, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5};
+        for (int pool_idx = 0; pool_idx < GPR_COUNT; pool_idx++) {
+            int phys_reg = pool_to_phys[pool_idx];
+            if (ra->gpr_free[phys_reg]) {
+                ra->gpr_free[phys_reg] = false;
                 /* Track callee-saved register usage (ISA-specific) */
                 if (is_aarch64) {
                     /* AArch64: x19-x28 are callee-saved */
-                    if (i >= 19 && i <= 28) {
-                        ra->used_callee_saved_gpr_mask |= (1u << i);
+                    if (phys_reg >= 19 && phys_reg <= 28) {
+                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
                     }
                 } else {
                     /* x86-64: rbx, r12-r15 are callee-saved */
                     static const uint32_t x86_callee_saved_mask =
                         (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
-                    if ((x86_callee_saved_mask >> i) & 1u) {
-
-                        ra->used_callee_saved_gpr_mask |= (1u << i);
+                    if ((x86_callee_saved_mask >> phys_reg) & 1u) {
+                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
                     }
                 }
-                return i;
+                return phys_reg;
             }
         }
     } else {
@@ -366,15 +367,16 @@ static void regalloc_allocate(RegAllocator *ra) {
     free(sorted);
 }
 
-/* Map register allocator index to VREG number (for x86-64)
- * NOTE: This function is misnamed - it should return the physical register number,
- * not a VREG number. The machine code emitter expects physical register numbers.
- * For now, we return the physical register number directly (identity mapping).
- */
+/* Map register allocator index to VREG number (for x86-64) */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
 static int regalloc_idx_to_vreg(int idx) {
-    /* Return physical register number directly */
-    return idx;
+    /* Pool order: rax, rbx, rcx, rdx, rsi, rdi, r8-r15, rsp, rbp */
+    /* Map pool index to physical register number */
+    static const int idx_to_vreg[] = {0, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5};
+    if (idx >= 0 && idx < 16) {
+        return idx_to_vreg[idx];
+    }
+    return 0;  /* Default to VREG_0 */
 }
 
 /* Get the physical register assigned to a temp ID */
@@ -402,8 +404,8 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
                 /* XMM registers: allocator index 0-7 maps directly to XMM0-XMM7 */
                 return ra->intervals[i].assigned_reg;
             } else {
-                /* GPR registers: use idx_to_vreg conversion */
-                return regalloc_idx_to_vreg(ra->intervals[i].assigned_reg);
+                /* GPR registers: allocator already returns physical register numbers */
+                return ra->intervals[i].assigned_reg;
             }
         }
     }
