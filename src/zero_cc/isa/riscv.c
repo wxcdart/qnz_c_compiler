@@ -556,6 +556,44 @@ static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, const char *label) 
 
 /* Comparisons */
 
+/* cond_set dst, cond - set dst to 1 or 0 based on condition code
+ * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
+ * 
+ * For RISC-V, we use SLT/SLTU with operand swapping and inversion:
+ * - CC_LT: slt dst, src1, src2 (dst = src1 < src2)
+ * - CC_LE: slt dst, src2, src1; xnor dst, dst, zero (dst = !(src2 < src1) = src1 <= src2)
+ * - CC_GT: slt dst, src2, src1; xnor dst, dst, zero (dst = !(src2 < src1) = src1 > src2)
+ * - CC_GE: slt dst, src1, src2; xnor dst, dst, zero (dst = !(src1 < src2) = src1 >= src2)
+ * - CC_EQ: seqz dst, src1; seqz dst, dst (complex, use different approach)
+ * - CC_NE: snez dst, src1; snez dst, dst (complex, use different approach)
+ */
+static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
+    /* For now, use a simplified approach: emit SLT and handle inversion */
+    /* This is a placeholder implementation - needs proper SLT sequence */
+    
+    /* Placeholder: set dst = 0 */
+    riscv_emit_u32(c, 0x00000013 | (dst << 7));  /* addi dst, zero, 0 */
+}
+
+/* jcond cond, label - conditional jump based on condition code
+ * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
+ * 
+ * For RISC-V, we use Bcc instructions:
+ * - CC_LT: blt src1, src2, label
+ * - CC_LE: ble src1, src2, label
+ * - CC_GT: bgt src1, src2, label
+ * - CC_GE: bge src1, src2, label
+ * - CC_EQ: beq src1, src2, label
+ * - CC_NE: bne src1, src2, label
+ */
+static size_t riscv64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
+    /* For now, emit a placeholder branch */
+    size_t patch_pos = me_get_offset(c);
+    riscv_emit_u32(c, 0x00000063);  /* beq zero, zero, label (placeholder) */
+    (void)label;
+    return patch_pos;
+}
+
 /* setl dst - set if less (signed) */
 static void riscv64_emit_setl(ZeroCCCompiler *c, int dst) {
     /* slt dst, x0, x0 (placeholder - actual implementation uses branch) */
@@ -713,6 +751,8 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_shl = riscv64_emit_shl,
     .emit_shr = riscv64_emit_shr,
     .emit_cmp = riscv64_emit_cmp,
+    .emit_cond_set = riscv64_emit_cond_set,
+    .emit_jcond = riscv64_emit_jcond,
     .emit_neg = riscv64_emit_neg,
     .emit_test = riscv64_emit_test,
     .emit_cqo = riscv64_emit_cqo,
@@ -1155,6 +1195,8 @@ const ZeroCCISABackend riscv32_backend = {
     .emit_xor = riscv32_emit_xor,
     .emit_shl = riscv32_emit_shl,
     .emit_cmp = riscv64_emit_cmp,
+    .emit_cond_set = riscv64_emit_cond_set,
+    .emit_jcond = riscv64_emit_jcond,
     .emit_neg = riscv32_emit_neg,
     .emit_test = riscv32_emit_test,
     .emit_cqo = riscv32_emit_cqo,

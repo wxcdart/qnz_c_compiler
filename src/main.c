@@ -550,17 +550,34 @@ static int compile_and_link(CompileOptions *opts) {
         return ret;
     }
     
+    /* Get target ISA for linker selection */
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    
     if (opts->verbose) {
         printf("Linking with system linker...\n");
     }
     
     /* Invoke system linker (gcc) to create executable */
-    char cmd[1024];
+    char cmd[2048];
     const char *output = opts->output_file ? opts->output_file : "a.out";
     
+    /* Select appropriate linker based on target ISA */
+    const char *linker = "gcc";
+    const char *abi_flags = "";
+    if (target_isa == ISA_AARCH64) {
+        linker = "aarch64-linux-gnu-gcc";
+        abi_flags = "-mabi=lp64d -march=armv8-a";
+    } else if (target_isa == ISA_RISCV64) {
+        linker = "riscv64-linux-gnu-gcc";
+        abi_flags = "-mabi=lp64d -march=rv64gc";
+    } else if (target_isa == ISA_RISCV32) {
+        linker = "riscv64-linux-gnu-gcc";
+        abi_flags = "-mabi=ilp32d -march=rv32gc";
+    }
+    
     snprintf(cmd, sizeof(cmd),
-             "gcc -o %s %s -lc 2>&1",
-             output, obj_path);
+             "%s %s -o %s %s -lc 2>&1",
+             linker, abi_flags, output, obj_path);
     
     if (opts->verbose) {
         printf("  %s\n", cmd);
