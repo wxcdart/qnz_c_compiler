@@ -139,6 +139,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             
             case OP_CMP:
+                /* Store operands for RISC-V backend (flags materialization) */
+                c->lowering.cmp_src1 = phys_src1;
+                c->lowering.cmp_src2 = phys_src2;
                 BE(c)->emit_cmp(c, phys_src1, phys_src2);
                 break;
             

@@ -38,6 +38,10 @@ typedef struct {
 typedef struct {
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
+    
+    /* CMP operand tracking for RISC-V backend (flags materialization) */
+    int cmp_src1;                      /* First operand of last CMP instruction */
+    int cmp_src2;                      /* Second operand of last CMP instruction */
 } LoweringState;
 
 #endif /* ZERO_CC_PARSER_LOWERING_STATE_H */

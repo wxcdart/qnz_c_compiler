@@ -559,26 +559,57 @@ static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, const char *label) 
 /* cond_set dst, cond - set dst to 1 or 0 based on condition code
  * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
  * 
- * For RISC-V, we use SLT/SLTU with operand swapping and inversion:
+ * For RISC-V, we use SLT with the operands from the previous CMP instruction.
+ * The CMP instruction stores the operands in c->lowering.cmp_src1/2.
+ * 
+ * Condition code mapping:
  * - CC_LT: slt dst, src1, src2 (dst = src1 < src2)
  * - CC_LE: slt dst, src2, src1; xnor dst, dst, zero (dst = !(src2 < src1) = src1 <= src2)
  * - CC_GT: slt dst, src2, src1; xnor dst, dst, zero (dst = !(src2 < src1) = src1 > src2)
  * - CC_GE: slt dst, src1, src2; xnor dst, dst, zero (dst = !(src1 < src2) = src1 >= src2)
- * - CC_EQ: seqz dst, src1; seqz dst, dst (complex, use different approach)
- * - CC_NE: snez dst, src1; snez dst, dst (complex, use different approach)
+ * - CC_EQ: seqz dst, src1; seqz dst, dst (src1 == 0)
+ * - CC_NE: snez dst, src1; snez dst, dst (src1 != 0)
  */
 static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
-    /* For now, use a simplified approach: emit SLT and handle inversion */
-    /* This is a placeholder implementation - needs proper SLT sequence */
+    int src1 = c->lowering.cmp_src1;
+    int src2 = c->lowering.cmp_src2;
     
-    /* Placeholder: set dst = 0 */
-    riscv_emit_u32(c, 0x00000013 | (dst << 7));  /* addi dst, zero, 0 */
+    switch (cond) {
+        case 0: /* CC_LT: slt dst, src1, src2 */
+            riscv_emit_u32(c, 0x00200033 | (dst << 7) | (RV_REG(src1) << 20) | (RV_REG(src2) << 15));
+            break;
+        case 1: /* CC_LE: slt dst, src2, src1; xnor dst, dst, zero */
+            riscv_emit_u32(c, 0x00100033 | (dst << 7) | (RV_REG(src2) << 20) | (RV_REG(src1) << 15));
+            riscv_emit_u32(c, 0x40000013 | (dst << 7) | (dst << 15));
+            break;
+        case 2: /* CC_GT: slt dst, src2, src1; xnor dst, dst, zero */
+            riscv_emit_u32(c, 0x00100033 | (dst << 7) | (RV_REG(src2) << 20) | (RV_REG(src1) << 15));
+            riscv_emit_u32(c, 0x40000013 | (dst << 7) | (dst << 15));
+            break;
+        case 3: /* CC_GE: slt dst, src1, src2; xnor dst, dst, zero */
+            riscv_emit_u32(c, 0x00200033 | (dst << 7) | (RV_REG(src1) << 20) | (RV_REG(src2) << 15));
+            riscv_emit_u32(c, 0x40000013 | (dst << 7) | (dst << 15));
+            break;
+        case 4: /* CC_EQ: seqz dst, src1 (src1 == 0) */
+            riscv_emit_u32(c, 0x10000013 | (dst << 7) | (RV_REG(src1) << 15));
+            break;
+        case 5: /* CC_NE: snez dst, src1 (src1 != 0) */
+            riscv_emit_u32(c, 0x10000013 | (dst << 7) | (RV_REG(src1) << 15));
+            riscv_emit_u32(c, 0x00000093 | (dst << 7) | (dst << 15) | 0xFFF); /* addi dst, dst, -1 (NOT) */
+            break;
+        default:
+            riscv_emit_u32(c, 0x00000013 | (dst << 7));  /* addi dst, zero, 0 */
+            break;
+    }
 }
 
 /* jcond cond, label - conditional jump based on condition code
  * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
  * 
- * For RISC-V, we use Bcc instructions:
+ * For RISC-V, we use Bcc instructions with the operands from the previous CMP.
+ * The CMP instruction stores the operands in c->lowering.cmp_src1/2.
+ * 
+ * Condition code mapping:
  * - CC_LT: blt src1, src2, label
  * - CC_LE: ble src1, src2, label
  * - CC_GT: bgt src1, src2, label
@@ -587,9 +618,34 @@ static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
  * - CC_NE: bne src1, src2, label
  */
 static size_t riscv64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
-    /* For now, emit a placeholder branch */
+    int src1 = c->lowering.cmp_src1;
+    int src2 = c->lowering.cmp_src2;
     size_t patch_pos = me_get_offset(c);
-    riscv_emit_u32(c, 0x00000063);  /* beq zero, zero, label (placeholder) */
+    
+    switch (cond) {
+        case 0: /* CC_LT: blt src1, src2, label */
+            riscv_emit_u32(c, 0x00004063 | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
+            break;
+        case 1: /* CC_LE: ble src1, src2, label (bge src2, src1, label) */
+            riscv_emit_u32(c, 0x00007063 | (RV_REG(src2) << 15) | (RV_REG(src1) << 20));
+            break;
+        case 2: /* CC_GT: bgt src1, src2, label (blt src2, src1, label) */
+            riscv_emit_u32(c, 0x00004063 | (RV_REG(src2) << 15) | (RV_REG(src1) << 20));
+            break;
+        case 3: /* CC_GE: bge src1, src2, label */
+            riscv_emit_u32(c, 0x00007063 | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
+            break;
+        case 4: /* CC_EQ: beq src1, src2, label */
+            riscv_emit_u32(c, 0x00000063 | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
+            break;
+        case 5: /* CC_NE: bne src1, src2, label */
+            riscv_emit_u32(c, 0x00001063 | (RV_REG(src1) << 15) | (RV_REG(src2) << 20));
+            break;
+        default:
+            riscv_emit_u32(c, 0x00000063);  /* beq zero, zero, label */
+            break;
+    }
+    
     (void)label;
     return patch_pos;
 }
