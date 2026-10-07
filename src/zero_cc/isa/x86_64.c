@@ -379,6 +379,31 @@ static size_t x86_emit_jge(ZeroCCCompiler *c, const char *label) {
     return patch_pos;
 }
 
+/* Conditional jump with explicit condition code */
+static size_t x86_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
+    /* Condition code mapping: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5 */
+    static const uint8_t jcc_codes[] = {0x8C, 0x8D, 0x8F, 0x8E, 0x84, 0x85};
+    
+    if (cond < 0 || cond > 5) {
+        fprintf(stderr, "Invalid condition code in x86_emit_jcond: %d\n", cond);
+        abort();
+    }
+    
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, jcc_codes[cond]);
+    size_t patch_pos = me_get_offset(c);  /* rel32 field */
+    me_emit_u32(c, 0);
+    for (int i = 0; i < c->label_count; i++) {
+        if (c->labels[i].name && strcmp(c->labels[i].name, label) == 0) {
+            if (c->labels[i].patch_count < 16) {
+                c->labels[i].patches[c->labels[i].patch_count++] = patch_pos;
+            }
+            break;
+        }
+    }
+    return patch_pos;
+}
+
 
 static void x86_emit_ret(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xC3);
@@ -1144,6 +1169,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_jle = x86_emit_jle,
     .emit_jgt = x86_emit_jgt,
     .emit_jge = x86_emit_jge,
+    .emit_jcond = x86_emit_jcond,
     .emit_call = x86_emit_call,
     .emit_call_reg = x86_emit_call_reg,
     .emit_ret = x86_emit_ret,

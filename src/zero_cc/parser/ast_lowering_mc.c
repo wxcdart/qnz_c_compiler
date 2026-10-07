@@ -468,7 +468,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_JNE:
             case OP_JL:
             case OP_JLE:
-            case OP_JG: {
+            case OP_JG:
+            case OP_JCOND: {
                 size_t patch_pos = 0;
                 switch (instr->op) {
                     case OP_JMP: patch_pos = BE(c)->emit_jmp(c, ""); break;
@@ -483,6 +484,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     case OP_JL:  patch_pos = BE(c)->emit_jlt(c, ""); break;
                     case OP_JLE: patch_pos = BE(c)->emit_jle(c, ""); break;
                     case OP_JG:  patch_pos = BE(c)->emit_jgt(c, ""); break;
+                    case OP_JCOND:
+                        patch_pos = BE(c)->emit_jcond(c, (int)instr->temp_src1, "");
+                        break;
                     default: break;
                 }
                 if (instr->label_idx < label_count) {

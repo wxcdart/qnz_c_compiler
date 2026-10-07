@@ -12,7 +12,7 @@ int main(void) {
     assert(OP_MOV_IMM == 1);
     assert(OP_ADD == 10);  /* After 8 data movement + 2 arithmetic (ADD_IMM, SUB_IMM) */
     assert(OP_SUB == 11);
-    assert(OP_RET == 37);  /* After data movement, arithmetic, logical, comparison (CMP, COND_SET), control flow (+ JMP_LABEL, CALL, CALL_INDIRECT) */
+    assert(OP_RET == 38);  /* After data movement, arithmetic, logical, comparison (CMP, COND_SET), control flow (+ JMP_LABEL, CALL, CALL_INDIRECT, JCOND) */
     printf("  Opcode values: OK\n");
     
     /* Test 2: Opcode names */

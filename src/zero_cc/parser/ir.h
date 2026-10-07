@@ -49,13 +49,14 @@ typedef enum {
     OP_CMP,            /* compare src1, src2; sets flags */
     OP_COND_SET,       /* set dst based on flags and condition code */
 
-    /* Control Flow (6) */
+    /* Control Flow (7) */
     OP_JMP,            /* jmp label */
     OP_JE,             /* je label */
     OP_JNE,            /* jne label */
     OP_JL,             /* jl label */
     OP_JLE,            /* jle label */
     OP_JG,             /* jg label */
+    OP_JCOND,          /* conditional jump with explicit flags */
     /* Jump with label index (for break/continue/goto) */
     OP_JMP_LABEL,      /* jmp [label_idx] - break/continue/goto */
 
@@ -150,6 +151,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_JL: return "JL";
         case OP_JLE: return "JLE";
         case OP_JG: return "JG";
+        case OP_JCOND: return "JCOND";
         case OP_JMP_LABEL: return "JMP_LABEL";
         case OP_CALL: return "CALL";
         case OP_CALL_INDIRECT: return "CALL_INDIRECT";
@@ -271,6 +273,7 @@ void ir_emit(Instr instr);
 void ir_emit_label(uint16_t label_idx);
 void ir_emit_jmp(uint16_t label_idx);
 void ir_emit_je(uint8_t temp_cond, uint16_t label_idx);
+void ir_emit_jcond(uint8_t temp_cond, uint16_t label_idx);
 
 /* Reset for next function - O(1) */
 static inline void ir_reset(void) {
@@ -314,6 +317,7 @@ static inline void ir_emit_mul(uint8_t temp_dest, uint8_t temp_src1, uint8_t tem
 extern void ir_emit_label(uint16_t label_idx);
 extern void ir_emit_jmp(uint16_t label_idx);
 extern void ir_emit_je(uint8_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jcond(uint8_t temp_cond, uint16_t label_idx);
 extern void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx);
 extern void ir_emit_jmp_label(uint16_t label_idx);
 

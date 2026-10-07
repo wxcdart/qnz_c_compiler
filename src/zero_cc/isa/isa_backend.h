@@ -124,6 +124,7 @@ typedef struct ZeroCCISABackend {
     size_t (*emit_jle)(ZeroCCCompiler *c, const char *label);
     size_t (*emit_jgt)(ZeroCCCompiler *c, const char *label);
     size_t (*emit_jge)(ZeroCCCompiler *c, const char *label);
+    size_t (*emit_jcond)(ZeroCCCompiler *c, int cond, const char *label);
     void (*emit_call)(ZeroCCCompiler *c, const char *func_name);
     void (*emit_call_reg)(ZeroCCCompiler *c, int reg);
     void (*emit_ret)(ZeroCCCompiler *c);

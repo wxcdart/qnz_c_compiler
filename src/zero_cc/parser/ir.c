@@ -33,6 +33,11 @@ void ir_emit_je(uint8_t temp_cond, uint16_t label_idx) {
     ir_emit(instr);
 }
 
+void ir_emit_jcond(uint8_t temp_cond, uint16_t label_idx) {
+    Instr instr = {.op = OP_JCOND, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+    ir_emit(instr);
+}
+
 void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JNE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
