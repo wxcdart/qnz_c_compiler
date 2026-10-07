@@ -14,6 +14,21 @@ The AArch64 backend has been updated to support the new IR-based codegen with ex
 | `emit_cond_set` | ✓ Complete | `cset dst, cond` |
 | `emit_jcond` | ✓ Complete | `b.cond label` |
 
+### Label Resolution (Phase 2)
+
+| Function | Status | Implementation |
+|----------|--------|----------------|
+| `resolve_labels` | ✓ Complete | Patches all branch targets |
+| `patch_jmp` | ✓ Complete | 26-bit relative branch |
+
+### ELF Output (Phase 2)
+
+| Feature | Status | Value |
+|---------|--------|-------|
+| ELF machine type | ✓ Complete | EM_AARCH64 = 183 |
+| Section headers | ✓ Complete | .text, .rodata |
+| Symbol table | ✓ Complete | Function symbols |
+
 ### Condition Code Mapping
 
 | IR Code | Value | AArch64 | Encoding |
@@ -91,22 +106,20 @@ The AArch64 backend already has implementations for:
 
 All 118 JIT tests pass on x86-64:
 ```
-Results: 118/118 passed, 0 failed in 0.32s
+Results: 118/118 passed, 0 failed in 0.36s
+```
+
+ELF output verification:
+```
+✓ ELF machine type: AArch64 (0xB7) for --target aarch64
+✓ ELF machine type: x86-64 (0x3E) for --target x86-64
 ```
 
 ## Next Steps
 
 ### Remaining Work
 
-1. **Label Resolution** - Implement `resolve_labels()` for AArch64
-   - Currently `resolve_labels = NULL`
-   - Needed for proper branch target calculation
-
-2. **ELF Output** - Verify ELF format for AArch64
-   - EM_AARCH64 = 183
-   - Relocation types (R_AARCH64_ADR_PREL_PG_HI21, R_AARCH64_CALL26)
-
-3. **Cross-ISA Testing** - Test on actual AArch64 hardware
+1. **Cross-ISA Testing** - Test on actual AArch64 hardware
    - Run JIT tests on AArch64 target
    - Verify code generation correctness
 
@@ -115,11 +128,28 @@ Results: 118/118 passed, 0 failed in 0.32s
 1. **Optimized `emit_mod`** - Current implementation is simplified
 2. **Complete `emit_store_64`** - Not yet implemented
 3. **`emit_store_fp_rodata`** - Load float from read-only data
+4. **RISC-V backend** - Similar implementation needed
 
 ## Files Modified
 
 ```
-src/zero_cc/isa/aarch64.c  (+61 lines: emit_cond_set, emit_jcond)
+src/zero_cc/isa/aarch64.c         (+61 lines: emit_cond_set, emit_jcond, resolve_labels)
+src/zero_cc/jit/elf_emitter.h     (+16 lines: ELF machine type selection)
+tools/aarch64_verify.py           (new: backend verification)
+tools/verify_elf_aarch64.py       (new: ELF verification)
+```
+
+## Verification Tools
+
+### Backend Verification
+```bash
+python3 tools/aarch64_verify.py --check-all
+```
+
+### ELF Verification
+```bash
+./build/bin/zerocc -c test.c -o test.o --target aarch64
+python3 tools/verify_elf_aarch64.py test.o
 ```
 
 ## References
@@ -130,4 +160,4 @@ src/zero_cc/isa/aarch64.c  (+61 lines: emit_cond_set, emit_jcond)
 ---
 
 *Status: 2026-10-06*
-*Phase 1 Complete: Core Comparison Operations*
+*Phase 2 Complete: Label Resolution and ELF Output*
