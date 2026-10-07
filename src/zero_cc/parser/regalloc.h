@@ -232,11 +232,17 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         for (int i = 0; i < GPR_COUNT; i++) {
             if (ra->gpr_free[i]) {
                 ra->gpr_free[i] = false;
-                /* Track if this is a callee-saved register (x86-64 only) */
-                if (!is_aarch64) {
-                    static const uint32_t callee_saved_mask =
-                        (1u << 1) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
-                    if ((callee_saved_mask >> i) & 1u) {
+                /* Track callee-saved register usage (ISA-specific) */
+                if (is_aarch64) {
+                    /* AArch64: x19-x28 are callee-saved */
+                    if (i >= 19 && i <= 28) {
+                        ra->used_callee_saved_gpr_mask |= (1u << i);
+                    }
+                } else {
+                    /* x86-64: rbx, r12-r15 are callee-saved */
+                    static const uint32_t x86_callee_saved_mask =
+                        (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
+                    if ((x86_callee_saved_mask >> i) & 1u) {
                         ra->used_callee_saved_gpr_mask |= (1u << i);
                     }
                 }
