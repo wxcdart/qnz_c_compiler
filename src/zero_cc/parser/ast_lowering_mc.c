@@ -381,8 +381,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 /* Extract fp_reg_idx (number of float args) from label_idx */
                 int fp_reg_idx = (int)instr->label_idx;
                 
-                /* Args 6+ go on the stack (System V): [rsp] = arg6, [rsp+8] = arg7, ...
-                 * so push them in reverse order, padding to keep rsp 16-byte aligned. */
+                /* Args beyond int_arg_count go on the stack:
+                 * so push them in reverse order, padding to keep stack 16-byte aligned. */
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
                 int n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
                 int stack_pad = (n_stack & 1) ? 8 : 0;
@@ -428,7 +428,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
                     for (int f = 0; f < fp_count && f < 8; f++) {
                         int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
-                        /* movsd xmm<f>, [rbp - spill_off] */
+                        /* Load FP arg from stack slot into FP register */
                         if (BE(c)->emit_load_fp) {
                             BE(c)->emit_load_fp(c, f, BE(c)->fp_reg, -spill_off);
                         }

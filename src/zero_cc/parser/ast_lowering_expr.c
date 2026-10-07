@@ -341,7 +341,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* variadic args start 8 bytes after the last fixed param in stack */
                     int32_t va_start_offset = -(last_sym->stack_offset + 8);
                     
-                    /* Store address into ap: ap = (char*)rbp + va_start_offset */
+                    /* Store address into ap: ap = (char*)fp_reg + va_start_offset */
                     int addr_temp = c->next_temp_id++;
                     ir_emit_lea(addr_temp, 0xFF, va_start_offset);
                     ir_emit_store(addr_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
@@ -1334,7 +1334,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
                         last_instr->label_idx = 0x0100 | (callee_fn->return_type.size & 0xFF);
                     }
-                    /* System V AMD64 ABI: 9-16 byte struct return uses RAX and RDX directly */
+                    /* 9-16 byte struct return uses integer register pair */
                     return VREG_0;
                 }
                 
