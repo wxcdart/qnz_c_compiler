@@ -10,9 +10,9 @@ int main(void) {
     /* Test 1: Opcode enum values */
     assert(OP_NOP == 0);
     assert(OP_MOV_IMM == 1);
-    assert(OP_ADD == 12);  /* After 10 data movement + 2 arithmetic (ADD_IMM, SUB_IMM) */
-    assert(OP_SUB == 13);
-    assert(OP_RET == 43);  /* After data movement, arithmetic, logical, comparison, control flow (+ JMP_LABEL, CALL, CALL_INDIRECT) */
+    assert(OP_ADD == 10);  /* After 8 data movement + 2 arithmetic (ADD_IMM, SUB_IMM) */
+    assert(OP_SUB == 11);
+    assert(OP_RET == 41);  /* After data movement, arithmetic, logical, comparison, control flow (+ JMP_LABEL, CALL, CALL_INDIRECT) */
     printf("  Opcode values: OK\n");
     
     /* Test 2: Opcode names */

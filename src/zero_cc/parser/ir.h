@@ -16,14 +16,12 @@ typedef enum {
     /* Data Movement (10) */
     OP_NOP = 0,
     OP_MOV_IMM,        /* move immediate value to register */
-    OP_MOV_MEM_RAX,    /* store register to stack slot */
-    OP_MOV_RAX_MEM,    /* load from stack slot to register */
-    OP_MOV_RAX_RBX,    /* move register to register */
-    OP_LEA_RAX_MEM,    /* load effective address from stack slot */
-    OP_PUSH_RAX,       /* push register to stack */
-    OP_POP_RAX,        /* pop register from stack */
-    OP_PUSH_RBX,       /* push register to stack */
-    OP_POP_RBX,        /* pop register from stack */
+    OP_MOV_MEM,        /* store register to stack slot */
+    OP_MOV,            /* load from stack slot to register */
+    OP_MOV_REG,        /* move register to register */
+    OP_LEA,            /* load effective address from stack slot */
+    OP_PUSH,           /* push register to stack */
+    OP_POP,            /* pop register from stack */
 
     /* Arithmetic (10) */
     OP_ADD_IMM,        /* add immediate to register */
@@ -118,14 +116,12 @@ static inline const char* ir_opcode_name(Opcode op) {
     switch (op) {
         case OP_NOP: return "NOP";
         case OP_MOV_IMM: return "MOV_IMM";
-        case OP_MOV_MEM_RAX: return "MOV_MEM_RAX";
-        case OP_MOV_RAX_MEM: return "MOV_RAX_MEM";
-        case OP_MOV_RAX_RBX: return "MOV_RAX_RBX";
-        case OP_LEA_RAX_MEM: return "LEA_RAX_MEM";
-        case OP_PUSH_RAX: return "PUSH_RAX";
-        case OP_POP_RAX: return "POP_RAX";
-        case OP_PUSH_RBX: return "PUSH_RBX";
-        case OP_POP_RBX: return "POP_RBX";
+        case OP_MOV_MEM: return "MOV_MEM";
+        case OP_MOV: return "MOV";
+        case OP_MOV_REG: return "MOV_REG";
+        case OP_LEA: return "LEA";
+        case OP_PUSH: return "PUSH";
+        case OP_POP: return "POP";
         case OP_ADD_IMM: return "ADD_IMM";
         case OP_SUB_IMM: return "SUB_IMM";
         case OP_ADD: return "ADD";

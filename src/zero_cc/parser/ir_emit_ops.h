@@ -17,7 +17,7 @@
 static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
-        .op = OP_MOV_MEM_RAX,
+        .op = OP_MOV_MEM,
         .temp_dest = 0xFF,
         .temp_src1 = (uint8_t)temp_src,
         .temp_src2 = 0xFF,  /* Frame pointer marker */
@@ -31,7 +31,7 @@ static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
 static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
-        .op = OP_MOV_RAX_MEM,
+        .op = OP_MOV,
         .temp_dest = (uint8_t)temp_dest,
         .temp_src1 = 0xFF,  /* Frame pointer marker */
         .temp_src2 = 0xFF,
@@ -44,7 +44,7 @@ static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
 /* mov rax, rbx (register move) */
 static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
     ir_emit((Instr){
-        .op = OP_MOV_RAX_RBX,
+        .op = OP_MOV_REG,
         .temp_dest = (uint8_t)temp_dest,
         .temp_src1 = (uint8_t)temp_src,
         .temp_src2 = 0xFF,
@@ -58,7 +58,7 @@ static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
 static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
-        .op = OP_LEA_RAX_MEM,
+        .op = OP_LEA,
         .temp_dest = (uint8_t)temp_dest,
         .temp_src1 = 0xFF,
         .temp_src2 = 0xFF,

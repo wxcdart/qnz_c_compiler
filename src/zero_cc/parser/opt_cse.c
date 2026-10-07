@@ -48,7 +48,7 @@ static int instr_is_pure(Instr *instr) {
         case OP_SAR:
         case OP_NEG:
         case OP_NOT:
-        case OP_MOV_RAX_RBX:
+        case OP_MOV_REG:
         case OP_MOV_IMM:
             return 1;
         
@@ -129,7 +129,7 @@ static void replace_with_cse_copy(int instr_idx, int src_temp) {
     Instr *instr = ir_get(instr_idx);
     if (!instr) return;
     
-    instr->op = OP_MOV_RAX_RBX;
+    instr->op = OP_MOV_REG;
     instr->temp_src1 = src_temp;
     instr->temp_src2 = 0xFF;
     instr->imm = 0;

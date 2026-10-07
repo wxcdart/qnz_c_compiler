@@ -48,7 +48,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_STORE_32:
         case OP_STORE_64:
         case OP_FSTORE:
-        case OP_MOV_MEM_RAX:
+        case OP_MOV_MEM:
         case OP_CALL:
         case OP_CALL_INDIRECT:
         case OP_RET:
@@ -75,10 +75,8 @@ static int instr_has_side_effects(Instr *instr) {
             return 1;
         
         // Stack operations have side effects
-        case OP_PUSH_RAX:
-        case OP_PUSH_RBX:
-        case OP_POP_RAX:
-        case OP_POP_RBX:
+        case OP_PUSH:
+        case OP_POP:
         case OP_STACK_ALIGN:
             return 1;
         

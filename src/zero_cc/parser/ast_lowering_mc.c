@@ -78,19 +78,19 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_mov_imm(c, phys_dst, instr->imm64);
                 break;
             
-            case OP_MOV_MEM_RAX:
+            case OP_MOV_MEM:
                 BE(c)->emit_store(c, phys_src1, phys_src2, instr->imm);
                 break;
             
-            case OP_MOV_RAX_MEM:
+            case OP_MOV:
                 BE(c)->emit_load(c, phys_dst, phys_src1, instr->imm);
                 break;
             
-            case OP_MOV_RAX_RBX:
+            case OP_MOV_REG:
                 BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
                 break;
             
-            case OP_LEA_RAX_MEM:
+            case OP_LEA:
                 BE(c)->emit_lea(c, phys_dst, phys_src1, instr->imm);
                 break;
             
@@ -531,28 +531,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
             
-            case OP_PUSH_RAX:
+            case OP_PUSH:
                 /* Push register to stack */
                 if (BE(c)->emit_push_reg) {
                     BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
                 }
                 break;
             
-            case OP_POP_RAX:
-                /* Pop register from stack */
-                if (BE(c)->emit_pop_reg) {
-                    BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
-                }
-                break;
-            
-            case OP_PUSH_RBX:
-                /* Push register to stack */
-                if (BE(c)->emit_push_reg) {
-                    BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
-                }
-                break;
-            
-            case OP_POP_RBX:
+            case OP_POP:
                 /* Pop register from stack */
                 if (BE(c)->emit_pop_reg) {
                     BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
