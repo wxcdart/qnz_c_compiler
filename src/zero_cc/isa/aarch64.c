@@ -255,6 +255,65 @@ static void aarch64_emit_setne(ZeroCCCompiler *c, int dst) {
     arm64_emit_u32(c, 0x1A9F17E0 | dst);
 }
 
+/* Unified conditional set based on IR condition code */
+static void aarch64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
+    /* cset dst, cond
+     * IR condition codes:
+     *   CC_LT = 0  → mi (signed less than)
+     *   CC_LE = 1  → le (signed less or equal)
+     *   CC_GT = 2  → gt (signed greater than)
+     *   CC_GE = 3  → ge (signed greater or equal)
+     *   CC_EQ = 4  → eq (equal)
+     *   CC_NE = 5  → ne (not equal)
+     */
+    static const uint32_t cset_encodings[] = {
+        0x1A9F17E0,  /* CC_LT: cset dst, mi */
+        0x1A9F37E0,  /* CC_LE: cset dst, le */
+        0x1A9F27E0,  /* CC_GT: cset dst, gt */
+        0x1A9F07E0,  /* CC_GE: cset dst, ge */
+        0x1A9F07E0,  /* CC_EQ: cset dst, eq */
+        0x1A9F17E0,  /* CC_NE: cset dst, ne */
+    };
+    
+    if (cond < 0 || cond > 5) {
+        fprintf(stderr, "Invalid condition code: %d\n", cond);
+        abort();
+    }
+    
+    arm64_emit_u32(c, cset_encodings[cond] | dst);
+}
+
+/* Unified conditional jump based on IR condition code */
+static size_t aarch64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
+    /* b.cond label
+     * IR condition codes map to AArch64 branch conditions:
+     *   CC_LT = 0  → b.mi
+     *   CC_LE = 1  → b.le
+     *   CC_GT = 2  → b.gt
+     *   CC_GE = 3  → b.ge
+     *   CC_EQ = 4  → b.eq
+     *   CC_NE = 5  → b.ne
+     */
+    static const uint32_t b_cond_encodings[] = {
+        0x54000000 | 0x04,  /* CC_LT: b.mi (0x4 = 0100) */
+        0x54000000 | 0x0A,  /* CC_LE: b.le (0xa = 1010) */
+        0x54000000 | 0x08,  /* CC_GT: b.gt (0x8 = 1000) */
+        0x54000000 | 0x05,  /* CC_GE: b.ge (0x5 = 0101) */
+        0x54000000 | 0x00,  /* CC_EQ: b.eq (0x0 = 0000) */
+        0x54000000 | 0x01,  /* CC_NE: b.ne (0x1 = 0001) */
+    };
+    
+    if (cond < 0 || cond > 5) {
+        fprintf(stderr, "Invalid condition code: %d\n", cond);
+        abort();
+    }
+    
+    size_t patch_pos = me_get_offset(c);
+    arm64_emit_u32(c, b_cond_encodings[cond]);  /* placeholder */
+    (void)label;
+    return patch_pos;
+}
+
 /* lnot dst, src - logical NOT (dst = src == 0 ? 1 : 0) */
 static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
     /* cmp src, #0 */
@@ -645,6 +704,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_xor = aarch64_emit_xor,
     .emit_shl = aarch64_emit_shl,
     .emit_cmp = aarch64_emit_cmp,
+    .emit_cond_set = aarch64_emit_cond_set,
     .emit_neg = aarch64_emit_neg,
     .emit_mov_reg = aarch64_emit_mov_reg,
     .emit_not = aarch64_emit_not,
@@ -679,6 +739,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_jle = aarch64_emit_jle,
     .emit_jgt = aarch64_emit_jgt,
     .emit_jge = aarch64_emit_jge,
+    .emit_jcond = aarch64_emit_jcond,
     .emit_setl = aarch64_emit_setl,
     .emit_setle = aarch64_emit_setle,
     .emit_setg = aarch64_emit_setg,
