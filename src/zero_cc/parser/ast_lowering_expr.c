@@ -1260,7 +1260,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int temp = lower_expr(c, arena, arg);
                     if (c->last_expr_is_float) {
                         /* Float argument: spill it to a stack slot via IR */
-                        if (fp_reg_idx < 8) {
+                        if (fp_reg_idx < BE(c)->conv->fp_arg_reg_count) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
                             fp_spill_offsets[fp_reg_idx] = c->current_stack_frame;
@@ -1313,7 +1313,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (c->lowering.ir_ctx.call_count < 64) {
                     int cidx = c->lowering.ir_ctx.call_count++;
                     c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_reg_idx;
-                    for (int f = 0; f < fp_reg_idx && f < 8; f++) {
+                    for (int f = 0; f < fp_reg_idx && f < BE(c)->conv->fp_arg_reg_count; f++) {
                         c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
                 }

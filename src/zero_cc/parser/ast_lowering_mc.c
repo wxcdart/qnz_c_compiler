@@ -383,11 +383,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 
                 /* Args 6+ go on the stack (System V): [rsp] = arg6, [rsp+8] = arg7, ...
                  * so push them in reverse order, padding to keep rsp 16-byte aligned. */
-                int n_stack = (arg_count > 6) ? arg_count - 6 : 0;
+                int int_arg_count = BE(c)->conv->int_arg_reg_count;
+                int n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
                 int stack_pad = (n_stack & 1) ? 8 : 0;
                 if (n_stack > 0) {
                     if (stack_pad) BE(c)->emit_stack_adjust(c, -stack_pad);
-                    for (int a = arg_count - 1; a >= 6; a--) {
+                    for (int a = arg_count - 1; a >= int_arg_count; a--) {
                         int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                         if (sp >= 0) {
@@ -400,8 +401,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 
                 /* Safe parallel move: push all src registers then pop into dst registers */
-                int n_args = (arg_count < 6) ? arg_count : 6;
-                int src_regs[6];
+                int n_args = (arg_count < int_arg_count) ? arg_count : int_arg_count;
+                int src_regs[8];
                 for (int a = 0; a < n_args; a++) {
                     int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
                     int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);

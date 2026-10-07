@@ -92,10 +92,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             if (!sym->is_param) continue;
             bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
 
-            if (is_fp && xmm_idx < 8) {
+            if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                 ir_emit_param_save_fp(xmm_idx, sym->stack_offset);
                 xmm_idx++;
-            } else if (!is_fp && int_idx < 6) {
+            } else if (!is_fp && int_idx < BE(c)->conv->int_arg_reg_count) {
                 ir_emit_param_save_int(int_idx, sym->stack_offset);
                 int_idx++;
             } else if (!is_fp) {
