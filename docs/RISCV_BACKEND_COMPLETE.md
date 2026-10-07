@@ -91,14 +91,16 @@ Cross-compiler linking configured in `src/main.c`:
 
 ## Known Limitations
 
-1. **ABI Tags**: RISC-V object files lack ELF ABI tags (Tag_RISCV_arch, etc.)
-   - Prevents linking with system libraries via cross-compiler
+1. **ABI Tags**: RISC-V object files lack ELF ABI tags (Tag_RISCV_arch, Tag_RISCV_stack_align, etc.)
+   - The `.riscv.attributes` section format is complex and requires careful implementation
+   - Prevents linking with system libraries via cross-compiler ("can't link soft-float modules with double-float modules")
    - JIT execution (`-run` flag) not available for RISC-V
-   - Can be addressed in future work
+   - Can be addressed in future work by implementing the correct `.riscv.attributes` section format
 
-2. **QEMU Testing**: Full runtime testing requires QEMU RISC-V emulator
+2. **QEMU Testing**: Full runtime testing requires proper entry point and syscall support
    - Emulator available: `/usr/bin/qemu-riscv64-static`
-   - Manual testing possible with wrapper code
+   - Manual testing possible with wrapper code and proper exit syscall
+   - zerocc doesn't yet support inline assembly for syscalls
 
 ## Files Modified
 
