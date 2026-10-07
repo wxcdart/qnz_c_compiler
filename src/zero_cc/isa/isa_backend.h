@@ -16,6 +16,14 @@ typedef enum {
     ISA_XTENSA,
 } ZeroCCISA;
 
+/* Condition codes for OP_CMP_BRANCH */
+#define CC_LT  0  /* signed less than */
+#define CC_LE  1  /* signed less or equal */
+#define CC_GT  2  /* signed greater */
+#define CC_GE  3  /* signed greater or equal */
+#define CC_EQ  4  /* equal */
+#define CC_NE  5  /* not equal */
+
 /* Register naming */
 typedef struct {
     const char *int_regs[32];
@@ -62,6 +70,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_xor)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_shl)(ZeroCCCompiler *c, int dst, int src, int shift);
     void (*emit_cmp)(ZeroCCCompiler *c, int src1, int src2);
+    void (*emit_cmp_branch)(ZeroCCCompiler *c, int dst, int src1, int src2, int cond);
     void (*emit_neg)(ZeroCCCompiler *c, int dst, int src);
     void (*emit_test)(ZeroCCCompiler *c, int src1, int src2);
     void (*emit_cqo)(ZeroCCCompiler *c);

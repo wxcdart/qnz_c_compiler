@@ -45,13 +45,9 @@ typedef enum {
     OP_SHR,            /* shift right register by register (unsigned) */
     OP_SAR,            /* shift right register by register (signed) */
 
-    /* Comparison (6) */
+    /* Comparison (2) */
     OP_CMP,            /* compare two registers */
-    OP_TEST,           /* bitwise AND for flags only */
-    OP_SETL,           /* set byte if less than */
-    OP_SETLE,          /* set byte if less than or equal */
-    OP_SETG,           /* set byte if greater than */
-    OP_SETGE,          /* set byte if greater than or equal */
+    OP_CMP_BRANCH,     /* compare and set dst based on condition (ISA-neutral) */
 
     /* Control Flow (6) */
     OP_JMP,            /* jmp label */
@@ -80,8 +76,6 @@ typedef enum {
     OP_DEREF,          /* load value from pointer address */
     OP_LOAD_BYTE,      /* load byte with zero-extension */
     OP_CMP_ZERO,       /* compare register with zero */
-    OP_SET_E,          /* set byte if equal */
-    OP_SET_NE,         /* set byte if not equal */
     OP_STACK_ALIGN,    /* align stack pointer */
     OP_CVTTSD2SI,      /* convert float to integer (truncate) */
     OP_CVTSI2SD,       /* convert integer to float */
@@ -141,11 +135,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SHR: return "SHR";
         case OP_SAR: return "SAR";
         case OP_CMP: return "CMP";
-        case OP_TEST: return "TEST";
-        case OP_SETL: return "SETL";
-        case OP_SETLE: return "SETLE";
-        case OP_SETG: return "SETG";
-        case OP_SETGE: return "SETGE";
+        case OP_CMP_BRANCH: return "CMP_BRANCH";
         case OP_JMP: return "JMP";
         case OP_JE: return "JE";
         case OP_JNE: return "JNE";
@@ -166,8 +156,6 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_DEREF: return "DEREF";
         case OP_LOAD_BYTE: return "LOAD_BYTE";
         case OP_CMP_ZERO: return "CMP_ZERO";
-        case OP_SET_E: return "SET_E";
-        case OP_SET_NE: return "SET_NE";
         case OP_STACK_ALIGN: return "STACK_ALIGN";
         case OP_CVTTSD2SI: return "CVTTSD2SI";
         case OP_CVTSI2SD: return "CVTSI2SD";

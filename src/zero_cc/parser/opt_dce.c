@@ -71,7 +71,7 @@ static int instr_has_side_effects(Instr *instr) {
         // Comparison/flag-setting instructions have side effects (affect jumps)
         case OP_CMP:
         case OP_CMP_ZERO:
-        case OP_TEST:
+        case OP_CMP_BRANCH:
             return 1;
         
         // Stack operations have side effects

@@ -144,32 +144,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_cmp(c, phys_src1, phys_src2);
                 break;
             
-            case OP_TEST:
-                BE(c)->emit_test(c, phys_src1, phys_src2);
-                break;
-            
-            case OP_SETL:
-                BE(c)->emit_setl(c, phys_dst);
-                break;
-            
-            case OP_SETLE:
-                BE(c)->emit_setle(c, phys_dst);
-                break;
-            
-            case OP_SETG:
-                BE(c)->emit_setg(c, phys_dst);
-                break;
-            
-            case OP_SETGE:
-                BE(c)->emit_setge(c, phys_dst);
-                break;
-            
-            case OP_SET_E:
-                BE(c)->emit_sete(c, phys_dst);
-                break;
-            
-            case OP_SET_NE:
-                BE(c)->emit_setne(c, phys_dst);
+            case OP_CMP_BRANCH:
+                /* compare and set dst based on condition */
+                if (BE(c)->emit_cmp_branch) {
+                    BE(c)->emit_cmp_branch(c, phys_dst, phys_src1, phys_src2, (int)instr->imm);
+                }
                 break;
             
             case OP_DEREF:
@@ -465,8 +444,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_not(c, phys_dst, phys_src1);
                 break;
             
-            case OP_LNOT:
-                BE(c)->emit_lnot(c, phys_dst, phys_src1);
+            case OP_LNOT:  /* Logical NOT: test src, src; sete dst */
+                BE(c)->emit_cmp_zero(c, phys_src1);
+                if (BE(c)->emit_cmp_branch) {
+                    BE(c)->emit_cmp_branch(c, phys_dst, 0xFF, 0xFF, CC_EQ);
+                }
                 break;
 
             case OP_LABEL:

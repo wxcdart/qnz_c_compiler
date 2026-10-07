@@ -240,6 +240,19 @@ static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
     x86_alu(c, 0x39, src1, src2);
 }
 
+static void x86_emit_setcc(ZeroCCCompiler *c, int dst_reg, uint8_t cond_byte);
+
+static void x86_emit_cmp_branch(ZeroCCCompiler *c, int dst, int src1, int src2, int cond) {
+    /* cmp src1, src2; setcc dst (or just setcc if src1==src2==0xFF to use existing flags) */
+    static const uint8_t setcc_codes[] = {0x9C, 0x9E, 0x9F, 0x9D, 0x94, 0x95};  /* LT, LE, GT, GE, EQ, NE */
+    if (src1 != 0xFF || src2 != 0xFF) {
+        x86_emit_cmp(c, src1, src2);
+    }
+    if (cond >= 0 && cond <= 5) {
+        x86_emit_setcc(c, dst, setcc_codes[cond]);
+    }
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     x86_mov_rr(c, dst, src);
     x86_rex(c, 1, 0, 0, (dst >> 3) & 1);
@@ -1111,6 +1124,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_xor = x86_emit_xor,
     .emit_shl = x86_emit_shl,
     .emit_cmp = x86_emit_cmp,
+    .emit_cmp_branch = x86_emit_cmp_branch,
     .emit_neg = x86_emit_neg,
     .emit_test = x86_emit_test,
     .emit_cqo = x86_emit_cqo,

@@ -250,92 +250,14 @@ static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
     });
 }
 
-/* test rax, rax */
-static inline void ir_emit_test(int temp_src) {
+/* cmp and set dst based on condition (ISA-neutral) */
+static inline void ir_emit_cmp_branch(int temp_dest, int temp_src1, int temp_src2, int cond) {
     ir_emit((Instr){
-        .op = OP_TEST,
-        .temp_dest = 0xFF,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = (uint8_t)temp_src,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* setl al */
-static inline void ir_emit_setl(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SETL,
+        .op = OP_CMP_BRANCH,
         .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* setle al */
-static inline void ir_emit_setle(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SETLE,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* setg al */
-static inline void ir_emit_setg(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SETG,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* setge al */
-static inline void ir_emit_setge(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SETGE,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* sete al */
-static inline void ir_emit_sete(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SET_E,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
-        .imm64 = 0,
-        .label_idx = 0
-    });
-}
-
-/* setne al */
-static inline void ir_emit_setne(int temp_dest) {
-    ir_emit((Instr){
-        .op = OP_SET_NE,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
-        .imm = 0,
+        .temp_src1 = (uint8_t)temp_src1,
+        .temp_src2 = (uint8_t)temp_src2,
+        .imm = (int16_t)cond,
         .imm64 = 0,
         .label_idx = 0
     });
