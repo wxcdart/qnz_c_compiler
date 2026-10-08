@@ -2,7 +2,35 @@
 
 ## [Unreleased] - Multi-ISA Backend & C11 Support
 
-### Sprint 9 – AArch64 Backend Completion & Debugging Infrastructure (Tasks 67-68) ✅ COMPLETE
+### Sprint 10 – VLA Array Access Bug Fix & Shift Instruction Hardening (Task 69) ✅ COMPLETE
+
+> **Strategic Priority**: Fix critical VLA (Variable Length Array) array access bug affecting loop variable indices, and harden shift instruction emission for x86-64 backend.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 69 | **VLA Array Access Bug Fix**: Fix critical bug where accessing arrays (VLA and fixed-size) using loop variables as indices produced incorrect results. Root cause was x86-64 shift instruction emission not handling RCX register conflicts. Fixed `x86_emit_shl`, `x86_emit_shr`, and `x86_emit_sar` to use temporary registers when destination is RCX. Also fixed IR printing bugs for `OP_MOV_MEM`, `OP_STORE_32`, and `OP_DEREF`. | 1 day | ✅ Complete (118/118 tests passing) |
+
+#### Changes
+
+**x86-64 Backend Shift Instruction Fixes** (`src/zero_cc/isa/x86_64.c`):
+- `x86_emit_shl`: Fixed shift left instruction emission to handle RCX destination register conflicts
+- `x86_emit_shr`: Fixed shift right instruction emission to handle RCX destination register conflicts  
+- `x86_emit_sar`: Fixed arithmetic shift right instruction emission to handle RCX destination register conflicts
+
+**Bug Fixes**:
+- Fixed VLA array access with loop variable indices (e.g., `arr[i] = i * 2` in `for (int i = 0; i < n; i++)`)
+- Fixed fixed-size array access with loop variable indices
+- Fixed IR printing: `OP_MOV_MEM` now correctly displays `[fp%+d]` instead of `[sp-%u]`
+- Fixed IR printing: Added `OP_STORE_32` and `OP_DEREF` opcode names
+
+**Root Cause**:
+The x86-64 `SHL/SHR/SAR` instructions use `CL` register (low byte of RCX) for the shift count. The original code didn't handle the case where the destination register was RCX, causing the shift amount to overwrite the value being shifted. The fix uses temporary registers (r10 or r11) when the destination is RCX.
+
+**Test Results**:
+- VLA tests: 6/6 PASS (previously failing)
+- All JIT tests: 118/118 PASS (previously 117/118)
+- AArch64 AOT tests: 5/5 PASS
+- x86_64 AOT tests: 5/5 PASS
 
 > **Strategic Priority**: Fix AArch64 backend segfault and establish cross-ISA debugging infrastructure for multi-ISA development.
 

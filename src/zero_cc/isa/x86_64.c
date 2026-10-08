@@ -254,15 +254,40 @@ static void x86_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 /* shl dst_reg, cl (dst = src1 << src2) */
 static void x86_emit_shl(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    if (dst_reg != src1) {
-        x86_mov_rr(c, dst_reg, src1);
+    /* SHL instruction: shl dst_reg, cl (shift count must be in CL) */
+    /* We need to ensure: (1) value to shift is in dst_reg, (2) shift amount is in RCX */
+    
+    int use_temp = 0;
+    int temp_reg;
+    
+    /* If dst_reg is RCX, we need a temp register because we need RCX for shift count */
+    if (dst_reg == 1) {  /* RCX */
+        use_temp = 1;
+        temp_reg = (src1 == 10) ? 11 : 10;  /* Use r10 or r11 as temp */
     }
-    if (src2 != 1 /* rcx */) {
+    
+    /* Move value to shift into the destination (or temp if needed) */
+    int dest_for_value = use_temp ? temp_reg : dst_reg;
+    if (dest_for_value != src1) {
+        x86_mov_rr(c, dest_for_value, src1);
+    }
+    
+    /* Move shift amount into RCX */
+    if (src2 != 1) {  /* RCX */
         x86_mov_rr(c, 1, src2);
     }
-    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
-    me_emit_u8(c, 0xd3);
-    x86_modrm(c, 3, 4, dst_reg & 7); /* shl dst_reg, cl */
+    
+    /* If we used a temp, do the shift on temp, then move result to final dst */
+    if (use_temp) {
+        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 4, temp_reg & 7); /* shl temp_reg, cl */
+        x86_mov_rr(c, dst_reg, temp_reg);
+    } else {
+        x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 4, dst_reg & 7); /* shl dst_reg, cl */
+    }
 }
 
 static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -714,15 +739,33 @@ static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
 
 /* sar dst_reg, cl (arithmetic shift right) */
 static void x86_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    if (dst_reg != src1) {
-        x86_mov_rr(c, dst_reg, src1);
+    int use_temp = 0;
+    int temp_reg;
+    
+    if (dst_reg == 1) {  /* RCX */
+        use_temp = 1;
+        temp_reg = (src1 == 10) ? 11 : 10;
     }
-    if (src2 != 1 /* rcx */) {
+    
+    int dest_for_value = use_temp ? temp_reg : dst_reg;
+    if (dest_for_value != src1) {
+        x86_mov_rr(c, dest_for_value, src1);
+    }
+    
+    if (src2 != 1) {  /* RCX */
         x86_mov_rr(c, 1, src2);
     }
-    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
-    me_emit_u8(c, 0xd3);
-    x86_modrm(c, 3, 7, dst_reg & 7); /* sar dst_reg, cl */
+    
+    if (use_temp) {
+        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 7, temp_reg & 7); /* sar temp_reg, cl */
+        x86_mov_rr(c, dst_reg, temp_reg);
+    } else {
+        x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 7, dst_reg & 7); /* sar dst_reg, cl */
+    }
 }
 
 /* call [reg] - call through register */
@@ -742,15 +785,33 @@ static void x86_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
 
 /* shr dst_reg, cl (dst = src1 >> src2) */
 static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    if (dst_reg != src1) {
-        x86_mov_rr(c, dst_reg, src1);
+    int use_temp = 0;
+    int temp_reg;
+    
+    if (dst_reg == 1) {  /* RCX */
+        use_temp = 1;
+        temp_reg = (src1 == 10) ? 11 : 10;
     }
-    if (src2 != 1 /* rcx */) {
+    
+    int dest_for_value = use_temp ? temp_reg : dst_reg;
+    if (dest_for_value != src1) {
+        x86_mov_rr(c, dest_for_value, src1);
+    }
+    
+    if (src2 != 1) {  /* RCX */
         x86_mov_rr(c, 1, src2);
     }
-    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
-    me_emit_u8(c, 0xd3);
-    x86_modrm(c, 3, 5, dst_reg & 7); /* shr dst_reg, cl */
+    
+    if (use_temp) {
+        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 5, temp_reg & 7); /* shr temp_reg, cl */
+        x86_mov_rr(c, dst_reg, temp_reg);
+    } else {
+        x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+        me_emit_u8(c, 0xd3);
+        x86_modrm(c, 3, 5, dst_reg & 7); /* shr dst_reg, cl */
+    }
 }
 
 /* Generic condition code setting into dst_reg (zero-extended to 64-bit) */

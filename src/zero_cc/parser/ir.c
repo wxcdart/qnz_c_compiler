@@ -76,7 +76,7 @@ void ir_dump(FILE *f) {
                          break;
             case OP_MOV_IMM: fprintf(f, "MOV_IMM r%u, %d", instr->temp_dest, (int)instr->imm);
                              break;
-            case OP_MOV_MEM: fprintf(f, "MOV_MEM [sp-%u], r%u", (unsigned)instr->imm, instr->temp_src1);
+            case OP_MOV_MEM: fprintf(f, "MOV_MEM [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
                              break;
             case OP_ADD: fprintf(f, "ADD r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
@@ -180,6 +180,10 @@ void ir_dump(FILE *f) {
                              break;
             case OP_CMP_ZERO: fprintf(f, "CMP_ZERO r%u", instr->temp_src1);
                               break;
+            case OP_STORE_32: fprintf(f, "STORE_32 [r%u], r%u", instr->temp_src2, instr->temp_src1);
+                              break;
+            case OP_DEREF: fprintf(f, "DEREF r%u, r%u", instr->temp_dest, instr->temp_src1);
+                           break;
             default: fprintf(f, "OP_%u", instr->op);
                      break;
         }
