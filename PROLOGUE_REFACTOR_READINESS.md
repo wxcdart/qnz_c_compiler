@@ -164,6 +164,16 @@ python3 tools/stack_alignment_checker.py --asm-file /tmp/before.s
 diff /tmp/before.s /tmp/after.s  # Should be identical (except prologue)
 ```
 
+### Note on JIT Test Files
+**Important**: JIT test files (`test/jit/*.c`) cannot be used with `-S` flag.
+They are test harness code that uses compiler internal APIs.
+
+For assembly testing, use:
+- Standalone C files (like `/tmp/vla_standalone.c`)
+- `prologue_regression_suite.py` (generates standalone test cases)
+
+See [docs/S_FLAG_JIT_TEST_LIMITATION.md](docs/S_FLAG_JIT_TEST_LIMITATION.md) for details.
+
 ---
 
 ## Risk Assessment
