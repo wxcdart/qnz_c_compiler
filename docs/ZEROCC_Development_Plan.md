@@ -1,6 +1,6 @@
 # ZeroCC – Feature‑Completion Roadmap & C99 Gap Analysis
 
-> Last updated: 2026-10-04. Findings are **grounded in actual source inspection** of
+> Last updated: 2026-10-07. Findings are **grounded in actual source inspection** of
 > [`parser.c`](../src/zero_cc/parser.c), [`types_lexer.h`](../src/zero_cc/types_lexer.h),
 > [`lexer.c`](../src/zero_cc/lexer.c), [`ast_lowering.h`](../src/zero_cc/parser/ast_lowering.h)
 > (modularized into `ast_lowering_stmt.h`, `ast_lowering_expr.h`, `ast_lowering_mc.h`),
@@ -48,11 +48,35 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 8** | Two-pass IR & LuaJIT-inspired optimization pipeline (-O0 to -O3) | ✅ Complete | **118/118 pass** |
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
 | **Sprint 9** | CLI Driver & Object File Output (Tasks 65-68) | ✅ Complete | AArch64 backend complete, 16 debugging tools built |
+| **Sprint 9.5** | VLA Array Access Bug Fix (Task 69) | ✅ Complete | **118/118 pass**, x86-64 shift instruction hardening |
 | **Sprint 10** | SIMD Vectorization Support (Tasks 70-73) | 📅 Scheduled | — |
-| **Sprint 11** | Stack Allocation & VLA Support (Tasks 74-77) | 📅 Scheduled | — |
+| **Sprint 11** | Stack Allocation Hardening (Tasks 74-77) | 📅 Scheduled | — |
 
 ---
 
+
+## Sprint 9.5: VLA Array Access Bug Fix (Week 36) ✅ COMPLETE
+
+> **Strategic Priority**: Fix critical VLA (Variable Length Array) array access bug affecting loop variable indices, and harden shift instruction emission for x86-64 backend.
+
+### Tasks
+
+| Task | Description | Duration | Status |
+|------|-------------|----------|--------|
+| 69 | **VLA Array Access Bug Fix**: Fix critical bug where accessing arrays (VLA and fixed-size) using loop variables as indices produced incorrect results. Root cause was x86-64 shift instruction emission not handling RCX register conflicts. | 1 day | ✅ Complete |
+
+### Deliverables
+
+- Fixed `x86_emit_shl`, `x86_emit_shr`, `x86_emit_sar` to use temporary registers when destination is RCX
+- Fixed IR printing bugs for `OP_MOV_MEM`, `OP_STORE_32`, and `OP_DEREF`
+- All JIT tests: 118/118 PASS (previously 117/118)
+- VLA tests: 6/6 PASS
+
+### Root Cause
+
+The x86-64 `SHL/SHR/SAR` instructions use `CL` register (low byte of RCX) for the shift count. When the destination register was RCX, the shift amount would overwrite the value being shifted. The fix uses temporary registers (r10 or r11) when the destination is RCX.
+
+---
 
 ## Sprint 10: SIMD Vectorization Support (Weeks 37-38) 📅 Scheduled
 
@@ -76,23 +100,23 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 
 ---
 
-## Sprint 11: Stack Allocation & VLA Support (Weeks 38-39) 📅 Scheduled
+## Sprint 11: Stack Allocation Hardening (Weeks 39-40) 📅 Scheduled
 
-> **Strategic Priority**: Fix large stack allocation failures and implement proper VLA (Variable Length Array) support. Current implementation fails on arrays > 32KB.
+> **Strategic Priority**: Fix large stack allocation failures and implement stack canary support. VLA runtime allocation is now working (Sprint 9.5), focus shifts to edge cases and security.
 
 ### Tasks
 
 | Task | Description | Duration | Status |
 |------|-------------|----------|--------|
 | 74 | Stack Frame Expansion | 2 days | 📅 Scheduled |
-| 75 | VLA Runtime Allocation | 3 days | 📅 Scheduled |
+| 75 | VLA Edge Case Testing | 2 days | 📅 Scheduled |
 | 76 | Stack Canary Support | 1 day | 📅 Scheduled |
 | 77 | Large Array Testing | 1 day | 📅 Scheduled |
 
 ### Deliverables
 
 - Support for stack frames up to 1MB
-- Proper VLA handling with runtime allocation
+- Comprehensive VLA edge case testing
 - Optional stack canary for security
 - Benchmark: memory_heavy.c passes (exit code 80)
 
