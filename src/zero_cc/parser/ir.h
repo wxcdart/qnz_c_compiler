@@ -97,6 +97,39 @@ typedef enum {
     OP_ATOMIC_CMPXCHG_BOOL, /* atomic compare and exchange (returns success) */
     OP_ATOMIC_XCHG,         /* atomic exchange */
     OP_MFENCE,              /* memory fence (serialization) */
+    /* SIMD/Vector operations (32) */
+    OP_VADDSS,     /* scalar single-precision add */
+    OP_VSUBSS,     /* scalar single-precision sub */
+    OP_VMULSS,     /* scalar single-precision mul */
+    OP_VDIVSS,     /* scalar single-precision div */
+    OP_VADDSD,     /* scalar double-precision add */
+    OP_VSUBSD,     /* scalar double-precision sub */
+    OP_VMULSD,     /* scalar double-precision mul */
+    OP_VDIVSD,     /* scalar double-precision div */
+    OP_VMOV,       /* vector move (128-bit) */
+    OP_VMOVSS,     /* scalar single-precision move */
+    OP_VMOVSD,     /* scalar double-precision move */
+    OP_VLOAD,      /* vector load from memory */
+    OP_VSTORE,     /* vector store to memory */
+    OP_VLOADSS,    /* load scalar single */
+    OP_VLOADSD,    /* load scalar double */
+    OP_VSTORESS,   /* store scalar single */
+    OP_VSTORESD,   /* store scalar double */
+    OP_VCVT_SI2SS, /* scalar int to single */
+    OP_VCVT_SS2SI, /* scalar single to int */
+    OP_VCVT_SI2SD, /* scalar int to double */
+    OP_VCVT_SD2SI, /* scalar double to int */
+    OP_VCMPSS,     /* scalar single comparison */
+    OP_VCMPSD,     /* scalar double comparison */
+    OP_VAND,       /* vector bitwise AND */
+    OP_VOR,        /* vector bitwise OR */
+    OP_VXOR,       /* vector bitwise XOR */
+    OP_VSHUF,      /* vector shuffle */
+    OP_VANDN,      /* vector bitwise AND NOT */
+    OP_VORPS,      /* orps (merge) */
+    OP_VSUBPS,     /* subps (packed) */
+    OP_VMULPS,     /* mulps (packed) */
+    OP_VADDPD,     /* addpd (packed double) */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -194,6 +227,38 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_FMUL: return "FMUL";
         case OP_FDIV: return "FDIV";
         case OP_FMOV: return "FMOV";
+        case OP_VADDSS: return "VADDSS";
+        case OP_VSUBSS: return "VSUBSS";
+        case OP_VMULSS: return "VMULSS";
+        case OP_VDIVSS: return "VDIVSS";
+        case OP_VADDSD: return "VADDSD";
+        case OP_VSUBSD: return "VSUBSD";
+        case OP_VMULSD: return "VMULSD";
+        case OP_VDIVSD: return "VDIVSD";
+        case OP_VMOV: return "VMOV";
+        case OP_VMOVSS: return "VMOVSS";
+        case OP_VMOVSD: return "VMOVSD";
+        case OP_VLOAD: return "VLOAD";
+        case OP_VSTORE: return "VSTORE";
+        case OP_VLOADSS: return "VLOADSS";
+        case OP_VLOADSD: return "VLOADSD";
+        case OP_VSTORESS: return "VSTORESS";
+        case OP_VSTORESD: return "VSTORESD";
+        case OP_VCVT_SI2SS: return "VCVT_SI2SS";
+        case OP_VCVT_SS2SI: return "VCVT_SS2SI";
+        case OP_VCVT_SI2SD: return "VCVT_SI2SD";
+        case OP_VCVT_SD2SI: return "VCVT_SD2SI";
+        case OP_VCMPSS: return "VCMPSS";
+        case OP_VCMPSD: return "VCMPSD";
+        case OP_VAND: return "VAND";
+        case OP_VOR: return "VOR";
+        case OP_VXOR: return "VXOR";
+        case OP_VSHUF: return "VSHUF";
+        case OP_VANDN: return "VANDN";
+        case OP_VORPS: return "VORPS";
+        case OP_VSUBPS: return "VSUBPS";
+        case OP_VMULPS: return "VMULPS";
+        case OP_VADDPD: return "VADDPD";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         default: return "UNKNOWN";
@@ -213,6 +278,28 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_FMOV:
         case OP_CVTSI2SD:  /* int -> float conversion */
         case OP_CVTTSD2SI: /* float -> int conversion (truncate) */
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* Check if opcode is a SIMD operation */
+static inline bool ir_opcode_is_simd(Opcode op) {
+    switch (op) {
+        case OP_VADDSS: case OP_VSUBSS: case OP_VMULSS: case OP_VDIVSS:
+        case OP_VADDSD: case OP_VSUBSD: case OP_VMULSD: case OP_VDIVSD:
+        case OP_VMOV: case OP_VMOVSS: case OP_VMOVSD:
+        case OP_VLOAD: case OP_VSTORE:
+        case OP_VLOADSS: case OP_VLOADSD:
+        case OP_VSTORESS: case OP_VSTORESD:
+        case OP_VCVT_SI2SS: case OP_VCVT_SS2SI:
+        case OP_VCVT_SI2SD: case OP_VCVT_SD2SI:
+        case OP_VCMPSS: case OP_VCMPSD:
+        case OP_VAND: case OP_VOR: case OP_VXOR:
+        case OP_VSHUF: case OP_VANDN:
+        case OP_VORPS: case OP_VSUBPS: case OP_VMULPS:
+        case OP_VADDPD:
             return true;
         default:
             return false;
@@ -468,6 +555,111 @@ static inline void ir_emit_fdiv(uint8_t temp_dest, uint8_t temp_src1, uint8_t te
 /* Float move: dest = src */
 static inline void ir_emit_fmov(uint8_t temp_dest, uint8_t temp_src) {
     ir_emit((Instr){.op = OP_FMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* SIMD emission functions */
+/* Scalar single-precision operations */
+static inline void ir_emit_vaddss(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VADDSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vsubss(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VSUBSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vmulss(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VMULSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vdivss(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VDIVSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+/* Scalar double-precision operations */
+static inline void ir_emit_vaddsd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VADDSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vsubsd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VSUBSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vmulsd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VMULSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vdivsd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VDIVSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+/* Vector move operations */
+static inline void ir_emit_vmov(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vmovss(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VMOVSS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vmovsd(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VMOVSD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+/* Vector load/store operations */
+static inline void ir_emit_vload(uint8_t temp_dest, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_VLOAD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vstore(uint8_t temp_addr, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VSTORE, .temp_dest = 0xFF, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vloadss(uint8_t temp_dest, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_VLOADSS, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vloadsd(uint8_t temp_dest, uint8_t temp_addr) {
+    ir_emit((Instr){.op = OP_VLOADSD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vstoress(uint8_t temp_addr, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VSTORESS, .temp_dest = 0xFF, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vstoresd(uint8_t temp_addr, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VSTORESD, .temp_dest = 0xFF, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+}
+/* Conversion operations */
+static inline void ir_emit_vcvtsi2ss(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VCVT_SI2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vcvtss2si(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VCVT_SS2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vcvtsi2sd(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VCVT_SI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vcvttsd2si(uint8_t temp_dest, uint8_t temp_src) {
+    ir_emit((Instr){.op = OP_VCVT_SD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+/* Comparison operations */
+static inline void ir_emit_vcmpss(uint8_t temp_src1, uint8_t temp_src2, uint8_t cond) {
+    ir_emit((Instr){.op = OP_VCMPSS, .temp_dest = 0xFF, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vcmpsd(uint8_t temp_src1, uint8_t temp_src2, uint8_t cond) {
+    ir_emit((Instr){.op = OP_VCMPSD, .temp_dest = 0xFF, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
+}
+/* Bitwise operations */
+static inline void ir_emit_vand(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VAND, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vor(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vxor(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VXOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vshuf(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2, uint8_t imm) {
+    ir_emit((Instr){.op = OP_VSHUF, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = imm, .label_idx = 0});
+}
+static inline void ir_emit_vandn(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VANDN, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vorps(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VORPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vsubps(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VSUBPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vmulps(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VMULPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vaddpd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VADDPD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* LEA RIP-relative (imm64 holds rodata offset) */

@@ -292,7 +292,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if ((size_t)instr->temp_dest < lra->temp_capacity) {
                 if (instr->op == OP_CVTTSD2SI) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
-                } else if (ir_opcode_is_float(instr->op)) {
+                } else if (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 }
             }

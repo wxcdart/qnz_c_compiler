@@ -256,7 +256,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         
         // Look for float-producing instructions before the epilogue
         if (instr->temp_dest != 0xFF && 
-            (ir_opcode_is_float(instr->op) || instr->op == OP_CVTSI2SD)) {
+            (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op) || instr->op == OP_CVTSI2SD)) {
             mark_live(instr->temp_dest);
             break;
         }
