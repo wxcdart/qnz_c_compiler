@@ -7,10 +7,14 @@
  * The implementation is organized into modular source files:
  *   - ast_lowering_stmt.c: AST statement lowering to IR (lower_stmt_*, lower_node)
  *   - ast_lowering_expr.c: AST expression lowering to IR (lower_expr)
+ *   - asm_emitter.c:      IR to assembly emission (emit_ir_to_asm)
  *   - ast_lowering_mc.c:   IR to machine code emission (emit_ir_to_machine_code)
  */
 
 #include "ast_lowering_internal.h"
+
+/* Assembly emission from IR */
+#include "asm_emitter.c"
 
 /* Statement lowering (block, if, while, for, switch, return, decl, etc.) */
 #include "ast_lowering_stmt.c"
@@ -121,15 +125,21 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     /* Calculate total 16-byte aligned stack frame size and patch OP_PROLOGUE */
+    /* Both JIT and assembly need 16-byte alignment for proper call alignment */
+    /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
+    /* So frame_size must be 0 mod 16 (16-byte aligned). */
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
     Instr *prologue_instr = ir_get(0);
     if (prologue_instr && prologue_instr->op == OP_PROLOGUE) {
         prologue_instr->imm64 = (uint64_t)total_frame_size;
     }
     
-    /* Emit machine code from IR with allocated registers */
-
-    emit_ir_to_machine_code(c, spill_base_offset);
+    /* Emit machine code or assembly from IR with allocated registers */
+    if (c->emit_asm) {
+        emit_ir_to_asm(c, spill_base_offset);
+    } else {
+        emit_ir_to_machine_code(c, spill_base_offset);
+    }
 
     
     /* Emit return jumps after IR-to-MC */

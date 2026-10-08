@@ -102,6 +102,8 @@ typedef struct ZeroCCCompiler {
     
     /* Debug flags */
     bool dump_ir;  /* Dump IR after lowering */
+    bool emit_asm; /* Emit assembly (-S flag) */
+    FILE *asm_out; /* Assembly output file (NULL = stdout) */
 
     /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;

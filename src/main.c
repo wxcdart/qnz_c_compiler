@@ -224,6 +224,43 @@ static int compile_jit(CompileOptions *opts) {
         comp->dump_ir = 1;
     }
     
+    /* Enable assembly emission if requested */
+    if (opts->emit_asm) {
+        comp->emit_asm = 1;
+        /* Open output file for assembly */
+        const char *out_path = opts->output_file;
+        if (!out_path) {
+            /* Generate output name from input: source.c -> source.s */
+            static char out_buf[512];
+            const char *base = opts->input_file;
+            const char *dot = strrchr(base, '.');
+            const char *slash = strrchr(base, '/');
+            if (slash && (!dot || slash > dot)) {
+                base = slash + 1;
+            }
+            if (dot) {
+                size_t len = dot - base;
+                if (len > sizeof(out_buf) - 4) len = sizeof(out_buf) - 4;
+                strncpy(out_buf, base, len);
+                out_buf[len] = '\0';
+                strcat(out_buf, ".s");
+            } else {
+                strncpy(out_buf, base, sizeof(out_buf) - 3);
+                strcat(out_buf, ".s");
+            }
+            out_path = out_buf;
+        }
+        comp->asm_out = fopen(out_path, "w");
+        if (!comp->asm_out) {
+            perror("fopen");
+            free(comp);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Writing assembly to: %s\n", out_path);
+        }
+    }
+    
     /* Compile */
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
@@ -236,11 +273,22 @@ static int compile_jit(CompileOptions *opts) {
         return 1;
     }
     
-    /* Execute */
-    int result = zero_cc_execute_jit(comp, NULL);
-    
-    if (opts->verbose) {
-        printf("JIT execution result: %d\n", result);
+    /* Execute or emit assembly */
+    int result = 0;
+    if (opts->emit_asm) {
+        /* Assembly emission is handled in ast_lowering.c */
+        if (comp->asm_out) {
+            fclose(comp->asm_out);
+            comp->asm_out = NULL;
+        }
+        if (opts->verbose) {
+            printf("Assembly emission complete\n");
+        }
+    } else {
+        result = zero_cc_execute_jit(comp, NULL);
+        if (opts->verbose) {
+            printf("JIT execution result: %d\n", result);
+        }
     }
     
     /* Cleanup */
@@ -323,6 +371,43 @@ static int compile_object(CompileOptions *opts) {
     if (opts->dump_ir) {
         fprintf(stderr, "DEBUG: Setting dump_ir flag in compile_object\n");
         comp->dump_ir = 1;
+    }
+    
+    /* Enable assembly emission if requested */
+    if (opts->emit_asm) {
+        comp->emit_asm = 1;
+        /* Open output file for assembly */
+        const char *out_path = opts->output_file;
+        if (!out_path) {
+            /* Generate output name from input: source.c -> source.s */
+            static char out_buf[512];
+            const char *base = opts->input_file;
+            const char *dot = strrchr(base, '.');
+            const char *slash = strrchr(base, '/');
+            if (slash && (!dot || slash > dot)) {
+                base = slash + 1;
+            }
+            if (dot) {
+                size_t len = dot - base;
+                if (len > sizeof(out_buf) - 4) len = sizeof(out_buf) - 4;
+                strncpy(out_buf, base, len);
+                out_buf[len] = '\0';
+                strcat(out_buf, ".s");
+            } else {
+                strncpy(out_buf, base, sizeof(out_buf) - 3);
+                strcat(out_buf, ".s");
+            }
+            out_path = out_buf;
+        }
+        comp->asm_out = fopen(out_path, "w");
+        if (!comp->asm_out) {
+            perror("fopen");
+            free(comp);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Writing assembly to: %s\n", out_path);
+        }
     }
     
     /* Compile */
@@ -501,8 +586,17 @@ static int compile_object(CompileOptions *opts) {
                                   (int64_t)sr->rodata_offset + addend_rodata);
     }
     
-    /* Write ELF file */
-    if (!elf_writer_write(&elf_ctx, output_path)) {
+    /* Write ELF file or emit assembly */
+    if (opts->emit_asm) {
+        /* Assembly emission is handled in ast_lowering.c */
+        if (comp->asm_out) {
+            fclose(comp->asm_out);
+            comp->asm_out = NULL;
+        }
+        if (opts->verbose) {
+            printf("Assembly emission complete\n");
+        }
+    } else if (!elf_writer_write(&elf_ctx, output_path)) {
         fprintf(stderr, "ELF writer error: %s\n", elf_writer_get_error(&elf_ctx));
         elf_writer_cleanup(&elf_ctx);
         zero_cc_buf_free(&comp->text_section);
@@ -511,9 +605,7 @@ static int compile_object(CompileOptions *opts) {
         free(comp->tokens);
         free(comp);
         return 1;
-    }
-    
-    if (opts->verbose) {
+    } else if (opts->verbose) {
         printf("Object file written successfully\n");
     }
     
@@ -608,8 +700,8 @@ int main(int argc, char **argv) {
         return ret == 0 ? 0 : 1;
     }
     
-    /* Determine mode: -c -> object file, -o without -c -> executable, else JIT */
-    if (opts.emit_object) {
+    /* Determine mode: -c -> object file, -S -> assembly, -o without -c -> executable, else JIT */
+    if (opts.emit_object || opts.emit_asm) {
         return compile_object(&opts);
     } else if (opts.output_file) {
         /* Generate executable via system linker */

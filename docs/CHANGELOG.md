@@ -2,6 +2,153 @@
 
 ## [Unreleased] - Multi-ISA Backend & C11 Support
 
+### Sprint 10.5.5 – Assembly Emitter Bug Fixes & `-S` Flag Completion ✅ COMPLETE
+
+> **Strategic Priority**: Fix critical bugs in assembly emitter, implement function call argument passing, and ensure proper stack alignment for both JIT and assembly modes.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 70.1 | **OP_MOV Segfault Fix**: Fix critical bug where integer-to-const char* casting caused segfaults. | 0.5 hours | ✅ Complete |
+| 70.2 | **FP/SIMD Register Mapping**: Fix virtual-to-physical register mapping for FP and SIMD operations. | 1 hour | ✅ Complete |
+| 70.3 | **Thread Safety Fix**: Replace single static buffer with round-robin buffer scheme. | 0.5 hours | ✅ Complete |
+| 70.4 | **Function Call Arguments**: Implement proper argument register assignment (rdi, rsi, rdx, etc.). | 2 hours | ✅ Complete |
+| 70.5 | **Stack Alignment**: Fix frame size calculation for proper 16-byte alignment before calls. | 1 hour | ✅ Complete |
+| 70.6 | **Use-After-Free Fix**: Remove duplicate free() calls in error paths. | 0.5 hours | ✅ Complete |
+
+#### Changes
+
+**Critical Bug Fixes**:
+
+1. **OP_MOV Segfault** (`asm_emitter.c:105-108`):
+   - Removed buggy code that cast integer to const char*
+   - Fixed to emit correct `movq offset(%rbp), reg` instruction
+
+2. **FP/SIMD Register Mapping** (`asm_emitter.c:311-364`):
+   - Added physical register mapping for all FP operations (FADD, FSUB, FMUL, FDIV)
+   - Added physical register mapping for all SIMD operations (VADDSS, VSUBSS, VMULSS, etc.)
+   - Uses `asm_get_phys_reg()` to map virtual temps to physical registers
+
+3. **Thread Safety** (`asm_emitter.c:44-62`):
+   - Replaced single static buffer with 4-buffer round-robin scheme
+   - Prevents buffer overwrite when multiple register names used in same fprintf
+
+4. **Function Call Arguments** (`asm_emitter.c:224-265`):
+   - Implemented proper System V AMD64 ABI argument passing
+   - First 6 args: rdi, rsi, rdx, rcx, r8, r9
+   - Stack args (beyond 6): pushed in reverse order with 16-byte alignment
+   - Stack cleanup after call
+
+5. **Stack Alignment** (`ast_lowering.c:127-130`):
+   - Fixed: Both JIT and assembly now use consistent 16-byte alignment
+   - After `push rbp` (8 bytes), RSP is 0 mod 16
+   - After `sub rsp, frame_size`, RSP remains 0 mod 16 for proper call alignment
+   - frame_size must be 0 mod 16 (16-byte aligned)
+
+6. **Use-After-Free** (`src/main.c:256,405`):
+   - Removed duplicate `free(source)` calls in error paths
+   - source already freed after preprocessing
+
+**Test Results**:
+- All 118/118 JIT tests PASS (100% pass rate)
+- Assembly generation produces valid, runnable assembly
+- Function calls with arguments work correctly
+- Stack alignment correct for both JIT and assembly modes
+
+### Sprint 10.5 – Assembly Emitter Refactoring & `-S` Flag Implementation ✅ COMPLETE
+
+> **Strategic Priority**: Separate assembly emission from machine code emission, implement `-S` flag for text assembly output, and improve code organization for better testability.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 70 | **Assembly Emitter Refactoring**: Separate IR-to-assembly emission into dedicated module (`asm_emitter.c`/`asm_emitter.h`). Implement `-S` flag for text assembly output. Improve code organization by separating concerns between assembly and machine code emission. | 2 days | ✅ Complete (118/118 tests passing) |
+
+#### Changes
+
+**New Assembly Emitter Module** (`src/zero_cc/parser/asm_emitter.c`/`asm_emitter.h`):
+- Created `asm_emitter.h` - Public interface with clean API for assembly emission
+- Created `asm_emitter.c` (~430 lines) - Complete IR-to-GAS assembly emission
+- Implemented all IR opcode handlers for text assembly output
+- ISA-agnostic design using `BE(c)->regs` for register names
+- Supports all ISAs (x86-64, aarch64, riscv64) via backend interface
+
+**`-S` Flag Implementation** (`src/main.c`):
+- Added `-S` flag parsing to output text assembly instead of binary
+- Set `comp->emit_asm = 1` when `-S` is specified
+- Route to `compile_object()` for assembly output
+- Assembly written to specified output file (e.g., `zerocc -S -o test.s input.c`)
+
+**Code Organization Improvements**:
+- Separated assembly emission from machine code emission
+- `asm_emitter.c` handles IR → GAS (text assembly)
+- `ast_lowering_mc.c` handles IR → ELF (binary machine code)
+- Both use shared IR infrastructure and register allocation
+- Updated `ast_lowering.c` include order for proper module loading
+
+**Documentation Created**:
+- `docs/ASM_EMITTER_TESTING.md` - Complete testing guide for assembly emitter
+- `ASM_EMITTER_REFACTORING.md` - Summary of refactoring changes
+- Updated `docs/CHANGELOG.md` with Sprint 10.5 entry
+
+**Assembly Output Features**:
+- GNU Assembler (GAS) syntax output
+- Proper register names with `%` prefix (`%rax`, `%xmm0`)
+- Instruction size suffixes (`movq`, `addq`, `call`, etc.)
+- Label naming with `.L%zu` format (`.L0:`, `.L1:`, etc.)
+- Comments showing IR opcode (`# OP_ADD`)
+- Function prologue/epilogue generation
+- Parameter save emission with correct ABI register mapping
+
+**Backend Integration**:
+- Uses `BE(c)->regs->int_arg_regs[]` for parameter register names
+- Uses `BE(c)->regs->fp_arg_regs[]` for FP parameter register names
+- ISA-specific register naming via backend interface
+- No hardcoded register names in assembly emitter
+
+#### Technical Details
+
+**Assembly Emitter Architecture**:
+```
+IR (after optimization)
+    │
+    ├──► asm_emitter.c ──► GAS text (.s file) ──► External assembler (as)
+    │
+    └──► ast_lowering_mc.c ──► Binary ELF (.o file) ──► Direct JIT/Link
+```
+
+**Key Design Decisions**:
+1. **Separation of Concerns**: Assembly emission separate from machine code emission
+2. **ISA-Agnostic**: Backend provides register info, emitter uses it generically
+3. **Include Pattern**: Uses `#include "asm_emitter.c"` (same as other lowering modules)
+4. **GAS Syntax**: Outputs GNU Assembler syntax (standard on Linux/Unix)
+
+**Test Coverage**:
+- All 118/118 JIT tests pass
+- VLA test passes (critical test that was previously failing)
+- Assembly output verified with `asm_emitter_validator.py`
+- No regressions in existing functionality
+
+#### Usage Examples
+
+```bash
+# Generate text assembly
+./build/bin/zerocc -S -o test.s input.c
+cat test.s  # Human-readable assembly
+
+# Assemble and link
+as -o test.o test.s
+gcc -o test test.o
+
+# Or use external assembler
+gcc -c test.s -o test.o
+```
+
+#### Test Results
+- JIT tests: 118/118 PASS
+- Assembly output: Valid GNU assembler syntax
+- No regressions: All existing tests still pass
+
+> **Previous entry for Sprint 10**:
+
 ### Sprint 10 – VLA Array Access Bug Fix & Shift Instruction Hardening (Task 69) ✅ COMPLETE
 
 > **Strategic Priority**: Fix critical VLA (Variable Length Array) array access bug affecting loop variable indices, and harden shift instruction emission for x86-64 backend.
