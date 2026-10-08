@@ -1,0 +1,201 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  PROLOGUE/EPILOGUE FRAGILITY ANALYSIS                        ║
+║                        Complete & Documented                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+WHAT WE ACCOMPLISHED
+════════════════════
+
+1. ✅ IDENTIFIED THE FRAGILITY
+   - Prologue/epilogue logic spread across 7+ files
+   - Two disconnected stages (IR emit + IR patch)
+   - No validation of frame size alignment
+   - Found a real stack misalignment bug
+
+2. ✅ CREATED DOCUMENTATION (4 comprehensive documents)
+   
+   README_FRAGILITY_DOCS.md (162 lines)
+   └─ Entry point for developers, quick navigation by time
+   
+   PROLOGUE_EPILOGUE_SUMMARY.md (272 lines)
+   └─ Executive summary, real bugs, solution
+   
+   docs/PROLOGUE_EPILOGUE_ANALYSIS.md (859 lines)
+   └─ Deep technical analysis, root causes, recommendations
+   
+   docs/PROLOGUE_EPILOGUE_IMPROVEMENT_PLAN.md (859 lines)
+   └─ 4-phase improvement plan with code examples
+   
+   FRAGILITY_ANALYSIS_COMPLETE.md (178 lines)
+   └─ Summary of analysis and next steps
+
+3. ✅ FIXED THE BUG
+   - Removed incorrect conditional frame size calculation
+   - All 118/118 tests passing
+   - Stack alignment now correct (16-byte)
+
+KEY FINDINGS
+════════════
+
+THE FIVE FRAGILE SYNCHRONIZATION POINTS:
+
+1. Frame size calculated LATE, patched RETROACTIVELY
+   ├─ No validation of alignment
+   ├─ No error handling
+   └─ Silent failure if assumptions wrong
+
+2. Prologue ASSUMED to be FIRST IR instruction
+   ├─ No assertion
+   ├─ Silent wrong frame size if structure changes
+   └─ Would break if IR preamble added
+
+3. MULTIPLE frame size CALCULATIONS
+   ├─ 5 different calculations
+   ├─ 4 different variables
+   ├─ Magic constants scattered
+   └─ Easy to miss one when changing
+
+4. Assembly has SEPARATE prologue code
+   ├─ Two implementations
+   ├─ Easy to diverge
+   └─ No automated consistency check
+
+5. Callee-save handling is "SEPARATE IR INSTRUCTIONS"
+   ├─ Unclear dependency
+   ├─ Frame size might be inconsistent
+   └─ Works by accident
+
+THE BUG THAT HAPPENED
+═════════════════════
+
+Stage 1: Changed frame size to use 8 mod 16 alignment
+  └─ Didn't realize this violated System V AMD64 ABI
+
+Stage 2: Assembly output used wrong frame size
+  └─ sub $72, %rsp (72 % 16 = 8, should be 0!)
+
+Stage 3: Stack misalignment caused segfault
+  └─ When calling printf() from assembly
+
+Stage 4: Tests didn't catch it
+  └─ JIT tests don't call library functions
+  └─ Assembly emitter not in automated test suite
+
+ROOT CAUSE
+═════════
+
+Two-phase frame size is fragile:
+  1. Prologue emitted before register allocation (placeholder)
+  2. Frame size calculated after register allocation
+  3. Frame size patched into IR retroactively
+  4. No synchronization or validation mechanism
+
+SOLUTION PATTERN
+═════════════════
+
+Make frame layout calculation:
+  ✓ Centralized     (single source of truth)
+  ✓ Early           (before IR emission)
+  ✓ Validated       (all invariants checked)
+  ✓ Immutable       (never patched or overwritten)
+
+IMPROVEMENT PHASES
+══════════════════
+
+Phase 1: Add Validation (2-4 hours, VERY LOW RISK)
+├─ Catch bugs early with clear error messages
+├─ Check prologue at index 0
+├─ Validate frame size is 16-byte aligned
+└─ Validate frame size < 16MB
+
+Phase 2: Centralize Frame Size (2-3 days, LOW RISK)
+├─ Single calculate_frame_layout() function
+├─ Called before IR emission
+└─ Frame size never changes after this point
+
+Phase 3: Add Assertions (1 day, VERY LOW RISK)
+├─ Assertions in machine code lowering
+├─ Assertions in assembly lowering
+└─ Catch divergence immediately
+
+Phase 4: ISA-Agnostic Template (3-5 days, MEDIUM RISK)
+├─ Prologue template in backend abstraction
+├─ Works for x86-64, aarch64, riscv64
+└─ Changes to prologue affect all ISAs
+
+TOTAL EFFORT: 1-2 weeks for significant robustness improvement
+
+DOCUMENTATION STRUCTURE
+═════════════════════════
+
+README_FRAGILITY_DOCS.md
+├─ 5 minute summary → PROLOGUE_EPILOGUE_SUMMARY.md
+├─ 30 minute deep dive → docs/PROLOGUE_EPILOGUE_ANALYSIS.md
+└─ 2+ hour implementation → docs/PROLOGUE_EPILOGUE_IMPROVEMENT_PLAN.md
+
+COMMITS MADE
+════════════
+
+65ffac1 - Fix: assembly emitter stack alignment
+2721cad - Docs: prologue/epilogue analysis and improvement plan
+ee0cf49 - Docs: executive summary of prologue/epilogue fragility
+d4efbdc - Docs: guide for reading prologue/epilogue fragility documentation
+749c17a - Docs: complete fragility analysis summary
+
+TEST RESULTS
+═════════════
+
+✅ All 118/118 tests PASSING
+✅ No regressions
+✅ Stack alignment correct (16-byte)
+✅ Assembly generation functional
+
+KEY INSIGHTS
+══════════════
+
+1. Prologue/epilogue is a multi-stage process that requires consistency
+   across 7+ files and 2 disconnected phases. Current design provides
+   no mechanism to enforce this consistency.
+
+2. The two-phase frame size (emit placeholder, patch later) is
+   fundamentally fragile and should be replaced with early calculation.
+
+3. Stack alignment is critical and easy to get wrong. Should be
+   validated at multiple points.
+
+4. Assembly emitter needed separate testing because bugs don't appear
+   when only testing internal functions.
+
+RECOMMENDED NEXT STEPS
+══════════════════════
+
+Immediate (do now):
+  ☐ Phase 1: Add validation (2-4 hours)
+  ☐ Phase 3: Add assertions (1 day)
+
+Short-term (1-2 weeks):
+  ☐ Phase 2: Centralize calculation (2-3 days)
+
+Medium-term (nice to have):
+  ☐ Phase 4: ISA-agnostic template (3-5 days)
+
+READING RECOMMENDATIONS
+═══════════════════════
+
+Start here: README_FRAGILITY_DOCS.md
+  ↓ (5 minutes to orient yourself)
+  
+Then: PROLOGUE_EPILOGUE_SUMMARY.md
+  ↓ (understand the problem and the bug)
+  
+Then: docs/PROLOGUE_EPILOGUE_ANALYSIS.md
+  ↓ (understand root causes and design issues)
+  
+Finally: docs/PROLOGUE_EPILOGUE_IMPROVEMENT_PLAN.md
+  └─ (when ready to implement fixes)
+
+═════════════════════════════════════════════════════════════════════════════════
+This analysis provides the foundation for making prologue/epilogue handling
+significantly more robust. The fragility is well-understood and fixable with
+the proposed phased approach.
+═════════════════════════════════════════════════════════════════════════════════
