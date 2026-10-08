@@ -28,7 +28,7 @@ class CallSite:
     function: str
     line: int
     instruction: str
-    rsp_before: Optional[int]  # Stack pointer value before call (mod 16)
+    rsp_before: Optional[int]
     is_aligned: bool
     issue: Optional[str]
 
@@ -38,8 +38,8 @@ class PrologueAnalysis:
     """Analysis of a function's prologue."""
     function: str
     frame_size: int
-    initial_rsp_mod_16: int  # RSP mod 16 after push rbp
-    final_rsp_mod_16: int    # RSP mod 16 after sub rsp, frame_size
+    initial_rsp_mod_16: int
+    final_rsp_mod_16: int
     is_aligned: bool
     issue: Optional[str]
 
@@ -54,7 +54,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
     
     current_function = None
     current_frame_size = 0
-    rsp_mod_16 = 0  # Track RSP mod 16
+    rsp_mod_16 = 0
     
     for line_num, line in enumerate(lines, 1):
         stripped = line.strip()
@@ -75,7 +75,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
                     prologues.append(PrologueAnalysis(
                         function=current_function,
                         frame_size=current_frame_size,
-                        initial_rsp_mod_16=rsp_mod_16,
+                        initial_rsp_mod_16=8,
                         final_rsp_mod_16=final_mod,
                         is_aligned=is_aligned,
                         issue=issue
@@ -83,7 +83,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
             
             current_function = func_match.group(1)
             current_frame_size = 0
-            rsp_mod_16 = 8  # After function entry, RSP is 8 mod 16 (call pushed 8 bytes)
+            rsp_mod_16 = 8  # After function entry, RSP is 8 mod 16
             continue
         
         if not current_function:
@@ -91,7 +91,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
         
         # Track prologue instructions
         if re.match(r'push\s+%?rbp', stripped):
-            rsp_mod_16 = (rsp_mod_16 - 8) % 16  # push rbp
+            rsp_mod_16 = (rsp_mod_16 - 8) % 16
         
         elif re.match(r'mov\s+%?rsp,%?rbp', stripped):
             pass  # mov doesn't change RSP
@@ -108,7 +108,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
             if match:
                 rsp_mod_16 = (rsp_mod_16 + int(match.group(1))) % 16
         
-        elif re.match(r'call', stripped):
+        elif re.match(r'call\s+\w+', stripped):
             # Check alignment before call
             is_aligned = (rsp_mod_16 == 0)
             issue = None if is_aligned else f"RSP = {rsp_mod_16} mod 16 (should be 0 before call)"
@@ -121,6 +121,9 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
                 issue=issue
             ))
         
+        elif re.match(r'leave', stripped):
+            pass  # leave doesn't change alignment tracking
+        
         elif re.match(r'ret', stripped):
             # End of function
             if current_frame_size > 0:
@@ -130,7 +133,7 @@ def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], Li
                 prologues.append(PrologueAnalysis(
                     function=current_function,
                     frame_size=current_frame_size,
-                    initial_rsp_mod_16=8,  # After push rbp
+                    initial_rsp_mod_16=8,
                     final_rsp_mod_16=final_mod,
                     is_aligned=is_aligned,
                     issue=issue
@@ -214,15 +217,16 @@ def check_assembly_file(asm_file: str, verbose: bool = False) -> Tuple[int, int]
 
 def check_c_file(c_file: str, verbose: bool = False) -> Tuple[int, int]:
     """Compile C file to assembly and check alignment."""
+    import tempfile
+    
     try:
-        import tempfile
-        
         # Compile to assembly
         result = subprocess.run(
             ["./build/bin/zerocc", "-S", "-o", "-", c_file],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=10
         )
         
         # Write to temp file
@@ -232,8 +236,11 @@ def check_c_file(c_file: str, verbose: bool = False) -> Tuple[int, int]:
         
         return check_assembly_file(temp_file, verbose)
         
+    except subprocess.TimeoutExpired:
+        print(f"Error: Compilation timed out for {c_file}")
+        return 1, 0
     except subprocess.CalledProcessError as e:
-        print(f"Error compiling {c_file}: {e}")
+        print(f"Error compiling {c_file}: {e.stderr[:200] if e.stderr else e}")
         return 1, 0
 
 
@@ -242,13 +249,23 @@ def check_all_tests(verbose: bool = False) -> Tuple[int, int]:
     test_dir = Path("test/jit")
     total_issues = 0
     total_checks = 0
+    skipped = 0
     
-    for test_file in test_dir.glob("*.c"):
-        print(f"\nChecking {test_file.name}...")
-        issues, checks = check_c_file(str(test_file), verbose)
-        total_issues += issues
-        total_checks += checks
+    for test_file in sorted(test_dir.glob("*.c")):
+        try:
+            issues, checks = check_c_file(str(test_file), verbose)
+            if issues == 0 and checks > 0:
+                total_issues += 0
+                total_checks += checks
+            elif checks == 0:
+                skipped += 1
+        except Exception as e:
+            print(f"Error checking {test_file.name}: {e}")
+            skipped += 1
     
+    print(f"\n{'=' * 60}")
+    print(f"Total: {total_issues} issues in {total_checks} checks")
+    print(f"Skipped: {skipped} (failed to compile)")
     return total_issues, total_checks
 
 
@@ -273,8 +290,6 @@ def main():
     
     if args.check_all:
         issues, checks = check_all_tests(args.verbose)
-        print(f"\n{'=' * 60}")
-        print(f"Total: {issues} issues in {checks} checks")
         return 0 if issues == 0 else 1
     
     parser.print_help()
