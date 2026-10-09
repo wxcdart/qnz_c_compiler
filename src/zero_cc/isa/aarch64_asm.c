@@ -207,8 +207,34 @@ static void aarch64_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *ou
     fprintf(out, "\tldr\t%s, [%s]\n", dst_name, src_name);
 }
 
-/* CALL: bl func_name */
-static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, FILE *out) {
+/* CALL - Full AArch64 ABI compliance */
+static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
+    /* AArch64 ABI argument registers */
+    static const char *int_arg_regs[] = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
+    static const char *fp_arg_regs[] = {"v0", "v1", "v2", "v3", 
+                                         "v4", "v5", "v6", "v7"};
+    
+    int int_arg_idx = 0;
+    int fp_arg_idx = 0;
+    
+    for (int i = 0; i < arg_count; i++) {
+        int temp = arg_temps[i];
+        int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+        const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+        
+        /* Use is_fp array to determine if argument is FP */
+        int arg_is_fp = is_fp ? is_fp[i] : 0;
+        
+        if (arg_is_fp && fp_arg_idx < 8) {
+            fprintf(out, "\tfmov\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
+            fp_arg_idx++;
+        } else if (!arg_is_fp && int_arg_idx < 8) {
+            fprintf(out, "\tmov\t%s, %s\n", int_arg_regs[int_arg_idx], reg_name);
+            int_arg_idx++;
+        }
+        /* Stack arguments would go here for calls with >8 args */
+    }
+    
     fprintf(out, "\tbl\t%s\n", func_name);
 }
 

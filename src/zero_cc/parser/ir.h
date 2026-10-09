@@ -334,17 +334,21 @@ typedef struct {
     size_t instr_index;
     int count;
     uint8_t temps[IR_CALL_MAX_ARGS];
+    uint8_t is_fp[IR_CALL_MAX_ARGS];  /* 1 if FP argument, 0 if integer */
 } IRCallArgs;
 extern IRCallArgs ir_call_args_table[IR_CALL_MAX_SITES];
 extern size_t ir_call_args_count;
 
 /* Record the integer argument temps of the OP_CALL at instr_index */
-static inline void ir_call_args_record(size_t instr_index, int count, const int *temps) {
+static inline void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
     if (ir_call_args_count >= IR_CALL_MAX_SITES) return;
     IRCallArgs *e = &ir_call_args_table[ir_call_args_count++];
     e->instr_index = instr_index;
     e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
-    for (int i = 0; i < e->count; i++) e->temps[i] = (uint8_t)temps[i];
+    for (int i = 0; i < e->count; i++) {
+        e->temps[i] = (uint8_t)temps[i];
+        e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
+    }
 }
 
 /* Find the recorded argument list for the OP_CALL at instr_index (or NULL) */

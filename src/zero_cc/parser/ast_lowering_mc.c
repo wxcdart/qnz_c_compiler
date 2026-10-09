@@ -2,6 +2,14 @@
 
 #include "ast_lowering_internal.h"
 
+/* Emit function prologue directly (without IR instruction) */
+void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
+    /* Use the backend's emit_prologue function */
+    if (BE(c)->emit_prologue) {
+        BE(c)->emit_prologue(c, frame_size, 0);
+    }
+}
+
 /* Emit machine code from IR with allocated registers */
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer();
@@ -47,13 +55,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
 
         switch (instr->op) {
-            case OP_PROLOGUE:
-                /* Emit prologue with stack frame size (callee-save handled by separate IR instructions) */
-                if (BE(c)->emit_prologue) {
-                    BE(c)->emit_prologue(c, (size_t)instr->imm64, 0);
-                }
-                break;
-
             case OP_PARAM_SAVE_INT:
                 if (BE(c)->emit_param_save_int) {
                     BE(c)->emit_param_save_int(c, (int)instr->imm, (int32_t)instr->imm64);

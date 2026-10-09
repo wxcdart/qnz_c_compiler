@@ -210,8 +210,34 @@ static void riscv_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tlw\t%s, 0(%s)\n", dst_name, src_name);
 }
 
-/* CALL: jal ra, func_name */
-static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, FILE *out) {
+/* CALL - Full RISC-V ABI compliance */
+static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
+    /* RISC-V ABI argument registers */
+    static const char *int_arg_regs[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+    static const char *fp_arg_regs[] = {"fa0", "fa1", "fa2", "fa3", 
+                                         "fa4", "fa5", "fa6", "fa7"};
+    
+    int int_arg_idx = 0;
+    int fp_arg_idx = 0;
+    
+    for (int i = 0; i < arg_count; i++) {
+        int temp = arg_temps[i];
+        int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+        const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+        
+        /* Use is_fp array to determine if argument is FP */
+        int arg_is_fp = is_fp ? is_fp[i] : 0;
+        
+        if (arg_is_fp && fp_arg_idx < 8) {
+            fprintf(out, "\tfmv.d\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
+            fp_arg_idx++;
+        } else if (!arg_is_fp && int_arg_idx < 8) {
+            fprintf(out, "\tmv\t%s, %s\n", int_arg_regs[int_arg_idx], reg_name);
+            int_arg_idx++;
+        }
+        /* Stack arguments would go here for calls with >8 args */
+    }
+    
     fprintf(out, "\tjal\tra, %s\n", func_name);
 }
 

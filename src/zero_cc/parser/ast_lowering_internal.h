@@ -31,6 +31,9 @@
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
+
+/* Emit function prologue directly (without IR instruction) */
+void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size);
 void emit_return_jumps(ZeroCCCompiler *c);
 
 /* Helper: Get current function's return type */

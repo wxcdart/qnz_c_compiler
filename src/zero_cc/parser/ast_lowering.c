@@ -50,9 +50,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset IR buffer */
     ir_reset();
 
-    /* Emit placeholder OP_PROLOGUE (will be patched with exact frame size after regalloc) */
-    ir_emit_prologue(0);
-
     /* Emit IR instructions to save incoming parameter registers into their assigned local stack slots */
     if (c->function_count > 0) {
         ZeroCCFunction *fn = &c->functions[c->function_count - 1];
@@ -124,20 +121,21 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->current_stack_frame += c->regalloc.next_spill_slot * 8;
     }
 
-    /* Calculate total 16-byte aligned stack frame size and patch OP_PROLOGUE */
+    /* Calculate total 16-byte aligned stack frame size */
     /* Both JIT and assembly need 16-byte alignment for proper call alignment */
     /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
-    Instr *prologue_instr = ir_get(0);
-    if (prologue_instr && prologue_instr->op == OP_PROLOGUE) {
-        prologue_instr->imm64 = (uint64_t)total_frame_size;
-    }
     
     /* Emit machine code or assembly from IR with allocated registers */
     if (c->emit_asm) {
+        /* For assembly: emit function label first, then prologue, then rest */
+        emit_function_label_asm(c);
+        emit_prologue_asm(c, total_frame_size);
         emit_ir_to_asm(c, spill_base_offset);
     } else {
+        /* For machine code: emit prologue first, then rest */
+        emit_prologue_mc(c, total_frame_size);
         emit_ir_to_machine_code(c, spill_base_offset);
     }
 

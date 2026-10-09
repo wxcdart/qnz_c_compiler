@@ -339,13 +339,22 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;
             
-            /* Collect argument temps - need to get from call_args array */
-            /* For now, use a simple approach - arguments are in temp registers */
-            int arg_temps[8] = {0};
-            int arg_count = 0;
+            /* Look up recorded call arguments */
+            const IRCallArgs *call_args = ir_call_args_find(idx);
             
             if (BE(c)->emit_call_asm) {
-                BE(c)->emit_call_asm(c, func_name, arg_count, arg_temps, out);
+                if (call_args) {
+                    /* Unpack uint8_t temps array into int array for backend */
+                    int unpacked_temps[IR_CALL_MAX_ARGS];
+                    int unpacked_is_fp[IR_CALL_MAX_ARGS];
+                    for (int i = 0; i < call_args->count; i++) {
+                        unpacked_temps[i] = (int)call_args->temps[i];
+                        unpacked_is_fp[i] = (int)call_args->is_fp[i];
+                    }
+                    BE(c)->emit_call_asm(c, func_name, call_args->count, unpacked_temps, unpacked_is_fp, out);
+                } else {
+                    BE(c)->emit_call_asm(c, func_name, 0, NULL, NULL, out);
+                }
             }
             return;
         }

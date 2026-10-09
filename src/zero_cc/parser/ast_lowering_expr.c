@@ -1252,72 +1252,91 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return bool_res;
                 }
                 
-                /* Collect argument temps for integer args only */
+                /* Collect argument temps for both integer and FP args */
                 ASTRef arg = node->right;
-                int int_arg_temps[IR_CALL_MAX_ARGS];
-                int int_arg_count = 0;
+                int all_arg_temps[IR_CALL_MAX_ARGS];
+                int all_arg_is_fp[IR_CALL_MAX_ARGS];
+                int all_arg_count = 0;
                 int32_t int_spill_offsets[IR_CALL_MAX_ARGS];
-                int fp_reg_idx = 0;  /* Tracks which xmm register for next float arg */
                 int32_t fp_spill_offsets[8];
+                int int_arg_idx = 0;
+                int fp_arg_idx = 0;
                 
                 while (arg != AST_NULL) {
                     int temp = lower_expr(c, arena, arg);
                     if (c->last_expr_is_float) {
                         /* Float argument: spill it to a stack slot via IR */
-                        if (fp_reg_idx < BE(c)->conv->fp_arg_reg_count) {
+                        if (fp_arg_idx < 8) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
-                            fp_spill_offsets[fp_reg_idx] = c->current_stack_frame;
-                            ir_emit_fstore((uint8_t)temp, 0xFF, -fp_spill_offsets[fp_reg_idx]);
-                            fp_reg_idx++;
+                            fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                            ir_emit_fstore((uint8_t)temp, 0xFF, -fp_spill_offsets[fp_arg_idx]);
+                            fp_arg_idx++;
                         }
                     } else {
                         /* Integer argument: spill to a stack slot so subsequent argument
                          * evaluations containing function calls do not clobber caller-saved registers. */
-                        if (int_arg_count < IR_CALL_MAX_ARGS) {
+                        if (int_arg_idx < IR_CALL_MAX_ARGS) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
-                            int_spill_offsets[int_arg_count] = c->current_stack_frame;
-                            ir_emit_store(temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_count]);
-                            int_arg_count++;
+                            int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                            ir_emit_store(temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                            int_arg_idx++;
                         }
                     }
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     arg = arg_node ? arg_node->next : AST_NULL;
                 }
                 
-                /* Reload integer arguments from stack slots immediately before call */
-                for (int a = 0; a < int_arg_count; a++) {
+                /* Reload arguments from stack slots immediately before call */
+                int int_reload_idx = 0;
+                int fp_reload_idx = 0;
+                
+                /* First reload integer arguments */
+                for (int a = 0; a < int_arg_idx; a++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
-                    int_arg_temps[a] = reload_temp;
+                    all_arg_temps[all_arg_count] = reload_temp;
+                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_count++;
+                    int_reload_idx++;
                 }
                 
-                /* Emit IR call with only integer args */
+                /* Then reload FP arguments */
+                for (int f = 0; f < fp_arg_idx; f++) {
+                    int reload_temp = c->next_temp_id++;
+                    ir_emit_fload(reload_temp, 0xFF, -fp_spill_offsets[f]);
+                    all_arg_temps[all_arg_count] = reload_temp;
+                    all_arg_is_fp[all_arg_count] = 1;
+                    all_arg_count++;
+                    fp_reload_idx++;
+                }
+                
+                /* Emit IR call */
                 ir_emit_call(name);
                 
-                /* Pack integer arg info into the instruction */
+                /* Pack argument info into the instruction */
                 if (ir_get_count() > 0) {
                     Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
-                    last_instr->temp_dest = (uint8_t)int_arg_count;
-                    if (int_arg_count > 0) last_instr->temp_src1 = (uint8_t)int_arg_temps[0];
-                    if (int_arg_count > 1) last_instr->temp_src2 = (uint8_t)int_arg_temps[1];
-                    if (int_arg_count > 2) {
+                    last_instr->temp_dest = (uint8_t)int_arg_idx;
+                    if (int_arg_idx > 0) last_instr->temp_src1 = (uint8_t)all_arg_temps[0];
+                    if (int_arg_idx > 1) last_instr->temp_src2 = (uint8_t)all_arg_temps[1];
+                    if (int_arg_idx > 2) {
                         last_instr->imm = 0;
-                        if (int_arg_count > 2) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[2]) << 0;
-                        if (int_arg_count > 3) last_instr->imm |= ((int16_t)(uint8_t)int_arg_temps[3]) << 8;
+                        if (int_arg_idx > 2) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[2]) << 0;
+                        if (int_arg_idx > 3) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[3]) << 8;
                     }
                     /* Full argument list (needed for 5+ args) */
-                    ir_call_args_record(ir_get_count() - 1, int_arg_count, int_arg_temps);
-                    /* Store fp_reg_idx in label_idx for variadic %al handling */
-                    last_instr->label_idx = (uint16_t)fp_reg_idx;
+                    ir_call_args_record(ir_get_count() - 1, all_arg_count, all_arg_temps, all_arg_is_fp);
+                    /* Store fp_arg_idx in label_idx for variadic handling */
+                    last_instr->label_idx = (uint16_t)fp_arg_idx;
                 }
                 
                 /* Record float spill offsets for this call */
                 if (c->lowering.ir_ctx.call_count < 64) {
                     int cidx = c->lowering.ir_ctx.call_count++;
-                    c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_reg_idx;
-                    for (int f = 0; f < fp_reg_idx && f < BE(c)->conv->fp_arg_reg_count; f++) {
+                    c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_arg_idx;
+                    for (int f = 0; f < fp_arg_idx && f < BE(c)->conv->fp_arg_reg_count; f++) {
                         c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
                 }

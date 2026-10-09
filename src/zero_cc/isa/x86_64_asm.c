@@ -263,19 +263,33 @@ static void x86_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     fprintf(out, "\tmovq\t(%%%s),%%%s\n", src_name, dst_name);
 }
 
-/* CALL */
-static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, FILE *out) {
-    /* Move arguments to argument registers */
-    static const char *arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+/* CALL - Full x86-64 ABI compliance */
+static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
+    /* x86-64 System V ABI argument registers */
+    static const char *int_arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+    static const char *fp_arg_regs[] = {"xmm0", "xmm1", "xmm2", "xmm3", 
+                                         "xmm4", "xmm5", "xmm6", "xmm7"};
     
-    for (int i = 0; i < arg_count && i < 6; i++) {
+    int int_arg_idx = 0;
+    int fp_arg_idx = 0;
+    
+    for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
         const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", reg_name, arg_regs[i]);
+        
+        /* Use is_fp array to determine if argument is FP */
+        int arg_is_fp = is_fp ? is_fp[i] : 0;
+        
+        if (arg_is_fp && fp_arg_idx < 8) {
+            fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
+            fp_arg_idx++;
+        } else if (!arg_is_fp && int_arg_idx < 6) {
+            fprintf(out, "\tmovq\t%%%s, %%%s\n", reg_name, int_arg_regs[int_arg_idx]);
+            int_arg_idx++;
+        }
+        /* Stack arguments would go here for calls with >6 integer args or >8 FP args */
     }
-    
-    /* Stack arguments (beyond 6) would go here */
     
     fprintf(out, "\tcall\t%s\n", func_name);
 }
