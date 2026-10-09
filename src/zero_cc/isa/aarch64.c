@@ -161,17 +161,6 @@ static void aarch64_emit_leave(ZeroCCCompiler *c) {
 /* static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *aarch64_get_hw_reg_name(int phys_reg) { ... } */
 
-/* Get vector register name for AArch64 (NEON V registers) */
-static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
-    static char buf[16];
-    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
-        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
-    } else {
-        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
-    }
-    return buf;
-}
-
 static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
 }
@@ -903,36 +892,6 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 static int aarch64_get_int_reg(int vreg) { return vreg; }
 static int aarch64_get_fp_reg(int vreg) { return vreg; }
 
-/* Vector operation stubs for AArch64 (Phase 1: interface only, implemented in Phase 3) */
-static void aarch64_emit_vload_asm_stub(ZeroCCCompiler *c, int dst, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)dst; (void)base; (void)offset; (void)element_count; (void)out; }
-static void aarch64_emit_vstore_asm_stub(ZeroCCCompiler *c, int src, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)src; (void)base; (void)offset; (void)element_count; (void)out; }
-static void aarch64_emit_vadd_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vsub_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vmul_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vdiv_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vadd_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vsub_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vmul_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vdiv_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vand_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vxor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vaddss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vsubss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vmulss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vdivss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vaddsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vsubsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vmulsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vdivsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void aarch64_emit_vshuf_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int imm8, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)imm8; (void)out; }
-static void aarch64_emit_vcvt_si2ss_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void aarch64_emit_vcvt_ss2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void aarch64_emit_vcvt_si2sd_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void aarch64_emit_vcvt_sd2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void aarch64_emit_vcmp_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-static void aarch64_emit_vcmp_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-
 const ZeroCCISABackend aarch64_backend = {
     .isa = ISA_AARCH64,
     .regs = &aarch64_regs,
@@ -1084,36 +1043,6 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_fp_div_asm = aarch64_emit_fp_div_asm,
     .emit_fp_mov_asm = aarch64_emit_fp_mov_asm,
     .emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm,
-    
-    /* Vector operations (Phase 1: stubs, Phase 3: implementation) */
-    .emit_vload_asm = aarch64_emit_vload_asm_stub,
-    .emit_vstore_asm = aarch64_emit_vstore_asm_stub,
-    .emit_vadd_ps_asm = aarch64_emit_vadd_ps_asm_stub,
-    .emit_vsub_ps_asm = aarch64_emit_vsub_ps_asm_stub,
-    .emit_vmul_ps_asm = aarch64_emit_vmul_ps_asm_stub,
-    .emit_vdiv_ps_asm = aarch64_emit_vdiv_ps_asm_stub,
-    .emit_vadd_pd_asm = aarch64_emit_vadd_pd_asm_stub,
-    .emit_vsub_pd_asm = aarch64_emit_vsub_pd_asm_stub,
-    .emit_vmul_pd_asm = aarch64_emit_vmul_pd_asm_stub,
-    .emit_vdiv_pd_asm = aarch64_emit_vdiv_pd_asm_stub,
-    .emit_vand_asm = aarch64_emit_vand_asm_stub,
-    .emit_vor_asm = aarch64_emit_vor_asm_stub,
-    .emit_vxor_asm = aarch64_emit_vxor_asm_stub,
-    .emit_vaddss_asm = aarch64_emit_vaddss_asm_stub,
-    .emit_vsubss_asm = aarch64_emit_vsubss_asm_stub,
-    .emit_vmulss_asm = aarch64_emit_vmulss_asm_stub,
-    .emit_vdivss_asm = aarch64_emit_vdivss_asm_stub,
-    .emit_vaddsd_asm = aarch64_emit_vaddsd_asm_stub,
-    .emit_vsubsd_asm = aarch64_emit_vsubsd_asm_stub,
-    .emit_vmulsd_asm = aarch64_emit_vmulsd_asm_stub,
-    .emit_vdivsd_asm = aarch64_emit_vdivsd_asm_stub,
-    .emit_vshuf_asm = aarch64_emit_vshuf_asm_stub,
-    .emit_vcvt_si2ss_asm = aarch64_emit_vcvt_si2ss_asm_stub,
-    .emit_vcvt_ss2si_asm = aarch64_emit_vcvt_ss2si_asm_stub,
-    .emit_vcvt_si2sd_asm = aarch64_emit_vcvt_si2sd_asm_stub,
-    .emit_vcvt_sd2si_asm = aarch64_emit_vcvt_sd2si_asm_stub,
-    .emit_vcmp_ps_asm = aarch64_emit_vcmp_ps_asm_stub,
-    .emit_vcmp_pd_asm = aarch64_emit_vcmp_pd_asm_stub,
 };
 /* =========================================================================
  * Virtual Register (VREG) Mapping for AArch64

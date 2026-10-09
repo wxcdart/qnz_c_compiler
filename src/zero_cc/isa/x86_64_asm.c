@@ -24,6 +24,17 @@ static const char *x86_get_hw_reg_name(int phys_reg) {
     return "rax";  /* Default */
 }
 
+/* Get vector register name by index */
+static const char *x86_get_vec_reg_name(int vec_reg_idx) {
+    static char buf[16];
+    if (vec_reg_idx < 0 || vec_reg_idx >= 16) {
+        snprintf(buf, sizeof(buf), "xmm0");  /* Default to xmm0 for invalid */
+    } else {
+        snprintf(buf, sizeof(buf), "xmm%d", vec_reg_idx);
+    }
+    return buf;
+}
+
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
 static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out;
@@ -388,11 +399,210 @@ static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *o
     fprintf(out, "\tmovq\t%%rsp,%%%s\n", dst_name);
 }
 
+/* =========================================================================
+ * Vector Instruction Emission (SSE2)
+ * ========================================================================= */
+
+/* Vector load (128-bit aligned) - movaps */
+static void x86_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    fprintf(out, "\tmovaps\t%d(%%%s),%%%s\n", offset, BE(c)->get_hw_reg_name(base), dst_name);
+}
+
+/* Vector store (128-bit aligned) - movaps */
+static void x86_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tmovaps\t%%%s,%d(%%%s)\n", src_name, offset, BE(c)->get_hw_reg_name(base));
+}
+
+/* Vector scalar add - addss */
+static void x86_emit_vaddss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\taddss\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar sub - subss */
+static void x86_emit_vsubss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsubss\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar mul - mulss */
+static void x86_emit_vmulss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tmulss\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar div - divss */
+static void x86_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tdivss\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed single add - addps */
+static void x86_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\taddps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed single sub - subps */
+static void x86_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsubps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed single mul - mulps */
+static void x86_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tmulps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed single div - divps */
+static void x86_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tdivps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar double add - addsd */
+static void x86_emit_vaddsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\taddsd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar double sub - subsd */
+static void x86_emit_vsubsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsubsd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar double mul - mulsd */
+static void x86_emit_vmulsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tmulsd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector scalar double div - divsd */
+static void x86_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tdivsd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed double add - addpd */
+static void x86_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\taddpd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed double sub - subpd */
+static void x86_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsubpd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed double mul - mulpd */
+static void x86_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tmulpd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed double div - divpd */
+static void x86_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tdivpd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector move scalar - movss */
+static void x86_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tmovss\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Vector move aligned packed single - movaps */
+static void x86_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Vector move aligned packed double - movapd */
+static void x86_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tmovapd\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Vector bitwise and - andps */
+static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tandps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector bitwise or - orps */
+static void x86_emit_vorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\torps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector bitwise xor - xorps */
+static void x86_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\txorps\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector shuffle - shufps */
+static void x86_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tshufps\t$%d,%%%s,%%%s\n", imm, src2_name, dst_name);
+}
+
+/* Convert scalar int to scalar single - cvtsi2ss */
+static void x86_emit_vcvt_si2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_hw_reg_name(src);
+    fprintf(out, "\tcvtsi2ss\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Convert scalar single to scalar int - cvtss2si */
+static void x86_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tcvtss2si\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Vector compare scalar single - cmpss */
+static void x86_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tcmpss\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
+}
+
 /* Initialize x86-64 assembly emission functions in backend */
 void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = x86_emit_prologue_asm;
     be->emit_epilogue_asm = x86_emit_epilogue_asm;
     be->get_hw_reg_name = x86_get_hw_reg_name;
+    be->get_vec_reg_name = x86_get_vec_reg_name;
     
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;
@@ -429,4 +639,34 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_div_asm = x86_emit_fp_div_asm;
     be->emit_fp_mov_asm = x86_emit_fp_mov_asm;
     be->emit_vla_alloc_asm = x86_emit_vla_alloc_asm;
+    
+    /* Vector instruction emission (SSE2) */
+    be->emit_vload_asm = x86_emit_vload_asm;
+    be->emit_vstore_asm = x86_emit_vstore_asm;
+    be->emit_vaddss_asm = x86_emit_vaddss_asm;
+    be->emit_vsubss_asm = x86_emit_vsubss_asm;
+    be->emit_vmulss_asm = x86_emit_vmulss_asm;
+    be->emit_vdivss_asm = x86_emit_vdivss_asm;
+    be->emit_vaddps_asm = x86_emit_vaddps_asm;
+    be->emit_vsubps_asm = x86_emit_vsubps_asm;
+    be->emit_vmulps_asm = x86_emit_vmulps_asm;
+    be->emit_vdivps_asm = x86_emit_vdivps_asm;
+    be->emit_vaddsd_asm = x86_emit_vaddsd_asm;
+    be->emit_vsubsd_asm = x86_emit_vsubsd_asm;
+    be->emit_vmulsd_asm = x86_emit_vmulsd_asm;
+    be->emit_vdivsd_asm = x86_emit_vdivsd_asm;
+    be->emit_vaddpd_asm = x86_emit_vaddpd_asm;
+    be->emit_vsubpd_asm = x86_emit_vsubpd_asm;
+    be->emit_vmulpd_asm = x86_emit_vmulpd_asm;
+    be->emit_vdivpd_asm = x86_emit_vdivpd_asm;
+    be->emit_vmovss_asm = x86_emit_vmovss_asm;
+    be->emit_vmovaps_asm = x86_emit_vmovaps_asm;
+    be->emit_vmovapd_asm = x86_emit_vmovapd_asm;
+    be->emit_vandps_asm = x86_emit_vandps_asm;
+    be->emit_vorps_asm = x86_emit_vorps_asm;
+    be->emit_vxorps_asm = x86_emit_vxorps_asm;
+    be->emit_vshufps_asm = x86_emit_vshufps_asm;
+    be->emit_vcvt_si2ss_asm = x86_emit_vcvt_si2ss_asm;
+    be->emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm;
+    be->emit_vcmpss_asm = x86_emit_vcmpss_asm;
 }

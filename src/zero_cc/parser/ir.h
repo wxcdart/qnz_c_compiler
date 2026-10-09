@@ -129,7 +129,17 @@ typedef enum {
     OP_VORPS,      /* orps (merge) */
     OP_VSUBPS,     /* subps (packed) */
     OP_VMULPS,     /* mulps (packed) */
+    OP_VADDPS,     /* addps (packed single) */
+    OP_VDIVPS,     /* divps (packed single) */
+    OP_VSUBPD,     /* subpd (packed double) */
+    OP_VMULPD,     /* mulpd (packed double) */
     OP_VADDPD,     /* addpd (packed double) */
+    OP_VDIVPD,     /* divpd (packed double) */
+    OP_VMOVAPS,    /* movaps (aligned packed single) */
+    OP_VMOVAPD,    /* movapd (aligned packed double) */
+    OP_VANDPS,     /* andps (packed single) */
+    OP_VXORPS,     /* xorps (packed single) */
+    OP_VSHUFPS,    /* shufps (shuffle packed single) */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */

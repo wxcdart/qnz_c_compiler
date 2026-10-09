@@ -31,36 +31,6 @@ static int riscv_vreg_to_phys(int vreg) {
 static int riscv_get_int_reg(int vreg) { return riscv_vreg_to_phys(vreg); }
 static int riscv_get_fp_reg(int vreg) { return vreg; }  /* Float regs are sequential */
 
-/* Vector operation stubs for RISC-V (Phase 1: interface only, implemented in Phase 3) */
-static void riscv_emit_vload_asm_stub(ZeroCCCompiler *c, int dst, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)dst; (void)base; (void)offset; (void)element_count; (void)out; }
-static void riscv_emit_vstore_asm_stub(ZeroCCCompiler *c, int src, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)src; (void)base; (void)offset; (void)element_count; (void)out; }
-static void riscv_emit_vadd_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vsub_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vmul_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vdiv_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vadd_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vsub_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vmul_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vdiv_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vand_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vxor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vaddss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vsubss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vmulss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vdivss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vaddsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vsubsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vmulsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vdivsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void riscv_emit_vshuf_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int imm8, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)imm8; (void)out; }
-static void riscv_emit_vcvt_si2ss_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void riscv_emit_vcvt_ss2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void riscv_emit_vcvt_si2sd_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void riscv_emit_vcvt_sd2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void riscv_emit_vcmp_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-static void riscv_emit_vcmp_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-
 #define RV_REG(vreg) riscv_vreg_to_phys(vreg)
 
 
@@ -184,17 +154,6 @@ static void riscv64_emit_leave(ZeroCCCompiler *c) {
 /* static void riscv64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) { ... } */
 /* static void riscv64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *riscv64_get_hw_reg_name(int phys_reg) { ... } */
-
-/* Get vector register name for RISC-V (RVV V registers) */
-static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
-    static char buf[16];
-    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
-        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
-    } else {
-        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
-    }
-    return buf;
-}
 
 static size_t riscv64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
@@ -1398,34 +1357,4 @@ const ZeroCCISABackend riscv32_backend = {
     .emit_dec = riscv32_emit_dec,
     .emit_sar = riscv32_emit_sar,
     .emit_label = riscv32_emit_label,
-    
-    /* Vector operations (Phase 1: stubs, Phase 3: implementation) */
-    .emit_vload_asm = riscv_emit_vload_asm_stub,
-    .emit_vstore_asm = riscv_emit_vstore_asm_stub,
-    .emit_vadd_ps_asm = riscv_emit_vadd_ps_asm_stub,
-    .emit_vsub_ps_asm = riscv_emit_vsub_ps_asm_stub,
-    .emit_vmul_ps_asm = riscv_emit_vmul_ps_asm_stub,
-    .emit_vdiv_ps_asm = riscv_emit_vdiv_ps_asm_stub,
-    .emit_vadd_pd_asm = riscv_emit_vadd_pd_asm_stub,
-    .emit_vsub_pd_asm = riscv_emit_vsub_pd_asm_stub,
-    .emit_vmul_pd_asm = riscv_emit_vmul_pd_asm_stub,
-    .emit_vdiv_pd_asm = riscv_emit_vdiv_pd_asm_stub,
-    .emit_vand_asm = riscv_emit_vand_asm_stub,
-    .emit_vor_asm = riscv_emit_vor_asm_stub,
-    .emit_vxor_asm = riscv_emit_vxor_asm_stub,
-    .emit_vaddss_asm = riscv_emit_vaddss_asm_stub,
-    .emit_vsubss_asm = riscv_emit_vsubss_asm_stub,
-    .emit_vmulss_asm = riscv_emit_vmulss_asm_stub,
-    .emit_vdivss_asm = riscv_emit_vdivss_asm_stub,
-    .emit_vaddsd_asm = riscv_emit_vaddsd_asm_stub,
-    .emit_vsubsd_asm = riscv_emit_vsubsd_asm_stub,
-    .emit_vmulsd_asm = riscv_emit_vmulsd_asm_stub,
-    .emit_vdivsd_asm = riscv_emit_vdivsd_asm_stub,
-    .emit_vshuf_asm = riscv_emit_vshuf_asm_stub,
-    .emit_vcvt_si2ss_asm = riscv_emit_vcvt_si2ss_asm_stub,
-    .emit_vcvt_ss2si_asm = riscv_emit_vcvt_ss2si_asm_stub,
-    .emit_vcvt_si2sd_asm = riscv_emit_vcvt_si2sd_asm_stub,
-    .emit_vcvt_sd2si_asm = riscv_emit_vcvt_sd2si_asm_stub,
-    .emit_vcmp_ps_asm = riscv_emit_vcmp_ps_asm_stub,
-    .emit_vcmp_pd_asm = riscv_emit_vcmp_pd_asm_stub,
 };

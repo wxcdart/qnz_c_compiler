@@ -105,6 +105,36 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_mov_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vla_alloc_asm)(ZeroCCCompiler *c, int dst, int size, FILE *out);
     
+    /* Vector instruction emission (SSE2/NEON/RVV) */
+    void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+    void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
+    void (*emit_vaddss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vsubss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vmulss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vdivss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vaddps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vsubps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vmulps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vdivps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vaddsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vsubsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vmulsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vdivsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vaddpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vsubpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vmulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vdivpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vmovss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vmovaps_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vmovapd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vandps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vxorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
+    void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vcmpss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
+    
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);
     void (*emit_add)(ZeroCCCompiler *c, int dst, int src1, int src2);
@@ -208,36 +238,6 @@ typedef struct ZeroCCISABackend {
 
     /* Labels */
     void (*emit_label)(ZeroCCCompiler *c, const char *name);
-    
-    /* Vector operations (assembly emission for SIMD opcodes) */
-    void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, int element_count, FILE *out);
-    void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, int element_count, FILE *out);
-    void (*emit_vadd_ps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vsub_ps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vmul_ps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vdiv_ps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vadd_pd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vsub_pd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vmul_pd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vdiv_pd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vand_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vor_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vxor_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vaddss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vsubss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vmulss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vdivss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vaddsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vsubsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vmulsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vdivsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    void (*emit_vshuf_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm8, FILE *out);
-    void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
-    void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
-    void (*emit_vcvt_si2sd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
-    void (*emit_vcvt_sd2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
-    void (*emit_vcmp_ps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out);
-    void (*emit_vcmp_pd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out);
     
     /* VREG mapping (ISA-independent virtual to physical register) */
     int (*get_int_reg)(int vreg);  /* Map VREG_INT_* to physical */

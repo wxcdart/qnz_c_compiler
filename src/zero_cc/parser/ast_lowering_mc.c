@@ -342,6 +342,178 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            /* =========================================================================
+             * Vector Instruction Emission (SSE2/NEON/RVV)
+             * ========================================================================= */
+
+            case OP_VLOAD:
+                if (BE(c)->emit_vload_asm) {
+                    BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                }
+                break;
+
+            case OP_VSTORE:
+                if (BE(c)->emit_vstore_asm) {
+                    BE(c)->emit_vstore_asm(c, phys_src1, phys_src2, instr->imm, c->asm_out);
+                }
+                break;
+
+            case OP_VADDSS:
+                if (BE(c)->emit_vaddss_asm) {
+                    BE(c)->emit_vaddss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VSUBSS:
+                if (BE(c)->emit_vsubss_asm) {
+                    BE(c)->emit_vsubss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VMULSS:
+                if (BE(c)->emit_vmulss_asm) {
+                    BE(c)->emit_vmulss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VDIVSS:
+                if (BE(c)->emit_vdivss_asm) {
+                    BE(c)->emit_vdivss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VADDPS:
+                if (BE(c)->emit_vaddps_asm) {
+                    BE(c)->emit_vaddps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VSUBPS:
+                if (BE(c)->emit_vsubps_asm) {
+                    BE(c)->emit_vsubps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VMULPS:
+                if (BE(c)->emit_vmulps_asm) {
+                    BE(c)->emit_vmulps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VDIVPS:
+                if (BE(c)->emit_vdivps_asm) {
+                    BE(c)->emit_vdivps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VADDSD:
+                if (BE(c)->emit_vaddsd_asm) {
+                    BE(c)->emit_vaddsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VSUBSD:
+                if (BE(c)->emit_vsubsd_asm) {
+                    BE(c)->emit_vsubsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VMULSD:
+                if (BE(c)->emit_vmulsd_asm) {
+                    BE(c)->emit_vmulsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VDIVSD:
+                if (BE(c)->emit_vdivsd_asm) {
+                    BE(c)->emit_vdivsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VADDPD:
+                if (BE(c)->emit_vaddpd_asm) {
+                    BE(c)->emit_vaddpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VSUBPD:
+                if (BE(c)->emit_vsubpd_asm) {
+                    BE(c)->emit_vsubpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VMULPD:
+                if (BE(c)->emit_vmulpd_asm) {
+                    BE(c)->emit_vmulpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VDIVPD:
+                if (BE(c)->emit_vdivpd_asm) {
+                    BE(c)->emit_vdivpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VMOVSS:
+                if (BE(c)->emit_vmovss_asm) {
+                    BE(c)->emit_vmovss_asm(c, phys_dst, phys_src1, c->asm_out);
+                }
+                break;
+
+            case OP_VMOVAPS:
+                if (BE(c)->emit_vmovaps_asm) {
+                    BE(c)->emit_vmovaps_asm(c, phys_dst, phys_src1, c->asm_out);
+                }
+                break;
+
+            case OP_VMOVAPD:
+                if (BE(c)->emit_vmovapd_asm) {
+                    BE(c)->emit_vmovapd_asm(c, phys_dst, phys_src1, c->asm_out);
+                }
+                break;
+
+            case OP_VANDPS:
+                if (BE(c)->emit_vandps_asm) {
+                    BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VORPS:
+                if (BE(c)->emit_vorps_asm) {
+                    BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VXORPS:
+                if (BE(c)->emit_vxorps_asm) {
+                    BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                }
+                break;
+
+            case OP_VSHUFPS:
+                if (BE(c)->emit_vshufps_asm) {
+                    BE(c)->emit_vshufps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                }
+                break;
+
+            case OP_VCVT_SI2SS:
+                if (BE(c)->emit_vcvt_si2ss_asm) {
+                    BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);
+                }
+                break;
+
+            case OP_VCVT_SS2SI:
+                if (BE(c)->emit_vcvt_ss2si_asm) {
+                    BE(c)->emit_vcvt_ss2si_asm(c, phys_dst, phys_src1, c->asm_out);
+                }
+                break;
+
+            case OP_VCMPSS:
+                if (BE(c)->emit_vcmpss_asm) {
+                    BE(c)->emit_vcmpss_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                }
+                break;
+
             case OP_LEA_RIP: {
                 /* LEA RIP-relative for string literals */
                 size_t rodata_offset = (size_t)instr->imm64;

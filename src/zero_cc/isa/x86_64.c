@@ -169,17 +169,6 @@ static void x86_emit_leave(ZeroCCCompiler *c) {
 /* static void x86_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *x86_get_hw_reg_name(int phys_reg) { ... } */
 
-/* Get vector register name for x86-64 (XMM registers) */
-static const char *x86_get_vec_reg_name(int vec_reg_idx) {
-    static char buf[16];
-    if (vec_reg_idx < 0 || vec_reg_idx >= 16) {
-        snprintf(buf, sizeof(buf), "xmm0");  /* Default to xmm0 for invalid */
-    } else {
-        snprintf(buf, sizeof(buf), "xmm%d", vec_reg_idx);
-    }
-    return buf;
-}
-
 static size_t x86_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
 }
@@ -1239,36 +1228,6 @@ static size_t x86_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t targe
 static int x86_get_int_reg(int vreg) { return vreg; }
 static int x86_get_fp_reg(int vreg) { return vreg; }
 
-/* Vector operation stubs for x86-64 (Phase 1: interface only, implemented in Phase 3) */
-static void x86_emit_vload_asm_stub(ZeroCCCompiler *c, int dst, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)dst; (void)base; (void)offset; (void)element_count; (void)out; }
-static void x86_emit_vstore_asm_stub(ZeroCCCompiler *c, int src, int base, int32_t offset, int element_count, FILE *out) { (void)c; (void)src; (void)base; (void)offset; (void)element_count; (void)out; }
-static void x86_emit_vadd_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vsub_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vmul_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vdiv_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vadd_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vsub_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vmul_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vdiv_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vand_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vxor_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vaddss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vsubss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vmulss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vdivss_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vaddsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vsubsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vmulsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vdivsd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)out; }
-static void x86_emit_vshuf_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int imm8, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)imm8; (void)out; }
-static void x86_emit_vcvt_si2ss_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void x86_emit_vcvt_ss2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void x86_emit_vcvt_si2sd_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void x86_emit_vcvt_sd2si_asm_stub(ZeroCCCompiler *c, int dst, int src, FILE *out) { (void)c; (void)dst; (void)src; (void)out; }
-static void x86_emit_vcmp_ps_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-static void x86_emit_vcmp_pd_asm_stub(ZeroCCCompiler *c, int dst, int src1, int src2, int predicate, FILE *out) { (void)c; (void)dst; (void)src1; (void)src2; (void)predicate; (void)out; }
-
 const ZeroCCISABackend x86_64_backend = {
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,
@@ -1423,36 +1382,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_fp_mov_asm = x86_emit_fp_mov_asm,
     .emit_vla_alloc_asm = x86_emit_vla_alloc_asm,
     
-    /* Vector operations (Phase 1: stubs, Phase 3: implementation) */
-    .emit_vload_asm = x86_emit_vload_asm_stub,
-    .emit_vstore_asm = x86_emit_vstore_asm_stub,
-    .emit_vadd_ps_asm = x86_emit_vadd_ps_asm_stub,
-    .emit_vsub_ps_asm = x86_emit_vsub_ps_asm_stub,
-    .emit_vmul_ps_asm = x86_emit_vmul_ps_asm_stub,
-    .emit_vdiv_ps_asm = x86_emit_vdiv_ps_asm_stub,
-    .emit_vadd_pd_asm = x86_emit_vadd_pd_asm_stub,
-    .emit_vsub_pd_asm = x86_emit_vsub_pd_asm_stub,
-    .emit_vmul_pd_asm = x86_emit_vmul_pd_asm_stub,
-    .emit_vdiv_pd_asm = x86_emit_vdiv_pd_asm_stub,
-    .emit_vand_asm = x86_emit_vand_asm_stub,
-    .emit_vor_asm = x86_emit_vor_asm_stub,
-    .emit_vxor_asm = x86_emit_vxor_asm_stub,
-    .emit_vaddss_asm = x86_emit_vaddss_asm_stub,
-    .emit_vsubss_asm = x86_emit_vsubss_asm_stub,
-    .emit_vmulss_asm = x86_emit_vmulss_asm_stub,
-    .emit_vdivss_asm = x86_emit_vdivss_asm_stub,
-    .emit_vaddsd_asm = x86_emit_vaddsd_asm_stub,
-    .emit_vsubsd_asm = x86_emit_vsubsd_asm_stub,
-    .emit_vmulsd_asm = x86_emit_vmulsd_asm_stub,
-    .emit_vdivsd_asm = x86_emit_vdivsd_asm_stub,
-    .emit_vshuf_asm = x86_emit_vshuf_asm_stub,
-    .emit_vcvt_si2ss_asm = x86_emit_vcvt_si2ss_asm_stub,
-    .emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm_stub,
-    .emit_vcvt_si2sd_asm = x86_emit_vcvt_si2sd_asm_stub,
-    .emit_vcvt_sd2si_asm = x86_emit_vcvt_sd2si_asm_stub,
-    .emit_vcmp_ps_asm = x86_emit_vcmp_ps_asm_stub,
-    .emit_vcmp_pd_asm = x86_emit_vcmp_pd_asm_stub,
-};
+    };
 
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
     switch (isa) {

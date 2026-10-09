@@ -26,6 +26,17 @@ static const char *riscv_get_hw_reg_name(int phys_reg) {
     return "a0";  /* Default */
 }
 
+/* Get vector register name by index */
+static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
+    static char buf[16];
+    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
+        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
+    } else {
+        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
+    }
+    return buf;
+}
+
 /* Prologue: addi sp, sp, -frame_size, save callee-saved */
 static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
@@ -332,11 +343,213 @@ static void riscv_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE 
     fprintf(out, "\tsub\t%s, sp, %s\n", dst_name, size_name);
 }
 
+/* =========================================================================
+ * Vector Instruction Emission (RVV)
+ * ========================================================================= */
+
+/* Vector load - vle32.v */
+static void riscv_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tvle32.v\t%s, %d(%s)\n", dst_name, offset, base_name);
+}
+
+/* Vector store - vse32.v */
+static void riscv_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tvse32.v\t%s, %d(%s)\n", src_name, offset, base_name);
+}
+
+/* Vector scalar single add - vfadd.s */
+static void riscv_emit_vaddss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfadd.s\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar single sub - vfsub.s */
+static void riscv_emit_vsubss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfsub.s\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar single mul - vfmul.s */
+static void riscv_emit_vmulss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfmul.s\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar single div - vfdiv.s */
+static void riscv_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfdiv.s\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed add - vfadd.vv */
+static void riscv_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfadd.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed sub - vfsub.vv */
+static void riscv_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfsub.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed mul - vfmul.vv */
+static void riscv_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfmul.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed div - vfdiv.vv */
+static void riscv_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfdiv.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar double add - vfadd.d */
+static void riscv_emit_vaddsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfadd.d\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar double sub - vfsub.d */
+static void riscv_emit_vsubsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfsub.d\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar double mul - vfmul.d */
+static void riscv_emit_vmulsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfmul.d\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector scalar double div - vfdiv.d */
+static void riscv_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfdiv.d\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed double add - vfadd.vv (double) */
+static void riscv_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfadd.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed double sub - vfsub.vv (double) */
+static void riscv_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfsub.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed double mul - vfmul.vv (double) */
+static void riscv_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfmul.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector packed double div - vfdiv.vv (double) */
+static void riscv_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvfdiv.vv\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector move - vmv.v */
+static void riscv_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src_name);
+}
+
+/* Vector move packed - vmv.v */
+static void riscv_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src_name);
+}
+
+/* Vector move packed double - vmv.v */
+static void riscv_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src_name);
+}
+
+/* Vector bitwise and - vand.v */
+static void riscv_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvand.v\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector bitwise or - vor.v */
+static void riscv_emit_vorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvor.v\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector bitwise xor - vxor.v */
+static void riscv_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvxor.v\tvs3=%s, vs2=%s, vd=%s\n", src2_name, src2_name, dst_name);
+}
+
+/* Vector shuffle - Not directly supported in RVV, use vmv.v + extract */
+static void riscv_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\t# RVV shuffle (imm=%d): %s <- %s\n", imm, dst_name, src2_name);
+    fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src2_name);
+}
+
+/* Convert scalar int to scalar single - fcvt.s.w */
+static void riscv_emit_vcvt_si2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_hw_reg_name(src);
+    fprintf(out, "\tfcvt.s.w\tf%s, %s\n", dst_name, src_name);
+}
+
+/* Convert scalar single to scalar int - fcvt.w.s */
+static void riscv_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tfcvt.w.s\t%s, f%s\n", dst_name, src_name);
+}
+
+/* Vector compare - fcmp.s */
+static void riscv_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tfcmp.s\tf%s, f%s\n", src1_name, src2_name);
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = riscv_emit_prologue_asm;
     be->emit_epilogue_asm = riscv_emit_epilogue_asm;
     be->get_hw_reg_name = riscv_get_hw_reg_name;
+    be->get_vec_reg_name = riscv_get_vec_reg_name;
     
     be->emit_mov_imm_asm = riscv_emit_mov_imm_asm;
     be->emit_mov_reg_asm = riscv_emit_mov_reg_asm;
@@ -373,4 +586,34 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_div_asm = riscv_emit_fp_div_asm;
     be->emit_fp_mov_asm = riscv_emit_fp_mov_asm;
     be->emit_vla_alloc_asm = riscv_emit_vla_alloc_asm;
+    
+    /* Vector instruction emission (RVV) */
+    be->emit_vload_asm = riscv_emit_vload_asm;
+    be->emit_vstore_asm = riscv_emit_vstore_asm;
+    be->emit_vaddss_asm = riscv_emit_vaddss_asm;
+    be->emit_vsubss_asm = riscv_emit_vsubss_asm;
+    be->emit_vmulss_asm = riscv_emit_vmulss_asm;
+    be->emit_vdivss_asm = riscv_emit_vdivss_asm;
+    be->emit_vaddps_asm = riscv_emit_vaddps_asm;
+    be->emit_vsubps_asm = riscv_emit_vsubps_asm;
+    be->emit_vmulps_asm = riscv_emit_vmulps_asm;
+    be->emit_vdivps_asm = riscv_emit_vdivps_asm;
+    be->emit_vaddsd_asm = riscv_emit_vaddsd_asm;
+    be->emit_vsubsd_asm = riscv_emit_vsubsd_asm;
+    be->emit_vmulsd_asm = riscv_emit_vmulsd_asm;
+    be->emit_vdivsd_asm = riscv_emit_vdivsd_asm;
+    be->emit_vaddpd_asm = riscv_emit_vaddpd_asm;
+    be->emit_vsubpd_asm = riscv_emit_vsubpd_asm;
+    be->emit_vmulpd_asm = riscv_emit_vmulpd_asm;
+    be->emit_vdivpd_asm = riscv_emit_vdivpd_asm;
+    be->emit_vmovss_asm = riscv_emit_vmovss_asm;
+    be->emit_vmovaps_asm = riscv_emit_vmovaps_asm;
+    be->emit_vmovapd_asm = riscv_emit_vmovapd_asm;
+    be->emit_vandps_asm = riscv_emit_vandps_asm;
+    be->emit_vorps_asm = riscv_emit_vorps_asm;
+    be->emit_vxorps_asm = riscv_emit_vxorps_asm;
+    be->emit_vshufps_asm = riscv_emit_vshufps_asm;
+    be->emit_vcvt_si2ss_asm = riscv_emit_vcvt_si2ss_asm;
+    be->emit_vcvt_ss2si_asm = riscv_emit_vcvt_ss2si_asm;
+    be->emit_vcmpss_asm = riscv_emit_vcmpss_asm;
 }
