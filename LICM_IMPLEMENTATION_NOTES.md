@@ -205,3 +205,218 @@ For now, we'll keep the detection working and return to code motion when we have
 
 **Status**: Detection ✅, Code Motion ❌
 **Timeline for Code Motion**: 1-2 weeks (when prioritized)
+
+## Recent Implementation Attempt (2024)
+
+### What We Tried
+
+We attempted a **two-pass algorithm** using an IRBuilder:
+
+1. **Pass 1**: Collect all invariants from all loops
+2. **Pass 2**: Build new IR with invariants inserted at preheader
+3. **Replace**: Atomically swap old IR with new IR
+
+### Why It Failed
+
+Even with the two-pass approach, we encountered an infinite loop:
+
+```
+Iteration 1:
+  - Detect 5 loops, 324 invariants
+  - Build new IR with invariants at position 1
+  - Replace IR
+
+Iteration 2:
+  - Re-analyze loops (indices shifted!)
+  - Detect same 5 loops, same 324 invariants
+  - Build new IR again
+  - Replace IR
+  ...
+  Loop forever!
+```
+
+### Root Cause
+
+The problem is that **loop analysis is re-run on every optimization iteration**. When we:
+1. Insert invariants at position 1
+2. Shift all instructions
+3. Re-analyze loops
+
+The loop analysis finds the **same loops** with the **same invariants**, even though we already moved them. The optimization loop never terminates.
+
+### Why Detection-Only Works
+
+By keeping detection-only:
+- ✅ We can profile optimization opportunities (324 invariants found!)
+- ✅ No IR modifications, so no infinite loops
+- ✅ DCE still cleans up any dead code
+
+### Future Solutions
+
+To implement full LICM, we need to:
+
+1. **Mark moved invariants** so they're not detected again
+2. **Or** change the optimization loop structure to run LICM only once
+3. **Or** implement a more sophisticated preheader generation that doesn't conflict with loop analysis
+
+**Timeline**: Requires architectural changes to optimization pipeline
+**Complexity**: High (1-2 weeks)
+**Priority**: Medium (good optimization, but not blocking)
+
+### Current Status
+
+- **Detection**: ✅ Working (324 invariants found in demo)
+- **Code Motion**: ❌ Disabled (causes infinite loops)
+- **Instructions Moved**: 0
+
+See `SESSION_SUMMARY.md` for complete analysis.
+
+---
+
+## Latest Attempt: Running LICM Outside Fixed-Point Loop (2024)
+
+### The Analysis
+
+After extensive debugging, the root cause was identified as having **TWO distinct flaws**:
+
+#### Flaw A: Pass Manager Fixed-Point Metric
+The pass manager uses `before_count != after_count` to detect changes. When LICM inserts instructions:
+- The count changes → triggers another iteration
+- Same invariants detected again → inserts again
+- Infinite loop!
+
+#### Flaw B: Array Splicing in Flat IR Buffer
+When inserting at position 1:
+- ALL subsequent instruction indices shift by +1
+- Jump targets (OP_JMP, OP_JE, etc.) become corrupted
+- Breaks tests WITHOUT loops too!
+
+### What We Tried
+
+**Pattern 1: Run LICM Once Outside Fixed-Point Loop**
+
+```c
+// Phase 1: Run local optimizations until fixed-point
+while (changed && iteration < max_iterations) {
+    opt_constant_fold(c);
+    opt_dce(c);
+    opt_cse(c);
+    // Skip LICM here
+}
+
+// Phase 2: Run LICM exactly once
+opt_licm(c);
+
+// Phase 3: Final DCE cleanup
+opt_dce(c);
+```
+
+**Problem**: Even running LICM once causes index corruption because `ir_insert_at(1, ...)` shifts ALL instruction indices.
+
+### Why This Failed
+
+The fundamental problem is **ZeroCC uses a flat array IR**:
+
+```c
+typedef struct {
+    Instr *buffer;      // Flat array of instructions
+    size_t capacity;
+    size_t count;
+} IRArena;
+```
+
+When we insert at position 1:
+```
+Original: [0]PROLOGUE [1]LABEL [2]ADD [3]JMP
+Insert:   [0]PROLOGUE [1]NEW [2]LABEL [3]ADD [4]JMP
+Problem:  JMP still points to old index!
+```
+
+### The Proper Solution
+
+To implement LICM code motion, we need ONE of these:
+
+#### Option A: Basic Block-Based IR (Architectural Change)
+- Replace flat array with linked basic blocks
+- Each block has its own instruction list
+- Inserting in one block doesn't affect others
+- **Complexity**: High (weeks of work)
+- **Example**: LLVM, GCC, Clang all use this
+
+#### Option B: Two-Pass with Index Remapping
+```c
+// Pass 1: Collect all transformations
+// Pass 2: Build new IR with correct indices
+// Pass 3: Update all jump targets
+
+IRBuilder b;
+ir_builder_init(&b);
+
+// Copy instructions, track index mapping
+for (int i = 0; i < old_count; i++) {
+    Instr *old = ir_get(i);
+    size_t new_idx = ir_builder_count(&b);
+    index_map[i] = new_idx;
+    ir_builder_emit(&b, *old);
+}
+
+// Update jump targets using index_map
+for (int i = 0; i < new_count; i++) {
+    Instr *instr = ir_builder_get(&b, i);
+    if (is_jump(instr)) {
+        instr->label_idx = index_map[instr->label_idx];
+    }
+}
+
+ir_builder_finish(&b);
+```
+- **Complexity**: Medium (1-2 weeks)
+- **Risk**: Low (doesn't change IR structure)
+
+#### Option C: Label-Based Preheaders (Simpler)
+- Generate a dedicated preheader label before each loop
+- Hoist invariants to that preheader (append, don't insert)
+- Use label-based jumps instead of index-based
+- **Complexity**: Medium (requires label infrastructure)
+
+### Current Decision
+
+**Keep detection-only mode**
+
+**Rationale**:
+1. Detection shows real value (324 invariants found!)
+2. Code motion requires either:
+   - Basic block IR (architectural change, weeks of work)
+   - Index remapping (1-2 weeks, non-trivial)
+3. Other optimizations have better ROI right now
+
+### Profiling Results (Detection-Only)
+
+```
+LICM:
+  Loops detected: 5
+  Invariants found: 324  ← Real optimization opportunities!
+  Instructions moved: 0  ← Detection-only mode
+
+CSE:
+  Instructions scanned: 181
+  Eliminated: 0
+  Elimination rate: 0.00%
+```
+
+### Conclusion
+
+LICM code motion is **fundamentally incompatible** with ZeroCC's flat array IR without architectural changes. The detection is working and shows significant optimization opportunities, but exploiting them requires either:
+
+1. **Basic block IR** (weeks of work, architectural change)
+2. **Two-pass with index remapping** (1-2 weeks, non-trivial)
+3. **Label-based preheaders** (1-2 weeks, requires label infrastructure)
+
+For now, detection-only is the pragmatic choice that:
+- ✅ Shows optimization opportunities (324 invariants)
+- ✅ Has zero risk of breaking correctness
+- ✅ Enables profiling and measurement
+- ✅ Can be enhanced later when we have time
+
+**Status**: Detection ✅, Code Motion ❌ (requires architectural changes)
+**Timeline**: 1-2 weeks when prioritized

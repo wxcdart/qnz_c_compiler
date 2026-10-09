@@ -169,11 +169,17 @@ static bool instr_has_moving_side_effects(Instr *instr) {
  * Loop-invariant code motion (LICM)
  * Detects loop-invariant instructions
  * 
- * Note: Full code motion is disabled due to complexity of handling
- * instruction index invalidation. Detection is working and shows
- * optimization opportunities.
+ * Note: Full code motion is disabled due to instruction index invalidation.
+ * When inserting instructions, all subsequent indices shift, breaking jump targets.
  * 
- * See LICM_IMPLEMENTATION_NOTES.md for details.
+ * Proper solution requires either:
+ * 1. Rebuilding the entire IR with new indices (complex)
+ * 2. Using a basic-block-based IR instead of flat array (architectural change)
+ * 3. Running LICM once outside the fixed-point loop AND using label-based preheaders
+ * 
+ * Detection is working and shows optimization opportunities (324 invariants found).
+ * 
+ * See LICM_IMPLEMENTATION_NOTES.md for detailed analysis.
  */
 void opt_licm(ZeroCCCompiler *c) {
     (void)c;
@@ -181,7 +187,7 @@ void opt_licm(ZeroCCCompiler *c) {
     LoopAnalysisState state;
     loop_analysis_init(&state);
     
-    /* Pass 1: Detect loops */
+    /* Detect loops */
     detect_loops(&state);
     
     if (state.loop_count == 0) {
@@ -231,7 +237,7 @@ void opt_licm(ZeroCCCompiler *c) {
         }
     }
     
-    /* Note: Code motion is disabled to avoid infinite loops */
+    /* Note: Code motion is disabled to avoid index corruption */
     /* See LICM_IMPLEMENTATION_NOTES.md for details */
     
     loop_analysis_free(&state);
