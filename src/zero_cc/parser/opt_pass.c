@@ -3,6 +3,7 @@
 #include "opt_dce.h"
 #include "opt_cse.h"
 #include "opt_loop.h"
+#include "opt_vectorize.h"
 #include "ir.h"
 #include "regalloc.h"
 
@@ -15,8 +16,9 @@ static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
 static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
+static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
 
-// Enable all passes: constant folding -> flag DCE -> DCE -> CSE -> LICM -> strength reduction -> branch simplify
+// Enable passes: constant folding -> flag DCE -> DCE -> CSE -> LICM -> strength reduction -> branch simplify -> auto-vectorize
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
     { "flag_dce", opt_pass_flag_dce, 1, 20 },
@@ -25,6 +27,7 @@ static const OptPass g_opt_passes[] = {
     { "licm", opt_pass_licm, 1, 50 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 70 },
+    { "auto_vectorize", opt_pass_auto_vectorize, 1, 80 },
 };
 
 #define OPT_PASS_COUNT (sizeof(g_opt_passes) / sizeof(g_opt_passes[0]))
@@ -65,3 +68,4 @@ static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }
 static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduction(c); }
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }
+static void opt_pass_auto_vectorize(ZeroCCCompiler *c) { opt_auto_vectorize(c); }
