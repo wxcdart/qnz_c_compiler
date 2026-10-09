@@ -9,6 +9,7 @@
  * CSE state
  */
 static HashTable32 *g_cse_table;
+static int g_cse_bb_start;  /* Current basic block start index */
 
 /**
  * Initialize CSE system
@@ -16,6 +17,24 @@ static HashTable32 *g_cse_table;
 static void cse_init(void) {
     g_cse_table = malloc(sizeof(HashTable32));
     ht32_init(g_cse_table, 4096);
+    g_cse_bb_start = 0;
+}
+
+/**
+ * Clear CSE table for new basic block
+ * Note: TPHT is immutable, so we need to free and reinitialize
+ */
+static void cse_clear_block(void) {
+    if (g_cse_table) {
+        ht32_free(g_cse_table);
+        free(g_cse_table);
+        g_cse_table = NULL;
+    }
+    g_cse_table = malloc(sizeof(HashTable32));
+    if (g_cse_table) {
+        ht32_init(g_cse_table, 4096);
+    }
+    g_cse_bb_start = 0;
 }
 
 /**
@@ -150,24 +169,32 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        // Skip non-pure operations
+        /* BUG FIX: Clear CSE table at basic block boundaries */
+        /* OP_LABEL starts a new basic block - expressions don't cross boundaries */
+        if (instr->op == OP_LABEL) {
+            cse_clear_block();
+            g_cse_bb_start = i;
+            continue;
+        }
+        
+        /* Skip non-pure operations */
         if (!instr_is_pure(instr)) {
             continue;
         }
         
-        // Skip if destination is 0xFF or 0
+        /* Skip if destination is 0xFF or 0 */
         if (instr->temp_dest == 0xFF || instr->temp_dest == 0) {
             continue;
         }
         
-        // Check if we've seen this expression before
+        /* Check if we've seen this expression before */
         int existing = cse_find(instr);
         
         if (existing >= 0) {
-            // Found duplicate - replace with copy
+            /* Found duplicate - replace with copy */
             replace_with_cse_copy(i, existing);
         } else {
-            // First time - add to table
+            /* First time - add to table */
             cse_add(instr, i);
         }
     }

@@ -157,7 +157,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
     ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
-    ra->use_cost_based = false;   /* Default to standard allocation */
+    ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
     for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
