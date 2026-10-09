@@ -309,6 +309,10 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     TransformInfo transforms[64];
     size_t transform_count = 0;
     
+    /* Track scalar temp -> vector temp mapping for data flow */
+    int scalar_to_vec_map[256];
+    memset(scalar_to_vec_map, -1, sizeof(scalar_to_vec_map));
+    
     /* Scan loop body for vectorizable patterns */
     for (int i = start_idx; i <= end_idx && transform_count < 64; i++) {
         Instr *instr = ir_get(i);
@@ -352,17 +356,23 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         return false;
     }
     
-    /* Allocate vector temps */
-    int vec_temp_counter = 16;  /* Start after general purpose temps */
+    /* Allocate vector temps starting after general purpose temps */
+    int vec_temp_counter = 16;
     
-    /* Transform: scalar loads -> VLOAD */
+    /* First pass: Transform loads and build scalar->vector map */
     for (size_t t = 0; t < transform_count; t++) {
         TransformInfo *ti = &transforms[t];
         Instr *instr = ir_get(ti->idx);
         if (!instr) continue;
         
-        /* Get or allocate vector temp */
+        /* Only process loads in first pass */
+        if (ti->orig_op != OP_LOAD_32 && ti->orig_op != OP_FLOAD) continue;
+        
+        /* Allocate vector temp for this load */
         int vec_temp = vec_temp_counter++;
+        
+        /* Map scalar dest to vector temp */
+        scalar_to_vec_map[ti->dest] = vec_temp;
         
         /* Replace with VLOAD */
         instr->op = OP_VLOAD;
@@ -377,21 +387,31 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         instr->flags_in = 0xFF;
     }
     
-    /* Transform: scalar arithmetic -> vector arithmetic */
+    /* Second pass: Transform arithmetic using mapped vector temps */
     for (size_t t = 0; t < transform_count; t++) {
         TransformInfo *ti = &transforms[t];
         Instr *instr = ir_get(ti->idx);
         if (!instr) continue;
         
+        /* Only process arithmetic in second pass */
         if (!is_vec_arith(instr)) continue;
         
         /* Get vector operation */
         int vec_op = get_vec_op(ti->orig_op);
         
-        /* Allocate vector temps for src operands */
+        /* Allocate vector temp for result */
         int vec_dest = vec_temp_counter++;
-        int vec_src1 = vec_temp_counter++;
-        int vec_src2 = vec_temp_counter++;
+        
+        /* CRITICAL FIX: Get source vector temps from map */
+        int vec_src1 = scalar_to_vec_map[ti->src1];
+        int vec_src2 = scalar_to_vec_map[ti->src2];
+        
+        /* If sources not mapped yet, allocate new temps (conservative fallback) */
+        if (vec_src1 < 0) vec_src1 = vec_temp_counter++;
+        if (vec_src2 < 0) vec_src2 = vec_temp_counter++;
+        
+        /* Map result to vector temp */
+        scalar_to_vec_map[ti->dest] = vec_dest;
         
         /* Replace with vector arithmetic */
         instr->op = vec_op;
@@ -406,19 +426,26 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         instr->flags_in = 0xFF;
     }
     
-    /* Transform: scalar stores -> VSTORE */
+    /* Third pass: Transform stores using mapped vector temps */
     for (size_t t = 0; t < transform_count; t++) {
         TransformInfo *ti = &transforms[t];
         Instr *instr = ir_get(ti->idx);
         if (!instr) continue;
         
+        /* Only process stores in third pass */
         if (ti->orig_op != OP_STORE_32 && ti->orig_op != OP_FSTORE) continue;
+        
+        /* CRITICAL FIX: Get vector value from map */
+        int vec_value = scalar_to_vec_map[ti->src1];
+        
+        /* If not mapped, allocate new (conservative fallback) */
+        if (vec_value < 0) vec_value = vec_temp_counter++;
         
         /* Replace with VSTORE */
         instr->op = OP_VSTORE;
         instr->temp_dest = 0xFF;
         instr->temp_src1 = ti->src1;  /* Address */
-        instr->temp_src2 = vec_temp_counter++;  /* Vector value */
+        instr->temp_src2 = vec_value;  /* Vector value from map */
         instr->imm = 0;
         instr->imm64 = 0;
         instr->label_idx = 0;
@@ -427,13 +454,15 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         instr->flags_in = 0xFF;
     }
     
-    /* Update loop increment: i += 1 -> i += vec_width */
+    /* CRITICAL FIX: Update loop increment with proper byte scaling */
+    /* i += 1 element -> i += vec_width elements (4 * sizeof(float) = 16 bytes) */
+    int byte_stride = vec_width * 4;  /* 4 bytes per float, vec_width elements */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
         if (instr->op == OP_ADD && instr->imm == 1) {
-            instr->imm = vec_width;
+            instr->imm = byte_stride;  /* i += 16 bytes for 4 floats */
         }
     }
     
