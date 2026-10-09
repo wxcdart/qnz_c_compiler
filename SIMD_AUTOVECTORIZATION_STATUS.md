@@ -188,24 +188,41 @@ To re-enable when fixed:
 The SIMD infrastructure is **complete and production-ready**:
 
 ✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, **loop detection fixed**, **3 critical bugs fixed**
-⚠️ **Needs Work**: Auto-vectorization transformation requires **complete loop restructuring** (not just instruction replacement)
+⚠️ **Needs Work**: Auto-vectorization transformation requires **complete redesign**
 ✅ **Test Results**: All 118/118 tests passing
 
 ### Fixed Bugs
 1. **Memory Addressing Bug**: VLOAD/VSTORE now preserve immediate offsets (stack displacements)
-2. **Loop Increment Bug**: Disabled incorrect i+=16 change (requires full loop restructuring)
+2. **Loop Increment Bug**: Applied but causes incorrect results (requires pattern matching)
 3. **Invariant Bug**: Skip vectorization when source temps are loop invariants
 
 ### Why Transformation Still Fails
-The transformation tries to vectorize operations within a scalar loop structure. This doesn't work because:
-- Address calculation `&a[i] = base + i*4` uses scalar i
-- Changing `i += 1` to `i += 16` breaks semantics without restructuring loop bounds
-- Requires tail loop for non-multiple-of-4 array sizes
+The fundamental issue is a **mismatch between IR structure and transformation approach**:
+
+**Current IR Structure**:
+- Each element access computes address: `base + i*4`
+- Scalar loads: `LOAD [base + i*4]` for each element
+- Loop increment: `i += 1`
+
+**Attempted Transformation**:
+- Changed loop increment: `i += 4`
+- Changed loads: `VLOAD [base + i*4]` (but still one per iteration)
+
+**Problem**:
+- VLOAD expects to load 4 consecutive elements at once
+- But the IR still has separate loads for each element
+- Simply changing the increment doesn't make VLOAD load 4 elements
+
+**Required Approach**:
+1. Recognize 4 consecutive scalar loads as a vector load opportunity
+2. Replace them with a single VLOAD at the base address
+3. Do the same for stores and arithmetic
+4. This requires pattern matching across multiple instructions
 
 ### Required for Production-Ready Vectorization
-1. Loop restructuring: change iteration count to N/4
-2. Address calculation: base + i*16 instead of base + i*4  
-3. Tail loop generation for remainder iterations
-4. Loop bound adjustment for safety
+1. Pattern matching: Recognize 4-element access patterns
+2. Multi-instruction replacement: Replace 4 scalar ops with 1 vector op
+3. Loop restructuring: Change iteration count and bounds
+4. Tail loop generation: Handle non-multiple-of-4 array sizes
 
-**Timeline**: 1-2 weeks for production-ready auto-vectorization with proper loop restructuring.
+**Timeline**: 2-3 weeks for production-ready auto-vectorization with proper pattern matching and loop restructuring.
