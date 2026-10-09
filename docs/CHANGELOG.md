@@ -99,6 +99,21 @@
 
 **Note**: Not yet used in LICM due to instruction index invalidation issues during iteration. Requires careful index management.
 
+### Added - Optimization Profiling System
+**Status**: Complete and ready for use
+
+- Added `--profile-opts` flag to zerocc CLI
+- Tracks statistics for all optimization passes:
+  - CSE: instructions scanned, eliminated, basic blocks
+  - DCE: instructions eliminated, iterations
+  - LICM: loops detected, invariants found
+  - Register allocation: intervals, spills, cost-based spills
+  - General: instruction counts, reduction percentage
+- Disabled by default (zero overhead in production)
+- Example output shows optimization effectiveness
+
+See `OPTIMIZATION_PROFILING.md` for detailed usage guide.
+
 ---
 
 ## [Sprint 11] - 2024
