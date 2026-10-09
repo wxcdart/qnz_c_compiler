@@ -82,8 +82,10 @@
 
 ### Verified - LICM Infrastructure
 - Loop-invariant code motion infrastructure verified
-- Invariant detection working correctly
-- Full code motion requires IR insertion support (future enhancement)
+- Invariant detection working correctly (324 invariants found in demo)
+- Full code motion not yet implemented (0 instructions moved)
+- Requires two-pass algorithm to handle instruction index invalidation
+- See `LICM_IMPLEMENTATION_NOTES.md` for detailed analysis
 
 ### Added - IR Insertion Support
 **Status**: Complete and ready for use
