@@ -240,7 +240,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
 
         c->local_count = 0;
-        c->current_stack_frame = CALLEE_SAVE_FRAME_RESERVE; /* Reserve top of frame for callee-saves */
+        c->current_stack_frame = BE(c)->callee_save_frame_reserve; /* Reserve top of frame for callee-saves */
 
         /* Parameters and locals are allocated stack offsets in c->current_stack_frame.
          * The function prologue and parameter save instructions will be emitted into IR in zero_cc_lower_ast(). */

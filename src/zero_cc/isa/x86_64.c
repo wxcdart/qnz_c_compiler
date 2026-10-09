@@ -1232,6 +1232,9 @@ const ZeroCCISABackend x86_64_backend = {
     .conv = &x86_64_conv,
     .fp_reg = X86_RBP,  /* hardware encoding 5 */
     .sp_reg = X86_RSP,  /* hardware encoding 4 */
+    .scratch_reg1 = 10,                        /* r10 (non-argument/return register) */
+    .scratch_reg2 = 11,                        /* r11 (non-argument/return register) */
+    .callee_save_frame_reserve = 48,           /* 5 callee-saved regs: rbx, r12-r15 */
     
     .emit_prologue = x86_emit_prologue,
     .emit_leave = x86_emit_leave,

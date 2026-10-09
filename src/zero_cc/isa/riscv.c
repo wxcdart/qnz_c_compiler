@@ -1282,6 +1282,9 @@ const ZeroCCISABackend riscv32_backend = {
     .conv = &riscv32_conv,
     .fp_reg = 8,
     .sp_reg = 2,
+    .scratch_reg1 = 5,                         /* t0 (non-argument/return) */
+    .scratch_reg2 = 6,                         /* t1 (non-argument/return) */
+    .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
     
     .emit_prologue = riscv32_emit_prologue,
     .emit_leave = riscv32_emit_leave,

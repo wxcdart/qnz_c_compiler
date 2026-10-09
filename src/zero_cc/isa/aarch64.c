@@ -896,6 +896,9 @@ const ZeroCCISABackend aarch64_backend = {
     .conv = &aarch64_conv,
     .fp_reg = 29,  /* x29 */
     .sp_reg = 31,  /* sp */
+    .scratch_reg1 = 9,                         /* x9 (non-argument/return) */
+    .scratch_reg2 = 10,                        /* x10 (non-argument/return) */
+    .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: x19-x30 */
     
     .emit_prologue = aarch64_emit_prologue,
     .emit_leave = aarch64_emit_leave,

@@ -39,19 +39,19 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         if (spill_src1 >= 0) {
             int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
             if (BE(c)->emit_load) {
-                BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -slot_off);
+                BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -slot_off);
             }
-            phys_src1 = 10;
+            phys_src1 = BE(c)->scratch_reg1;
         }
         if (spill_src2 >= 0) {
             int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
             if (BE(c)->emit_load) {
-                BE(c)->emit_load(c, 11 /* r11 */, BE(c)->fp_reg, -slot_off);
+                BE(c)->emit_load(c, BE(c)->scratch_reg2 /* r11 */, BE(c)->fp_reg, -slot_off);
             }
-            phys_src2 = 11;
+            phys_src2 = BE(c)->scratch_reg2;
         }
         if (spill_dst >= 0) {
-            phys_dst = 10;
+            phys_dst = BE(c)->scratch_reg1;
         }
 
         switch (instr->op) {
@@ -412,7 +412,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                         if (sp >= 0) {
                             int32_t off = spill_base_offset + (sp + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -off);
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -off);
                             r = 10;
                         }
                         BE(c)->emit_push_reg(c, r);
@@ -427,7 +427,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                     if (sp >= 0) {
                         int32_t off = spill_base_offset + (sp + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, 10 /* r10 */, BE(c)->fp_reg, -off);
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -off);
                         r = 10;
                     }
                     src_regs[a] = r;

@@ -77,7 +77,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
 
         if (fn->is_variadic) {
-            int32_t base_spill_offset = (int32_t)fn->param_count > 0 ? c->locals[fn->param_count - 1].stack_offset + 8 : CALLEE_SAVE_FRAME_RESERVE + 8;
+            int32_t base_spill_offset = (int32_t)fn->param_count > 0 ? c->locals[fn->param_count - 1].stack_offset + 8 : BE(c)->callee_save_frame_reserve + 8;
             ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
         }
     }
@@ -113,8 +113,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
     /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area */
-    if (c->current_stack_frame < CALLEE_SAVE_FRAME_RESERVE) {
-        c->current_stack_frame = CALLEE_SAVE_FRAME_RESERVE;
+    if (c->current_stack_frame < BE(c)->callee_save_frame_reserve) {
+        c->current_stack_frame = BE(c)->callee_save_frame_reserve;
     }
     int32_t spill_base_offset = c->current_stack_frame;
     if (c->regalloc.next_spill_slot > 0) {
