@@ -1,7 +1,10 @@
 #include "opt_vectorize.h"
 #include "opt_loop.h"
 #include "ir.h"
-#include "ir_emitter.h"
+#include "ir_arena.h"
+#include "ir_emit_ops.h"
+#include "regalloc.h"
+#include "../types/symbols.h"
 #include "../isa/isa_backend.h"
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +23,33 @@
 
 #define MAX_VECTOR_LOOPS 64
 #define MAX_VEC_BODY 256
+
+/**
+ * Vectorization state for tracking vector temps and mappings
+ */
+typedef struct {
+    int scalar_temp;      /* Original scalar temp */
+    int vector_temp;      /* Vector temp (xmm register) */
+    int temp_count;       /* Number of elements in vector */
+} VectorTempMap;
+
+/**
+ * Full vectorization state
+ */
+typedef struct {
+    VectorizationInfo loops[MAX_VECTOR_LOOPS];
+    int loop_count;
+    int vector_width;
+    int target_isa;
+    
+    /* Vector temp mappings */
+    VectorTempMap vec_map[256];
+    int vec_map_count;
+    
+    /* Loop body indices */
+    int *body_indices;
+    size_t body_count;
+} VectorizationStateFull;
 
 /**
  * Get vector width for target ISA
@@ -228,35 +258,20 @@ void vectorization_analyze(VectorizationState *state) {
 }
 
 /**
- * Emit vectorized loop body
- * Transforms scalar operations to vector operations
+ * Get vector operation for scalar operation
  */
-static void emit_vectorized_body(VectorizationState *state, VectorizationInfo *vinfo) {
-    int vec_width = vinfo->vector_width;
-    
-    /* 
-     * Vectorized loop body pattern:
-     * for (i = 0; i < n; i += vec_width) {
-     *   // Load vec_width elements
-     *   vec_load(a[i], vec_a)
-     *   vec_load(b[i], vec_b)
-     *   // Vector operation
-     *   vec_c = vec_op(vec_a, vec_b)
-     *   // Store result
-     *   vec_store(vec_c, c[i])
-     * }
-     */
-    
-    /* For now, we emit a placeholder that will be filled in by the actual transformation */
-    /* The actual implementation would:
-     * 1. Replace scalar loads with VLOAD
-     * 2. Replace scalar arithmetic with VADDPS/VSUBPS/VMULPS
-     * 3. Replace scalar stores with VSTORE
-     * 4. Update loop increment to += vec_width
-     */
-    
-    /* Placeholder: actual implementation would emit proper vector IR */
-    /* This would include VLOAD, VADDPS/VSUBPS/VMULPS, VSTORE instructions */
+static int get_vec_op(int scalar_op) {
+    switch (scalar_op) {
+        case OP_ADD:  return OP_VADDPS;
+        case OP_SUB:  return OP_VSUBPS;
+        case OP_MUL:  return OP_VMULPS;
+        case OP_DIV:  return OP_VDIVPS;
+        case OP_FADD: return OP_VADDPS;
+        case OP_FSUB: return OP_VSUBPS;
+        case OP_FMUL: return OP_VMULPS;
+        case OP_FDIV: return OP_VDIVPS;
+        default:      return scalar_op;
+    }
 }
 
 /**
@@ -277,29 +292,150 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int vec_width = vinfo->vector_width;
     int target_isa = c->regalloc.target_isa;
     
-    /* 
-     * Transformation steps:
-     * 1. Replace scalar loop with vectorized version
-     * 2. Insert vector load/store instructions
-     * 3. Replace scalar arithmetic with vector arithmetic
-     * 4. Add tail loop for remainder iterations
-     */
+    /* Get loop body */
+    int start_idx = vinfo->body_start_idx;
+    int end_idx = vinfo->body_end_idx;
     
-    /* 
-     * Note: Full implementation would require:
-     * - IR buffer manipulation (insert/delete instructions)
-     * - Temporary allocation for vector registers
-     * - Proper loop restructuring
-     * 
-     * For now, we mark the loop as vectorized and emit placeholder IR
-     * that can be expanded later.
-     */
+    /* Collect instructions to transform */
+    typedef struct {
+        int idx;
+        int orig_op;
+        int dest;
+        int src1;
+        int src2;
+        int imm;
+    } TransformInfo;
     
-    /* Emit vectorization marker comment */
-    /* In a full implementation, this would emit actual vector IR */
+    TransformInfo transforms[64];
+    size_t transform_count = 0;
     
-    /* Placeholder: emit a vector operation to demonstrate the pattern */
-    /* This would be replaced with actual VADDPS/VSUBPS/etc. */
+    /* Scan loop body for vectorizable patterns */
+    for (int i = start_idx; i <= end_idx && transform_count < 64; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        /* Track scalar loads for vectorization */
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD) {
+            transforms[transform_count].idx = i;
+            transforms[transform_count].orig_op = instr->op;
+            transforms[transform_count].dest = instr->temp_dest;
+            transforms[transform_count].src1 = instr->temp_src1;
+            transforms[transform_count].src2 = 0xFF;
+            transforms[transform_count].imm = (int)instr->imm;
+            transform_count++;
+        }
+        
+        /* Track scalar arithmetic for vectorization */
+        if (is_vec_arith(instr)) {
+            transforms[transform_count].idx = i;
+            transforms[transform_count].orig_op = instr->op;
+            transforms[transform_count].dest = instr->temp_dest;
+            transforms[transform_count].src1 = instr->temp_src1;
+            transforms[transform_count].src2 = instr->temp_src2;
+            transforms[transform_count].imm = 0;
+            transform_count++;
+        }
+        
+        /* Track scalar stores for vectorization */
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
+            transforms[transform_count].idx = i;
+            transforms[transform_count].orig_op = instr->op;
+            transforms[transform_count].dest = 0xFF;
+            transforms[transform_count].src1 = instr->temp_src1;
+            transforms[transform_count].src2 = 0xFF;
+            transforms[transform_count].imm = (int)instr->imm;
+            transform_count++;
+        }
+    }
+    
+    if (transform_count == 0) {
+        return false;
+    }
+    
+    /* Allocate vector temps */
+    int vec_temp_counter = 16;  /* Start after general purpose temps */
+    
+    /* Transform: scalar loads -> VLOAD */
+    for (size_t t = 0; t < transform_count; t++) {
+        TransformInfo *ti = &transforms[t];
+        Instr *instr = ir_get(ti->idx);
+        if (!instr) continue;
+        
+        /* Get or allocate vector temp */
+        int vec_temp = vec_temp_counter++;
+        
+        /* Replace with VLOAD */
+        instr->op = OP_VLOAD;
+        instr->temp_dest = vec_temp;
+        instr->temp_src1 = ti->src1;
+        instr->temp_src2 = 0xFF;
+        instr->imm = 0;
+        instr->imm64 = 0;
+        instr->label_idx = 0;
+        instr->cond = 0;
+        instr->flags_out = 0xFF;
+        instr->flags_in = 0xFF;
+    }
+    
+    /* Transform: scalar arithmetic -> vector arithmetic */
+    for (size_t t = 0; t < transform_count; t++) {
+        TransformInfo *ti = &transforms[t];
+        Instr *instr = ir_get(ti->idx);
+        if (!instr) continue;
+        
+        if (!is_vec_arith(instr)) continue;
+        
+        /* Get vector operation */
+        int vec_op = get_vec_op(ti->orig_op);
+        
+        /* Allocate vector temps for src operands */
+        int vec_dest = vec_temp_counter++;
+        int vec_src1 = vec_temp_counter++;
+        int vec_src2 = vec_temp_counter++;
+        
+        /* Replace with vector arithmetic */
+        instr->op = vec_op;
+        instr->temp_dest = vec_dest;
+        instr->temp_src1 = vec_src1;
+        instr->temp_src2 = vec_src2;
+        instr->imm = 0;
+        instr->imm64 = 0;
+        instr->label_idx = 0;
+        instr->cond = 0;
+        instr->flags_out = 0xFF;
+        instr->flags_in = 0xFF;
+    }
+    
+    /* Transform: scalar stores -> VSTORE */
+    for (size_t t = 0; t < transform_count; t++) {
+        TransformInfo *ti = &transforms[t];
+        Instr *instr = ir_get(ti->idx);
+        if (!instr) continue;
+        
+        if (ti->orig_op != OP_STORE_32 && ti->orig_op != OP_FSTORE) continue;
+        
+        /* Replace with VSTORE */
+        instr->op = OP_VSTORE;
+        instr->temp_dest = 0xFF;
+        instr->temp_src1 = ti->src1;  /* Address */
+        instr->temp_src2 = vec_temp_counter++;  /* Vector value */
+        instr->imm = 0;
+        instr->imm64 = 0;
+        instr->label_idx = 0;
+        instr->cond = 0;
+        instr->flags_out = 0xFF;
+        instr->flags_in = 0xFF;
+    }
+    
+    /* Update loop increment: i += 1 -> i += vec_width */
+    for (int i = start_idx; i <= end_idx; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        if (instr->op == OP_ADD && instr->imm == 1) {
+            instr->imm = vec_width;
+        }
+    }
     
     return true;
 }
@@ -308,28 +444,25 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
  * Main auto-vectorization pass
  */
 void opt_auto_vectorize(ZeroCCCompiler *c) {
-    VectorizationState state;
-    vectorization_init(&state, c->regalloc.target_isa);
+    VectorizationStateFull state = {0};
+    state.target_isa = c->regalloc.target_isa;
+    state.vector_width = vectorization_get_width(state.target_isa);
+    state.loop_count = 0;
     
     /* Analyze loops for vectorization opportunities */
-    vectorization_analyze(&state);
+    vectorization_analyze((VectorizationState*)&state);
     
     if (state.loop_count == 0) {
-        vectorization_free(&state);
         return;
     }
     
     /* Transform vectorizable loops */
     int transformed = 0;
     for (int i = 0; i < state.loop_count; i++) {
-        if (vectorization_transform(c, &state, i)) {
+        if (vectorization_transform(c, (VectorizationState*)&state, i)) {
             transformed++;
         }
     }
     
-    /* Cleanup */
-    vectorization_free(&state);
-    
-    /* Note: transformed count would be used to determine if IR changed */
-    (void)transformed;
+    (void)transformed;  /* Suppress unused warning */
 }
