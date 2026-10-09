@@ -84,6 +84,7 @@ typedef struct LiveInterval {
     int spill_slot;           /* Spill slot index (-1 if not spilled) */
     bool is_spilled;          /* Whether this interval is spilled */
     bool spans_call;          /* Whether this interval spans a function call */
+    size_t spill_cost;        /* Spill cost (higher = more important to keep in reg) */
 } LiveInterval;
 
 /* Register allocator state */
@@ -121,6 +122,9 @@ typedef struct RegAllocator {
      * Callee-saved indices in the pool: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15
      * Bit N is set if pool index N was assigned to some live interval. */
     uint32_t used_callee_saved_gpr_mask;
+    
+    /* Cost-based allocation flag */
+    bool use_cost_based;  /* If true, use spill cost priority instead of start position */
 } RegAllocator;
 
 /* Destroy and free register allocator allocations */
@@ -152,6 +156,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
     ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
+    ra->use_cost_based = false;   /* Default to standard allocation */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
     for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
@@ -180,6 +185,7 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->spill_slot = -1;
     interval->is_spilled = false;
     interval->spans_call = false;
+    interval->spill_cost = 1;  /* Default spill cost */
     
     return (int)(ra->interval_count - 1);
 }
@@ -199,6 +205,25 @@ static int compare_intervals_by_start(const void *a, const void *b) {
     const LiveInterval *ib = *(const LiveInterval **)b;
     if (ia->start < ib->start) return -1;
     if (ia->start > ib->start) return 1;
+    return 0;
+}
+
+/* Comparison function for sorting intervals by spill cost (descending) */
+static int compare_intervals_by_cost(const void *a, const void *b) __attribute__((unused));
+static int compare_intervals_by_cost(const void *a, const void *b) {
+    const LiveInterval *ia = *(const LiveInterval **)a;
+    const LiveInterval *ib = *(const LiveInterval **)b;
+    
+    /* Higher cost = higher priority (sort descending) */
+    if (ia->spill_cost > ib->spill_cost) return -1;
+    if (ia->spill_cost < ib->spill_cost) return 1;
+    
+    /* Tie-breaker: longer intervals get higher priority */
+    size_t len_a = ia->end - ia->start;
+    size_t len_b = ib->end - ib->start;
+    if (len_a > len_b) return -1;
+    if (len_a < len_b) return 1;
+    
     return 0;
 }
 
@@ -332,7 +357,7 @@ static void regalloc_allocate(RegAllocator *ra) {
         return;
     }
     
-    /* Sort intervals by start position */
+    /* Sort intervals - by cost if enabled, otherwise by start position */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));
     if (!sorted) return;
     
@@ -340,7 +365,11 @@ static void regalloc_allocate(RegAllocator *ra) {
         sorted[i] = &ra->intervals[i];
     }
     
-    qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_start);
+    if (ra->use_cost_based) {
+        qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_cost);
+    } else {
+        qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_start);
+    }
     
     /* Allocate active array */
     ra->active = malloc(ra->interval_count * sizeof(LiveInterval *));
@@ -417,6 +446,156 @@ static void regalloc_allocate(RegAllocator *ra) {
     
     free(sorted);
 }
+
+/* =========================================================================
+ * Cost-Based Register Allocation Helpers
+ * ========================================================================= */
+
+/**
+ * Simple loop detection: find backedges in the IR
+ * Returns the number of loops detected
+ */
+static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) __attribute__((unused));
+static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) {
+    if (!ra || !loop_headers || !loop_exits) return 0;
+    
+    /* Allocate arrays for loop info */
+    *loop_headers = malloc(ra->instruction_count * sizeof(int));
+    *loop_exits = malloc(ra->instruction_count * sizeof(int));
+    if (!*loop_headers || !*loop_exits) {
+        free(*loop_headers);
+        free(*loop_exits);
+        *loop_headers = NULL;
+        *loop_exits = NULL;
+        return 0;
+    }
+    
+    /* Simple heuristic: look for jumps to earlier positions */
+    /* This is a simplified loop detection - real implementation would build CFG */
+    size_t loop_count = 0;
+    
+    /* For now, we'll use a simple heuristic based on interval overlaps */
+    /* Instructions that are targets of jumps from later positions are loop headers */
+    
+    /* Placeholder: return 0 loops for now */
+    /* In a real implementation, this would analyze the IR to find actual loops */
+    
+    return loop_count;
+}
+
+/**
+ * Compute loop nesting depth for each instruction position
+ */
+static int *regalloc_compute_loop_depths(RegAllocator *ra, int *loop_headers, int *loop_exits, size_t loop_count) __attribute__((unused));
+static int *regalloc_compute_loop_depths(RegAllocator *ra, int *loop_headers, int *loop_exits, size_t loop_count) {
+    if (!ra) return NULL;
+    
+    int *depths = calloc(ra->instruction_count, sizeof(int));
+    if (!depths) return NULL;
+    
+    /* For each instruction, count how many loops contain it */
+    for (size_t i = 0; i < ra->instruction_count; i++) {
+        int depth = 0;
+        for (size_t l = 0; l < loop_count; l++) {
+            if (i >= (size_t)loop_headers[l] && i <= (size_t)loop_exits[l]) {
+                depth++;
+            }
+        }
+        depths[i] = depth;
+    }
+    
+    return depths;
+}
+
+/**
+ * Compute spill costs for all intervals based on loop nesting
+ * Higher cost = more important to keep in register (e.g., inside loops)
+ */
+static void regalloc_compute_spill_costs(RegAllocator *ra) __attribute__((unused));
+static void regalloc_compute_spill_costs(RegAllocator *ra) {
+    if (!ra || ra->interval_count == 0) return;
+    
+    /* Detect loops */
+    int *loop_headers = NULL;
+    int *loop_exits = NULL;
+    size_t loop_count = regalloc_detect_loops(ra, &loop_headers, &loop_exits);
+    
+    if (loop_count == 0) {
+        /* No loops detected, use default costs */
+        for (size_t i = 0; i < ra->interval_count; i++) {
+            ra->intervals[i].spill_cost = 1;
+        }
+        free(loop_headers);
+        free(loop_exits);
+        return;
+    }
+    
+    /* Compute loop depths */
+    int *depths = regalloc_compute_loop_depths(ra, loop_headers, loop_exits, loop_count);
+    if (!depths) {
+        free(loop_headers);
+        free(loop_exits);
+        return;
+    }
+    
+    /* Compute spill costs: base_cost * (10 ^ max_loop_depth) */
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        LiveInterval *interval = &ra->intervals[i];
+        
+        /* Find maximum loop depth during this interval */
+        int max_depth = 0;
+        for (size_t pos = interval->start; pos <= interval->end && pos < ra->instruction_count; pos++) {
+            if (depths[pos] > max_depth) {
+                max_depth = depths[pos];
+            }
+        }
+        
+        /* Calculate cost: 10^depth (capped at depth 8) */
+        if (max_depth > 8) max_depth = 8;
+        size_t cost = 1;
+        for (int d = 0; d < max_depth; d++) {
+            cost *= 10;
+        }
+        
+        /* Base cost of 1, multiplied by loop depth factor */
+        interval->spill_cost = cost > 0 ? cost : 1;
+    }
+    
+    free(depths);
+    free(loop_headers);
+    free(loop_exits);
+}
+
+/**
+ * High-level cost-based register allocation
+ * 
+ * This function performs loop detection, spill cost computation, and
+ * cost-based register allocation in one call.
+ * 
+ * @param ra Register allocator state
+ * @return True if allocation succeeded
+ */
+static bool regalloc_allocate_cost_based(RegAllocator *ra) __attribute__((unused));
+static bool regalloc_allocate_cost_based(RegAllocator *ra) {
+    if (!ra || ra->interval_count == 0) {
+        return true;  /* Nothing to allocate */
+    }
+    
+    /* Compute spill costs based on loop nesting */
+    regalloc_compute_spill_costs(ra);
+    
+    /* Enable cost-based mode and run allocation */
+    bool old_mode = ra->use_cost_based;
+    ra->use_cost_based = true;
+    regalloc_allocate(ra);
+    ra->use_cost_based = old_mode;
+    
+    return true;
+}
+
+/* =========================================================================
+ * Callee-Saved Register Preservation
+ * ========================================================================= */
 
 /* Map register allocator index to VREG number (for x86-64) */
 static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
