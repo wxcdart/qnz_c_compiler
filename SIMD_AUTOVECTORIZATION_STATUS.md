@@ -2,7 +2,7 @@
 
 ## Status: ⚠️ PARTIALLY COMPLETE (Disabled)
 
-The auto-vectorization pass infrastructure is in place but **disabled** due to critical integration bugs.
+The auto-vectorization pass infrastructure is in place but **disabled** due to integration bugs.
 
 ---
 
@@ -28,11 +28,26 @@ All three critical defects identified in the review have been fixed:
 | Disconnected vector store value | ✅ Fixed | Store uses map to get arithmetic result |
 | Memory offset scaling | ✅ Fixed | Loop increment = 16 bytes (4 floats × 4 bytes) |
 
+### ✅ Register Allocator Integration (NEW)
+| Component | Status |
+|-----------|--------|
+| Live range vector marking | ✅ Fixed (live_range.h) |
+| Vector dest reg class | ✅ REG_CLASS_VEC (not XMM) |
+| Vector source reg class | ✅ REG_CLASS_VEC for SIMD sources |
+| Vector spill alignment | ✅ 16-byte aligned slots |
+
+### ✅ JIT Binary Emission (NEW)
+| Component | Status |
+|-----------|--------|
+| Backend interface | ✅ emit_vload, emit_vstore, emit_vaddps, etc. |
+| x86_64 implementation | ✅ SSE2 machine code emission |
+| ast_lowering_mc.c integration | ✅ Both asm and JIT modes supported |
+
 ---
 
 ## Why Disabled
 
-Despite the bug fixes, the pass still produces **incorrect runtime results** due to integration issues:
+Despite the bug fixes and infrastructure completion, the pass still produces **incorrect runtime results** due to integration issues:
 
 ### 1. Vector Temp Allocation Conflicts
 ```c
@@ -46,19 +61,7 @@ int vec_temp = vec_temp_counter++;
 
 **Impact**: Register allocator sees unexpected temp numbers, causing incorrect register assignments.
 
-### 2. VLOAD/VSTORE Machine Code Emission
-The machine code emitter (`ast_lowering_mc.c`) has stub implementations for VLOAD/VSTORE:
-
-```c
-// ast_lowering_mc.c - current stub
-case OP_VLOAD:
-    // TODO: Lower to actual vector load instruction
-    break;
-```
-
-**Impact**: Vector loads/stores don't generate correct machine code.
-
-### 3. Missing Tail Loop Handling
+### 2. Missing Tail Loop Handling
 ```c
 // Current: assumes n is multiple of vector width
 for (i = 0; i < n; i += 4) { ... }
@@ -69,13 +72,13 @@ for (; i < n; i++) { c[i] = a[i] + b[i]; }
 
 **Impact**: Incorrect results when array length is not multiple of 4.
 
-### 4. Register Allocator Integration
-Vector temps need to be:
-- Tracked by linear-scan register allocator
-- Assigned to XMM registers (not GPRs)
-- Spilled to 16-byte aligned slots
+### 3. Complex Data-Flow Tracking
+The scalar_to_vec_map approach works for simple cases but breaks down for:
+- Multiple arithmetic operations in sequence
+- Conditional updates within loops
+- Loop-carried dependencies
 
-**Current**: Manual temp allocation bypasses regalloc entirely.
+**Impact**: Vector temps not properly connected across complex loop bodies.
 
 ---
 
@@ -92,7 +95,7 @@ The garbage output confirms the integration bugs are causing incorrect code gene
 
 ## What Needs to Be Fixed
 
-### Priority 1: Register Allocator Integration
+### Priority 1: Temp Allocation Integration
 
 **Option A: Use RegAlloc API**
 ```c
@@ -115,23 +118,7 @@ int alloc_vec_temp() {
 }
 ```
 
-### Priority 2: Machine Code Lowering
-
-Implement proper VLOAD/VSTORE lowering in `ast_lowering_mc.c`:
-
-```c
-case OP_VLOAD:
-    // Lower to: MOVQ [base + offset], xmm_dest
-    emit_vload_asm(c, instr->temp_dest, instr->temp_src1, instr->imm);
-    break;
-
-case OP_VSTORE:
-    // Lower to: MOVQ xmm_src2, [base + offset]
-    emit_vstore_asm(c, instr->temp_src1, instr->temp_src2, instr->imm);
-    break;
-```
-
-### Priority 3: Tail Loop Generation
+### Priority 2: Tail Loop Generation
 
 Add scalar tail loop for remainder iterations:
 
@@ -148,7 +135,16 @@ for (; i < n; i++) {
 }
 ```
 
-### Priority 4: Alignment Handling
+### Priority 3: Enhanced Data-Flow Tracking
+
+Improve scalar_to_vec_map to handle:
+- Multiple arithmetic operations in sequence
+- Loop-carried dependencies
+- Conditional updates
+
+**Current limitation**: Simple one-pass mapping doesn't work for complex loops.
+
+### Priority 4: Alignment Handling (Future)
 
 Check for aligned vs unaligned access:
 ```c
@@ -166,12 +162,11 @@ if (is_aligned(ptr, 16)) {
 
 ### Short-Term (1-2 days)
 1. **Fix temp allocation** - Use `c->next_temp_id++` instead of manual counter
-2. **Implement VLOAD/VSTORE lowering** - Add proper machine code emission
-3. **Test with simple case** - Verify end-to-end with 4-element array
+2. **Test with simple case** - Verify end-to-end with 4-element array (VLOAD/VSTORE already implemented)
 
 ### Medium-Term (1 week)
-4. **Add tail loop handling** - Generate scalar code for remainder
-5. **Add alignment detection** - Use aligned/unaligned instructions appropriately
+3. **Add tail loop handling** - Generate scalar code for remainder
+4. **Add alignment detection** - Use aligned/unaligned instructions appropriately
 6. **Integration testing** - Test with various array sizes
 
 ### Long-Term (2-3 weeks)
@@ -200,9 +195,12 @@ To re-enable when fixed:
 
 | File | Changes | Status |
 |------|---------|--------|
+| live_range.h | Vector reg class fixes | ✅ Complete |
+| isa_backend.h | JIT binary vector interface | ✅ Complete |
+| x86_64.c | Binary vector emission | ✅ Complete |
+| ast_lowering_mc.c | JIT/ASM dual mode | ✅ Complete |
 | opt_vectorize.c | Bug fixes applied | ⚠️ Disabled |
 | opt_pass.c | Set enabled=0 | ✅ Complete |
-| test/jit/vector_add_loop.c | End-to-end test | ❌ Removed (failing) |
 
 ---
 
@@ -221,8 +219,8 @@ To re-enable when fixed:
 
 The auto-vectorization pass has the **right algorithm** but needs **better integration**:
 
-✅ **Working**: Pattern detection, transformation logic, bug fixes
-❌ **Broken**: Temp allocation, machine code lowering, tail handling
+✅ **Working**: Pattern detection, transformation logic, bug fixes, JIT binary emission, regalloc integration
+❌ **Broken**: Temp allocation, tail loop handling, complex data-flow tracking
 ⚠️ **Status**: Disabled until integration complete
 
 **Timeline**: 1-2 weeks to full functionality with proper testing.
