@@ -39,6 +39,7 @@ typedef struct {
 typedef struct {
     VectorizationInfo loops[MAX_VECTOR_LOOPS];
     int loop_count;
+    int capacity;  /* Maximum number of loops */
     int vector_width;
     int target_isa;
     
@@ -161,7 +162,7 @@ static bool is_vec_arith(Instr *instr) {
 /**
  * Analyze a single loop for vectorization opportunities
  */
-static void analyze_loop_for_vectorization(VectorizationState *state, LoopInfo *loop) {
+static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, LoopInfo *loop) {
     if (state->loop_count >= state->capacity) return;
     
     VectorizationInfo *vinfo = &state->loops[state->loop_count];
@@ -219,22 +220,37 @@ static void analyze_loop_for_vectorization(VectorizationState *state, LoopInfo *
 /**
  * Detect loops and analyze for vectorization
  */
-void vectorization_analyze(VectorizationState *state) {
+void vectorization_analyze_full(VectorizationStateFull *state) {
     int count = (int)ir_get_count();
     
-    /* Simple loop detection (similar to opt_loop.c) */
+    /* Build label-to-instruction-index map */
+    int label_to_idx[256];
+    for (int i = 0; i < 256; i++) label_to_idx[i] = -1;
+    
+    for (int i = 0; i < count; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        if (instr->op == OP_LABEL && instr->label_idx < 256) {
+            label_to_idx[instr->label_idx] = i;
+        }
+    }
+    
+    /* Loop detection: find backedges (jumps to earlier labels) */
     for (int i = 0; i < count && state->loop_count < state->capacity; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
         /* Check for jump instructions that could be loop backedges */
-        if (instr->op == OP_JMP || instr->op == OP_JE || 
+        int is_jump = (instr->op == OP_JMP || instr->op == OP_JE || 
             instr->op == OP_JNE || instr->op == OP_JL ||
-            instr->op == OP_JLE || instr->op == OP_JG) {
+            instr->op == OP_JLE || instr->op == OP_JG);
+        
+        if (is_jump) {
+            int label = instr->label_idx;
+            int target = (label >= 0 && label < 256) ? label_to_idx[label] : -1;
             
-            int target = instr->label_idx;
             if (target >= 0 && target < i) {
-                /* Found potential loop - create temporary LoopInfo */
+                /* Found potential loop */
                 LoopInfo loop = {0};
                 loop.header_idx = target;
                 loop.exit_idx = i;
@@ -249,7 +265,7 @@ void vectorization_analyze(VectorizationState *state) {
                 }
                 
                 /* Analyze for vectorization */
-                analyze_loop_for_vectorization(state, &loop);
+                analyze_loop_for_vectorization_full(state, &loop);
                 
                 free(loop.body_indices);
             }
@@ -437,9 +453,10 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
     state.target_isa = c->regalloc.target_isa;
     state.vector_width = vectorization_get_width(state.target_isa);
     state.loop_count = 0;
+    state.capacity = MAX_VECTOR_LOOPS;  /* Initialize capacity */
     
     /* Analyze loops for vectorization opportunities */
-    vectorization_analyze((VectorizationState*)&state);
+    vectorization_analyze_full(&state);
     
     if (state.loop_count == 0) {
         return;
