@@ -216,20 +216,20 @@ void opt_licm(ZeroCCCompiler *c) {
         }
         
         /* Profile: count invariants found */
+        int invariant_count = 0;
         for (int i = 0; i < loop->body_count; i++) {
             if (invariant[loop->body_indices[i]]) {
                 opt_profile_count_licm_invariant();
+                invariant_count++;
             }
         }
         
-        // Move invariants to before the loop header
-        /* BUG FIX: Simplified LICM - mark invariants for DCE to eliminate */
-        /* Full implementation would require inserting instructions at preheader */
-        /* which needs IR insertion support (now available via ir_insert_at()) */
-        
-        /* For now, we just verify invariants are computed correctly */
-        /* The DCE pass will eliminate truly dead code */
-        /* Future: Use ir_insert_at() to actually move invariants before loop header */
+        /* LICM: Detect invariants but don't move them yet */
+        /* Full code motion requires rebuilding loop analysis after each insertion */
+        /* to keep indices consistent. This is a complex change that needs careful */
+        /* handling of all jump targets and loop boundaries. */
+        /* For now, we detect invariants and let DCE clean up dead code. */
+        /* Future: Implement proper preheader generation and code motion. */
     }
     
     loop_analysis_free(&state);
