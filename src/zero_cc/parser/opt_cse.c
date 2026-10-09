@@ -1,4 +1,5 @@
 #include "opt_cse.h"
+#include "opt_profile.h"
 #include "ir.h"
 #include "regalloc.h"
 #include "zero_cc/common/hash_table.h"
@@ -169,13 +170,16 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        /* BUG FIX: Clear CSE table at basic block boundaries */
-        /* OP_LABEL starts a new basic block - expressions don't cross boundaries */
+        /* Profile: count basic blocks */
         if (instr->op == OP_LABEL) {
             cse_clear_block();
             g_cse_bb_start = i;
+            opt_profile_count_cse_basic_block();
             continue;
         }
+        
+        /* Profile: count instructions */
+        opt_profile_count_cse_instruction();
         
         /* Skip non-pure operations */
         if (!instr_is_pure(instr)) {
@@ -193,6 +197,7 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         if (existing >= 0) {
             /* Found duplicate - replace with copy */
             replace_with_cse_copy(i, existing);
+            opt_profile_count_cse_eliminated();
         } else {
             /* First time - add to table */
             cse_add(instr, i);

@@ -5,6 +5,7 @@
 #include "opt_mem2reg.h"
 #include "opt_loop.h"
 #include "opt_vectorize.h"
+#include "opt_profile.h"
 #include "ir.h"
 #include "regalloc.h"
 
@@ -42,9 +43,15 @@ void opt_run_passes(ZeroCCCompiler *c) {
     int iteration = 0;
     const int max_iterations = 10;
 
+    /* Profile: record initial instruction count */
+    opt_profile_set_instructions_before((size_t)ir_get_count());
+
     while (changed && iteration < max_iterations) {
         changed = 0;
         iteration++;
+        
+        /* Profile: count optimization iterations */
+        opt_profile_count_iteration();
 
         for (int i = 0; i < OPT_PASS_COUNT; i++) {
             const OptPass *pass = &g_opt_passes[i];
@@ -60,6 +67,9 @@ void opt_run_passes(ZeroCCCompiler *c) {
             }
         }
     }
+    
+    /* Profile: record final instruction count */
+    opt_profile_set_instructions_after((size_t)ir_get_count());
 }
 void opt_shutdown(void) { g_opt_level = OPT_LEVEL_NONE; }
 OptLevel opt_get_level(void) { return g_opt_level; }

@@ -1,4 +1,5 @@
 #include "opt_loop.h"
+#include "opt_profile.h"
 #include "ir.h"
 #include "ir_emitter.h"
 #include <stdlib.h>
@@ -178,6 +179,9 @@ void opt_licm(ZeroCCCompiler *c) {
         return;
     }
     
+    /* Profile: count loops detected */
+    opt_profile_count_licm_loop();
+    
     int count = (int)ir_get_count();
     
     // Process each loop
@@ -208,6 +212,13 @@ void opt_licm(ZeroCCCompiler *c) {
                         changed = true;
                     }
                 }
+            }
+        }
+        
+        /* Profile: count invariants found */
+        for (int i = 0; i < loop->body_count; i++) {
+            if (invariant[loop->body_indices[i]]) {
+                opt_profile_count_licm_invariant();
             }
         }
         

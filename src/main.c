@@ -12,6 +12,7 @@
 
 #include "zero_cc.h"
 #include "zero_cc/parser/opt_pass.h"
+#include "zero_cc/parser/opt_profile.h"
 #include "zero_cc/parser/ir_arena.h"
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
@@ -36,6 +37,7 @@ typedef struct {
     int define_macros[10]; /* -D (placeholder) */
     int define_count;
     int dump_ir;          /* -dump-ir */
+    int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
     const char *target_arch; /* --target */
 } CompileOptions;
@@ -124,6 +126,10 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "-dump-ir") == 0) {
             fprintf(stderr, "DEBUG: Parsed -dump-ir flag\n");
             opts->dump_ir = 1;
+        }
+        else if (strcmp(arg, "--profile-opts") == 0) {
+            fprintf(stderr, "DEBUG: Parsed --profile-opts flag\n");
+            opts->profile_opts = 1;
         }
         else if (arg[0] != '-') {
             opts->input_file = arg;
@@ -226,6 +232,13 @@ static int compile_jit(CompileOptions *opts) {
         comp->dump_ir = 1;
     }
     
+    /* Enable optimization profiling if requested */
+    if (opts->profile_opts) {
+        fprintf(stderr, "DEBUG: Enabling optimization profiling\n");
+        opt_profile_enable(1);
+        opt_profile_reset();
+    }
+    
     /* Enable assembly emission if requested */
     if (opts->emit_asm) {
         comp->emit_asm = 1;
@@ -273,6 +286,11 @@ static int compile_jit(CompileOptions *opts) {
         free(comp->tokens);
         zero_cc_free_compiler(comp);
         return 1;
+    }
+    
+    /* Dump optimization profile if requested */
+    if (opts->profile_opts) {
+        opt_profile_dump(stderr);
     }
     
     /* Execute or emit assembly */
@@ -443,6 +461,11 @@ static int compile_object(CompileOptions *opts) {
         free(comp->tokens);
         zero_cc_free_compiler(comp);
         return 1;
+    }
+    
+    /* Dump optimization profile if requested */
+    if (opts->profile_opts) {
+        opt_profile_dump(stderr);
     }
     
     /* Determine output filename */

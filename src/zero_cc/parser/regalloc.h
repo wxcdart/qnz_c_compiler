@@ -10,6 +10,7 @@
 #include "../isa/isa_backend.h"
 
 #include "../types/vregs.h"
+#include "opt_profile.h"
 
 /* Forward declaration to avoid circular includes */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
@@ -358,6 +359,11 @@ static void regalloc_allocate(RegAllocator *ra) {
         return;
     }
     
+    /* Profile: count total intervals */
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        opt_profile_count_regalloc_interval();
+    }
+    
     /* Always sort by start position for correct expiration handling */
     /* Cost-based decisions are made during spill selection, not initial ordering */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));
@@ -442,9 +448,11 @@ static void regalloc_allocate(RegAllocator *ra) {
             
             if (spill == current) {
                 /* Spill current interval */
+                opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, current);
             } else {
                 /* Spill the active interval and give its register to current */
+                opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, spill);
                 current->assigned_reg = spill->assigned_reg;
                 spill->assigned_reg = -1;
