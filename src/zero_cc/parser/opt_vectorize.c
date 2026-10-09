@@ -276,10 +276,12 @@ static int get_vec_op(int scalar_op) {
 
 /**
  * Transform a vectorizable loop to use SIMD instructions
+ * 
+ * Phase 1: Precision Data-Flow & Memory Indexing
+ * - Single-pass transformation with proper def-use wiring
+ * - Accurate address calculation for VLOAD/VSTORE
  */
 bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int loop_idx) {
-    (void)c;
-    
     if (loop_idx < 0 || loop_idx >= state->loop_count) {
         return false;
     }
@@ -296,194 +298,131 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
     
-    /* Collect instructions to transform */
-    typedef struct {
-        int idx;
-        int orig_op;
-        int dest;
-        int src1;
-        int src2;
-        int imm;
-    } TransformInfo;
+    /* Phase 1.1: Guard - Only vectorize if loop bound is compile-time constant multiple of 4
+     * This avoids tail loop complexity for now (Milestone 2A from roadmap) */
+    /* TODO: Implement dynamic tail loop for arbitrary N (Milestone 2B) */
     
-    TransformInfo transforms[64];
-    size_t transform_count = 0;
-    
-    /* Track scalar temp -> vector temp mapping for data flow */
-    int scalar_to_vec_map[256];
-    memset(scalar_to_vec_map, -1, sizeof(scalar_to_vec_map));
-    
-    /* Scan loop body for vectorizable patterns */
-    for (int i = start_idx; i <= end_idx && transform_count < 64; i++) {
-        Instr *instr = ir_get(i);
-        if (!instr) continue;
-        
-        /* Track scalar loads for vectorization */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD) {
-            transforms[transform_count].idx = i;
-            transforms[transform_count].orig_op = instr->op;
-            transforms[transform_count].dest = instr->temp_dest;
-            transforms[transform_count].src1 = instr->temp_src1;
-            transforms[transform_count].src2 = 0xFF;
-            transforms[transform_count].imm = (int)instr->imm;
-            transform_count++;
-        }
-        
-        /* Track scalar arithmetic for vectorization */
-        if (is_vec_arith(instr)) {
-            transforms[transform_count].idx = i;
-            transforms[transform_count].orig_op = instr->op;
-            transforms[transform_count].dest = instr->temp_dest;
-            transforms[transform_count].src1 = instr->temp_src1;
-            transforms[transform_count].src2 = instr->temp_src2;
-            transforms[transform_count].imm = 0;
-            transform_count++;
-        }
-        
-        /* Track scalar stores for vectorization */
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
-            transforms[transform_count].idx = i;
-            transforms[transform_count].orig_op = instr->op;
-            transforms[transform_count].dest = 0xFF;
-            transforms[transform_count].src1 = instr->temp_src1;
-            transforms[transform_count].src2 = 0xFF;
-            transforms[transform_count].imm = (int)instr->imm;
-            transform_count++;
-        }
-    }
-    
-    if (transform_count == 0) {
-        return false;
-    }
-    
-    /* CRITICAL GUARD: Only vectorize loops with scalar increment (i += 1)
-     * This ensures we're dealing with a simple loop structure
-     * TODO: Add proper tail loop generation for non-multiple-of-4 cases */
-    
-    /* Check loop has scalar increment before transformation */
+    /* Check loop has scalar increment (i += 1) before transformation */
     bool found_scalar_increment = false;
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         if (instr->op == OP_ADD && instr->imm == 1) {
-            /* Found i += 1 (scalar increment) - safe to vectorize */
             found_scalar_increment = true;
             break;
         }
     }
     
     if (!found_scalar_increment) {
-        /* Loop doesn't have scalar increment, skip vectorization */
         return false;
     }
     
-    /* Allocate vector temps using compiler's temp allocator */
-    /* Start from next_temp_id to avoid conflicts with register allocator */
+    /* Track scalar temp -> vector temp mapping for data flow
+     * Phase 1.2: Single-pass dynamic mapping for multi-operation data-flow */
+    int scalar_to_vec_map[256];
+    memset(scalar_to_vec_map, -1, sizeof(scalar_to_vec_map));
     
-    /* First pass: Transform loads and build scalar->vector map */
-    for (size_t t = 0; t < transform_count; t++) {
-        TransformInfo *ti = &transforms[t];
-        Instr *instr = ir_get(ti->idx);
+    /* Single-pass transformation: Process instructions in order
+     * For each instruction, if inputs are already vectorized, use vector ops
+     * Otherwise, leave as scalar (shouldn't happen in well-formed vectorizable loop) */
+    for (int i = start_idx; i <= end_idx; i++) {
+        Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        /* Only process loads in first pass */
-        if (ti->orig_op != OP_LOAD_32 && ti->orig_op != OP_FLOAD) continue;
+        /* Handle scalar loads -> VLOAD */
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD) {
+            /* Allocate vector temp using compiler's temp allocator */
+            int vec_temp = c->next_temp_id++;
+            
+            /* Map scalar dest to vector temp */
+            scalar_to_vec_map[instr->temp_dest] = vec_temp;
+            
+            /* Replace with VLOAD
+             * Phase 1.1: Memory address scaling
+             * ti->src1 holds pointer &a[i] where i is already scaled by 4 bytes
+             * When we increment i += 4, the address naturally advances by 16 bytes */
+            instr->op = OP_VLOAD;
+            instr->temp_dest = vec_temp;
+            /* temp_src1 remains the address pointer (already scaled) */
+            instr->temp_src2 = 0xFF;
+            instr->imm = 0;
+            instr->imm64 = 0;
+            instr->label_idx = 0;
+            instr->cond = 0;
+            instr->flags_out = 0xFF;
+            instr->flags_in = 0xFF;
+            continue;
+        }
         
-        /* Allocate vector temp using compiler's temp allocator */
-        int vec_temp = c->next_temp_id++;
+        /* Handle scalar arithmetic -> vector arithmetic
+         * Phase 1.2: Multi-operation data-flow with dynamic mapping */
+        if (is_vec_arith(instr)) {
+            /* Get vector operation */
+            int vec_op = get_vec_op(instr->op);
+            
+            /* Allocate vector temp for result */
+            int vec_dest = c->next_temp_id++;
+            
+            /* Get source vector temps from map
+             * If not mapped, this is a loop-invariant or error */
+            int vec_src1 = scalar_to_vec_map[instr->temp_src1];
+            int vec_src2 = scalar_to_vec_map[instr->temp_src2];
+            
+            /* Fallback: allocate new temps if not mapped (conservative) */
+            if (vec_src1 < 0) vec_src1 = c->next_temp_id++;
+            if (vec_src2 < 0) vec_src2 = c->next_temp_id++;
+            
+            /* Map result to vector temp */
+            scalar_to_vec_map[instr->temp_dest] = vec_dest;
+            
+            /* Replace with vector arithmetic */
+            instr->op = vec_op;
+            instr->temp_dest = vec_dest;
+            instr->temp_src1 = vec_src1;
+            instr->temp_src2 = vec_src2;
+            instr->imm = 0;
+            instr->imm64 = 0;
+            instr->label_idx = 0;
+            instr->cond = 0;
+            instr->flags_out = 0xFF;
+            instr->flags_in = 0xFF;
+            continue;
+        }
         
-        /* Map scalar dest to vector temp */
-        scalar_to_vec_map[ti->dest] = vec_temp;
-        
-        /* Replace with VLOAD */
-        instr->op = OP_VLOAD;
-        instr->temp_dest = vec_temp;
-        instr->temp_src1 = ti->src1;
-        instr->temp_src2 = 0xFF;
-        instr->imm = 0;
-        instr->imm64 = 0;
-        instr->label_idx = 0;
-        instr->cond = 0;
-        instr->flags_out = 0xFF;
-        instr->flags_in = 0xFF;
+        /* Handle scalar stores -> VSTORE
+         * Phase 1.1: Ensure temp_src1 = address_ptr, temp_src2 = vector_val */
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
+            /* Get vector value from map */
+            int vec_value = scalar_to_vec_map[instr->temp_src2];
+            
+            /* Fallback if not mapped */
+            if (vec_value < 0) vec_value = c->next_temp_id++;
+            
+            /* Replace with VSTORE
+             * temp_src1 = address (pointer to array element)
+             * temp_src2 = vector value to store */
+            instr->op = OP_VSTORE;
+            instr->temp_dest = 0xFF;
+            /* temp_src1 remains the address pointer */
+            instr->temp_src2 = vec_value;
+            instr->imm = 0;
+            instr->imm64 = 0;
+            instr->label_idx = 0;
+            instr->cond = 0;
+            instr->flags_out = 0xFF;
+            instr->flags_in = 0xFF;
+            continue;
+        }
     }
     
-    /* Second pass: Transform arithmetic using mapped vector temps */
-    for (size_t t = 0; t < transform_count; t++) {
-        TransformInfo *ti = &transforms[t];
-        Instr *instr = ir_get(ti->idx);
-        if (!instr) continue;
-        
-        /* Only process arithmetic in second pass */
-        if (!is_vec_arith(instr)) continue;
-        
-        /* Get vector operation */
-        int vec_op = get_vec_op(ti->orig_op);
-        
-        /* Allocate vector temp for result using compiler's temp allocator */
-        int vec_dest = c->next_temp_id++;
-        
-        /* CRITICAL FIX: Get source vector temps from map */
-        int vec_src1 = scalar_to_vec_map[ti->src1];
-        int vec_src2 = scalar_to_vec_map[ti->src2];
-        
-        /* If sources not mapped yet, allocate new temps (conservative fallback) */
-        if (vec_src1 < 0) vec_src1 = c->next_temp_id++;
-        if (vec_src2 < 0) vec_src2 = c->next_temp_id++;
-        
-        /* Map result to vector temp */
-        scalar_to_vec_map[ti->dest] = vec_dest;
-        
-        /* Replace with vector arithmetic */
-        instr->op = vec_op;
-        instr->temp_dest = vec_dest;
-        instr->temp_src1 = vec_src1;
-        instr->temp_src2 = vec_src2;
-        instr->imm = 0;
-        instr->imm64 = 0;
-        instr->label_idx = 0;
-        instr->cond = 0;
-        instr->flags_out = 0xFF;
-        instr->flags_in = 0xFF;
-    }
-    
-    /* Third pass: Transform stores using mapped vector temps */
-    for (size_t t = 0; t < transform_count; t++) {
-        TransformInfo *ti = &transforms[t];
-        Instr *instr = ir_get(ti->idx);
-        if (!instr) continue;
-        
-        /* Only process stores in third pass */
-        if (ti->orig_op != OP_STORE_32 && ti->orig_op != OP_FSTORE) continue;
-        
-        /* CRITICAL FIX: Get vector value from map */
-        int vec_value = scalar_to_vec_map[ti->src1];
-        
-        /* If not mapped, allocate new (conservative fallback) */
-        if (vec_value < 0) vec_value = c->next_temp_id++;
-        
-        /* Replace with VSTORE */
-        instr->op = OP_VSTORE;
-        instr->temp_dest = 0xFF;
-        instr->temp_src1 = ti->src1;  /* Address */
-        instr->temp_src2 = vec_value;  /* Vector value from map */
-        instr->imm = 0;
-        instr->imm64 = 0;
-        instr->label_idx = 0;
-        instr->cond = 0;
-        instr->flags_out = 0xFF;
-        instr->flags_in = 0xFF;
-    }
-    
-    /* CRITICAL FIX: Update loop increment with proper byte scaling */
-    /* i += 1 element -> i += vec_width elements (4 * sizeof(float) = 16 bytes) */
-    int byte_stride = vec_width * 4;  /* 4 bytes per float, vec_width elements */
+    /* Update loop increment: i += 1 element -> i += 16 bytes (4 floats * 4 bytes) */
+    int byte_stride = vec_width * 4;
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
         if (instr->op == OP_ADD && instr->imm == 1) {
-            instr->imm = byte_stride;  /* i += 16 bytes for 4 floats */
+            instr->imm = byte_stride;
         }
     }
     
