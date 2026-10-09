@@ -7,6 +7,8 @@ Completed three high-ROI optimization improvements:
 2. ✅ Enabled cost-based register allocation
 3. ✅ Verified LICM infrastructure (no changes needed)
 
+**Additionally**: Added IR insertion support for future optimizations.
+
 All 118/118 tests passing.
 
 ---
@@ -118,14 +120,47 @@ for (int i = 0; i < loop->body_count; i++) {
 
 ### Future Enhancement
 Would need IR insertion support:
-- `ir_insert_at(index, instr)` - insert instruction at specific position
+- `ir_insert_at(index, instr)` - insert instruction at specific position ✅ **NOW AVAILABLE**
 - Preheader generation for loops
 - Use-site updates (track new temps)
+
+**Note**: IR insertion support is now available (see `IR_INSERTION_SUPPORT.md`), but requires careful index management to avoid invalidating cached indices during iteration.
 
 ### Current Impact
 - ✅ Invariant detection ready for future code motion
 - ✅ Infrastructure in place
 - ✅ All 118/118 tests passing
+
+---
+
+## 4. IR Insertion Support (NEW)
+
+### What Was Added
+- `ir_insert_at(idx, instr)` - Insert instruction at specific index
+- Helper functions: `ir_insert_mov_imm()`, `ir_insert_mov_reg()`, `ir_insert_add()`, `ir_insert_label()`
+- O(n) insertion with automatic buffer growth
+
+### Why It Matters
+Enables future optimizations:
+1. **Full LICM**: Move loop-invariant code before loop header
+2. **Loop Restructuring**: Change loop bounds for vectorization
+3. **Auto-Vectorization**: Generate vector loop pre-header and tail loop
+4. **SSA Construction**: Insert phi functions at join points
+
+### Why Not Used Yet
+**Problem**: Instruction index invalidation during iteration
+
+When inserting at position `idx`, all instructions at `idx` and beyond shift by +1. This invalidates any cached indices, causing bugs in loops that iterate over IR.
+
+**Solution**: Requires careful index management:
+- Track how many insertions occurred before each position
+- Insert in reverse order (last to first)
+- Rebuild loop analysis after insertions
+
+**Current Status**: Infrastructure ready, waiting for careful implementation in LICM
+
+### See Also
+- `IR_INSERTION_SUPPORT.md` - Detailed documentation
 
 ---
 

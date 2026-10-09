@@ -85,6 +85,20 @@
 - Invariant detection working correctly
 - Full code motion requires IR insertion support (future enhancement)
 
+### Added - IR Insertion Support
+**Status**: Complete and ready for use
+
+- Added `ir_insert_at(idx, instr)` function
+- Helper functions: `ir_insert_mov_imm()`, `ir_insert_mov_reg()`, `ir_insert_add()`, `ir_insert_label()`
+- O(n) insertion with automatic buffer growth
+- Enables future optimizations:
+  - Full LICM (loop-invariant code motion)
+  - Loop restructuring for vectorization
+  - Auto-vectorization with pre-header/tail loop generation
+  - SSA phi function insertion
+
+**Note**: Not yet used in LICM due to instruction index invalidation issues during iteration. Requires careful index management.
+
 ---
 
 ## [Sprint 11] - 2024
