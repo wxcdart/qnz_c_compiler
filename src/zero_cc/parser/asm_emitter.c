@@ -16,6 +16,55 @@
  * Helper Functions
  * ========================================================================= */
 
+/* Get backend-specific register name */
+/* Note: Backend register names don't have '%' prefix, we add it here */
+/* We use a round-robin buffer scheme to avoid static buffer issues when multiple */
+/* register names are used in the same fprintf statement */
+static const char *asm_get_backend_int_reg_name(ZeroCCCompiler *c, int reg) {
+    if (!c->isa_backend || !c->isa_backend->regs || !c->isa_backend->regs->int_regs) {
+        return asm_get_reg_name(reg, 0);
+    }
+    /* Use get_hw_reg_name if available (ISA-specific mapping) */
+    if (c->isa_backend->get_hw_reg_name) {
+        const char *name = c->isa_backend->get_hw_reg_name(reg);
+        /* Use round-robin buffers to support multiple register names in same fprintf */
+        static char bufs[4][16];
+        static int idx = 0;
+        char *buf = bufs[idx++ % 4];
+        snprintf(buf, sizeof(bufs[0]), "%%%s", name);
+        return buf;
+    }
+    /* Fallback: use int_regs (may be incorrect for some ISAs) */
+    if (reg < 16) {
+        static char bufs[4][16];
+        static int idx = 0;
+        char *buf = bufs[idx++ % 4];
+        snprintf(buf, sizeof(bufs[0]), "%%%s", c->isa_backend->regs->int_regs[reg]);
+        return buf;
+    }
+    return "%rax";  /* Default fallback */
+}
+
+/* Emit function label (.globl and func:) */
+void emit_function_label_asm(ZeroCCCompiler *c) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    size_t func_idx = c->function_count - 1;
+    
+    /* Emit function label */
+    if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
+        fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
+        fprintf(out, "%s:\n", c->functions[func_idx].name);
+        fflush(out);
+    }
+}
+
+/* Emit function prologue directly (without IR instruction) */
+void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
+    if (BE(c)->emit_prologue_asm) {
+        BE(c)->emit_prologue_asm(c, frame_size);
+    }
+}
+
 /* Get physical register for a temporary */
 static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
     return regalloc_get_reg_for_temp(ra, temp);
@@ -39,24 +88,6 @@ const char *asm_get_reg_name(int reg, int is_fp) {
         };
         return reg < 16 ? gpr_regs[reg] : "%rax";
     }
-}
-
-/* Get backend-specific register name */
-/* Note: Backend register names don't have '%' prefix, we add it here */
-/* We use a simple round-robin buffer scheme to avoid static buffer issues */
-static const char *asm_get_backend_int_reg_name(ZeroCCCompiler *c, int reg) {
-    if (!c->isa_backend || !c->isa_backend->regs || !c->isa_backend->regs->int_regs) {
-        return asm_get_reg_name(reg, 0);
-    }
-    if (reg < 16) {
-        /* Use round-robin buffers to support multiple register names in same fprintf */
-        static char bufs[4][16];
-        static int idx = 0;
-        char *buf = bufs[idx++ % 4];
-        snprintf(buf, sizeof(bufs[0]), "%%%s", c->isa_backend->regs->int_regs[reg]);
-        return buf;
-    }
-    return "%rax";  /* Default fallback */
 }
 
 /* =========================================================================
@@ -110,20 +141,38 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         /* Arithmetic */
         case OP_ADD:
             /* dst = src1 + src2 */
-            fprintf(out, "\tmovq %s, %s\n", src1, dst);
-            fprintf(out, "\taddq %s, %s\n", src2, dst);
+            /* Handle case where src2 == dst to avoid overwriting src2 */
+            if (strcmp(src2, dst) == 0) {
+                /* dst already contains src2, just add src1 */
+                fprintf(out, "\taddq %s, %s\n", src1, dst);
+            } else {
+                fprintf(out, "\tmovq %s, %s\n", src1, dst);
+                fprintf(out, "\taddq %s, %s\n", src2, dst);
+            }
             return;
             
         case OP_SUB:
             /* dst = src1 - src2 */
-            fprintf(out, "\tmovq %s, %s\n", src1, dst);
-            fprintf(out, "\tsubq %s, %s\n", src2, dst);
+            /* Handle case where src2 == dst to avoid overwriting src2 */
+            if (strcmp(src2, dst) == 0) {
+                /* dst already contains src2, just subtract src1 */
+                fprintf(out, "\tsubq %s, %s\n", src1, dst);
+            } else {
+                fprintf(out, "\tmovq %s, %s\n", src1, dst);
+                fprintf(out, "\tsubq %s, %s\n", src2, dst);
+            }
             return;
             
         case OP_MUL:
             /* dst = src1 * src2 */
-            fprintf(out, "\tmovq %s, %s\n", src1, dst);
-            fprintf(out, "\timulq %s, %s\n", src2, dst);
+            /* Handle case where src2 == dst to avoid overwriting src2 */
+            if (strcmp(src2, dst) == 0) {
+                /* dst already contains src2, just multiply by src1 */
+                fprintf(out, "\timulq %s, %s\n", src1, dst);
+            } else {
+                fprintf(out, "\tmovq %s, %s\n", src1, dst);
+                fprintf(out, "\timulq %s, %s\n", src2, dst);
+            }
             return;
             
         case OP_DIV:
@@ -280,13 +329,6 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             return;
             
         /* Frame management */
-        case OP_PROLOGUE:
-            fprintf(out, "\t# PROLOGUE\n");
-            fprintf(out, "\tpush %%rbp\n");
-            fprintf(out, "\tmov %%rsp, %%rbp\n");
-            fprintf(out, "\tsub $%zu, %%rsp\n", (size_t)instr->imm64);
-            return;
-            
         case OP_EPILOGUE:
             fprintf(out, "\t# EPILOGUE\n");
             return;
@@ -344,11 +386,8 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             return;
             
         case OP_CALLEE_SAVE_STORES:
-            fprintf(out, "\t# CALLEE_SAVE_STORES mask=0x%x\n", (unsigned)instr->imm);
-            return;
-            
         case OP_CALLEE_SAVE_LOADS:
-            fprintf(out, "\t# CALLEE_SAVE_LOADS mask=0x%x\n", (unsigned)instr->imm);
+            /* Callee-save is now handled in prologue/epilogue, skip these IR instructions */
             return;
             
         case OP_DEAD:
@@ -466,8 +505,7 @@ void asm_emit_prologue(FILE *out, size_t frame_size) {
 
 /* Emit function epilogue */
 void asm_emit_epilogue(FILE *out) {
-    fprintf(out, "\tleave\n");
-    fprintf(out, "\tret\n");
+    (void)out; /* Not used - ISA backend handles output */
 }
 
 /* Emit a label */
@@ -488,13 +526,7 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     size_t count = ir_get_count();
     size_t func_idx = c->function_count - 1;
     
-    /* Emit function label */
-    if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
-        fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
-        fprintf(out, "%s:\n", c->functions[func_idx].name);
-    }
-    
-    /* Emit instructions */
+    /* Emit instructions (function label and prologue already emitted) */
     for (size_t i = 0; i < count; i++) {
         const Instr *instr = &instrs[i];
         
@@ -511,6 +543,8 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
         asm_emit_instruction(c, instr, i, func_idx);
     }
     
-    /* Emit epilogue */
-    asm_emit_epilogue(out);
+    /* Emit epilogue (ISA-specific) */
+    if (BE(c)->emit_epilogue_asm) {
+        BE(c)->emit_epilogue_asm(c);
+    }
 }

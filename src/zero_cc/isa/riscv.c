@@ -1,5 +1,6 @@
 #include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
+#include "zero_cc/parser/asm_emitter.h"
 #include <stdint.h>
 
 /* Helper macro to convert VREG to physical register */
@@ -144,6 +145,45 @@ static void riscv64_emit_leave(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00002003 | (1 << 15));
     /* ld s0, 8(sp) */
     riscv_emit_u32(c, 0x00002003 | (8 << 15) | (8 << 20));
+}
+
+/* Assembly emission functions for text output */
+static void riscv64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    const char *sp = BE(c)->regs->int_regs[BE(c)->sp_reg];
+    const char *fp = BE(c)->regs->int_regs[BE(c)->fp_reg];
+    const char *ra = BE(c)->regs->int_regs[1];  /* ra is always VREG 1 */
+    /* RISC-V prologue: addi sp, sp, -stack_size; sd ra, 0(sp); sd s0, 8(sp); addi s0, sp, stack_size */
+    fprintf(out, "\taddi %s, %s, -%zu\n", sp, sp, stack_size);
+    fprintf(out, "\tsd %s, 0(%s)\n", ra, sp);
+    fprintf(out, "\tsd %s, 8(%s)\n", fp, sp);
+    fprintf(out, "\taddi %s, %s, %zu\n", fp, sp, stack_size);
+}
+
+static void riscv64_emit_epilogue_asm(ZeroCCCompiler *c) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    const char *sp = BE(c)->regs->int_regs[BE(c)->sp_reg];
+    const char *fp = BE(c)->regs->int_regs[BE(c)->fp_reg];
+    const char *ra = BE(c)->regs->int_regs[1];  /* ra is always VREG 1 */
+    size_t stack_size = (c->current_stack_frame + 15) & ~15;
+    /* RISC-V epilogue: ld ra, 0(sp); ld s0, 8(sp); addi sp, sp, stack_size; ret */
+    fprintf(out, "\tld %s, 0(%s)\n", ra, sp);
+    fprintf(out, "\tld %s, 8(%s)\n", fp, sp);
+    fprintf(out, "\taddi %s, %s, %zu\n", sp, sp, stack_size);
+    fprintf(out, "\tret\n");
+}
+
+static const char *riscv64_get_hw_reg_name(int phys_reg) {
+    /* RISC-V: vreg numbers match hardware register numbers */
+    /* int_regs array is indexed by VREG which equals hardware number */
+    /* But we need to handle the special case where VREG 0 is "zero" */
+    static const char *riscv_hw_names[] = {
+        "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
+        "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
+        "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+        "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
+    };
+    return (phys_reg >= 0 && phys_reg < 32) ? riscv_hw_names[phys_reg] : "zero";
 }
 
 static size_t riscv64_get_code_offset(ZeroCCCompiler *c) {
@@ -792,6 +832,10 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_leave = riscv64_emit_leave,
     .emit_epilogue = riscv64_emit_epilogue,
     .get_code_offset = riscv64_get_code_offset,
+    
+    .emit_prologue_asm = riscv64_emit_prologue_asm,
+    .emit_epilogue_asm = riscv64_emit_epilogue_asm,
+    .get_hw_reg_name = riscv64_get_hw_reg_name,
     
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_mov_reg = riscv64_emit_mov_reg,

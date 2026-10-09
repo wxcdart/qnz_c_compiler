@@ -2,6 +2,64 @@
 
 ## [Unreleased] - Multi-ISA Backend & C11 Support
 
+### Sprint 10.5.6 – Assembly Emitter ADD Instruction & Callee-Save Fixes ✅ COMPLETE
+
+> **Strategic Priority**: Fix critical bugs in assembly emitter's ADD instruction generation and callee-save register preservation timing.
+
+| Priority | Task | Effort | Status |
+|----------|------|--------|--------|
+| 71.1 | **ADD Instruction Bug Fix**: Fix incorrect code generation when src2 == dst register | 2 hours | ✅ Complete |
+| 71.2 | **Register Name Mapping**: Fix physical register to name mapping using get_hw_reg_name() | 1 hour | ✅ Complete |
+| 71.3 | **Static Buffer Bug**: Fix round-robin buffer scheme for register name generation | 0.5 hours | ✅ Complete |
+| 71.4 | **Callee-Save Timing**: Move callee-save stores from IR to prologue/epilogue | 2 hours | ✅ Complete |
+
+#### Changes
+
+**Critical Bug Fixes**:
+
+1. **ADD Instruction Logic** (`asm_emitter.c:OP_ADD`):
+   - Fixed: When src2 and dst are same register, old code overwrote src2 before using it
+   - Old: `movq src1, dst` then `addq src2, dst` (src2 was overwritten!)
+   - New: Check if src2 == dst, use single `addq src1, dst` if true
+   - Also fixed OP_SUB and OP_MUL similarly
+
+2. **Register Name Mapping** (`asm_emitter.c:asm_get_backend_int_reg_name`):
+   - Fixed: Physical register numbers were incorrectly indexed into int_regs[] (VREG-indexed)
+   - Added get_hw_reg_name() function pointer to ISABackend interface
+   - x86_64, aarch64, riscv64 all implement ISA-specific hardware register name mapping
+   - Example: phys_reg 3 = rbx, but int_regs[3] = "rdx" (WRONG!)
+
+3. **Static Buffer Bug** (`asm_emitter.c:asm_get_backend_int_reg_name`):
+   - Fixed: Single static buffer caused all register names to point to same memory
+   - Changed to 4-buffer round-robin scheme (already existed in fallback, now used everywhere)
+   - Prevents buffer overwrite in `fprintf(out, "\taddq %s, %s\n", src2, dst)`
+
+4. **Callee-Save Timing** (`x86_64.c:x86_emit_prologue_asm`, `x86_emit_epilogue_asm`):
+   - Fixed: Callee-save stores were emitted AFTER function body (too late!)
+   - Moved callee-save stores to prologue (right after stack allocation)
+   - Moved callee-save loads to epilogue (before leave/ret)
+   - Removed OP_CALLEE_SAVE_STORES/LOADS from assembly emitter IR handling
+
+**Test Results**:
+
+```bash
+$ make test
+Results: 118/118 passed, 0 failed in 0.37s
+
+$ # Test case: acc = acc + helper(10) where acc=42, helper(10)=20
+$ # Expected: 62, Before fix: 22, After fix: 62 ✅
+```
+
+**Files Modified**:
+
+- `src/zero_cc/parser/asm_emitter.c`: Fixed register name mapping, ADD/SUB/MUL logic, skip callee-save IR
+- `src/zero_cc/isa/x86_64.c`: Added callee-save to prologue/epilogue
+- `src/zero_cc/isa/aarch64.c`: Implemented get_hw_reg_name()
+- `src/zero_cc/isa/riscv.c`: Implemented get_hw_reg_name()
+- `src/zero_cc/isa/isa_backend.h`: Added get_hw_reg_name() function pointer
+
+---
+
 ### Sprint 10.5.5 – Assembly Emitter Bug Fixes & `-S` Flag Completion ✅ COMPLETE
 
 > **Strategic Priority**: Fix critical bugs in assembly emitter, implement function call argument passing, and ensure proper stack alignment for both JIT and assembly modes.

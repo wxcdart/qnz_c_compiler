@@ -49,6 +49,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 8.5** | Architectural Hardening & Infrastructure Refactoring (Tasks 60-64) | ✅ Complete | **118/118 pass** |
 | **Sprint 9** | CLI Driver & Object File Output (Tasks 65-68) | ✅ Complete | AArch64 backend complete, 16 debugging tools built |
 | **Sprint 9.5** | VLA Array Access Bug Fix (Task 69) | ✅ Complete | **118/118 pass**, x86-64 shift instruction hardening |
+| **Sprint 10.5.6** | Assembly Emitter ADD Instruction & Callee-Save Fixes (Tasks 71.1-71.4) | ✅ Complete | **118/118 pass**, assembly generation fully correct |
 | **Sprint 10.5.5** | Assembly Emitter Bug Fixes & `-S` Flag Completion (Tasks 70.1-70.6) | ✅ Complete | **118/118 pass**, assembly generation fully functional |
 | **Sprint 10.5** | Assembly Emitter Refactoring & `-S` Flag (Tasks 70-71) | ✅ Complete | **118/118 pass**, GAS output working |
 | **Sprint 10** | SIMD Vectorization Support (Tasks 72-73) | 📅 Scheduled | — |
@@ -77,6 +78,61 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 ### Root Cause
 
 The x86-64 `SHL/SHR/SAR` instructions use `CL` register (low byte of RCX) for the shift count. When the destination register was RCX, the shift amount would overwrite the value being shifted. The fix uses temporary registers (r10 or r11) when the destination is RCX.
+
+---
+
+## Sprint 10.5.6: Assembly Emitter ADD Instruction & Callee-Save Fixes (Week 39) ✅ COMPLETE
+
+> **Strategic Priority**: Fix critical bugs in assembly emitter's ADD instruction generation and callee-save register preservation timing.
+
+### Tasks
+
+| Task | Description | Duration | Status |
+|------|-------------|----------|--------|
+| 71.1 | **ADD Instruction Bug Fix**: Fix incorrect code generation when src2 == dst register | 2 hours | ✅ Complete |
+| 71.2 | **Register Name Mapping**: Fix physical register to name mapping using get_hw_reg_name() | 1 hour | ✅ Complete |
+| 71.3 | **Static Buffer Bug**: Fix round-robin buffer scheme for register name generation | 0.5 hours | ✅ Complete |
+| 71.4 | **Callee-Save Timing**: Move callee-save stores from IR to prologue/epilogue | 2 hours | ✅ Complete |
+
+### Deliverables
+
+- Fixed OP_ADD instruction emission to handle src2 == dst case correctly
+- Added get_hw_reg_name() function pointer to ISABackend interface for all 3 ISAs
+- Fixed register name mapping to use hardware register numbers, not VREG numbers
+- Moved callee-save stores/loads from IR instructions to prologue/epilogue emission
+- All tests: 118/118 PASS
+
+### Root Causes & Fixes
+
+1. **ADD Instruction Logic Bug**:
+   - Problem: When src2 and dst were same register, `movq src1, dst` overwrote src2
+   - Old: `movq src1, dst` then `addq src2, dst` → src2 was overwritten!
+   - New: Check if src2 == dst, use single `addq src1, dst` if true
+   - Also fixed OP_SUB and OP_MUL similarly
+
+2. **Register Name Mapping Bug**:
+   - Problem: Physical register numbers indexed into int_regs[] (VREG-indexed)
+   - Example: phys_reg 3 = rbx, but int_regs[3] = "rdx" (WRONG!)
+   - Fix: Added get_hw_reg_name() to ISABackend, implemented for all ISAs
+
+3. **Static Buffer Bug**:
+   - Problem: Single static buffer caused all register names to point to same memory
+   - Fix: Changed to 4-buffer round-robin scheme (used in all register name lookups)
+
+4. **Callee-Save Timing Bug**:
+   - Problem: Callee-save stores emitted AFTER function body (too late!)
+   - Fix: Moved callee-save stores to prologue, loads to epilogue
+   - Removed OP_CALLEE_SAVE_STORES/LOADS from assembly emitter IR handling
+
+### Test Results
+
+```bash
+$ make test
+Results: 118/118 passed, 0 failed in 0.37s
+
+$ # Test case: acc = acc + helper(10) where acc=42, helper(10)=20
+$ # Expected: 62, Before fix: 22, After fix: 62 ✅
+```
 
 ---
 

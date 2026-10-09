@@ -1,5 +1,6 @@
 #include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
+#include "zero_cc/parser/asm_emitter.h"
 #include <stdint.h>
 
 /* ARM64 register info */
@@ -150,6 +151,36 @@ static void aarch64_emit_leave(ZeroCCCompiler *c) {
     } else {
         arm64_emit_u32(c, 0x910003FF | (0xFFF << 10));
     }
+}
+
+/* Assembly emission functions for text output */
+static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    /* AArch64 prologue: stp x29, x30, [sp, #-stack_size]!; mov x29, sp */
+    /* Note: x29 is FP, x30 is LR (link register) */
+    fprintf(out, "\tstp x29, x30, [sp, #%zu]!\n", stack_size);
+    fprintf(out, "\tmov x29, sp\n");
+}
+
+static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    /* AArch64 epilogue: ldp x29, x30, [sp]; add sp, sp, #stack_size; ret */
+    size_t stack_size = (c->current_stack_frame + 15) & ~15;
+    /* Note: x29 is FP, x30 is LR (link register) */
+    fprintf(out, "\tldp x29, x30, [sp]\n");
+    fprintf(out, "\tadd sp, sp, #%zu\n", stack_size);
+    fprintf(out, "\tret\n");
+}
+
+static const char *aarch64_get_hw_reg_name(int phys_reg) {
+    /* AArch64: x0-x30, sp is x31 */
+    static const char *aarch64_hw_names[] = {
+        "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+        "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+        "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
+        "x24", "x25", "x26", "x27", "x28", "x29", "x30", "sp"
+    };
+    return (phys_reg >= 0 && phys_reg < 32) ? aarch64_hw_names[phys_reg] : "x0";
 }
 
 static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
@@ -894,6 +925,10 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_leave = aarch64_emit_leave,
     .emit_epilogue = aarch64_emit_epilogue,
     .get_code_offset = aarch64_get_code_offset,
+    
+    .emit_prologue_asm = aarch64_emit_prologue_asm,
+    .emit_epilogue_asm = aarch64_emit_epilogue_asm,
+    .get_hw_reg_name = aarch64_get_hw_reg_name,
     
     .emit_mov_imm = aarch64_emit_mov_imm,
     .emit_add = aarch64_emit_add,

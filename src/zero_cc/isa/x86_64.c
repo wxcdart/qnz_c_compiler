@@ -22,6 +22,12 @@ static const ISARegInfo x86_64_regs = {
 
 /* x86-64 System V ABI calling convention */
 /* Register numbers: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15 */
+/* Hardware register names indexed by hardware register number */
+static const char *x86_64_hw_reg_names[] = {
+    "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
+    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+};
+
 static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
 static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
 static const int x86_64_callee_saved_gpr[] = {3, 12, 13, 14, 15};  /* rbx, r12-r15 (rbp handled by prologue/epilogue) */
@@ -153,6 +159,63 @@ static void x86_emit_epilogue(ZeroCCCompiler *c) {
 static void x86_emit_leave(ZeroCCCompiler *c) {
     /* leave */
     me_emit_u8(c, 0xc9);
+}
+
+/* Assembly emission functions for text output */
+static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    const char *rsp = x86_64_hw_reg_names[BE(c)->sp_reg];
+    const char *rbp = x86_64_hw_reg_names[BE(c)->fp_reg];
+    fprintf(out, "\tpush %%%s\n", rbp);
+    fprintf(out, "\tmov %%%s, %%%s\n", rsp, rbp);
+    fprintf(out, "\tsub $%zu, %%%s\n", stack_size, rsp);
+    
+    /* Emit callee-saved register stores */
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->get_hw_reg_name) {
+        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        for (int i = 0; i < count; i++) {
+            int phys_reg = callee_regs[i];
+            if ((mask >> phys_reg) & 1u) {
+                const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                fprintf(out, "\tmovq %%%s, -%d(%%rbp)\n", reg_name, slot);
+            }
+        }
+    }
+}
+
+static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+    
+    /* Emit callee-saved register loads */
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->get_hw_reg_name) {
+        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        for (int i = 0; i < count; i++) {
+            int phys_reg = callee_regs[i];
+            if ((mask >> phys_reg) & 1u) {
+                const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                fprintf(out, "\tmovq -%d(%%rbp), %%%s\n", slot, reg_name);
+            }
+        }
+    }
+    
+    fprintf(out, "\tleave\n");
+    fprintf(out, "\tret\n");
+}
+
+static const char *x86_get_hw_reg_name(int phys_reg) {
+    static const char *x86_hw_names[] = {
+        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
+        "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+    };
+    return (phys_reg >= 0 && phys_reg < 16) ? x86_hw_names[phys_reg] : "rax";
 }
 
 static size_t x86_get_code_offset(ZeroCCCompiler *c) {
@@ -1225,6 +1288,10 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_leave = x86_emit_leave,
     .emit_epilogue = x86_emit_epilogue,
     .get_code_offset = x86_get_code_offset,
+    
+    .emit_prologue_asm = x86_emit_prologue_asm,
+    .emit_epilogue_asm = x86_emit_epilogue_asm,
+    .get_hw_reg_name = x86_get_hw_reg_name,
     
     .emit_mov_imm = x86_emit_mov_imm,
     .emit_add = x86_emit_add,

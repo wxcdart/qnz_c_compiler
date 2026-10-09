@@ -59,6 +59,11 @@ typedef struct ZeroCCISABackend {
     void (*emit_epilogue)(ZeroCCCompiler *c);
     size_t (*get_code_offset)(ZeroCCCompiler *c);
     
+    /* Assembly emission (text output) */
+    void (*emit_prologue_asm)(ZeroCCCompiler *c, size_t stack_size);
+    void (*emit_epilogue_asm)(ZeroCCCompiler *c);
+    const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
+    
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);
     void (*emit_add)(ZeroCCCompiler *c, int dst, int src1, int src2);
