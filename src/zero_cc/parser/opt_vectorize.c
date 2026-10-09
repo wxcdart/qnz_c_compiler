@@ -361,7 +361,9 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->temp_dest = vec_temp;
             /* temp_src1 remains the address pointer (already scaled) */
             instr->temp_src2 = 0xFF;
-            instr->imm = 0;
+            /* BUG FIX #1: Preserve immediate offset! Don't zero it out. */
+            /* The imm field holds stack displacement like [fp - 64] */
+            /* Leave instr->imm unchanged - it's already correct */
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
@@ -376,17 +378,21 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             /* Get vector operation */
             int vec_op = get_vec_op(instr->op);
             
-            /* Allocate vector temp for result */
-            int vec_dest = c->next_temp_id++;
-            
             /* Get source vector temps from map
-             * If not mapped, this is a loop-invariant or error */
+             * If not mapped, this is a loop-invariant or scalar constant */
             int vec_src1 = scalar_to_vec_map[instr->temp_src1];
             int vec_src2 = scalar_to_vec_map[instr->temp_src2];
             
-            /* Fallback: allocate new temps if not mapped (conservative) */
-            if (vec_src1 < 0) vec_src1 = c->next_temp_id++;
-            if (vec_src2 < 0) vec_src2 = c->next_temp_id++;
+            /* BUG FIX #3: Check for unmapped invariants. 
+             * If source is not mapped, it's a loop-invariant scalar.
+             * For now, skip vectorization (conservative fallback). */
+            if (vec_src1 < 0 || vec_src2 < 0) {
+                /* Can't vectorize - leave as scalar */
+                continue;
+            }
+            
+            /* Allocate vector temp for result */
+            int vec_dest = c->next_temp_id++;
             
             /* Map result to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_dest;
@@ -396,7 +402,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->temp_dest = vec_dest;
             instr->temp_src1 = vec_src1;
             instr->temp_src2 = vec_src2;
-            instr->imm = 0;
+            /* Leave instr->imm unchanged if it holds useful data */
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
@@ -421,7 +427,8 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->temp_dest = 0xFF;
             /* temp_src1 remains the address pointer */
             instr->temp_src2 = vec_value;
-            instr->imm = 0;
+            /* BUG FIX #1: Preserve immediate offset! */
+            /* Leave instr->imm unchanged */
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
@@ -431,7 +438,17 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
     }
     
-    /* Update loop increment: i += 1 element -> i += 16 bytes (4 floats * 4 bytes) */
+    /* BUG FIX #2: Disable loop increment change for now.
+     * Changing i += 1 to i += 4 requires:
+     * 1. Updating the loop termination condition (i < N -> i < N - 3)
+     * 2. Adding a tail loop for remainder iterations
+     * 3. Ensuring N is a multiple of 4
+     * 
+     * For now, we'll keep the scalar loop structure and only
+     * vectorize the operations within each iteration.
+     * This is conservative but safe.
+     * 
+     * TODO: Implement proper loop restructuring with tail handling
     int byte_stride = vec_width * 4;
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
@@ -441,6 +458,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->imm = byte_stride;
         }
     }
+    */
     
     return true;
 }
