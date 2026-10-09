@@ -187,10 +187,25 @@ To re-enable when fixed:
 
 The SIMD infrastructure is **complete and production-ready**:
 
-✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, **loop detection fixed**
-⚠️ **Needs Work**: Auto-vectorization transformation logic (produces incorrect results)
+✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, **loop detection fixed**, **3 critical bugs fixed**
+⚠️ **Needs Work**: Auto-vectorization transformation requires **complete loop restructuring** (not just instruction replacement)
 ✅ **Test Results**: All 118/118 tests passing
 
-**Recent Fix**: Loop detection now correctly identifies backedges by building label-to-instruction-index map. The transformation logic still needs refinement to produce correct vectorized IR.
+### Fixed Bugs
+1. **Memory Addressing Bug**: VLOAD/VSTORE now preserve immediate offsets (stack displacements)
+2. **Loop Increment Bug**: Disabled incorrect i+=16 change (requires full loop restructuring)
+3. **Invariant Bug**: Skip vectorization when source temps are loop invariants
 
-**Timeline**: 1-2 weeks for production-ready auto-vectorization with proper transformation and tail loop handling.
+### Why Transformation Still Fails
+The transformation tries to vectorize operations within a scalar loop structure. This doesn't work because:
+- Address calculation `&a[i] = base + i*4` uses scalar i
+- Changing `i += 1` to `i += 16` breaks semantics without restructuring loop bounds
+- Requires tail loop for non-multiple-of-4 array sizes
+
+### Required for Production-Ready Vectorization
+1. Loop restructuring: change iteration count to N/4
+2. Address calculation: base + i*16 instead of base + i*4  
+3. Tail loop generation for remainder iterations
+4. Loop bound adjustment for safety
+
+**Timeline**: 1-2 weeks for production-ready auto-vectorization with proper loop restructuring.
