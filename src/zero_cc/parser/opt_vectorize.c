@@ -356,8 +356,29 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         return false;
     }
     
-    /* Allocate vector temps starting after general purpose temps */
-    int vec_temp_counter = 16;
+    /* CRITICAL GUARD: Only vectorize loops with scalar increment (i += 1)
+     * This ensures we're dealing with a simple loop structure
+     * TODO: Add proper tail loop generation for non-multiple-of-4 cases */
+    
+    /* Check loop has scalar increment before transformation */
+    bool found_scalar_increment = false;
+    for (int i = start_idx; i <= end_idx; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        if (instr->op == OP_ADD && instr->imm == 1) {
+            /* Found i += 1 (scalar increment) - safe to vectorize */
+            found_scalar_increment = true;
+            break;
+        }
+    }
+    
+    if (!found_scalar_increment) {
+        /* Loop doesn't have scalar increment, skip vectorization */
+        return false;
+    }
+    
+    /* Allocate vector temps using compiler's temp allocator */
+    /* Start from next_temp_id to avoid conflicts with register allocator */
     
     /* First pass: Transform loads and build scalar->vector map */
     for (size_t t = 0; t < transform_count; t++) {
@@ -368,8 +389,8 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         /* Only process loads in first pass */
         if (ti->orig_op != OP_LOAD_32 && ti->orig_op != OP_FLOAD) continue;
         
-        /* Allocate vector temp for this load */
-        int vec_temp = vec_temp_counter++;
+        /* Allocate vector temp using compiler's temp allocator */
+        int vec_temp = c->next_temp_id++;
         
         /* Map scalar dest to vector temp */
         scalar_to_vec_map[ti->dest] = vec_temp;
@@ -399,16 +420,16 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         /* Get vector operation */
         int vec_op = get_vec_op(ti->orig_op);
         
-        /* Allocate vector temp for result */
-        int vec_dest = vec_temp_counter++;
+        /* Allocate vector temp for result using compiler's temp allocator */
+        int vec_dest = c->next_temp_id++;
         
         /* CRITICAL FIX: Get source vector temps from map */
         int vec_src1 = scalar_to_vec_map[ti->src1];
         int vec_src2 = scalar_to_vec_map[ti->src2];
         
         /* If sources not mapped yet, allocate new temps (conservative fallback) */
-        if (vec_src1 < 0) vec_src1 = vec_temp_counter++;
-        if (vec_src2 < 0) vec_src2 = vec_temp_counter++;
+        if (vec_src1 < 0) vec_src1 = c->next_temp_id++;
+        if (vec_src2 < 0) vec_src2 = c->next_temp_id++;
         
         /* Map result to vector temp */
         scalar_to_vec_map[ti->dest] = vec_dest;
@@ -439,7 +460,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         int vec_value = scalar_to_vec_map[ti->src1];
         
         /* If not mapped, allocate new (conservative fallback) */
-        if (vec_value < 0) vec_value = vec_temp_counter++;
+        if (vec_value < 0) vec_value = c->next_temp_id++;
         
         /* Replace with VSTORE */
         instr->op = OP_VSTORE;
