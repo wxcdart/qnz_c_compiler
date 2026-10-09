@@ -169,17 +169,21 @@ static bool instr_has_moving_side_effects(Instr *instr) {
  * Loop-invariant code motion (LICM)
  * Detects loop-invariant instructions
  * 
- * Note: Full code motion is disabled due to instruction index invalidation.
- * When inserting instructions, all subsequent indices shift, breaking jump targets.
+ * Note: Full code motion is disabled due to fundamental incompatibility
+ * with ZeroCC's flat array IR architecture.
  * 
- * Proper solution requires either:
- * 1. Rebuilding the entire IR with new indices (complex)
- * 2. Using a basic-block-based IR instead of flat array (architectural change)
- * 3. Running LICM once outside the fixed-point loop AND using label-based preheaders
+ * The trampoline approach (Option C) still requires ONE splice at the
+ * preheader, which breaks all cached indices (jump targets, live ranges,
+ * IRCallArgs). This is Flaw B from the analysis.
  * 
- * Detection is working and shows optimization opportunities (324 invariants found).
+ * Proper solutions require architectural changes:
+ * 1. Basic Block IR (weeks of work)
+ * 2. Label-based references (1-2 weeks)
+ * 3. Two-pass rebuild with index remapping (1-2 weeks)
  * 
- * See LICM_IMPLEMENTATION_NOTES.md for detailed analysis.
+ * Detection is working and shows optimization opportunities (324 invariants).
+ * 
+ * See LICM_IMPLEMENTATION_NOTES.md and LICM_TRAMPOLINE_DESIGN.md for details.
  */
 void opt_licm(ZeroCCCompiler *c) {
     (void)c;
@@ -237,8 +241,8 @@ void opt_licm(ZeroCCCompiler *c) {
         }
     }
     
-    /* Note: Code motion is disabled to avoid index corruption */
-    /* See LICM_IMPLEMENTATION_NOTES.md for details */
+    /* Note: Code motion is disabled due to Flaw B (array splicing) */
+    /* See LICM_IMPLEMENTATION_NOTES.md for detailed analysis */
     
     loop_analysis_free(&state);
 }

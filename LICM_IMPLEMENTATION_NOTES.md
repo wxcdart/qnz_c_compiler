@@ -420,3 +420,86 @@ For now, detection-only is the pragmatic choice that:
 
 **Status**: Detection ✅, Code Motion ❌ (requires architectural changes)
 **Timeline**: 1-2 weeks when prioritized
+
+---
+
+## Latest Investigation: Trampoline Approach Analysis (2024)
+
+### User's Excellent Analysis
+
+After the user's deep analysis, we confirmed that **even the trampoline approach (Option C) fails** because:
+
+> When an instruction is physically inserted into a flat array via memmove or splicing, every index > N shifts. Any table that cached an instruction index (call tables, live intervals, label patchers) is immediately desynchronized.
+
+### The Trampoline Design Study
+
+We analyzed 5 different trampoline approaches:
+
+| Option | Approach | Problem |
+|--------|----------|---------|
+| 1 | Preheader Insertion | Still splices before header |
+| 2 | Backedge Modification | Backedge goes to wrong target |
+| 3 | First-Entry Trapping | First instruction always jumps |
+| 4 | Flag-Based | Requires extra temp + conditional |
+| 5 | Label-Based Entry | Still requires ONE splice |
+
+### The Fundamental Problem
+
+**Every approach requires at least ONE splice**, which breaks cached indices:
+- `IRCallArgs` with `instr_index`
+- `LiveRange` with `def_pos` and `live_end`
+- Jump/branch patchers with `label_idx`
+
+### The ONLY Working Solutions
+
+To implement LICM code motion, we need architectural changes:
+
+#### Option A: Basic Block IR (3-4 weeks)
+- Replace flat array with linked basic blocks
+- No indices to corrupt
+- **Example**: LLVM, GCC, Clang
+
+#### Option B: Two-Pass Rebuild with Index Remap (1-2 weeks)
+- Build new IR with correct indices
+- Update all cached tables (call args, live ranges, labels)
+- **Example**: How DCE compacts dead instructions
+
+#### Option C: Label-Based References (1-2 weeks)
+- Use `label_idx` instead of instruction indices
+- Jumps reference labels, not positions
+- **Example**: How assemblers work
+
+### Current Status
+
+**Detection-only mode** is the pragmatic choice:
+- ✅ Shows optimization opportunities (324 invariants)
+- ✅ Zero risk of breaking correctness
+- ✅ Works with current flat array IR
+- ✅ Can be enhanced when we do architectural changes
+
+### Profiling Results
+
+```
+LICM:
+  Loops detected: 5
+  Invariants found: 324  ← Real optimization opportunities!
+  Instructions moved: 0  ← Detection-only mode
+```
+
+### Conclusion
+
+**LICM code motion is fundamentally incompatible with ZeroCC's flat array IR.**
+
+The detection works and shows significant value (324 invariants found). Exploiting them requires either:
+1. Basic Block IR (weeks of work)
+2. Index remapping (1-2 weeks)
+3. Label-based references (1-2 weeks)
+
+For now, detection-only is the right choice that maintains correctness while showing optimization potential.
+
+**Status**: Detection ✅, Code Motion ❌ (requires architectural changes)
+**Timeline**: 1-4 weeks depending on approach
+
+---
+
+See `LICM_TRAMPOLINE_DESIGN.md` for detailed trampoline analysis.
