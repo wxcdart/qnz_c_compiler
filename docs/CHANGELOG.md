@@ -63,6 +63,28 @@
 - SIMD backend verified for all 3 ISAs
 - No regressions from previous work
 
+### Added - Cost-Based Register Allocation
+**Status**: Enabled by default for better loop performance
+
+- Spill cost formula: `10^loop_depth`
+- Variables in deeper loops kept in registers
+- Backedge detection for loop identification
+- Cost-based spill selection (lowest cost spilled first)
+- Better register allocation for loop-heavy code
+
+### Fixed - CSE Basic Block Scoping
+**Issue**: CSE incorrectly eliminated across control flow boundaries
+
+- Added basic block tracking to CSE pass
+- Clear hash table at OP_LABEL boundaries
+- Prevents incorrect elimination across if/else branches
+- Maintains correctness while preserving optimization benefits
+
+### Verified - LICM Infrastructure
+- Loop-invariant code motion infrastructure verified
+- Invariant detection working correctly
+- Full code motion requires IR insertion support (future enhancement)
+
 ---
 
 ## [Sprint 11] - 2024
