@@ -184,6 +184,65 @@ static void x86_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_alu3_comm(c, 0x01, dst, src1, src2);
 }
 
+/* Vector operations for JIT binary emission (SSE2) */
+static void x86_emit_vload(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* movups xmm_dest, [base + offset] - unaligned move (works for any alignment) */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);  /* movups */
+    x86_modrm(c, 0, dst & 7, base & 7);
+    me_emit_u32(c, offset);
+}
+
+static void x86_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    /* movups [base + offset], xmm_src - unaligned move */
+    x86_rex(c, 1, 0, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);  /* movups */
+    x86_modrm(c, 0, src & 7, base & 7);
+    me_emit_u32(c, offset);
+}
+
+static void x86_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* addps xmm_dest, xmm_src - packed single-precision add */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x58);  /* addps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vsubps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* subps xmm_dest, xmm_src - packed single-precision subtract */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5C);  /* subps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vmulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* mulps xmm_dest, xmm_src - packed single-precision multiply */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x59);  /* mulps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vdivps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* divps xmm_dest, xmm_src - packed single-precision divide */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5E);  /* divps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
+    /* movaps xmm_dest, xmm_src - aligned packed move */
+    x86_rex(c, 1, 0, (dst >> 3) & 1, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x28);  /* movaps */
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1265,6 +1324,15 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_cqo = x86_emit_cqo,
     .emit_idiv = x86_emit_idiv,
     .emit_lea = x86_emit_lea,
+    
+    /* Vector operations for JIT binary emission */
+    .emit_vload = x86_emit_vload,
+    .emit_vstore = x86_emit_vstore,
+    .emit_vaddps = x86_emit_vaddps,
+    .emit_vsubps = x86_emit_vsubps,
+    .emit_vmulps = x86_emit_vmulps,
+    .emit_vdivps = x86_emit_vdivps,
+    .emit_vmovaps = x86_emit_vmovaps,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
     

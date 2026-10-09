@@ -155,6 +155,16 @@ typedef struct ZeroCCISABackend {
     void (*emit_cqo)(ZeroCCCompiler *c);
     void (*emit_idiv)(ZeroCCCompiler *c, int src);
     void (*emit_lea)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    
+    /* Vector operations for binary JIT emission */
+    void (*emit_vload)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    void (*emit_vstore)(ZeroCCCompiler *c, int src, int base, int32_t offset);
+    void (*emit_vaddps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vsubps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vmulps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vdivps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
+    
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */
     

@@ -347,62 +347,87 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
              * ========================================================================= */
 
             case OP_VLOAD:
-                if (BE(c)->emit_vload_asm) {
+                if (c->emit_asm && BE(c)->emit_vload_asm) {
+                    /* Assembly mode: emit textual assembly */
                     BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vload) {
+                    /* JIT binary mode: emit machine code directly */
+                    BE(c)->emit_vload(c, phys_dst, phys_src1, instr->imm);
                 }
                 break;
 
             case OP_VSTORE:
-                if (BE(c)->emit_vstore_asm) {
+                if (c->emit_asm && BE(c)->emit_vstore_asm) {
+                    /* Assembly mode: emit textual assembly */
                     BE(c)->emit_vstore_asm(c, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vstore) {
+                    /* JIT binary mode: emit machine code directly */
+                    BE(c)->emit_vstore(c, phys_src1, phys_src2, instr->imm);
                 }
                 break;
 
             case OP_VADDSS:
-                if (BE(c)->emit_vaddss_asm) {
+                if (c->emit_asm && BE(c)->emit_vaddss_asm) {
                     BE(c)->emit_vaddss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vaddps) {
+                    /* Use VADDPS for scalar too (lower 32 bits) */
+                    BE(c)->emit_vaddps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VSUBSS:
-                if (BE(c)->emit_vsubss_asm) {
+                if (c->emit_asm && BE(c)->emit_vsubss_asm) {
                     BE(c)->emit_vsubss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vsubps) {
+                    BE(c)->emit_vsubps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VMULSS:
-                if (BE(c)->emit_vmulss_asm) {
+                if (c->emit_asm && BE(c)->emit_vmulss_asm) {
                     BE(c)->emit_vmulss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vmulps) {
+                    BE(c)->emit_vmulps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VDIVSS:
-                if (BE(c)->emit_vdivss_asm) {
+                if (c->emit_asm && BE(c)->emit_vdivss_asm) {
                     BE(c)->emit_vdivss_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vdivps) {
+                    BE(c)->emit_vdivps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VADDPS:
-                if (BE(c)->emit_vaddps_asm) {
+                if (c->emit_asm && BE(c)->emit_vaddps_asm) {
                     BE(c)->emit_vaddps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vaddps) {
+                    BE(c)->emit_vaddps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VSUBPS:
-                if (BE(c)->emit_vsubps_asm) {
+                if (c->emit_asm && BE(c)->emit_vsubps_asm) {
                     BE(c)->emit_vsubps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vsubps) {
+                    BE(c)->emit_vsubps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VMULPS:
-                if (BE(c)->emit_vmulps_asm) {
+                if (c->emit_asm && BE(c)->emit_vmulps_asm) {
                     BE(c)->emit_vmulps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vmulps) {
+                    BE(c)->emit_vmulps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VDIVPS:
-                if (BE(c)->emit_vdivps_asm) {
+                if (c->emit_asm && BE(c)->emit_vdivps_asm) {
                     BE(c)->emit_vdivps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vdivps) {
+                    BE(c)->emit_vdivps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
@@ -461,8 +486,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VMOVAPS:
-                if (BE(c)->emit_vmovaps_asm) {
+                if (c->emit_asm && BE(c)->emit_vmovaps_asm) {
                     BE(c)->emit_vmovaps_asm(c, phys_dst, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vmovaps) {
+                    BE(c)->emit_vmovaps(c, phys_dst, phys_src1);
                 }
                 break;
 

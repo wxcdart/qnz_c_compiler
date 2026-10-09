@@ -292,8 +292,11 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if ((size_t)instr->temp_dest < lra->temp_capacity) {
                 if (instr->op == OP_CVTTSD2SI) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
-                } else if (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op)) {
+                } else if (ir_opcode_is_float(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
+                } else if (ir_opcode_is_simd(instr->op)) {
+                    /* SIMD instructions produce vector register results */
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_VEC;
                 }
             }
         }
@@ -306,6 +309,9 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
                 } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
+                } else if (ir_opcode_is_simd(instr->op)) {
+                    /* SIMD instructions consume vector registers for sources */
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
                 }
             }
         }
@@ -315,6 +321,9 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
                 } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
+                } else if (ir_opcode_is_simd(instr->op)) {
+                    /* SIMD instructions consume vector registers for sources */
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
                 }
             }
