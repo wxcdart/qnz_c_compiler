@@ -1,354 +1,245 @@
 #!/usr/bin/env python3
 """
-Prologue/Epilogue Validator
+Prologue Validator Tool
+Validates prologue/epilogue code generation for multiple ISAs.
 
-Validates that prologue/epilogue code generation is correct:
-- Frame size is 16-byte aligned
-- Stack alignment is correct before calls
-- Prologue and epilogue are symmetric
-- No patching issues (frame size consistency)
+This tool checks that the generated assembly has correct:
+- Prologue sequence (push rbp / stp x29 / addi sp for different ISAs)
+- Epilogue sequence (leave / ldp x29 / ret for different ISAs)
+- Frame size alignment (16-byte for all ISAs)
 
 Usage:
-    python3 prologue_validator.py --asm-file test.s
-    python3 prologue_validator.py --disasm-file test.o --objdump
-    python3 prologue_validator.py --test test.c --verbose
+    python3 tools/prologue_validator.py --asm-file test.s --target x86_64
+    python3 tools/prologue_validator.py --input test.c --target aarch64
 """
 
 import argparse
-import re
 import subprocess
 import sys
+import re
 from pathlib import Path
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
-@dataclass
-class FunctionPrologue:
-    """Represents a function's prologue information."""
-    name: str
-    frame_size: Optional[int]  # None if not found
-    is_aligned: bool
-    push_rbp: bool
-    mov_rbp_rsp: bool
-    sub_rsp: bool
-    line_number: int
+# ISA-specific prologue/epilogue patterns
+ISA_PROLOGUES = {
+    'x86_64': {
+        'prologue': [
+            r'\tpush\s+%rbp',
+            r'\tmovq\s+%rsp,%rbp',
+            r'\tsubq\s+\$(\d+),\s*%rsp',
+        ],
+        'epilogue': [
+            r'\tleave',
+            r'\tret',
+        ],
+        'frame_align': 16,
+    },
+    'aarch64': {
+        'prologue': [
+            r'\stp[dx]\d+,.*\[sp',
+            r'\tadd\s+sp,sp,-?(\d+)',
+        ],
+        'epilogue': [
+            r'\tldp\s+x[0-9]+',
+            r'\tadd\s+sp,sp,(\d+)',
+            r'\tret',
+        ],
+        'frame_align': 16,
+    },
+    'riscv64': {
+        'prologue': [
+            r'\taddi\s+sp,sp,-?(\d+)',
+            r'\tsd\s+s[0-9]+,-?\d+\(sp\)',
+        ],
+        'epilogue': [
+            r'\tld\s+s[0-9]+,-?\d+\(sp\)',
+            r'\taddi\s+sp,sp,(\d+)',
+            r'\tret',
+        ],
+        'frame_align': 16,
+    },
+}
 
 
-@dataclass
-class FunctionEpilogue:
-    """Represents a function's epilogue information."""
-    name: str
-    has_leave: bool
-    has_ret: bool
-    has_pop_rbp: bool
-    line_number: int
-
-
-@dataclass
-class ValidationResult:
-    """Result of prologue/epilogue validation."""
-    function_name: str
-    errors: List[str]
-    warnings: List[str]
-    passed: bool
-
-
-def parse_assembly_file(asm_file: str) -> Tuple[List[FunctionPrologue], List[FunctionEpilogue]]:
-    """Parse assembly file and extract prologue/epilogue information."""
-    prologues = []
-    epilogues = []
+def run_zerocc_asm(source_file, target='x86_64', opt_level='-O3'):
+    """Run ZeroCC with -S flag to generate assembly."""
+    cmd = ['./build/bin/zerocc', '-S', opt_level, '--target', target, str(source_file), '-o', '-']
     
-    current_function = None
-    in_prologue = False
-    in_epilogue = False
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return result.returncode, result.stdout, result.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def validate_prologue(asm_content, target='x86_64'):
+    """Validate prologue sequence."""
+    issues = []
+    patterns = ISA_PROLOGUES.get(target, ISA_PROLOGUES['x86_64'])
     
-    with open(asm_file, 'r') as f:
-        lines = f.readlines()
+    prologue_found = 0
+    for pattern in patterns['prologue']:
+        if re.search(pattern, asm_content):
+            prologue_found += 1
     
-    for line_num, line in enumerate(lines, 1):
-        line = line.strip()
-        
-        # Skip comments and empty lines
-        if not line or line.startswith('#') or line.startswith('//'):
-            continue
-        
-        # Check for function label
-        func_match = re.match(r'^(\w+):', line)
-        if func_match:
-            if current_function and in_prologue:
-                # Previous function had incomplete prologue
-                pass
-            current_function = func_match.group(1)
-            in_prologue = True
-            in_epilogue = False
-            continue
-        
-        if not current_function:
-            continue
-        
-        # Check for prologue instructions
-        if in_prologue:
-            if re.match(r'push\s+%?rbp', line):
-                pass  # Continue prologue
-            elif re.match(r'mov\s+%?rsp,%?rbp', line):
-                pass  # Continue prologue
-            elif re.match(r'sub\s+\\$?(\d+),\s*%?rsp', line):
-                # Found frame size
-                match = re.search(r'\\\$?(\d+)', line)
-                if match:
-                    frame_size = int(match.group(1))
-                    is_aligned = (frame_size % 16 == 0)
-                    
-                    prologues.append(FunctionPrologue(
-                        name=current_function,
-                        frame_size=frame_size,
-                        is_aligned=is_aligned,
-                        push_rbp=True,
-                        mov_rbp_rsp=True,
-                        sub_rsp=True,
-                        line_number=line_num
-                    ))
-                    in_prologue = False
-            elif re.match(r'(call|jmp|ret)', line):
-                # Prologue ended without frame size
-                prologues.append(FunctionPrologue(
-                    name=current_function,
-                    frame_size=0,
-                    is_aligned=True,
-                    push_rbp=False,
-                    mov_rbp_rsp=False,
-                    sub_rsp=False,
-                    line_number=line_num
-                ))
-                in_prologue = False
-        
-        # Check for epilogue instructions
-        if re.match(r'leave', line):
-            epilogues.append(FunctionEpilogue(
-                name=current_function,
-                has_leave=True,
-                has_ret=False,
-                has_pop_rbp=False,
-                line_number=line_num
-            ))
-        elif re.match(r'ret', line):
-            if epilogues and epilogues[-1].name == current_function and not epilogues[-1].has_ret:
-                epilogues[-1].has_ret = True
+    if prologue_found < len(patterns['prologue']) - 1:  # Allow some flexibility
+        issues.append(f"⚠️  Incomplete prologue sequence ({prologue_found}/{len(patterns['prologue'])} patterns)")
+    else:
+        issues.append(f"✅ Prologue sequence valid")
+    
+    return issues
+
+
+def validate_epilogue(asm_content, target='x86_64'):
+    """Validate epilogue sequence."""
+    issues = []
+    patterns = ISA_PROLOGUES.get(target, ISA_PROLOGUES['x86_64'])
+    
+    epilogue_found = 0
+    for pattern in patterns['epilogue']:
+        if re.search(pattern, asm_content):
+            epilogue_found += 1
+    
+    if epilogue_found < len(patterns['epilogue']) - 1:  # Allow some flexibility
+        issues.append(f"⚠️  Incomplete epilogue sequence ({epilogue_found}/{len(patterns['epilogue'])} patterns)")
+    else:
+        issues.append(f"✅ Epilogue sequence valid")
+    
+    return issues
+
+
+def validate_frame_alignment(asm_content, target='x86_64'):
+    """Validate frame size alignment."""
+    issues = []
+    patterns = ISA_PROLOGUES.get(target, ISA_PROLOGUES['x86_64'])
+    align = patterns['frame_align']
+    
+    # Extract frame sizes
+    if target == 'x86_64':
+        pattern = r'\tsubq\s+\$(\d+),\s*%rsp'
+    elif target == 'aarch64':
+        pattern = r'\tadd\s+sp,sp,-?(\d+)'
+    else:  # riscv64
+        pattern = r'\taddi\s+sp,sp,-?(\d+)'
+    
+    matches = re.findall(pattern, asm_content)
+    
+    if not matches:
+        issues.append(f"⚠️  No frame allocation found")
+        return issues
+    
+    for size_str in matches:
+        try:
+            size = int(size_str)
+            if size % align != 0:
+                issues.append(f"⚠️  Frame size {size} not {align}-byte aligned")
             else:
-                epilogues.append(FunctionEpilogue(
-                    name=current_function,
-                    has_leave=False,
-                    has_ret=True,
-                    has_pop_rbp=False,
-                    line_number=line_num
-                ))
+                issues.append(f"✅ Frame size {size} is {align}-byte aligned")
+        except ValueError:
+            pass
     
-    return prologues, epilogues
+    return issues
 
 
-def validate_prologue(prologue: FunctionPrologue) -> ValidationResult:
-    """Validate a single prologue."""
-    errors = []
-    warnings = []
+def validate_assembly(asm_content, target='x86_64'):
+    """Validate complete assembly."""
+    results = {
+        'target': target,
+        'valid': True,
+        'prologue_issues': [],
+        'epilogue_issues': [],
+        'alignment_issues': [],
+    }
     
-    # Check frame size alignment
-    if prologue.frame_size is not None and prologue.frame_size > 0:
-        if prologue.frame_size % 16 != 0:
-            errors.append(f"Frame size {prologue.frame_size} is not 16-byte aligned (required by System V ABI)")
-        elif prologue.frame_size > (1 << 24):
-            errors.append(f"Frame size {prologue.frame_size} exceeds 16MB limit")
+    # Validate prologue
+    results['prologue_issues'] = validate_prologue(asm_content, target)
+    if any(i.startswith('⚠️') for i in results['prologue_issues']):
+        results['valid'] = False
     
-    # Check prologue sequence
-    if not prologue.push_rbp:
-        warnings.append("Missing 'push rbp' in prologue")
-    if not prologue.mov_rbp_rsp:
-        warnings.append("Missing 'mov rbp, rsp' in prologue")
-    if prologue.frame_size and prologue.frame_size > 0 and not prologue.sub_rsp:
-        warnings.append(f"Frame size {prologue.frame_size} specified but no 'sub rsp' instruction found")
+    # Validate epilogue
+    results['epilogue_issues'] = validate_epilogue(asm_content, target)
+    if any(i.startswith('⚠️') for i in results['epilogue_issues']):
+        results['valid'] = False
     
-    return ValidationResult(
-        function_name=prologue.name,
-        errors=errors,
-        warnings=warnings,
-        passed=len(errors) == 0
-    )
-
-
-def validate_epilogue(epilogue: FunctionEpilogue) -> ValidationResult:
-    """Validate a single epilogue."""
-    errors = []
-    warnings = []
-    
-    # Check epilogue sequence
-    if not epilogue.has_leave and not epilogue.has_pop_rbp:
-        warnings.append("Missing 'leave' or 'pop rbp' in epilogue")
-    if not epilogue.has_ret:
-        warnings.append("Missing 'ret' in epilogue")
-    
-    return ValidationResult(
-        function_name=epilogue.name,
-        errors=errors,
-        warnings=warnings,
-        passed=len(errors) == 0
-    )
-
-
-def validate_assembly_file(asm_file: str, verbose: bool = False) -> List[ValidationResult]:
-    """Validate prologue/epilogue in assembly file."""
-    prologues, epilogues = parse_assembly_file(asm_file)
-    results = []
-    
-    # Validate prologues
-    for prologue in prologues:
-        result = validate_prologue(prologue)
-        if verbose or not result.passed:
-            results.append(result)
-    
-    # Validate epilogues
-    for epilogue in epilogues:
-        result = validate_epilogue(epilogue)
-        if verbose or not result.passed:
-            results.append(result)
+    # Validate alignment
+    results['alignment_issues'] = validate_frame_alignment(asm_content, target)
+    if any(i.startswith('⚠️') for i in results['alignment_issues']):
+        results['valid'] = False
     
     return results
 
 
-def generate_test_cases(output_dir: str):
-    """Generate test cases for various frame sizes."""
-    test_cases = [
-        # (name, frame_size, should_pass)
-        ("no_frame", 0, True),
-        ("small_aligned", 16, True),
-        ("small_unaligned", 8, False),
-        ("medium_aligned", 64, True),
-        ("medium_unaligned", 72, False),
-        ("large_aligned", 256, True),
-        ("large_unaligned", 264, False),
-        ("boundary_16", 16, True),
-        ("boundary_32", 32, True),
-        ("boundary_48", 48, True),
-        ("boundary_64", 64, True),
-    ]
+def print_report(results):
+    """Print validation report."""
+    print(f"\n{'='*70}")
+    print(f"Prologue/Epilogue Validation Report")
+    print(f"{'='*70}\n")
     
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    print(f"Target: {results['target']}")
+    print(f"Status: {'✅ VALID' if results['valid'] else '❌ INVALID'}\n")
     
-    for name, frame_size, should_pass in test_cases:
-        test_file = output_path / f"test_{name}.c"
-        test_file.write_text(f"""
-/* Test case: {name} (frame_size={frame_size}, should_pass={should_pass}) */
-
-int test_function(void) {{
-    /* This will generate a prologue with frame_size = {frame_size} */
-    int result = 0;
+    # Prologue
+    print("Prologue:")
+    for issue in results['prologue_issues']:
+        print(f"  {issue}")
+    print()
     
-    /* Add stack variables to force frame allocation */
-""")
-        
-        # Add variables to force specific frame size
-        if frame_size > 0:
-            num_vars = frame_size // 8
-            for i in range(num_vars):
-                test_file.write(f"    int var{i} = {i};\n")
-        
-        test_file.write("""
-    return result;
-}}
-""")
+    # Epilogue
+    print("Epilogue:")
+    for issue in results['epilogue_issues']:
+        print(f"  {issue}")
+    print()
     
-    print(f"Generated {len(test_cases)} test cases in {output_dir}/")
+    # Alignment
+    print("Frame Alignment:")
+    for issue in results['alignment_issues']:
+        print(f"  {issue}")
+    print()
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Validate prologue/epilogue code generation"
-    )
-    parser.add_argument("--asm-file", "-f", help="Assembly file to validate")
-    parser.add_argument("--disasm-file", "-d", help="Object file to disassemble")
-    parser.add_argument("--test", "-t", help="C source file to compile and validate")
-    parser.add_argument("--generate-tests", "-g", help="Generate test cases to directory")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show all results")
-    parser.add_argument("--output-dir", "-o", default="/tmp/prologue_tests", help="Output directory")
-    
+    parser = argparse.ArgumentParser(description='Validate prologue/epilogue code generation')
+    parser.add_argument('--asm-file', help='Assembly file to validate')
+    parser.add_argument('--input', help='C source file to compile and validate')
+    parser.add_argument('--target', default='x86_64', choices=['x86_64', 'aarch64', 'riscv64'],
+                        help='Target ISA (default: x86_64)')
+    parser.add_argument('-O', '--opt-level', default='-O3', help='Optimization level')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     args = parser.parse_args()
     
-    if args.generate_tests:
-        generate_test_cases(args.generate_tests)
-        return 0
+    # Validate arguments
+    if not args.asm_file and not args.input:
+        parser.error("Either --asm-file or --input is required")
     
+    # Get assembly content
     if args.asm_file:
-        print(f"Validating assembly file: {args.asm_file}")
-        results = validate_assembly_file(args.asm_file, args.verbose)
+        asm_file = Path(args.asm_file)
+        if not asm_file.exists():
+            print(f"Error: {asm_file} not found", file=sys.stderr)
+            sys.exit(1)
+        with open(asm_file) as f:
+            asm_content = f.read()
+    else:
+        source_file = Path(args.input)
+        if not source_file.exists():
+            print(f"Error: {source_file} not found", file=sys.stderr)
+            sys.exit(1)
         
-        passed = sum(1 for r in results if r.passed)
-        total = len(results)
-        
-        print(f"\nValidation Results: {passed}/{total} passed")
-        
-        for result in results:
-            status = "PASS" if result.passed else "FAIL"
-            print(f"\n[{status}] {result.function_name}")
-            
-            if result.errors:
-                for error in result.errors:
-                    print(f"  ERROR: {error}")
-            
-            if result.warnings:
-                for warning in result.warnings:
-                    print(f"  WARNING: {warning}")
-        
-        return 0 if passed == total else 1
+        returncode, stdout, stderr = run_zerocc_asm(source_file, args.target, args.opt_level)
+        if returncode != 0:
+            print(f"Error: ZeroCC failed: {stderr}", file=sys.stderr)
+            sys.exit(1)
+        asm_content = stdout
     
-    if args.disasm_file:
-        # Disassemble and validate
-        try:
-            result = subprocess.run(
-                ["objdump", "-d", args.disasm_file],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            # Write to temp file and validate
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.s', delete=False) as f:
-                f.write(result.stdout)
-                temp_file = f.name
-            
-            return validate_assembly_file(temp_file, args.verbose)
-            
-        except subprocess.CalledProcessError as e:
-            print(f"Error disassembling file: {e}")
-            return 1
+    # Validate
+    results = validate_assembly(asm_content, args.target)
     
-    if args.test:
-        # Compile to assembly and validate
-        try:
-            import tempfile
-            
-            # Compile to assembly
-            result = subprocess.run(
-                ["./build/bin/zerocc", "-S", "-o", "-", args.test],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            # Write to temp file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.s', delete=False) as f:
-                f.write(result.stdout)
-                temp_file = f.name
-            
-            return validate_assembly_file(temp_file, args.verbose)
-            
-        except subprocess.CalledProcessError as e:
-            print(f"Error compiling file: {e}")
-            return 1
+    # Print report
+    print_report(results)
     
-    parser.print_help()
-    return 0
+    # Exit with appropriate code
+    sys.exit(0 if results['valid'] else 1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -1,300 +1,219 @@
 #!/usr/bin/env python3
 """
 Stack Alignment Checker
+Verifies that stack is properly aligned before CALL instructions for multiple ISAs.
 
-Verifies that stack alignment is correct according to System V AMD64 ABI:
-- RSP must be 16-byte aligned before CALL instruction
-- Prologue must maintain alignment
-- Frame size must be 16-byte aligned
+This tool tracks stack pointer changes through function execution and validates
+16-byte alignment before all call sites.
 
 Usage:
-    python3 stack_alignment_checker.py --asm-file test.s
-    python3 stack_alignment_checker.py --test test.c
-    python3 stack_alignment_checker.py --check-all
+    python3 tools/stack_alignment_checker.py --asm-file test.s --target x86_64
+    python3 tools/stack_alignment_checker.py --input test.c --target aarch64
 """
 
 import argparse
-import re
 import subprocess
 import sys
+import re
 from pathlib import Path
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
-@dataclass
-class CallSite:
-    """Represents a call site with stack alignment information."""
-    function: str
-    line: int
-    instruction: str
-    rsp_before: Optional[int]
-    is_aligned: bool
-    issue: Optional[str]
+# ISA-specific stack alignment requirements
+ISA_ALIGNMENT = {
+    'x86_64': {
+        'align': 16,
+        'sp_reg': 'rsp',
+        'prologue_adjust': 8,  # push rbp
+        'call_align': 16,  # RSP must be 16-byte aligned before call
+    },
+    'aarch64': {
+        'align': 16,
+        'sp_reg': 'sp',
+        'prologue_adjust': 0,  # No implicit adjustment
+        'call_align': 16,  # SP must be 16-byte aligned before call
+    },
+    'riscv64': {
+        'align': 16,
+        'sp_reg': 'sp',
+        'prologue_adjust': 0,  # No implicit adjustment
+        'call_align': 16,  # SP must be 16-byte aligned before call
+    },
+}
 
 
-@dataclass
-class PrologueAnalysis:
-    """Analysis of a function's prologue."""
-    function: str
-    frame_size: int
-    initial_rsp_mod_16: int
-    final_rsp_mod_16: int
-    is_aligned: bool
-    issue: Optional[str]
-
-
-def calculate_stack_alignment(asm_file: str) -> Tuple[List[PrologueAnalysis], List[CallSite]]:
-    """Calculate stack alignment for all functions in assembly file."""
-    prologues = []
-    call_sites = []
-    
-    with open(asm_file, 'r') as f:
-        lines = f.readlines()
-    
-    current_function = None
-    current_frame_size = 0
-    rsp_mod_16 = 0
-    
-    for line_num, line in enumerate(lines, 1):
-        stripped = line.strip()
-        
-        # Skip comments and empty lines
-        if not stripped or stripped.startswith('#') or stripped.startswith('//'):
-            continue
-        
-        # Track function entry
-        func_match = re.match(r'^(\w+):', stripped)
-        if func_match:
-            if current_function:
-                # Save previous function's prologue analysis
-                if current_frame_size > 0:
-                    final_mod = (rsp_mod_16 - current_frame_size) % 16
-                    is_aligned = (final_mod == 0)
-                    issue = None if is_aligned else f"RSP = {final_mod} mod 16 (should be 0)"
-                    prologues.append(PrologueAnalysis(
-                        function=current_function,
-                        frame_size=current_frame_size,
-                        initial_rsp_mod_16=8,
-                        final_rsp_mod_16=final_mod,
-                        is_aligned=is_aligned,
-                        issue=issue
-                    ))
-            
-            current_function = func_match.group(1)
-            current_frame_size = 0
-            rsp_mod_16 = 8  # After function entry, RSP is 8 mod 16
-            continue
-        
-        if not current_function:
-            continue
-        
-        # Track prologue instructions
-        if re.match(r'push\s+%?rbp', stripped):
-            rsp_mod_16 = (rsp_mod_16 - 8) % 16
-        
-        elif re.match(r'mov\s+%?rsp,%?rbp', stripped):
-            pass  # mov doesn't change RSP
-        
-        elif re.match(r'sub\s+\$?(\d+),', stripped):
-            match = re.search(r'\$?(\d+)', stripped)
-            if match:
-                frame_size = int(match.group(1))
-                current_frame_size = frame_size
-                rsp_mod_16 = (rsp_mod_16 - frame_size) % 16
-        
-        elif re.match(r'add\s+\$?(\d+),', stripped):
-            match = re.search(r'\$?(\d+)', stripped)
-            if match:
-                rsp_mod_16 = (rsp_mod_16 + int(match.group(1))) % 16
-        
-        elif re.match(r'call\s+\w+', stripped):
-            # Check alignment before call
-            is_aligned = (rsp_mod_16 == 0)
-            issue = None if is_aligned else f"RSP = {rsp_mod_16} mod 16 (should be 0 before call)"
-            call_sites.append(CallSite(
-                function=current_function,
-                line=line_num,
-                instruction=stripped,
-                rsp_before=rsp_mod_16,
-                is_aligned=is_aligned,
-                issue=issue
-            ))
-        
-        elif re.match(r'leave', stripped):
-            pass  # leave doesn't change alignment tracking
-        
-        elif re.match(r'ret', stripped):
-            # End of function
-            if current_frame_size > 0:
-                final_mod = rsp_mod_16
-                is_aligned = (final_mod == 0)
-                issue = None if is_aligned else f"RSP = {final_mod} mod 16 at return"
-                prologues.append(PrologueAnalysis(
-                    function=current_function,
-                    frame_size=current_frame_size,
-                    initial_rsp_mod_16=8,
-                    final_rsp_mod_16=final_mod,
-                    is_aligned=is_aligned,
-                    issue=issue
-                ))
-            current_function = None
-            current_frame_size = 0
-            rsp_mod_16 = 0
-    
-    return prologues, call_sites
-
-
-def validate_prologues(prologues: List[PrologueAnalysis]) -> List[str]:
-    """Validate all prologues."""
-    issues = []
-    
-    for prologue in prologues:
-        if not prologue.is_aligned:
-            issues.append(
-                f"Function '{prologue.function}': "
-                f"frame_size={prologue.frame_size}, "
-                f"RSP={prologue.final_rsp_mod_16} mod 16 "
-                f"(should be 0)"
-            )
-    
-    return issues
-
-
-def validate_call_sites(call_sites: List[CallSite]) -> List[str]:
-    """Validate all call sites."""
-    issues = []
-    
-    for site in call_sites:
-        if not site.is_aligned:
-            issues.append(
-                f"Function '{site.function}' line {site.line}: "
-                f"RSP={site.rsp_before} mod 16 before call "
-                f"(should be 0)"
-            )
-    
-    return issues
-
-
-def check_assembly_file(asm_file: str, verbose: bool = False) -> Tuple[int, int]:
-    """Check assembly file for stack alignment issues."""
-    prologues, call_sites = calculate_stack_alignment(asm_file)
-    
-    prologue_issues = validate_prologues(prologues)
-    call_issues = validate_call_sites(call_sites)
-    
-    total_prologues = len(prologues)
-    total_calls = len(call_sites)
-    total_issues = len(prologue_issues) + len(call_issues)
-    
-    print(f"Stack Alignment Analysis for: {asm_file}")
-    print("=" * 60)
-    print(f"Functions analyzed: {total_prologues}")
-    print(f"Call sites analyzed: {total_calls}")
-    print(f"Issues found: {total_issues}")
-    print()
-    
-    if verbose or prologue_issues:
-        print("Prologue Issues:")
-        print("-" * 60)
-        for issue in prologue_issues:
-            print(f"  ❌ {issue}")
-        if not prologue_issues:
-            print("  ✅ All prologues have correct alignment")
-        print()
-    
-    if verbose or call_issues:
-        print("Call Site Issues:")
-        print("-" * 60)
-        for issue in call_issues:
-            print(f"  ❌ {issue}")
-        if not call_issues:
-            print("  ✅ All call sites have correct alignment")
-        print()
-    
-    return total_issues, total_prologues + total_calls
-
-
-def check_c_file(c_file: str, verbose: bool = False) -> Tuple[int, int]:
-    """Compile C file to assembly and check alignment."""
-    import tempfile
+def run_zerocc_asm(source_file, target='x86_64', opt_level='-O3'):
+    """Run ZeroCC with -S flag to generate assembly."""
+    cmd = ['./build/bin/zerocc', '-S', opt_level, '--target', target, str(source_file), '-o', '-']
     
     try:
-        # Compile to assembly
-        result = subprocess.run(
-            ["./build/bin/zerocc", "-S", "-o", "-", c_file],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10
-        )
-        
-        # Write to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.s', delete=False) as f:
-            f.write(result.stdout)
-            temp_file = f.name
-        
-        return check_assembly_file(temp_file, verbose)
-        
-    except subprocess.TimeoutExpired:
-        print(f"Error: Compilation timed out for {c_file}")
-        return 1, 0
-    except subprocess.CalledProcessError as e:
-        print(f"Error compiling {c_file}: {e.stderr[:200] if e.stderr else e}")
-        return 1, 0
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return result.returncode, result.stdout, result.stderr
+    except Exception as e:
+        return -1, "", str(e)
 
 
-def check_all_tests(verbose: bool = False) -> Tuple[int, int]:
-    """Check all test files."""
-    test_dir = Path("test/jit")
-    total_issues = 0
-    total_checks = 0
-    skipped = 0
+def track_stack_alignment(asm_content, target='x86_64'):
+    """Track stack pointer changes and check alignment at call sites."""
+    issues = []
+    config = ISA_ALIGNMENT.get(target, ISA_ALIGNMENT['x86_64'])
+    align = config['align']
+    prologue_adjust = config['prologue_adjust']
     
-    for test_file in sorted(test_dir.glob("*.c")):
-        try:
-            issues, checks = check_c_file(str(test_file), verbose)
-            if issues == 0 and checks > 0:
-                total_issues += 0
-                total_checks += checks
-            elif checks == 0:
-                skipped += 1
-        except Exception as e:
-            print(f"Error checking {test_file.name}: {e}")
-            skipped += 1
+    # Initial alignment state (after function entry)
+    # We track offset from 16-byte boundary
+    current_offset = prologue_adjust % align
     
-    print(f"\n{'=' * 60}")
-    print(f"Total: {total_issues} issues in {total_checks} checks")
-    print(f"Skipped: {skipped} (failed to compile)")
-    return total_issues, total_checks
+    lines = asm_content.split('\n')
+    in_function = False
+    call_line = 0
+    
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        
+        # Track function boundaries
+        if re.search(r'^\s*\.\s*globl\s+\w+', line) or re.match(r'^\s*\w+:', line):
+            in_function = True
+            current_offset = prologue_adjust % align
+        
+        if not in_function:
+            continue
+        
+        # Track stack pointer changes
+        if target == 'x86_64':
+            # subq $N, %rsp
+            sub_match = re.search(r'\tsubq\s+\$(\d+),\s*%rsp', line)
+            if sub_match:
+                current_offset = (current_offset + int(sub_match.group(1))) % align
+            
+            # addq $N, %rsp
+            add_match = re.search(r'\taddq\s+\$(\d+),\s*%rsp', line)
+            if add_match:
+                current_offset = (current_offset - int(add_match.group(1))) % align
+            
+            # pushq
+            if re.search(r'\tpushq\s', line):
+                current_offset = (current_offset + 8) % align
+            
+            # popq
+            if re.search(r'\tpopq\s', line):
+                current_offset = (current_offset - 8) % align
+            
+            # Check alignment before call
+            if re.search(r'\t(call|callq)\s', line):
+                if current_offset != 0:
+                    issues.append(f"⚠️  Line {i}: RSP not 16-byte aligned before call (offset={current_offset})")
+                call_line = i
+        
+        elif target == 'aarch64':
+            # sub sp, sp, #N
+            sub_match = re.search(r'\tsub\s+sp,sp,-?(\d+)', line)
+            if sub_match:
+                current_offset = (current_offset + int(sub_match.group(1))) % align
+            
+            # add sp, sp, #N
+            add_match = re.search(r'\tadd\s+sp,sp,(\d+)', line)
+            if add_match:
+                current_offset = (current_offset - int(add_match.group(1))) % align
+            
+            # Check alignment before call
+            if re.search(r'\tbl\s', line):
+                if current_offset != 0:
+                    issues.append(f"⚠️  Line {i}: SP not 16-byte aligned before call (offset={current_offset})")
+                call_line = i
+        
+        else:  # riscv64
+            # addi sp, sp, #N
+            addi_match = re.search(r'\taddi\s+sp,sp,-?(\d+)', line)
+            if addi_match:
+                current_offset = (current_offset + int(addi_match.group(1))) % align
+            
+            # Check alignment before call
+            if re.search(r'\tjal\s+ra,', line):
+                if current_offset != 0:
+                    issues.append(f"⚠️  Line {i}: SP not 16-byte aligned before call (offset={current_offset})")
+                call_line = i
+    
+    return issues
+
+
+def validate_assembly(asm_content, target='x86_64'):
+    """Validate stack alignment for assembly."""
+    results = {
+        'target': target,
+        'valid': True,
+        'issues': [],
+    }
+    
+    # Track stack alignment
+    results['issues'] = track_stack_alignment(asm_content, target)
+    
+    if results['issues']:
+        results['valid'] = False
+    
+    return results
+
+
+def print_report(results):
+    """Print validation report."""
+    print(f"\n{'='*70}")
+    print(f"Stack Alignment Validation Report")
+    print(f"{'='*70}\n")
+    
+    print(f"Target: {results['target']}")
+    print(f"Status: {'✅ VALID' if results['valid'] else '❌ INVALID'}\n")
+    
+    if results['issues']:
+        print(f"Alignment Issues ({len(results['issues'])}):")
+        for issue in results['issues']:
+            print(f"  {issue}")
+        print()
+    else:
+        print("✅ All call sites have proper stack alignment\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Check stack alignment in assembly code"
-    )
-    parser.add_argument("--asm-file", "-f", help="Assembly file to check")
-    parser.add_argument("--test", "-t", help="C source file to compile and check")
-    parser.add_argument("--check-all", action="store_true", help="Check all test files")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show all details")
-    
+    parser = argparse.ArgumentParser(description='Validate stack alignment at call sites')
+    parser.add_argument('--asm-file', help='Assembly file to validate')
+    parser.add_argument('--input', help='C source file to compile and validate')
+    parser.add_argument('--target', default='x86_64', choices=['x86_64', 'aarch64', 'riscv64'],
+                        help='Target ISA (default: x86_64)')
+    parser.add_argument('-O', '--opt-level', default='-O3', help='Optimization level')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     args = parser.parse_args()
     
+    # Validate arguments
+    if not args.asm_file and not args.input:
+        parser.error("Either --asm-file or --input is required")
+    
+    # Get assembly content
     if args.asm_file:
-        issues, checks = check_assembly_file(args.asm_file, args.verbose)
-        return 0 if issues == 0 else 1
+        asm_file = Path(args.asm_file)
+        if not asm_file.exists():
+            print(f"Error: {asm_file} not found", file=sys.stderr)
+            sys.exit(1)
+        with open(asm_file) as f:
+            asm_content = f.read()
+    else:
+        source_file = Path(args.input)
+        if not source_file.exists():
+            print(f"Error: {source_file} not found", file=sys.stderr)
+            sys.exit(1)
+        
+        returncode, stdout, stderr = run_zerocc_asm(source_file, args.target, args.opt_level)
+        if returncode != 0:
+            print(f"Error: ZeroCC failed: {stderr}", file=sys.stderr)
+            sys.exit(1)
+        asm_content = stdout
     
-    if args.test:
-        issues, checks = check_c_file(args.test, args.verbose)
-        return 0 if issues == 0 else 1
+    # Validate
+    results = validate_assembly(asm_content, args.target)
     
-    if args.check_all:
-        issues, checks = check_all_tests(args.verbose)
-        return 0 if issues == 0 else 1
+    # Print report
+    print_report(results)
     
-    parser.print_help()
-    return 0
+    # Exit with appropriate code
+    sys.exit(0 if results['valid'] else 1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

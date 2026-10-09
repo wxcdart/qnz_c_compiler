@@ -4,7 +4,12 @@ Assembly Emitter Validator Tool
 Validates and compares assembly output from ZeroCC -S flag.
 
 This tool helps verify that the -S flag correctly emits text assembly
-instead of binary ELF output.
+instead of binary ELF output. Supports x86-64, AArch64, and RISC-V.
+
+Usage:
+    python3 tools/asm_emitter_validator.py --input test.c --target x86_64
+    python3 tools/asm_emitter_validator.py --input test.c --target aarch64
+    python3 tools/asm_emitter_validator.py --input test.c --target riscv64
 """
 
 import os
@@ -13,9 +18,48 @@ import subprocess
 import re
 from pathlib import Path
 
-def run_zerocc_asm(source_file, opt_level="-O3", output_file=None):
+# ISA-specific assembly patterns
+ISA_PATTERNS = {
+    'x86_64': {
+        'instructions': [
+            r'\t(mov|call|jmp|add|sub|push|pop|lea|cmp|test)\s',
+            r'\t(movq|movl|movw|movb)\s',
+        ],
+        'registers': r'%[a-z]+',
+        'prologue': [r'\tpush\s+%rbp', r'\tmovq\s+%rsp,%rbp'],
+        'epilogue': [r'\tleave', r'\tret'],
+        'section': r'\.\s*(text|data|rodata)',
+        'function': r'^\s*\.\s*globl\s+\w+',
+    },
+    'aarch64': {
+        'instructions': [
+            r'\t(stp|ldp|str|ldr|add|sub|mov|ret|bl|b\.|and|orr)\s',
+        ],
+        'registers': r'\b(x[0-9]{1,2}|w[0-9]{1,2}|sp|lr|fp)\b',
+        'prologue': [r'\stp[dx]\d+,.*\[sp', r'\tadd\s+sp,sp,-?\d+'],
+        'epilogue': [r'\tldp\s+x[0-9]+', r'\tret'],
+        'section': r'\.\s*(text|data|rodata)',
+        'function': r'^\s*\.\s*globl\s+\w+',
+    },
+    'riscv64': {
+        'instructions': [
+            r'\t(addi|sd|ld|sw|lw|add|sub|mv|ret|jal|beq|bne)\s',
+        ],
+        'registers': r'\b(a[0-7]|s[0-9]{0,2}|t[0-6]|sp|fp|ra|gp|tp)\b',
+        'prologue': [r'\taddi\s+sp,sp,-?\d+', r'\tsd\s+s[0-9]+'],
+        'epilogue': [r'\tld\s+s[0-9]+', r'\tret'],
+        'section': r'\.\s*(text|data|rodata)',
+        'function': r'^\s*\.\s*globl\s+\w+',
+    },
+}
+
+# Binary detection (ELF magic bytes)
+ELF_MAGIC = b'\x7fELF'
+
+
+def run_zerocc_asm(source_file, target='x86_64', opt_level="-O3", output_file=None):
     """Run ZeroCC with -S flag to generate assembly."""
-    cmd = ['./build/bin/zerocc', '-S', opt_level, source_file]
+    cmd = ['./build/bin/zerocc', '-S', opt_level, '--target', target, source_file]
     if output_file:
         cmd.extend(['-o', output_file])
     
@@ -25,39 +69,54 @@ def run_zerocc_asm(source_file, opt_level="-O3", output_file=None):
     except Exception as e:
         return -1, "", str(e)
 
-def check_assembly_format(asm_content, filename):
-    """Check if content is valid assembly text."""
+
+def check_assembly_format(asm_content, filename, target='x86_64'):
+    """Check if content is valid assembly text for the target ISA."""
     issues = []
+    patterns = ISA_PATTERNS.get(target, ISA_PATTERNS['x86_64'])
     
     # Check for binary content (ELF magic bytes)
-    if asm_content.startswith('\x7fELF') or asm_content[:4] == b'\x7fELF':
+    if isinstance(asm_content, bytes):
+        if asm_content[:4] == ELF_MAGIC:
+            issues.append("❌ OUTPUT IS BINARY ELF (not text assembly)")
+            return issues
+    elif asm_content.startswith('\x7fELF'):
         issues.append("❌ OUTPUT IS BINARY ELF (not text assembly)")
         return issues
     
     # Check for valid assembly patterns
     lines = asm_content.split('\n')
     
-    # Look for common assembly patterns
-    has_section = any('.text' in line or '.data' in line or '.rodata' in line for line in lines)
-    has_function = any(re.search(r'^\s*\.\s*globl\s+\w+', line) or re.search(r'^\s*\w+:', line) for line in lines)
-    has_instructions = any(re.search(r'\t(mov|call|jmp|add|sub|push|pop|lea|cmp|test)\s', line) for line in lines)
-    has_labels = any(re.search(r'^\s*[A-Za-z_][A-Za-z0-9_]*:', line) for line in lines)
+    has_section = any(re.search(patterns['section'], line) for line in lines)
+    has_function = any(re.search(patterns['function'], line) for line in lines)
+    has_instructions = any(re.search(pattern, asm_content) for pattern in patterns['instructions'])
+    has_registers = re.search(patterns['registers'], asm_content) is not None
     
     if not has_section:
-        issues.append("⚠️  No .text/.data/.rodata sections found")
+        issues.append(f"⚠️  No .text/.data/.rodata sections found")
     if not has_function:
-        issues.append("⚠️  No function declarations found")
+        issues.append(f"⚠️  No function declarations found")
     if not has_instructions:
-        issues.append("⚠️  No instructions found")
-    if not has_labels:
-        issues.append("⚠️  No labels found")
+        issues.append(f"⚠️  No {target} instructions found")
+    if not has_registers:
+        issues.append(f"⚠️  No {target} registers found")
+    
+    # Check prologue/epilogue
+    has_prologue = any(re.search(p, asm_content) for p in patterns['prologue'])
+    has_epilogue = any(re.search(p, asm_content) for p in patterns['epilogue'])
+    
+    if not has_prologue:
+        issues.append(f"⚠️  No {target} prologue pattern found")
+    if not has_epilogue:
+        issues.append(f"⚠️  No {target} epilogue pattern found")
     
     if not issues:
-        issues.append("✅ Valid assembly format detected")
+        issues.append(f"✅ Valid {target} assembly format detected")
     
     return issues
 
-def analyze_assembly_stats(asm_content):
+
+def analyze_assembly_stats(asm_content, target='x86_64'):
     """Analyze assembly statistics."""
     lines = asm_content.split('\n')
     
@@ -71,30 +130,55 @@ def analyze_assembly_stats(asm_content):
         'simd_instructions': 0,
     }
     
-    instruction_patterns = {
-        'mov': r'\t(mov[qlwd]?|mov[sz]x|movabs)\s',
-        'call': r'\tcall\s',
-        'jmp': r'\t(jmp|je|jne|jl|jle|jg|jge|ja|jb)\s',
-        'add': r'\tadd\s',
-        'sub': r'\tsub\s',
-        'imul': r'\timul\s',
-        'idiv': r'\tidiv\s',
-        'push': r'\tpush\s',
-        'pop': r'\tpop\s',
-        'lea': r'\tlea\s',
-        'cmp': r'\tcmp\s',
-        'test': r'\ttest\s',
-        'xmm': r'\t(addss|subss|mulss|divss|movss|movaps|movapd|cvtsi2ss|cvtss2si)\s',
-    }
+    # ISA-specific instruction patterns
+    if target == 'x86_64':
+        instruction_patterns = {
+            'mov': r'\t(movq|movl|movw|movb|movabs)\s',
+            'call': r'\tcall\s',
+            'jmp': r'\t(jmp|je|jne|jl|jle|jg|jge|ja|jb)\s',
+            'add': r'\taddq\s',
+            'sub': r'\tsubq\s',
+            'imul': r'\timul\s',
+            'push': r'\tpushq\s',
+            'pop': r'\tpopq\s',
+            'lea': r'\tleaq\s',
+            'cmp': r'\tcmpq\s',
+            'test': r'\ttest\s',
+        }
+        simd_patterns = [r'\t(addss|subss|mulss|divss|movss|movsd|cvtsi2ss)',
+                        r'\t(addps|subps|mulpd|divpd|movaps|movapd)']
+    elif target == 'aarch64':
+        instruction_patterns = {
+            'mov': r'\t(mov|orr|movk)\s',
+            'call': r'\tbl\s',
+            'jmp': r'\tb\.(eq|ne|lt|gt|le|ge|al)\s',
+            'add': r'\tadd\s',
+            'sub': r'\tsub\s',
+            'str': r'\tstr\s',
+            'ldr': r'\tldr\s',
+            'stp': r'\stp[dx]\s',
+            'ldp': r'\tldp\s',
+        }
+        simd_patterns = [r'\t(fadd|fsub|fmul|fdiv|ld1|st1)\s']
+    else:  # riscv64
+        instruction_patterns = {
+            'addi': r'\taddi\s',
+            'call': r'\tjal\s',
+            'jmp': r'\t(beq|bne|blt|bge)\s',
+            'add': r'\tadd\s',
+            'sub': r'\tsub\s',
+            'sd': r'\tsd\s',
+            'ld': r'\tld\s',
+        }
+        simd_patterns = [r'\t(fadd|fsub|fmul|fdiv)\.d\s']
     
     for line in lines:
         stripped = line.strip()
-        
         if not stripped:
             stats['blank_lines'] += 1
         elif stripped.startswith('#') or stripped.startswith('//'):
             stats['comment_lines'] += 1
-        elif not stripped.startswith('.'):
+        else:
             stats['code_lines'] += 1
             
             # Count instructions
@@ -103,136 +187,120 @@ def analyze_assembly_stats(asm_content):
                     stats['instruction_counts'][name] = stats['instruction_counts'].get(name, 0) + 1
             
             # Count SIMD
-            if re.search(instruction_patterns['xmm'], line):
-                stats['simd_instructions'] += 1
-        
-        # Find functions
-        func_match = re.match(r'^\s*\.globl\s+(\w+)', line)
-        if func_match:
-            stats['functions'].append(func_match.group(1))
+            for pattern in simd_patterns:
+                if re.search(pattern, line):
+                    stats['simd_instructions'] += 1
+                    break
+            
+            # Find functions
+            if re.search(r'^\s*\.\s*globl\s+\w+', line):
+                match = re.search(r'\.\s*globl\s+(\w+)', line)
+                if match:
+                    stats['functions'].append(match.group(1))
     
     return stats
 
-def print_assembly_report(source_file, asm_content, stats):
-    """Print analysis report."""
-    print(f"\n{'='*70}")
-    print(f"Assembly Analysis: {Path(source_file).name}")
-    print(f"{'='*70}")
-    
-    print(f"\n📊 Statistics:")
-    print(f"  Total lines:     {stats['total_lines']}")
-    print(f"  Code lines:      {stats['code_lines']}")
-    print(f"  Comment lines:   {stats['comment_lines']}")
-    print(f"  Blank lines:     {stats['blank_lines']}")
-    print(f"  Functions:       {len(stats['functions'])} ({', '.join(stats['functions']) if stats['functions'] else 'none'})")
-    
-    print(f"\n📝 Instruction Counts:")
-    for instr, count in sorted(stats['instruction_counts'].items(), key=lambda x: -x[1]):
-        marker = "🔥" if instr == 'xmm' else "  "
-        print(f"  {marker} {instr:12s}: {count}")
-    
-    if stats['simd_instructions'] > 0:
-        print(f"\n✅ SIMD Instructions Detected: {stats['simd_instructions']}")
-    else:
-        print(f"\nℹ️  No SIMD instructions (expected for non-vectorized code)")
 
-def compare_with_gcc(source_file):
-    """Compare ZeroCC assembly with GCC."""
-    print(f"\n{'='*70}")
-    print("Comparing with GCC (-O2)")
-    print(f"{'='*70}")
+def validate_assembly_file(asm_file, target='x86_64'):
+    """Validate assembly from file."""
+    with open(asm_file) as f:
+        content = f.read()
     
-    # Get GCC assembly
-    gcc_cmd = ['gcc', '-O2', '-S', '-fverbose-asm', source_file, '-o', '-']
-    try:
-        gcc_result = subprocess.run(gcc_cmd, capture_output=True, text=True, timeout=30)
-        if gcc_result.returncode != 0:
-            print("❌ GCC compilation failed")
-            return
-    except Exception as e:
-        print(f"❌ GCC error: {e}")
-        return
+    issues = check_assembly_format(content, str(asm_file), target)
+    stats = analyze_assembly_stats(content, target)
     
-    # Get ZeroCC assembly
-    zerocc_cmd = ['./build/bin/zerocc', '-S', '-O3', source_file, '-o', '-']
-    try:
-        zerocc_result = subprocess.run(zerocc_cmd, capture_output=True, text=True, timeout=30)
-        if zerocc_result.returncode != 0:
-            print("❌ ZeroCC compilation failed")
-            print(zerocc_result.stderr)
-            return
-    except Exception as e:
-        print(f"❌ ZeroCC error: {e}")
-        return
-    
-    gcc_asm = gcc_result.stdout
-    zerocc_asm = zerocc_result.stdout
-    
-    print(f"\nGCC assembly:     {len(gcc_asm.split(chr(10)))} lines")
-    print(f"ZeroCC assembly:  {len(zerocc_asm.split(chr(10)))} lines")
-    
-    # Compare function counts
-    gcc_funcs = len(re.findall(r'^\s*\.globl\s+\w+', gcc_asm, re.MULTILINE))
-    zc_funcs = len(re.findall(r'^\s*\.globl\s+\w+', zerocc_asm, re.MULTILINE))
-    print(f"\nGCC functions:     {gcc_funcs}")
-    print(f"ZeroCC functions:  {zc_funcs}")
+    return {
+        'file': str(asm_file),
+        'target': target,
+        'valid': not any(i.startswith('❌') for i in issues),
+        'issues': issues,
+        'stats': stats,
+    }
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 tools/asm_emitter_validator.py <source.c> [options]")
-        print("\nOptions:")
-        print("  --gcc     Compare with GCC assembly")
-        print("  -O0       Use -O0 optimization level")
-        print("  -O2       Use -O2 optimization level")
-        print("  -O3       Use -O3 optimization level (default)")
-        print("\nExamples:")
-        print("  python3 tools/asm_emitter_validator.py test/jit/simple_test.c")
-        print("  python3 tools/asm_emitter_validator.py test/bench/array_test.c --gcc")
-        sys.exit(1)
-    
-    source_file = sys.argv[1]
-    compare_gcc = '--gcc' in sys.argv
-    
-    if not os.path.exists(source_file):
-        print(f"Error: {source_file} not found")
-        sys.exit(1)
-    
-    # Determine optimization level
-    opt_level = '-O3'
-    if '-O0' in sys.argv:
-        opt_level = '-O0'
-    elif '-O2' in sys.argv:
-        opt_level = '-O2'
-    
-    print(f"Running ZeroCC -S {opt_level} on {source_file}...")
-    returncode, stdout, stderr = run_zerocc_asm(source_file, opt_level)
+
+def validate_zerocc_output(source_file, target='x86_64', opt_level='-O3'):
+    """Validate assembly from ZeroCC -S output."""
+    returncode, stdout, stderr = run_zerocc_asm(source_file, target, opt_level)
     
     if returncode != 0:
-        print(f"❌ ZeroCC failed with return code {returncode}")
-        print(stderr)
-        sys.exit(1)
+        return {
+            'file': str(source_file),
+            'target': target,
+            'valid': False,
+            'issues': [f"❌ ZeroCC failed: {stderr}"],
+            'stats': {},
+        }
     
-    # Check if output is text or binary
-    issues = check_assembly_format(stdout, source_file)
+    issues = check_assembly_format(stdout, str(source_file), target)
+    stats = analyze_assembly_stats(stdout, target)
     
-    print("\n🔍 Format Validation:")
-    for issue in issues:
-        print(f"  {issue}")
-    
-    if any("BINARY" in issue for issue in issues):
-        print("\n❌ Assembly emitter is outputting binary instead of text!")
-        sys.exit(1)
-    
-    # Analyze and print statistics
-    stats = analyze_assembly_stats(stdout)
-    print_assembly_report(source_file, stdout, stats)
-    
-    if compare_gcc:
-        compare_with_gcc(source_file)
-    
-    print(f"\n{'='*70}")
-    print("✅ Assembly output validation complete")
-    print(f"{'='*70}\n")
+    return {
+        'file': str(source_file),
+        'target': target,
+        'valid': not any(i.startswith('❌') for i in issues),
+        'issues': issues,
+        'stats': stats,
+    }
 
-if __name__ == '__main__':
+
+def print_report(result):
+    """Print validation report."""
+    print(f"\n{'='*70}")
+    print(f"Assembly Validation Report")
+    print(f"{'='*70}\n")
+    
+    print(f"File: {result['file']}")
+    print(f"Target: {result['target']}")
+    print(f"Status: {'✅ VALID' if result['valid'] else '❌ INVALID'}\n")
+    
+    print("Issues:")
+    for issue in result['issues']:
+        print(f"  {issue}")
+    print()
+    
+    # Statistics
+    stats = result.get('stats', {})
+    if stats:
+        print(f"Statistics:")
+        print(f"  Total lines: {stats.get('total_lines', 0)}")
+        print(f"  Code lines: {stats.get('code_lines', 0)}")
+        print(f"  Functions: {len(stats.get('functions', []))}")
+        if stats.get('instruction_counts'):
+            instr = stats['instruction_counts']
+            print(f"  Top instructions: {', '.join(f'{k}={v}' for k, v in list(instr.items())[:5])}")
+        if stats.get('simd_instructions', 0) > 0:
+            print(f"  SIMD instructions: {stats['simd_instructions']}")
+        print()
+
+
+def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Validate assembly output from ZeroCC -S flag')
+    parser.add_argument('--asm-file', help='Assembly file to validate')
+    parser.add_argument('--input', help='C source file to compile and validate')
+    parser.add_argument('--target', default='x86_64', choices=['x86_64', 'aarch64', 'riscv64'],
+                        help='Target ISA (default: x86_64)')
+    parser.add_argument('-O', '--opt-level', default='-O3', help='Optimization level')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+    args = parser.parse_args()
+    
+    # Validate arguments
+    if not args.asm_file and not args.input:
+        parser.error("Either --asm-file or --input is required")
+    
+    # Validate
+    if args.asm_file:
+        result = validate_assembly_file(args.asm_file, args.target)
+    else:
+        result = validate_zerocc_output(args.input, args.target, args.opt_level)
+    
+    # Print report
+    print_report(result)
+    
+    # Exit with appropriate code
+    sys.exit(0 if result['valid'] else 1)
+
+
+if __name__ == "__main__":
     main()
