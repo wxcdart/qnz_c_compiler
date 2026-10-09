@@ -14,6 +14,7 @@
 #include "../parser/regalloc.h"
 #include "../parser/lowering_state.h"
 #include "../parser/label_patcher.h"
+#include "../parser/ir_arena.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
@@ -104,6 +105,10 @@ typedef struct ZeroCCCompiler {
     bool dump_ir;  /* Dump IR after lowering */
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
+
+    /* IR arena - dynamic instruction buffer */
+    IRArena ir_arena;              /* IR instruction arena */
+    IRCallArgsArena ir_call_args;  /* Call argument tracking arena */
 
     /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;

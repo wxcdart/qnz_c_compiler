@@ -13,6 +13,7 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
+#include "zero_cc/parser/ir_arena.h"
 #include "../isa/isa_backend.h"
 #include "zero_cc/parser/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
@@ -101,6 +102,23 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     if (!c->isa_backend) {
         c->isa = zero_cc_get_native_backend()->isa;
         c->isa_backend = zero_cc_get_native_backend();
+    }
+    
+    /* Initialize IR arenas if not already initialized */
+    if (!c->ir_arena.buffer) {
+        if (!ir_arena_init(&c->ir_arena, 4096)) {
+            fprintf(stderr, "Error: Failed to initialize IR arena\n");
+            zero_cc_type_pool_free();
+            return;
+        }
+    }
+    if (!c->ir_call_args.table) {
+        if (!ir_call_args_arena_init(&c->ir_call_args)) {
+            fprintf(stderr, "Error: Failed to initialize IR call args arena\n");
+            ir_arena_free(&c->ir_arena);
+            zero_cc_type_pool_free();
+            return;
+        }
     }
 
     /* Create shared semantic context for all functions */

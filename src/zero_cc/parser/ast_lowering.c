@@ -47,6 +47,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset label patcher state */
     label_patcher_init(&c->label_patcher);
 
+    /* Set current compiler for IR emission */
+    ir_set_compiler(c);
+
     /* Reset IR buffer */
     ir_reset();
 

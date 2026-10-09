@@ -1,21 +1,103 @@
 #include "ir.h"
+#include "ir_arena.h"
+#include "../types/symbols.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-/* Global instruction buffer (shared across all functions) */
-Instr instrs[MAX_INSTRS];
-size_t instr_count = 0;
+/* Global pointer to current compiler during IR emission
+ * This allows the global-style IR API to work with per-compiler arenas */
+ZeroCCCompiler *g_compiler = NULL;
 
-/* Per-call integer argument lists (see ir.h) */
-IRCallArgs ir_call_args_table[IR_CALL_MAX_SITES];
-size_t ir_call_args_count = 0;
+/* Set the current compiler (call before IR emission) */
+void ir_set_compiler(ZeroCCCompiler *c) {
+    g_compiler = c;
+}
 
-/* IR Emitter Functions */
+/* Get the current compiler's IR arena */
+static inline IRArena *ir_arena(void) {
+    return g_compiler ? &g_compiler->ir_arena : NULL;
+}
+
+/* Get the current compiler's call args arena */
+static inline IRCallArgsArena *ir_call_arena(void) {
+    return g_compiler ? &g_compiler->ir_call_args : NULL;
+}
+
+/* Get instruction buffer (for live range analysis) */
+const Instr *ir_get_buffer(void) {
+    IRArena *arena = ir_arena();
+    return arena ? arena->buffer : NULL;
+}
+
+/* Reset IR buffer for next function - resets arena count (reuses memory) */
+void ir_reset(void) {
+    IRArena *arena = ir_arena();
+    if (arena && arena->buffer) {
+        arena->count = 0;
+    }
+    
+    IRCallArgsArena *call_arena = ir_call_arena();
+    if (call_arena && call_arena->table) {
+        call_arena->count = 0;
+    }
+}
+
+/* Get instruction count */
+size_t ir_get_count(void) {
+    IRArena *arena = ir_arena();
+    return arena ? arena->count : 0;
+}
+
+/* Access instruction by index */
+Instr* ir_get(size_t idx) {
+    IRArena *arena = ir_arena();
+    if (!arena || !arena->buffer || idx >= arena->count) return NULL;
+    return &arena->buffer[idx];
+}
+
+/* Record call arguments for an instruction */
+void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
+    IRCallArgsArena *call_arena = ir_call_arena();
+    if (!call_arena || !call_arena->table) return;
+    
+    if (call_arena->count >= IR_CALL_MAX_SITES) return;
+    
+    IRCallArgs *e = &call_arena->table[call_arena->count++];
+    e->instr_index = instr_index;
+    e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
+    for (int i = 0; i < e->count; i++) {
+        e->temps[i] = (uint8_t)temps[i];
+        e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
+    }
+}
+
+/* Find call arguments for an instruction */
+const IRCallArgs *ir_call_args_find(size_t instr_index) {
+    IRCallArgsArena *call_arena = ir_call_arena();
+    if (!call_arena || !call_arena->table) return NULL;
+    
+    for (size_t i = 0; i < call_arena->count; i++) {
+        if (call_arena->table[i].instr_index == instr_index) {
+            return &call_arena->table[i];
+        }
+    }
+    return NULL;
+}
+
+/* IR Emitter Functions - Arena-based with global API */
 void ir_emit(Instr instr) {
-    if (instr_count >= MAX_INSTRS) {
-        fprintf(stderr, "Error: Function too large (>64K instructions)\n");
+    IRArena *arena = ir_arena();
+    if (!arena || !arena->buffer) {
+        fprintf(stderr, "Error: IR arena not initialized\n");
         exit(1);
     }
-    instrs[instr_count] = instr;
-    instr_count++;
+    
+    Instr *ptr = ir_arena_emit(arena, instr);
+    if (!ptr) {
+        fprintf(stderr, "Error: IR arena allocation failed\n");
+        exit(1);
+    }
 }
 
 void ir_emit_label(uint16_t label_idx) {
@@ -48,16 +130,27 @@ void ir_emit_jmp_label(uint16_t label_idx) {
     ir_emit(instr);
 }
 
-/* Clear IR buffer for next function */
+/* Clear IR buffer for next function - resets arena count (reuses memory) */
 void ir_clear(void) {
-    instr_count = 0;
+    IRArena *arena = ir_arena();
+    if (arena && arena->buffer) {
+        arena->count = 0;
+    }
+    
+    IRCallArgsArena *call_arena = ir_call_arena();
+    if (call_arena && call_arena->table) {
+        call_arena->count = 0;
+    }
 }
 
 /* Debug: Dump IR to file */
 void ir_dump(FILE *f) {
-    size_t count = instr_count;
+    IRArena *arena = ir_arena();
+    if (!arena || !arena->buffer) return;
+    
+    size_t count = arena->count;
     for (size_t i = 0; i < count; i++) {
-        Instr *instr = &instrs[i];
+        Instr *instr = &arena->buffer[i];
         
         /* Print instruction index */
         fprintf(f, "%4zu: ", i);
@@ -66,7 +159,6 @@ void ir_dump(FILE *f) {
         switch (instr->op) {
             case OP_MOV: 
                          if (instr->temp_src1 == 0xFF) {
-                             /* This is actually a LOAD from stack (temp_src1=0xFF is frame pointer marker) */
                              fprintf(f, "LOAD r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
                          } else {
                              fprintf(f, "MOV r%u, ", instr->temp_dest);
@@ -202,7 +294,7 @@ void ir_dump(FILE *f) {
             case OP_VSHUF: fprintf(f, "VSHUF xmm%u, xmm%u, xmm%u, imm=%u", instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm);
                            break;
             case OP_VANDN: fprintf(f, "VANDN xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
-                           break;
+                          break;
             case OP_VORPS: fprintf(f, "VORPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                            break;
             case OP_VSUBPS: fprintf(f, "VSUBPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

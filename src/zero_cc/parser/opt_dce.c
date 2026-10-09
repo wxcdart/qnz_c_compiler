@@ -1,8 +1,13 @@
 #include "opt_dce.h"
 #include "ir.h"
+#include "ir_arena.h"
 #include "regalloc.h"
+#include "../types/symbols.h"
 #include <stdlib.h>
 #include <string.h>
+
+/* External reference to global compiler pointer */
+extern ZeroCCCompiler *g_compiler;
 
 /**
  * Flag DCE: Remove CMP instructions whose flags are never used
@@ -175,17 +180,20 @@ static void mark_call_args_live(Instr *instr) {
     }
     
     // Args 5+ from call args table
-    for (size_t t = 0; t < ir_call_args_count; t++) {
-        IRCallArgs *entry = &ir_call_args_table[t];
-        if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer())) {
-            // This is a call arg entry for this instruction
-            for (int a = 0; a < entry->count; a++) {
-                int arg_temp = entry->temps[a];
-                if (arg_temp != 0xFF) {
-                    mark_live(arg_temp);
+    if (g_compiler) {
+        IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
+        for (size_t t = 0; t < call_arena->count; t++) {
+            IRCallArgs *entry = &call_arena->table[t];
+            if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer())) {
+                // This is a call arg entry for this instruction
+                for (int a = 0; a < entry->count; a++) {
+                    int arg_temp = entry->temps[a];
+                    if (arg_temp != 0xFF) {
+                        mark_live(arg_temp);
+                    }
                 }
+                break;
             }
-            break;
         }
     }
 }
@@ -305,9 +313,10 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 *dst = *instr;
                 
                 // Update call args table index if this is a call
-                if (instr->op == OP_CALL) {
-                    for (size_t t = 0; t < ir_call_args_count; t++) {
-                        IRCallArgs *entry = &ir_call_args_table[t];
+                if (instr->op == OP_CALL && g_compiler) {
+                    IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
+                    for (size_t t = 0; t < call_arena->count; t++) {
+                        IRCallArgs *entry = &call_arena->table[t];
                         if (entry && entry->instr_index == (size_t)i) {
                             entry->instr_index = write_idx;
                             break;
@@ -320,5 +329,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     }
     
     // Update IR count
-    instr_count = (size_t)write_idx;
+    if (g_compiler) {
+        g_compiler->ir_arena.count = (size_t)write_idx;
+    }
 }

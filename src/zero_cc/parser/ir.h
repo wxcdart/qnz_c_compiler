@@ -8,8 +8,30 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-/* Maximum instructions per function: 64K = 65536 */
-#define MAX_INSTRS 65536
+/* Forward declaration */
+typedef struct ZeroCCCompiler ZeroCCCompiler;
+
+/* Special register constants */
+#define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking */
+
+/* Call argument tracking constants */
+#define IR_CALL_MAX_ARGS 16
+#define IR_CALL_MAX_SITES 1024
+
+/* Call argument tracking structure */
+typedef struct {
+    size_t instr_index;
+    int count;
+    uint8_t temps[IR_CALL_MAX_ARGS];
+    uint8_t is_fp[IR_CALL_MAX_ARGS];  /* 1 if FP argument, 0 if integer */
+} IRCallArgs;
+
+/* Call args arena for tracking */
+typedef struct {
+    IRCallArgs *table;
+    size_t count;
+    size_t capacity;
+} IRCallArgsArena;
 
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking */
@@ -330,51 +352,15 @@ typedef struct __attribute__((packed)) {
     uint16_t label_idx; /* Label index for jumps (0-65535) */
 } Instr;
 
-/* Global instruction buffer (shared across all functions) */
-/* Defined in ir.c, declared extern here */
-extern Instr instrs[MAX_INSTRS];
-extern size_t instr_count;
+/* IR Access Functions - Arena-based (per-compiler-instance) */
 
-/* Integer argument temps for OP_CALL instructions. The packed Instr can only
- * hold 4 argument temps, so every call records its full list here, keyed by
- * the IR instruction index of the OP_CALL. Defined in ir.c. */
-#define IR_CALL_MAX_ARGS 16
-#define IR_CALL_MAX_SITES 1024
-typedef struct {
-    size_t instr_index;
-    int count;
-    uint8_t temps[IR_CALL_MAX_ARGS];
-    uint8_t is_fp[IR_CALL_MAX_ARGS];  /* 1 if FP argument, 0 if integer */
-} IRCallArgs;
-extern IRCallArgs ir_call_args_table[IR_CALL_MAX_SITES];
-extern size_t ir_call_args_count;
-
-/* Record the integer argument temps of the OP_CALL at instr_index */
-static inline void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
-    if (ir_call_args_count >= IR_CALL_MAX_SITES) return;
-    IRCallArgs *e = &ir_call_args_table[ir_call_args_count++];
-    e->instr_index = instr_index;
-    e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
-    for (int i = 0; i < e->count; i++) {
-        e->temps[i] = (uint8_t)temps[i];
-        e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
-    }
-}
-
-/* Find the recorded argument list for the OP_CALL at instr_index (or NULL) */
-static inline const IRCallArgs *ir_call_args_find(size_t instr_index) {
-    for (size_t i = 0; i < ir_call_args_count; i++) {
-        if (ir_call_args_table[i].instr_index == instr_index) return &ir_call_args_table[i];
-    }
-    return NULL;
-}
+/* Set current compiler for IR emission (call before emitting IR) */
+void ir_set_compiler(ZeroCCCompiler *c);
 
 /* Get instruction buffer (for live range analysis) */
-static inline const Instr *ir_get_buffer(void) {
-    return instrs;
-}
+const Instr *ir_get_buffer(void);
 
-/* Emit instruction - O(1) */
+/* Emit instruction - O(1) amortized */
 void ir_emit(Instr instr);
 
 /* Label and jump instructions */
@@ -383,11 +369,8 @@ void ir_emit_jmp(uint16_t label_idx);
 void ir_emit_je(uint8_t temp_cond, uint16_t label_idx);
 void ir_emit_jcond(uint8_t temp_cond, uint16_t label_idx);
 
-/* Reset for next function - O(1) */
-static inline void ir_reset(void) {
-    instr_count = 0;
-    ir_call_args_count = 0;
-}
+/* Reset for next function - O(1), reuses memory */
+void ir_reset(void);
 
 /* Clear IR buffer after machine code emission */
 void ir_clear(void);
@@ -396,15 +379,14 @@ void ir_clear(void);
 void ir_dump(FILE *f);
 
 /* Get instruction count */
-static inline size_t ir_get_count(void) {
-    return instr_count;
-}
+size_t ir_get_count(void);
 
 /* Access instruction by index */
-static inline Instr* ir_get(size_t idx) {
-    if (idx >= instr_count) return NULL;
-    return &instrs[idx];
-}
+Instr* ir_get(size_t idx);
+
+/* Call argument tracking - arena-based */
+void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp);
+const IRCallArgs *ir_call_args_find(size_t instr_index);
 
 /* Helper functions for common patterns */
 static inline void ir_emit_mov_imm(uint8_t temp_dest, int64_t imm) {

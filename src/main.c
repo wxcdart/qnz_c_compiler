@@ -12,6 +12,7 @@
 
 #include "zero_cc.h"
 #include "zero_cc/parser/opt_pass.h"
+#include "zero_cc/parser/ir_arena.h"
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
 
@@ -20,6 +21,7 @@
 /* Forward declarations */
 static ZeroCCISA parse_target_arch(const char *target);
 static void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa);
+static void zero_cc_free_compiler(ZeroCCCompiler *comp);
 
 typedef struct {
     const char *input_file;
@@ -201,7 +203,7 @@ static int compile_jit(CompileOptions *opts) {
     free(source);
     if (!prep) {
         fprintf(stderr, "Preprocessing failed\n");
-        free(comp);
+        zero_cc_free_compiler(comp);
         return 1;
     }
     
@@ -253,7 +255,7 @@ static int compile_jit(CompileOptions *opts) {
         comp->asm_out = fopen(out_path, "w");
         if (!comp->asm_out) {
             perror("fopen");
-            free(comp);
+            zero_cc_free_compiler(comp);
             return 1;
         }
         if (opts->verbose) {
@@ -269,7 +271,7 @@ static int compile_jit(CompileOptions *opts) {
         zero_cc_buf_free(&comp->rodata_section);
         zero_cc_buf_free(&comp->data_section);
         free(comp->tokens);
-        free(comp);
+        zero_cc_free_compiler(comp);
         return 1;
     }
     
@@ -296,7 +298,7 @@ static int compile_jit(CompileOptions *opts) {
     zero_cc_buf_free(&comp->rodata_section);
     zero_cc_buf_free(&comp->data_section);
     free(comp->tokens);
-    free(comp);
+    zero_cc_free_compiler(comp);
     
     return result;
 }
@@ -319,6 +321,27 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
     comp->isa = target_isa;
     comp->isa_backend = backend;
+    
+    /* Initialize IR arenas */
+    if (!ir_arena_init(&comp->ir_arena, 4096)) {
+        fprintf(stderr, "Error: Failed to initialize IR arena\n");
+        return;
+    }
+    if (!ir_call_args_arena_init(&comp->ir_call_args)) {
+        fprintf(stderr, "Error: Failed to initialize IR call args arena\n");
+        ir_arena_free(&comp->ir_arena);
+        return;
+    }
+}
+
+static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
+    if (!comp) return;
+    
+    /* Free IR arenas */
+    ir_arena_free(&comp->ir_arena);
+    ir_call_args_arena_free(&comp->ir_call_args);
+    
+    free(comp);
 }
 
 static int compile_object(CompileOptions *opts) {
@@ -350,7 +373,7 @@ static int compile_object(CompileOptions *opts) {
     free(source);
     if (!prep) {
         fprintf(stderr, "Preprocessing failed\n");
-        free(comp);
+        zero_cc_free_compiler(comp);
         return 1;
     }
     
@@ -402,7 +425,7 @@ static int compile_object(CompileOptions *opts) {
         comp->asm_out = fopen(out_path, "w");
         if (!comp->asm_out) {
             perror("fopen");
-            free(comp);
+            zero_cc_free_compiler(comp);
             return 1;
         }
         if (opts->verbose) {
@@ -418,7 +441,7 @@ static int compile_object(CompileOptions *opts) {
         zero_cc_buf_free(&comp->rodata_section);
         zero_cc_buf_free(&comp->data_section);
         free(comp->tokens);
-        free(comp);
+        zero_cc_free_compiler(comp);
         return 1;
     }
     
@@ -603,7 +626,7 @@ static int compile_object(CompileOptions *opts) {
         zero_cc_buf_free(&comp->rodata_section);
         zero_cc_buf_free(&comp->data_section);
         free(comp->tokens);
-        free(comp);
+        zero_cc_free_compiler(comp);
         return 1;
     } else if (opts->verbose) {
         printf("Object file written successfully\n");
@@ -615,7 +638,7 @@ static int compile_object(CompileOptions *opts) {
     zero_cc_buf_free(&comp->rodata_section);
     zero_cc_buf_free(&comp->data_section);
     free(comp->tokens);
-    free(comp);
+    zero_cc_free_compiler(comp);
     
     return 0;
 }
