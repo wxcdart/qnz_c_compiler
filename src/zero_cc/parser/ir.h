@@ -387,6 +387,29 @@ size_t ir_get_count(void);
 /* Access instruction by index */
 Instr* ir_get(size_t idx);
 
+/* Insert instruction at specific index (shifts existing instructions) */
+void ir_insert_at(size_t idx, Instr instr);
+
+/* Helper: Insert MOV_IMM at index */
+static inline void ir_insert_mov_imm(size_t idx, uint8_t temp_dest, int64_t imm) {
+    ir_insert_at(idx, (Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
+}
+
+/* Helper: Insert MOV_REG at index */
+static inline void ir_insert_mov_reg(size_t idx, uint8_t temp_dest, uint8_t temp_src) {
+    ir_insert_at(idx, (Instr){.op = OP_MOV_REG, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2 = 0xFF, .imm = 0, .label_idx = 0});
+}
+
+/* Helper: Insert ADD at index */
+static inline void ir_insert_add(size_t idx, uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_insert_at(idx, (Instr){.op = OP_ADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+
+/* Helper: Insert LABEL at index */
+static inline void ir_insert_label(size_t idx, uint16_t label_idx) {
+    ir_insert_at(idx, (Instr){.op = OP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
+}
+
 /* Call argument tracking - arena-based */
 void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp);
 const IRCallArgs *ir_call_args_find(size_t instr_index);

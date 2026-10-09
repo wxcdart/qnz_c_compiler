@@ -214,10 +214,11 @@ void opt_licm(ZeroCCCompiler *c) {
         // Move invariants to before the loop header
         /* BUG FIX: Simplified LICM - mark invariants for DCE to eliminate */
         /* Full implementation would require inserting instructions at preheader */
-        /* which needs IR insertion support (not currently available) */
+        /* which needs IR insertion support (now available via ir_insert_at()) */
         
         /* For now, we just verify invariants are computed correctly */
         /* The DCE pass will eliminate truly dead code */
+        /* Future: Use ir_insert_at() to actually move invariants before loop header */
     }
     
     loop_analysis_free(&state);

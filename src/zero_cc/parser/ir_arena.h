@@ -154,6 +154,45 @@ static inline size_t ir_arena_get_count(IRArena *arena) {
 }
 
 /**
+ * Insert instruction at specific index
+ * 
+ * Shifts all instructions at index and beyond to make room.
+ * O(n) operation where n is the number of instructions after insertion point.
+ * 
+ * @param arena The arena
+ * @param idx Insertion index (0 to count)
+ * @param instr The instruction to insert
+ * @return Pointer to inserted instruction, or NULL on failure
+ */
+static inline Instr *ir_arena_insert(IRArena *arena, size_t idx, Instr instr) {
+    if (!arena || !arena->buffer) return NULL;
+    if (idx > arena->count) return NULL;  /* Can insert at end, but not beyond */
+    
+    /* Grow buffer if needed */
+    if (arena->count >= arena->capacity) {
+        size_t new_cap = arena->capacity * 2;
+        if (new_cap == 0) new_cap = 1024;  /* Initial capacity */
+        
+        Instr *new_buffer = (Instr *)realloc(arena->buffer, new_cap * sizeof(Instr));
+        if (!new_buffer) return NULL;  /* Allocation failed */
+        
+        arena->buffer = new_buffer;
+        arena->capacity = new_cap;
+    }
+    
+    /* Shift instructions to make room */
+    /* Move from [idx, count-1] to [idx+1, count] */
+    memmove(&arena->buffer[idx + 1], &arena->buffer[idx], 
+            (arena->count - idx) * sizeof(Instr));
+    
+    /* Insert instruction */
+    arena->buffer[idx] = instr;
+    arena->count++;
+    
+    return &arena->buffer[idx];
+}
+
+/**
  * Initialize call args arena
  * 
  * @param arena The arena to initialize

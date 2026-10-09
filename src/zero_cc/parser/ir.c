@@ -56,6 +56,26 @@ Instr* ir_get(size_t idx) {
     return &arena->buffer[idx];
 }
 
+/* Insert instruction at specific index (shifts existing instructions) */
+void ir_insert_at(size_t idx, Instr instr) {
+    IRArena *arena = ir_arena();
+    if (!arena || !arena->buffer) {
+        fprintf(stderr, "Error: IR arena not initialized for insertion\n");
+        exit(1);
+    }
+    
+    if (idx > arena->count) {
+        fprintf(stderr, "Error: IR insert index %zu out of bounds (count=%zu)\n", idx, arena->count);
+        exit(1);
+    }
+    
+    Instr *ptr = ir_arena_insert(arena, idx, instr);
+    if (!ptr) {
+        fprintf(stderr, "Error: IR arena insertion failed\n");
+        exit(1);
+    }
+}
+
 /* Record call arguments for an instruction */
 void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
     IRCallArgsArena *call_arena = ir_call_arena();
