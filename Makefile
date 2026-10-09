@@ -39,6 +39,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/parser/ir.o \
 	src/zero_cc/parser/opt_constant_fold.o \
 	src/zero_cc/parser/opt_dce.o \
+	src/zero_cc/parser/opt_mem2reg.o \
 	src/zero_cc/parser/opt_cse.o \
 	src/zero_cc/parser/opt_loop.o \
 	src/zero_cc/parser/opt_vectorize.o \
