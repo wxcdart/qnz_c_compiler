@@ -29,6 +29,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 typedef enum RegClass {
     REG_CLASS_GPR,    /* General-purpose registers: RAX, RCX, RDX, RBX, RSI, RDI, R8-R15 */
     REG_CLASS_XMM,    /* XMM registers for SSE: XMM0-XMM7 */
+    REG_CLASS_VEC,    /* Vector registers (XMM/NEON/RVV): xmm0-xmm15/v0-v31 */
     REG_CLASS_COUNT
 } RegClass;
 
