@@ -46,6 +46,34 @@ static const char *xmm_registers[] __attribute__((unused)) = {
 };
 #define XMM_COUNT 8
 
+/* Vector registers (ISA-specific) */
+/* x86-64: 16 XMM registers, AArch64: 32 NEON registers, RISC-V: 32 RVV registers */
+static const char *vec_registers_x86[] __attribute__((unused)) = {
+    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"
+};
+#define VEC_COUNT_X86 16
+
+static const char *vec_registers_aarch64[] __attribute__((unused)) = {
+    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+};
+#define VEC_COUNT_AARCH64 32
+
+static const char *vec_registers_riscv[] __attribute__((unused)) = {
+    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+};
+#define VEC_COUNT_RISCV 32
+
+/* Vector register count macro (ISA-specific) */
+#define VEC_COUNT(ra) ((ra)->target_isa == ISA_AARCH64 ? VEC_COUNT_AARCH64 : \
+                       (ra)->target_isa == ISA_RISCV64 ? VEC_COUNT_RISCV : VEC_COUNT_X86)
+
 /* Live interval for a temporary variable */
 typedef struct LiveInterval {
     int temp_id;              /* Temporary variable identifier */
@@ -80,9 +108,11 @@ typedef struct RegAllocator {
     /* Free registers per class */
     bool gpr_free[GPR_COUNT];
     bool xmm_free[XMM_COUNT];
+    bool vec_free[32];  /* Vector registers (max 32 across all ISAs) */
     
     /* Spill slot allocation */
     int next_spill_slot;
+    int next_vec_spill_slot;  /* Vector spill slots (16-byte aligned) */
     
     /* Instruction count for interval tracking */
     size_t instruction_count;
@@ -118,11 +148,13 @@ static void regalloc_init(RegAllocator *ra) {
     if (!ra) return;
     regalloc_destroy(ra);
     ra->next_spill_slot = 0;
+    ra->next_vec_spill_slot = 0;
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
     ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
+    for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
 }
 
 /* Add a new live interval */
@@ -182,8 +214,10 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
             if (active->assigned_reg >= 0) {
                 if (active->reg_class == REG_CLASS_GPR) {
                     ra->gpr_free[active->assigned_reg] = true;
-                } else {
+                } else if (active->reg_class == REG_CLASS_XMM) {
                     ra->xmm_free[active->assigned_reg] = true;
+                } else if (active->reg_class == REG_CLASS_VEC) {
+                    ra->vec_free[active->assigned_reg] = true;
                 }
             }
             /* Remove from active list */
@@ -254,10 +288,19 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 return phys_reg;
             }
         }
-    } else {
+    } else if (interval->reg_class == REG_CLASS_XMM) {
         for (int i = 0; i < XMM_COUNT; i++) {
             if (ra->xmm_free[i]) {
                 ra->xmm_free[i] = false;
+                return i;
+            }
+        }
+    } else if (interval->reg_class == REG_CLASS_VEC) {
+        /* Vector register allocation (ISA-specific count) */
+        int vec_count = VEC_COUNT(ra);
+        for (int i = 0; i < vec_count; i++) {
+            if (ra->vec_free[i]) {
+                ra->vec_free[i] = false;
                 return i;
             }
         }
@@ -271,7 +314,14 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) __attribute
 static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
     if (!ra || !interval) return;
     
-    interval->spill_slot = ra->next_spill_slot++;
+    /* Vector spill slots are 16-byte aligned */
+    if (interval->reg_class == REG_CLASS_VEC) {
+        /* Align to 16 bytes (4 x 32-bit floats or 2 x 64-bit doubles) */
+        interval->spill_slot = ra->next_vec_spill_slot;
+        ra->next_vec_spill_slot += 16;  /* Each vector spill slot is 16 bytes */
+    } else {
+        interval->spill_slot = ra->next_spill_slot++;
+    }
     interval->is_spilled = true;
 }
 
@@ -432,6 +482,31 @@ static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
 static size_t regalloc_get_interval_count(RegAllocator *ra) __attribute__((unused));
 static size_t regalloc_get_interval_count(RegAllocator *ra) {
     return ra ? ra->interval_count : 0;
+}
+
+/* Get vector register name for a given ISA and register index */
+static const char *regalloc_get_vec_reg_name(ZeroCCISA isa, int reg_idx) __attribute__((unused));
+static const char *regalloc_get_vec_reg_name(ZeroCCISA isa, int reg_idx) {
+    if (reg_idx < 0) return "none";
+    
+    if (isa == ISA_AARCH64) {
+        if (reg_idx >= VEC_COUNT_AARCH64) return "invalid";
+        return vec_registers_aarch64[reg_idx];
+    } else if (isa == ISA_RISCV64) {
+        if (reg_idx >= VEC_COUNT_RISCV) return "invalid";
+        return vec_registers_riscv[reg_idx];
+    } else {  /* x86_64 */
+        if (reg_idx >= VEC_COUNT_X86) return "invalid";
+        return vec_registers_x86[reg_idx];
+    }
+}
+
+/* Get the number of vector registers for a given ISA */
+static int regalloc_get_vec_reg_count(ZeroCCISA isa) __attribute__((unused));
+static int regalloc_get_vec_reg_count(ZeroCCISA isa) {
+    if (isa == ISA_AARCH64) return VEC_COUNT_AARCH64;
+    if (isa == ISA_RISCV64) return VEC_COUNT_RISCV;
+    return VEC_COUNT_X86;
 }
 
 /* =========================================================================

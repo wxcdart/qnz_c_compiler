@@ -169,6 +169,17 @@ static void x86_emit_leave(ZeroCCCompiler *c) {
 /* static void x86_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *x86_get_hw_reg_name(int phys_reg) { ... } */
 
+/* Get vector register name for x86-64 (XMM registers) */
+static const char *x86_get_vec_reg_name(int vec_reg_idx) {
+    static char buf[16];
+    if (vec_reg_idx < 0 || vec_reg_idx >= 16) {
+        snprintf(buf, sizeof(buf), "xmm0");  /* Default to xmm0 for invalid */
+    } else {
+        snprintf(buf, sizeof(buf), "xmm%d", vec_reg_idx);
+    }
+    return buf;
+}
+
 static size_t x86_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
 }
@@ -1276,6 +1287,7 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_prologue_asm = x86_emit_prologue_asm,
     .emit_epilogue_asm = x86_emit_epilogue_asm,
     .get_hw_reg_name = x86_get_hw_reg_name,
+    .get_vec_reg_name = x86_get_vec_reg_name,
     
     .emit_mov_imm = x86_emit_mov_imm,
     .emit_add = x86_emit_add,

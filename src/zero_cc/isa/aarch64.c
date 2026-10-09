@@ -161,6 +161,17 @@ static void aarch64_emit_leave(ZeroCCCompiler *c) {
 /* static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *aarch64_get_hw_reg_name(int phys_reg) { ... } */
 
+/* Get vector register name for AArch64 (NEON V registers) */
+static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
+    static char buf[16];
+    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
+        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
+    } else {
+        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
+    }
+    return buf;
+}
+
 static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
 }
@@ -940,6 +951,7 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_prologue_asm = aarch64_emit_prologue_asm,
     .emit_epilogue_asm = aarch64_emit_epilogue_asm,
     .get_hw_reg_name = aarch64_get_hw_reg_name,
+    .get_vec_reg_name = aarch64_get_vec_reg_name,
     
     .emit_mov_imm = aarch64_emit_mov_imm,
     .emit_add = aarch64_emit_add,

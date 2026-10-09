@@ -185,6 +185,17 @@ static void riscv64_emit_leave(ZeroCCCompiler *c) {
 /* static void riscv64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
 /* static const char *riscv64_get_hw_reg_name(int phys_reg) { ... } */
 
+/* Get vector register name for RISC-V (RVV V registers) */
+static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
+    static char buf[16];
+    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
+        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
+    } else {
+        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
+    }
+    return buf;
+}
+
 static size_t riscv64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
 }
@@ -835,6 +846,7 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_prologue_asm = riscv_emit_prologue_asm,
     .emit_epilogue_asm = riscv_emit_epilogue_asm,
     .get_hw_reg_name = riscv_get_hw_reg_name,
+    .get_vec_reg_name = riscv_get_vec_reg_name,
     
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_mov_reg = riscv64_emit_mov_reg,

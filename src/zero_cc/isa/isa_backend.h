@@ -66,6 +66,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_prologue_asm)(ZeroCCCompiler *c, size_t stack_size);
     void (*emit_epilogue_asm)(ZeroCCCompiler *c);
     const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
+    const char *(*get_vec_reg_name)(int vec_reg_idx);  /* Get vector register name */
     
     /* Assembly emission for IR instructions */
     void (*emit_mov_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);

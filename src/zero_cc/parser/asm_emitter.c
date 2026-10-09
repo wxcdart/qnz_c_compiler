@@ -56,6 +56,26 @@ static const char *asm_get_reg_name_prefixed(ZeroCCCompiler *c, int phys_reg, in
     return buf;
 }
 
+/* Get vector register name with prefix */
+static const char *asm_get_vec_reg_name(ZeroCCCompiler *c, int vec_reg_idx) {
+    static char buf[16];
+    
+    if (BE(c)->get_vec_reg_name) {
+        const char *name = BE(c)->get_vec_reg_name(vec_reg_idx);
+        snprintf(buf, sizeof(buf), "%%%s", name);
+    } else {
+        /* Fallback: use ISA-specific naming */
+        if (c->regalloc.target_isa == ISA_AARCH64) {
+            snprintf(buf, sizeof(buf), "%%v%d", vec_reg_idx);
+        } else if (c->regalloc.target_isa == ISA_RISCV64) {
+            snprintf(buf, sizeof(buf), "%%v%d", vec_reg_idx);
+        } else {
+            snprintf(buf, sizeof(buf), "%%xmm%d", vec_reg_idx);
+        }
+    }
+    return buf;
+}
+
 /* =========================================================================
  * Core Emission Functions - Delegate to Backend
  * ========================================================================= */
