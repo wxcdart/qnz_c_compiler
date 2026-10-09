@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include "ir.h"
 #include "../isa/isa_backend.h"
 
 #include "../types/vregs.h"
@@ -357,7 +358,8 @@ static void regalloc_allocate(RegAllocator *ra) {
         return;
     }
     
-    /* Sort intervals - by cost if enabled, otherwise by start position */
+    /* Always sort by start position for correct expiration handling */
+    /* Cost-based decisions are made during spill selection, not initial ordering */
     LiveInterval **sorted = malloc(ra->interval_count * sizeof(LiveInterval *));
     if (!sorted) return;
     
@@ -365,11 +367,7 @@ static void regalloc_allocate(RegAllocator *ra) {
         sorted[i] = &ra->intervals[i];
     }
     
-    if (ra->use_cost_based) {
-        qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_cost);
-    } else {
-        qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_start);
-    }
+    qsort(sorted, ra->interval_count, sizeof(LiveInterval *), compare_intervals_by_start);
     
     /* Allocate active array */
     ra->active = malloc(ra->interval_count * sizeof(LiveInterval *));
@@ -414,10 +412,32 @@ static void regalloc_allocate(RegAllocator *ra) {
             }
         } else {
             /* No free register - need to spill */
-            /* Spill the interval with the furthest end point */
-            LiveInterval *spill = current;
-            if (ra->active_count > 0 && ra->active[ra->active_count - 1]->end > current->end) {
-                spill = ra->active[ra->active_count - 1];
+            LiveInterval *spill;
+            
+            if (ra->use_cost_based) {
+                /* Cost-based spill decision: spill the interval with lowest cost */
+                /* Compare current with all active intervals */
+                spill = current;
+                
+                for (size_t j = 0; j < ra->active_count; j++) {
+                    LiveInterval *active = ra->active[j];
+                    
+                    /* Spill if active has lower cost than current spill candidate */
+                    if (active->spill_cost < spill->spill_cost) {
+                        spill = active;
+                    } else if (active->spill_cost == spill->spill_cost) {
+                        /* Tie-breaker: spill the one with furthest end point */
+                        if (active->end > spill->end) {
+                            spill = active;
+                        }
+                    }
+                }
+            } else {
+                /* Classic linear-scan: spill the interval with furthest end point */
+                spill = current;
+                if (ra->active_count > 0 && ra->active[ra->active_count - 1]->end > current->end) {
+                    spill = ra->active[ra->active_count - 1];
+                }
             }
             
             if (spill == current) {
@@ -454,10 +474,12 @@ static void regalloc_allocate(RegAllocator *ra) {
 /**
  * Simple loop detection: find backedges in the IR
  * Returns the number of loops detected
+ * 
+ * Scans for jumps to earlier positions (backedges) to identify loop structure.
  */
 static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) __attribute__((unused));
 static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) {
-    if (!ra || !loop_headers || !loop_exits) return 0;
+    if (!ra || !loop_headers || !loop_exits || ra->instruction_count == 0) return 0;
     
     /* Allocate arrays for loop info */
     *loop_headers = malloc(ra->instruction_count * sizeof(int));
@@ -470,15 +492,35 @@ static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **
         return 0;
     }
     
-    /* Simple heuristic: look for jumps to earlier positions */
-    /* This is a simplified loop detection - real implementation would build CFG */
+    /* Scan for backedges: jumps to earlier positions */
     size_t loop_count = 0;
     
-    /* For now, we'll use a simple heuristic based on interval overlaps */
-    /* Instructions that are targets of jumps from later positions are loop headers */
-    
-    /* Placeholder: return 0 loops for now */
-    /* In a real implementation, this would analyze the IR to find actual loops */
+    for (size_t i = 0; i < ra->instruction_count; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        /* Check for unconditional jumps */
+        if (instr->op == OP_JMP || instr->op == OP_JMP_LABEL) {
+            int target = (int)instr->label_idx;
+            /* Backedge: jump to an earlier label (simplified: assume label_idx ~ position) */
+            /* In reality, we'd need to track label positions, but for now use a heuristic */
+            if (target < (int)i && target >= 0) {
+                (*loop_headers)[loop_count] = target;
+                (*loop_exits)[loop_count] = (int)i;
+                loop_count++;
+            }
+        }
+        /* Check for conditional jumps */
+        else if (instr->op == OP_JE || instr->op == OP_JNE || instr->op == OP_JL || 
+                 instr->op == OP_JLE || instr->op == OP_JG) {
+            int target = (int)instr->label_idx;
+            if (target < (int)i && target >= 0) {
+                (*loop_headers)[loop_count] = target;
+                (*loop_exits)[loop_count] = (int)i;
+                loop_count++;
+            }
+        }
+    }
     
     return loop_count;
 }
