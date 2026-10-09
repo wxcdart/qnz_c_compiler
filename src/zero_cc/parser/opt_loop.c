@@ -165,13 +165,23 @@ static bool instr_has_moving_side_effects(Instr *instr) {
  * Loop-invariant code motion (LICM)
  * Moves loop-invariant instructions to the loop preheader
  */
+/**
+ * Loop-invariant code motion (LICM)
+ * Detects loop-invariant instructions
+ * 
+ * Note: Full code motion is disabled due to complexity of handling
+ * instruction index invalidation. Detection is working and shows
+ * optimization opportunities.
+ * 
+ * See LICM_IMPLEMENTATION_NOTES.md for details.
+ */
 void opt_licm(ZeroCCCompiler *c) {
     (void)c;
     
     LoopAnalysisState state;
     loop_analysis_init(&state);
     
-    // Detect loops
+    /* Pass 1: Detect loops */
     detect_loops(&state);
     
     if (state.loop_count == 0) {
@@ -182,17 +192,15 @@ void opt_licm(ZeroCCCompiler *c) {
     /* Profile: count loops detected */
     opt_profile_count_licm_loop();
     
-    int count = (int)ir_get_count();
-    
-    // Process each loop
+    /* Analyze each loop and count invariants */
     for (int l = 0; l < state.loop_count; l++) {
         LoopInfo *loop = &state.loops[l];
         
-        // Compute invariants for this loop
+        /* Compute invariants for this loop */
         bool *invariant = loop->is_invariant;
         memset(invariant, 0, sizeof(bool) * loop->capacity);
         
-        // Iteratively compute invariants (fixed point)
+        /* Iteratively compute invariants (fixed point) */
         bool changed = true;
         int iterations = 0;
         while (changed && iterations < 10) {
@@ -216,21 +224,15 @@ void opt_licm(ZeroCCCompiler *c) {
         }
         
         /* Profile: count invariants found */
-        int invariant_count = 0;
         for (int i = 0; i < loop->body_count; i++) {
             if (invariant[loop->body_indices[i]]) {
                 opt_profile_count_licm_invariant();
-                invariant_count++;
             }
         }
-        
-        /* LICM: Detect invariants but don't move them yet */
-        /* Full code motion requires rebuilding loop analysis after each insertion */
-        /* to keep indices consistent. This is a complex change that needs careful */
-        /* handling of all jump targets and loop boundaries. */
-        /* For now, we detect invariants and let DCE clean up dead code. */
-        /* Future: Implement proper preheader generation and code motion. */
     }
+    
+    /* Note: Code motion is disabled to avoid infinite loops */
+    /* See LICM_IMPLEMENTATION_NOTES.md for details */
     
     loop_analysis_free(&state);
 }
