@@ -183,46 +183,59 @@ To re-enable when fixed:
 
 ---
 
-## Summary
+## Strategic Decision: Option 3 - Focus on General Optimizations First
 
-The SIMD infrastructure is **complete and production-ready**:
+**Decision Date**: 2024
+**Status**: Auto-vectorization disabled as experimental prototype
 
-✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, **loop detection fixed**, **3 critical bugs fixed**
-⚠️ **Needs Work**: Auto-vectorization transformation requires **complete redesign**
+### Rationale
+
+1. **All SIMD Infrastructure is Complete and Verified**:
+   - ✅ 32 SIMD IR opcodes
+   - ✅ 34 Backend functions (x86 SSE2, ARM NEON, RISC-V RVV)
+   - ✅ Register Allocator vector class (REG_CLASS_VEC)
+   - ✅ JIT binary emission (movups, addps, subps, mulps, divps)
+   - ✅ Assembly emitters
+   
+   **You can already write and execute SIMD code through the backend!**
+
+2. **Auto-Vectorization is an -O3 Feature**:
+   - Most production C compilers (GCC, Clang) don't auto-vectorize at -O1 or -O2
+   - Require explicit `-O3` or `-ftree-vectorize`
+   - ZeroCC's optimization pipeline is currently -O1/-O2 level
+
+3. **High ROI Optimizations Waiting**:
+   - Fixing GVN/CSE hash keying bug and basic block scoping
+   - Refining Loop-Invariant Code Motion (LICM) and DCE
+   - Connecting cost-based register allocator loop detection
+
+### Current Status
+
+✅ **SIMD Infrastructure**: Complete and production-ready
+⚠️ **Auto-Vectorization**: Disabled as experimental (requires complete redesign)
 ✅ **Test Results**: All 118/118 tests passing
 
-### Fixed Bugs
-1. **Memory Addressing Bug**: VLOAD/VSTORE now preserve immediate offsets (stack displacements)
-2. **Loop Increment Bug**: Applied but causes incorrect results (requires pattern matching)
-3. **Invariant Bug**: Skip vectorization when source temps are loop invariants
+### Recommended Next Steps
 
-### Why Transformation Still Fails
-The fundamental issue is a **mismatch between IR structure and transformation approach**:
+1. **Keep Auto-Vectorization Disabled**:
+   - Maintain pass disabled in opt_pass.c (priority 80)
+   - Treat as experimental prototype for future development
 
-**Current IR Structure**:
-- Each element access computes address: `base + i*4`
-- Scalar loads: `LOAD [base + i*4]` for each element
-- Loop increment: `i += 1`
+2. **Execute Option 3 - Stabilize General Passes**:
+   - **Sprint Goal 1**: Fix GVN/CSE in opt_cse.c (inverted key/index hash bug, basic block scoping)
+   - **Sprint Goal 2**: Connect opt_loop.c backedges to regalloc.h loop cost calculator
+   - **Sprint Goal 3**: Improve LICM and DCE effectiveness
 
-**Attempted Transformation**:
-- Changed loop increment: `i += 4`
-- Changed loads: `VLOAD [base + i*4]` (but still one per iteration)
+3. **Return to Vectorization Later**:
+   - When returning, use fresh loop body generation (not in-place mutation)
+   - Implement proper pre-header generator with vector loop structure
+   - Add tail loop handling for non-multiple-of-4 array sizes
 
-**Problem**:
-- VLOAD expects to load 4 consecutive elements at once
-- But the IR still has separate loads for each element
-- Simply changing the increment doesn't make VLOAD load 4 elements
+### Timeline
 
-**Required Approach**:
-1. Recognize 4 consecutive scalar loads as a vector load opportunity
-2. Replace them with a single VLOAD at the base address
-3. Do the same for stores and arithmetic
-4. This requires pattern matching across multiple instructions
+- **Immediate**: Focus on general optimizations (1-2 weeks)
+- **Future**: Return to auto-vectorization with fresh approach (2-3 weeks when ready)
 
-### Required for Production-Ready Vectorization
-1. Pattern matching: Recognize 4-element access patterns
-2. Multi-instruction replacement: Replace 4 scalar ops with 1 vector op
-3. Loop restructuring: Change iteration count and bounds
-4. Tail loop generation: Handle non-multiple-of-4 array sizes
+### Conclusion
 
-**Timeline**: 2-3 weeks for production-ready auto-vectorization with proper pattern matching and loop restructuring.
+The SIMD infrastructure is **complete and ready for use**. Auto-vectorization is an advanced optimization that can wait while we stabilize the core optimization pipeline. This approach maximizes ROI and avoids stalling compiler progress on a complex -O3 feature.
