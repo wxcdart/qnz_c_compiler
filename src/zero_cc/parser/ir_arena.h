@@ -162,7 +162,7 @@ static inline size_t ir_arena_get_count(IRArena *arena) {
 static inline bool ir_call_args_arena_init(IRCallArgsArena *arena) {
     if (!arena) return false;
     
-    arena->capacity = IR_CALL_MAX_SITES;
+    arena->capacity = 64;  /* Start with 64 call sites, grow as needed */
     arena->table = (IRCallArgs *)malloc(arena->capacity * sizeof(IRCallArgs));
     
     if (!arena->table) {
@@ -215,7 +215,18 @@ static inline void ir_call_args_arena_record(IRCallArgsArena *arena,
                                               size_t instr_index, int count,
                                               const int *temps, const int *is_fp) {
     if (!arena || !arena->table) return;
-    if (arena->count >= arena->capacity) return;
+    
+    /* Grow table if needed - dynamic growth like IRArena */
+    if (arena->count >= arena->capacity) {
+        size_t new_cap = arena->capacity * 2;
+        if (new_cap == 0) new_cap = 64;  /* Initial capacity */
+        
+        IRCallArgs *new_table = (IRCallArgs *)realloc(arena->table, new_cap * sizeof(IRCallArgs));
+        if (!new_table) return;  /* Allocation failed */
+        
+        arena->table = new_table;
+        arena->capacity = new_cap;
+    }
     
     IRCallArgs *e = &arena->table[arena->count++];
     e->instr_index = instr_index;

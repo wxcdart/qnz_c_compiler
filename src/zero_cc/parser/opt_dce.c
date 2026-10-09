@@ -7,7 +7,7 @@
 #include <string.h>
 
 /* External reference to global compiler pointer */
-extern ZeroCCCompiler *g_compiler;
+extern __thread ZeroCCCompiler *g_compiler;
 
 /**
  * Flag DCE: Remove CMP instructions whose flags are never used

@@ -11,6 +11,9 @@
 /* Forward declaration */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 
+/* Thread-local compiler pointer for IR emission (set during compilation) */
+extern __thread ZeroCCCompiler *g_compiler;
+
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking */
 

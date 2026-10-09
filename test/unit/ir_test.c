@@ -22,7 +22,7 @@ int main(void) {
     }
     
     /* Set as current arena for testing */
-    extern ZeroCCCompiler *g_compiler;
+    extern __thread ZeroCCCompiler *g_compiler;
     ZeroCCCompiler *old_compiler = g_compiler;
     g_compiler = NULL;
     

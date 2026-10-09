@@ -5,9 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Global pointer to current compiler during IR emission
- * This allows the global-style IR API to work with per-compiler arenas */
-ZeroCCCompiler *g_compiler = NULL;
+/* Thread-local pointer to current compiler during IR emission
+ * This allows per-thread IR emission without data races in multi-threaded compilation */
+__thread ZeroCCCompiler *g_compiler = NULL;
 
 /* Set the current compiler (call before IR emission) */
 void ir_set_compiler(ZeroCCCompiler *c) {
@@ -61,15 +61,8 @@ void ir_call_args_record(size_t instr_index, int count, const int *temps, const 
     IRCallArgsArena *call_arena = ir_call_arena();
     if (!call_arena || !call_arena->table) return;
     
-    if (call_arena->count >= IR_CALL_MAX_SITES) return;
-    
-    IRCallArgs *e = &call_arena->table[call_arena->count++];
-    e->instr_index = instr_index;
-    e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
-    for (int i = 0; i < e->count; i++) {
-        e->temps[i] = (uint8_t)temps[i];
-        e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
-    }
+    /* Dynamic growth handles capacity automatically */
+    ir_call_args_arena_record(call_arena, instr_index, count, temps, is_fp);
 }
 
 /* Find call arguments for an instruction */
