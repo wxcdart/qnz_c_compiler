@@ -187,8 +187,10 @@ To re-enable when fixed:
 
 The SIMD infrastructure is **complete and production-ready**:
 
-✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, Phase 1 auto-vectorization infrastructure
-⚠️ **Needs Work**: Auto-vectorization loop detection (requires deeper IR integration)
+✅ **Working**: IR layer, backend interface, register allocator, machine code emission (67 instructions), JIT binary emission, assembly emission, **loop detection fixed**
+⚠️ **Needs Work**: Auto-vectorization transformation logic (produces incorrect results)
 ✅ **Test Results**: All 118/118 tests passing
 
-**Timeline**: 1-2 weeks for production-ready auto-vectorization with proper loop detection and tail loop handling.
+**Recent Fix**: Loop detection now correctly identifies backedges by building label-to-instruction-index map. The transformation logic still needs refinement to produce correct vectorized IR.
+
+**Timeline**: 1-2 weeks for production-ready auto-vectorization with proper transformation and tail loop handling.
