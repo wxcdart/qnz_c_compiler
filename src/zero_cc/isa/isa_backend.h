@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /* Forward declarations */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
@@ -63,6 +64,43 @@ typedef struct ZeroCCISABackend {
     void (*emit_prologue_asm)(ZeroCCCompiler *c, size_t stack_size);
     void (*emit_epilogue_asm)(ZeroCCCompiler *c);
     const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
+    
+    /* Assembly emission for IR instructions */
+    void (*emit_mov_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
+    void (*emit_mov_reg_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_load_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+    void (*emit_store_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
+    void (*emit_add_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_sub_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_mul_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_and_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_or_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_xor_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_shl_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
+    void (*emit_shr_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
+    void (*emit_sar_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
+    void (*emit_cmp_asm)(ZeroCCCompiler *c, int src1, int src2, FILE *out);
+    void (*emit_cond_set_asm)(ZeroCCCompiler *c, int dst, int cond, FILE *out);
+    void (*emit_neg_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_lea_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+    void (*emit_deref_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_call_asm)(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, FILE *out);
+    void (*emit_ret_asm)(ZeroCCCompiler *c, FILE *out);
+    void (*emit_label_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jmp_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jeq_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jne_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jlt_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jle_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jgt_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_jge_asm)(ZeroCCCompiler *c, const char *label, FILE *out);
+    void (*emit_fp_add_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_fp_sub_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_fp_mul_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_fp_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_fp_mov_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vla_alloc_asm)(ZeroCCCompiler *c, int dst, int size, FILE *out);
     
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);

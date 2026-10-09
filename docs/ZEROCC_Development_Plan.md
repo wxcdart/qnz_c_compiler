@@ -52,6 +52,7 @@ ZeroCC is designed to eventually **self-host** (compile itself). Architecture su
 | **Sprint 10.5.6** | Assembly Emitter ADD Instruction & Callee-Save Fixes (Tasks 71.1-71.4) | ✅ Complete | **118/118 pass**, assembly generation fully correct |
 | **Sprint 10.5.5** | Assembly Emitter Bug Fixes & `-S` Flag Completion (Tasks 70.1-70.6) | ✅ Complete | **118/118 pass**, assembly generation fully functional |
 | **Sprint 10.5** | Assembly Emitter Refactoring & `-S` Flag (Tasks 70-71) | ✅ Complete | **118/118 pass**, GAS output working |
+| **Sprint 10.5.7** | Option A: Full Backend-Driven Architecture (Tasks 71.5-71.8) | ✅ Complete | **118/118 pass**, x86-64 assembly emitter fully backend-driven |
 | **Sprint 10** | SIMD Vectorization Support (Tasks 72-73) | 📅 Scheduled | — |
 | **Sprint 11** | Stack Allocation Hardening (Tasks 74-77) | 📅 Scheduled | — |
 

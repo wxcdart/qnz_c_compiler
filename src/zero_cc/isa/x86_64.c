@@ -1,5 +1,6 @@
 #include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
+#include "x86_64_asm.c"  /* Include assembly emission functions */
 #include <string.h>
 
 /* x86-64 register info */
@@ -161,62 +162,10 @@ static void x86_emit_leave(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xc9);
 }
 
-/* Assembly emission functions for text output */
-static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    const char *rsp = x86_64_hw_reg_names[BE(c)->sp_reg];
-    const char *rbp = x86_64_hw_reg_names[BE(c)->fp_reg];
-    fprintf(out, "\tpush %%%s\n", rbp);
-    fprintf(out, "\tmov %%%s, %%%s\n", rsp, rbp);
-    fprintf(out, "\tsub $%zu, %%%s\n", stack_size, rsp);
-    
-    /* Emit callee-saved register stores */
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->get_hw_reg_name) {
-        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
-        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
-        int count = BE(c)->conv->callee_saved_gpr_count;
-        for (int i = 0; i < count; i++) {
-            int phys_reg = callee_regs[i];
-            if ((mask >> phys_reg) & 1u) {
-                const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
-                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-                fprintf(out, "\tmovq %%%s, -%d(%%rbp)\n", reg_name, slot);
-            }
-        }
-    }
-}
-
-static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    
-    /* Emit callee-saved register loads */
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->get_hw_reg_name) {
-        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
-        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
-        int count = BE(c)->conv->callee_saved_gpr_count;
-        for (int i = 0; i < count; i++) {
-            int phys_reg = callee_regs[i];
-            if ((mask >> phys_reg) & 1u) {
-                const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
-                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-                fprintf(out, "\tmovq -%d(%%rbp), %%%s\n", slot, reg_name);
-            }
-        }
-    }
-    
-    fprintf(out, "\tleave\n");
-    fprintf(out, "\tret\n");
-}
-
-static const char *x86_get_hw_reg_name(int phys_reg) {
-    static const char *x86_hw_names[] = {
-        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-        "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
-    };
-    return (phys_reg >= 0 && phys_reg < 16) ? x86_hw_names[phys_reg] : "rax";
-}
+/* Assembly emission functions for text output - defined in x86_64_asm.c */
+/* static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) { ... } */
+/* static void x86_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
+/* static const char *x86_get_hw_reg_name(int phys_reg) { ... } */
 
 static size_t x86_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
@@ -1389,6 +1338,43 @@ const ZeroCCISABackend x86_64_backend = {
     .emit_variadic_spill = x86_emit_variadic_spill,
     .emit_variadic_al_setup = x86_emit_variadic_al_setup,
     .emit_lea_rip = x86_emit_lea_rip,
+    
+    /* Assembly emission for IR instructions (Option A) */
+    .emit_mov_imm_asm = x86_emit_mov_imm_asm,
+    .emit_mov_reg_asm = x86_emit_mov_reg_asm,
+    .emit_load_asm = x86_emit_load_asm,
+    .emit_store_asm = x86_emit_store_asm,
+    .emit_add_asm = x86_emit_add_asm,
+    .emit_sub_asm = x86_emit_sub_asm,
+    .emit_mul_asm = x86_emit_mul_asm,
+    .emit_div_asm = x86_emit_div_asm,
+    .emit_and_asm = x86_emit_and_asm,
+    .emit_or_asm = x86_emit_or_asm,
+    .emit_xor_asm = x86_emit_xor_asm,
+    .emit_shl_asm = x86_emit_shl_asm,
+    .emit_shr_asm = x86_emit_shr_asm,
+    .emit_sar_asm = x86_emit_sar_asm,
+    .emit_cmp_asm = x86_emit_cmp_asm,
+    .emit_cond_set_asm = x86_emit_cond_set_asm,
+    .emit_neg_asm = x86_emit_neg_asm,
+    .emit_lea_asm = x86_emit_lea_asm,
+    .emit_deref_asm = x86_emit_deref_asm,
+    .emit_call_asm = x86_emit_call_asm,
+    .emit_ret_asm = x86_emit_ret_asm,
+    .emit_label_asm = x86_emit_label_asm,
+    .emit_jmp_asm = x86_emit_jmp_asm,
+    .emit_jeq_asm = x86_emit_jeq_asm,
+    .emit_jne_asm = x86_emit_jne_asm,
+    .emit_jlt_asm = x86_emit_jlt_asm,
+    .emit_jle_asm = x86_emit_jle_asm,
+    .emit_jgt_asm = x86_emit_jgt_asm,
+    .emit_jge_asm = x86_emit_jge_asm,
+    .emit_fp_add_asm = x86_emit_fp_add_asm,
+    .emit_fp_sub_asm = x86_emit_fp_sub_asm,
+    .emit_fp_mul_asm = x86_emit_fp_mul_asm,
+    .emit_fp_div_asm = x86_emit_fp_div_asm,
+    .emit_fp_mov_asm = x86_emit_fp_mov_asm,
+    .emit_vla_alloc_asm = x86_emit_vla_alloc_asm,
 };
 
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {

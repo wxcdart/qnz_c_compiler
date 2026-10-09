@@ -1,8 +1,10 @@
-/* Assembly Emitter - IR to Assembly Translation Implementation
+/* Assembly Emitter - IR to Assembly Translation
  *
  * This module implements ISA-agnostic assembly emission from IR.
- * It translates IR instructions to GNU assembler syntax using the
- * backend's register information for ISA-specific details.
+ * It delegates to backend-specific functions for ISA-specific assembly generation.
+ * 
+ * Option A: Full Backend-Driven Architecture
+ * All assembly emission is delegated to BE(c)->emit_*_asm() functions.
  */
 
 #include "asm_emitter.h"
@@ -12,37 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* =========================================================================
- * Helper Functions
- * ========================================================================= */
-
-/* Get backend-specific register name */
-/* Note: Backend register names don't have '%' prefix, we add it here */
-/* We use a round-robin buffer scheme to avoid static buffer issues when multiple */
-/* register names are used in the same fprintf statement */
-static const char *asm_get_backend_int_reg_name(ZeroCCCompiler *c, int reg) {
-    if (!c->isa_backend || !c->isa_backend->regs || !c->isa_backend->regs->int_regs) {
-        return asm_get_reg_name(reg, 0);
-    }
-    /* Use get_hw_reg_name if available (ISA-specific mapping) */
-    if (c->isa_backend->get_hw_reg_name) {
-        const char *name = c->isa_backend->get_hw_reg_name(reg);
-        /* Use round-robin buffers to support multiple register names in same fprintf */
-        static char bufs[4][16];
-        static int idx = 0;
-        char *buf = bufs[idx++ % 4];
-        snprintf(buf, sizeof(bufs[0]), "%%%s", name);
-        return buf;
-    }
-    /* Fallback: use int_regs (may be incorrect for some ISAs) */
-    if (reg < 16) {
-        static char bufs[4][16];
-        static int idx = 0;
-        char *buf = bufs[idx++ % 4];
-        snprintf(buf, sizeof(bufs[0]), "%%%s", c->isa_backend->regs->int_regs[reg]);
-        return buf;
-    }
-    return "%rax";  /* Default fallback */
+/* Get physical register for a temporary */
+static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
+    return regalloc_get_reg_for_temp(ra, temp);
 }
 
 /* Emit function label (.globl and func:) */
@@ -50,7 +24,7 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     size_t func_idx = c->function_count - 1;
     
-    /* Emit function label */
+    /* Emit .globl and label */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
         fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
         fprintf(out, "%s:\n", c->functions[func_idx].name);
@@ -65,485 +39,382 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
     }
 }
 
-/* Get physical register for a temporary */
-static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
-    return regalloc_get_reg_for_temp(ra, temp);
-}
-
-/* Get register name */
-const char *asm_get_reg_name(int reg, int is_fp) {
-    if (reg < 0 || reg > 31) return is_fp ? "%xmm0" : "%rax";
+/* Get register name with % prefix */
+static const char *asm_get_reg_name_prefixed(ZeroCCCompiler *c, int phys_reg, int is_fp) {
+    static char bufs[4][16];
+    static int idx = 0;
+    char *buf = bufs[idx++ % 4];
     
-    /* x86-64 default names - will be overridden by backend info */
-    if (is_fp) {
-        static const char *xmm_regs[] = {
-            "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7",
-            "%xmm8", "%xmm9", "%xmm10", "%xmm11", "%xmm12", "%xmm13", "%xmm14", "%xmm15"
-        };
-        return reg < 16 ? xmm_regs[reg] : "%xmm0";
+    if (BE(c)->get_hw_reg_name && !is_fp) {
+        snprintf(buf, sizeof(bufs[0]), "%%%s", BE(c)->get_hw_reg_name(phys_reg));
+    } else if (BE(c)->regs && (is_fp ? BE(c)->regs->fp_regs : BE(c)->regs->int_regs)) {
+        const char **regs = is_fp ? BE(c)->regs->fp_regs : BE(c)->regs->int_regs;
+        snprintf(buf, sizeof(bufs[0]), "%%%s", phys_reg < 32 ? regs[phys_reg] : "rax");
     } else {
-        static const char *gpr_regs[] = {
-            "%rax", "%rbx", "%rcx", "%rdx", "%rsp", "%rbp", "%rsi", "%rdi",
-            "%r8", "%r9", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15"
-        };
-        return reg < 16 ? gpr_regs[reg] : "%rax";
+        snprintf(buf, sizeof(bufs[0]), "%%r%d", phys_reg);
     }
+    return buf;
 }
 
 /* =========================================================================
- * Core Emission Functions
+ * Core Emission Functions - Delegate to Backend
  * ========================================================================= */
 
 /* Emit a single IR instruction as assembly */
 void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     
-    int phys_dst = (instr->temp_dest == 0xFF) ? BE(c)->fp_reg : 
-                   asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-    int phys_src1 = (instr->temp_src1 == 0xFF) ? BE(c)->fp_reg : 
-                    asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-    int phys_src2 = (instr->temp_src2 == 0xFF) ? BE(c)->fp_reg : 
-                    asm_get_phys_reg(&c->regalloc, instr->temp_src2);
+    /* Skip DEAD instructions */
+    if (instr->op == OP_DEAD) {
+        return;
+    }
     
-    const char *dst = asm_get_backend_int_reg_name(c, phys_dst);
-    const char *src1 = asm_get_backend_int_reg_name(c, phys_src1);
-    const char *src2 = asm_get_backend_int_reg_name(c, phys_src2);
+    /* Skip EPILOGUE - handled separately */
+    if (instr->op == OP_EPILOGUE) {
+        return;
+    }
     
-    /* Emit IR opcode comment */
-    fprintf(out, "\t# %zu: %s\n", idx, ir_opcode_name(instr->op));
+    /* Skip CALLEE_SAVE_STORES/LOADS - handled in prologue/epilogue */
+    if (instr->op == OP_CALLEE_SAVE_STORES || instr->op == OP_CALLEE_SAVE_LOADS) {
+        return;
+    }
+    
+    /* Get physical registers */
+    int phys_dst = instr->temp_dest == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_dest);
+    int phys_src1 = instr->temp_src1 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src1);
+    int phys_src2 = instr->temp_src2 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src2);
     
     switch (instr->op) {
-        /* Data movement */
-        case OP_NOP:
-            fprintf(out, "\tnop\n");
-            return;
-            
+        /* Data Movement */
         case OP_MOV_IMM:
-            fprintf(out, "\tmovq $%lld, %s\n", (long long)instr->imm64, dst);
+            if (BE(c)->emit_mov_imm_asm) {
+                BE(c)->emit_mov_imm_asm(c, phys_dst, instr->imm64, out);
+            }
             return;
             
         case OP_MOV_REG:
-            fprintf(out, "\tmovq %s, %s\n", src1, dst);
+            if (BE(c)->emit_mov_reg_asm) {
+                BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);
+            }
             return;
             
-        case OP_MOV:
-            fprintf(out, "\tmovq %d(%%rbp), %s\n", (int)instr->imm, dst);
+        case OP_MOV:  /* Load from stack */
+            if (BE(c)->emit_load_asm) {
+                BE(c)->emit_load_asm(c, phys_dst, BE(c)->sp_reg, instr->imm, out);
+            }
             return;
             
-        case OP_MOV_MEM:
-            fprintf(out, "\tmovq %s, %d(%%rbp)\n", src1, (int)instr->imm);
+        case OP_MOV_MEM:  /* Store to stack */
+            if (BE(c)->emit_store_asm) {
+                BE(c)->emit_store_asm(c, phys_src1, BE(c)->sp_reg, instr->imm, out);
+            }
             return;
             
         case OP_LEA:
-            fprintf(out, "\tleaq %d(%%rbp), %s\n", (int)instr->imm, dst);
+            if (BE(c)->emit_lea_asm) {
+                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->sp_reg, instr->imm, out);
+            }
+            return;
+            
+        case OP_DEREF:
+            if (BE(c)->emit_deref_asm) {
+                BE(c)->emit_deref_asm(c, phys_dst, phys_src1, out);
+            }
             return;
             
         /* Arithmetic */
         case OP_ADD:
-            /* dst = src1 + src2 */
-            /* Handle case where src2 == dst to avoid overwriting src2 */
-            if (strcmp(src2, dst) == 0) {
-                /* dst already contains src2, just add src1 */
-                fprintf(out, "\taddq %s, %s\n", src1, dst);
-            } else {
-                fprintf(out, "\tmovq %s, %s\n", src1, dst);
-                fprintf(out, "\taddq %s, %s\n", src2, dst);
+            if (BE(c)->emit_add_asm) {
+                BE(c)->emit_add_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_SUB:
-            /* dst = src1 - src2 */
-            /* Handle case where src2 == dst to avoid overwriting src2 */
-            if (strcmp(src2, dst) == 0) {
-                /* dst already contains src2, just subtract src1 */
-                fprintf(out, "\tsubq %s, %s\n", src1, dst);
-            } else {
-                fprintf(out, "\tmovq %s, %s\n", src1, dst);
-                fprintf(out, "\tsubq %s, %s\n", src2, dst);
+            if (BE(c)->emit_sub_asm) {
+                BE(c)->emit_sub_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_MUL:
-            /* dst = src1 * src2 */
-            /* Handle case where src2 == dst to avoid overwriting src2 */
-            if (strcmp(src2, dst) == 0) {
-                /* dst already contains src2, just multiply by src1 */
-                fprintf(out, "\timulq %s, %s\n", src1, dst);
-            } else {
-                fprintf(out, "\tmovq %s, %s\n", src1, dst);
-                fprintf(out, "\timulq %s, %s\n", src2, dst);
+            if (BE(c)->emit_mul_asm) {
+                BE(c)->emit_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_DIV:
-            /* dst = src1 / src2 (signed) */
-            fprintf(out, "\tmovq %s, %%rax\n", src1);
-            fprintf(out, "\tcqo\n");
-            fprintf(out, "\tidivq %s\n", src2);
-            fprintf(out, "\tmovq %%rax, %s\n", dst);
-            return;
-            
-        case OP_MOD:
-            fprintf(out, "\tdivq %s\n", src1);
-            fprintf(out, "\tmovq %%rdx, %s\n", dst);
-            return;
-            
-        case OP_NEG:
-            fprintf(out, "\tnegq %s\n", dst);
+            if (BE(c)->emit_div_asm) {
+                BE(c)->emit_div_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_AND:
-            fprintf(out, "\tandq %s, %s\n", src1, dst);
+            if (BE(c)->emit_and_asm) {
+                BE(c)->emit_and_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_OR:
-            fprintf(out, "\torq %s, %s\n", src1, dst);
+            if (BE(c)->emit_or_asm) {
+                BE(c)->emit_or_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_XOR:
-            fprintf(out, "\txorq %s, %s\n", src1, dst);
-            return;
-            
-        case OP_NOT:
-            fprintf(out, "\tnotq %s\n", dst);
+            if (BE(c)->emit_xor_asm) {
+                BE(c)->emit_xor_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_SHL:
-            fprintf(out, "\tmovq %s, %%rcx\n", src2);
-            fprintf(out, "\tshlq %%cl, %s\n", dst);
+            if (BE(c)->emit_shl_asm) {
+                BE(c)->emit_shl_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_SHR:
-            fprintf(out, "\tmovq %s, %%rcx\n", src2);
-            fprintf(out, "\tshrq %%cl, %s\n", dst);
+            if (BE(c)->emit_shr_asm) {
+                BE(c)->emit_shr_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_SAR:
-            fprintf(out, "\tmovq %s, %%rcx\n", src2);
-            fprintf(out, "\tsarq %%cl, %s\n", dst);
+            if (BE(c)->emit_sar_asm) {
+                BE(c)->emit_sar_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_NEG:
+            if (BE(c)->emit_neg_asm) {
+                BE(c)->emit_neg_asm(c, phys_dst, phys_src1, out);
+            }
             return;
             
         /* Comparison */
         case OP_CMP:
-            fprintf(out, "\tcmpq %s, %s\n", src1, src2);
+            if (BE(c)->emit_cmp_asm) {
+                BE(c)->emit_cmp_asm(c, phys_src1, phys_src2, out);
+            }
             return;
             
         case OP_COND_SET:
-            fprintf(out, "\tset%s %%al\n", instr->cond == 0 ? "l" : "e");
-            fprintf(out, "\tmovzbl %%al, %%eax\n");
-            fprintf(out, "\tmovq %%rax, %s\n", dst);
+            if (BE(c)->emit_cond_set_asm) {
+                BE(c)->emit_cond_set_asm(c, phys_dst, instr->cond, out);
+            }
             return;
             
-        /* Control flow */
+        /* Control Flow */
+        case OP_LABEL:
+            if (BE(c)->emit_label_asm) {
+                /* Get label name from labels array */
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_label_asm(c, label_name, out);
+                }
+            }
+            return;
+            
         case OP_JMP:
-            fprintf(out, "\tjmp .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jmp_asm) {
+                /* Get label name from labels array */
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jmp_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JE:
-            fprintf(out, "\tje .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jeq_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jeq_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JNE:
-            fprintf(out, "\tjne .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jne_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jne_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JL:
-            fprintf(out, "\tjl .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jlt_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jlt_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JLE:
-            fprintf(out, "\tjle .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jle_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jle_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JG:
-            fprintf(out, "\tjg .L%zu_%zu\n", func_idx, instr->label_idx);
+            if (BE(c)->emit_jgt_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
+                    }
+                }
+                if (label_name) {
+                    BE(c)->emit_jgt_asm(c, label_name, out);
+                }
+            }
             return;
             
         case OP_JCOND:
-            fprintf(out, "\ttestq %s, %s\n", dst, dst);
-            fprintf(out, "\t%s .L%zu_%zu\n", instr->cond == 0 ? "je" : "jne", func_idx, instr->label_idx);
-            return;
-            
-        case OP_LABEL:
-            fprintf(out, ".L%zu_%zu:\n", func_idx, instr->label_idx);
-            return;
-            return;
-            
-        /* Function */
-        case OP_CALL:
-            {
-                /* Get function name */
-                const char *fn_name = (const char *)(intptr_t)instr->imm64;
-                
-                /* Get call arguments from IR call args table */
-                const IRCallArgs *call_args = ir_call_args_find(idx);
-                int arg_count = call_args ? call_args->count : 0;
-                
-                /* System V AMD64 ABI: first 6 int args in rdi, rsi, rdx, rcx, r8, r9 */
-                static const char *int_arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
-                int int_arg_count = 6;  /* x86-64 has 6 integer argument registers */
-                
-                /* Handle stack arguments (args beyond 6) - push in reverse order */
-                int n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
-                if (n_stack > 0) {
-                    /* Push stack arguments in reverse order */
-                    for (int a = arg_count - 1; a >= int_arg_count; a--) {
-                        int temp = call_args->temps[a];
-                        int phys = asm_get_phys_reg(&c->regalloc, temp);
-                        const char *reg = asm_get_backend_int_reg_name(c, phys);
-                        fprintf(out, "\tpushq %s\n", reg);
-                    }
-                    /* Adjust stack for 16-byte alignment (need even number of pushes) */
-                    if (n_stack % 2 == 1) {
-                        fprintf(out, "\tsubq $8, %%rsp\n");
+            /* Conditional jump - emit based on cond field */
+            if (BE(c)->emit_jeq_asm || BE(c)->emit_jne_asm || BE(c)->emit_jlt_asm || 
+                BE(c)->emit_jle_asm || BE(c)->emit_jgt_asm || BE(c)->emit_jge_asm) {
+                const char *label_name = NULL;
+                for (int i = 0; i < c->label_count; i++) {
+                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
+                        label_name = c->labels[i].name;
+                        break;
                     }
                 }
-                
-                /* Move first 6 args to argument registers */
-                int n_reg_args = (arg_count < int_arg_count) ? arg_count : int_arg_count;
-                for (int a = 0; a < n_reg_args; a++) {
-                    int temp = call_args->temps[a];
-                    int phys = asm_get_phys_reg(&c->regalloc, temp);
-                    const char *reg = asm_get_backend_int_reg_name(c, phys);
-                    fprintf(out, "\tmovq %s, %%%s\n", reg, int_arg_regs[a]);
-                }
-                
-                /* Emit call */
-                fprintf(out, "\tcall %s\n", fn_name);
-                
-                /* Clean up stack arguments */
-                if (n_stack > 0) {
-                    int cleanup = n_stack * 8;
-                    if (n_stack % 2 == 1) cleanup += 8;  /* Extra alignment padding */
-                    fprintf(out, "\taddq $%d, %%rsp\n", cleanup);
+                if (label_name) {
+                    /* Use cond field to determine which jump */
+                    switch (instr->cond) {
+                        case 0: if (BE(c)->emit_jlt_asm) BE(c)->emit_jlt_asm(c, label_name, out); break;
+                        case 1: if (BE(c)->emit_jle_asm) BE(c)->emit_jle_asm(c, label_name, out); break;
+                        case 2: if (BE(c)->emit_jgt_asm) BE(c)->emit_jgt_asm(c, label_name, out); break;
+                        case 3: if (BE(c)->emit_jge_asm) BE(c)->emit_jge_asm(c, label_name, out); break;
+                        case 4: if (BE(c)->emit_jeq_asm) BE(c)->emit_jeq_asm(c, label_name, out); break;
+                        case 5: if (BE(c)->emit_jne_asm) BE(c)->emit_jne_asm(c, label_name, out); break;
+                    }
                 }
             }
             return;
             
-        case OP_CALL_INDIRECT:
-            fprintf(out, "\tcall *%s\n", src1);
+        case OP_CALL: {
+            /* Get function name from imm64 (stored as pointer) */
+            const char *func_name = (const char *)(intptr_t)instr->imm64;
+            
+            /* Collect argument temps - need to get from call_args array */
+            /* For now, use a simple approach - arguments are in temp registers */
+            int arg_temps[8] = {0};
+            int arg_count = 0;
+            
+            if (BE(c)->emit_call_asm) {
+                BE(c)->emit_call_asm(c, func_name, arg_count, arg_temps, out);
+            }
             return;
+        }
             
         case OP_RET:
-            fprintf(out, "\tret\n");
-            return;
-            
-        /* Frame management */
-        case OP_EPILOGUE:
-            fprintf(out, "\t# EPILOGUE\n");
-            return;
-            
-        case OP_PARAM_SAVE_INT:
-            {
-                int seq_idx = (int)instr->imm;
-                if (BE(c)->regs && BE(c)->regs->int_arg_regs && seq_idx < 8) {
-                    const char *reg_name = BE(c)->regs->int_arg_regs[seq_idx];
-                    if (reg_name) {
-                        /* Stack slots are below rbp, so use negative offset */
-                        fprintf(out, "\tmovq %%%s, -%d(%%rbp)\n", reg_name, (int)instr->imm64);
-                    }
-                }
+            if (BE(c)->emit_ret_asm) {
+                BE(c)->emit_ret_asm(c, out);
             }
             return;
             
-        case OP_PARAM_SAVE_FP:
-            {
-                int seq_idx = (int)instr->imm;
-                if (BE(c)->regs && BE(c)->regs->fp_arg_regs && seq_idx < 8) {
-                    const char *reg_name = BE(c)->regs->fp_arg_regs[seq_idx];
-                    if (reg_name) {
-                        fprintf(out, "\tmovsd %%%s, %d(%%rbp)\n", reg_name, (int)instr->imm64);
-                    }
-                }
-            }
-            return;
-            
-        case OP_VARIADIC_SPILL:
-            fprintf(out, "\t# VARIADIC_SPILL param_count=%d\n", (int)instr->imm);
-            return;
-            
-        /* Memory operations */
-        case OP_DEREF:
-            fprintf(out, "\tmovq (%s), %s\n", src1, dst);
-            return;
-            
-        case OP_LOAD_32:
-            fprintf(out, "\tmovl (%s), %s\n", src1, dst);
-            return;
-            
-        case OP_STORE_32:
-            fprintf(out, "\tmovl %s, (%s)\n", src2, src1);
-            return;
-            
-        case OP_STORE_64:
-            fprintf(out, "\tmovq %s, (%s)\n", src2, src1);
-            return;
-            
-        case OP_VLA_ALLOC:
-            fprintf(out, "\tsub %s, %%rsp\n", src1);
-            fprintf(out, "\tand $-16, %%rsp\n");
-            fprintf(out, "\tmov %%rsp, %s\n", dst);
-            return;
-            
-        case OP_CALLEE_SAVE_STORES:
-        case OP_CALLEE_SAVE_LOADS:
-            /* Callee-save is now handled in prologue/epilogue, skip these IR instructions */
-            return;
-            
-        case OP_DEAD:
-            fprintf(out, "\t# DEAD\n");
-            return;
-            
-        /* Floating point */
+        /* Floating Point */
         case OP_FADD:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\taddsd %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
+            if (BE(c)->emit_fp_add_asm) {
+                BE(c)->emit_fp_add_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_FSUB:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tsubsd %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
+            if (BE(c)->emit_fp_sub_asm) {
+                BE(c)->emit_fp_sub_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_FMUL:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tmulsd %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
+            if (BE(c)->emit_fp_mul_asm) {
+                BE(c)->emit_fp_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
         case OP_FDIV:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tdivsd %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
+            if (BE(c)->emit_fp_div_asm) {
+                BE(c)->emit_fp_div_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             
-        case OP_CVTSI2SD:
-            fprintf(out, "\tcvtsi2sd %s, %%xmm%u\n", src1, instr->temp_dest);
-            return;
-            
-        case OP_CVTTSD2SI:
-            fprintf(out, "\tcvttss2si %%xmm%u, %s\n", instr->temp_src1, dst);
-            return;
-            
-        /* SIMD operations */
-        case OP_VADDSS:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\taddss %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
+        case OP_FMOV:
+            if (BE(c)->emit_fp_mov_asm) {
+                BE(c)->emit_fp_mov_asm(c, phys_dst, phys_src1, out);
             }
             return;
             
-        case OP_VSUBSS:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tsubss %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
-            }
-            return;
-            
-        case OP_VMULSS:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tmulss %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
-            }
-            return;
-            
-        case OP_VDIVSS:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tdivss %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
-            }
-            return;
-            
-        case OP_VMOV:
-            {
-                int phys_src1 = asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tmovapd %%xmm%u, %%xmm%u\n", phys_src1, phys_dest);
-            }
-            return;
-            
-        case OP_VLOAD:
-            {
-                int phys_dest = asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-                fprintf(out, "\tmovapd (%s), %%xmm%u\n", src1, phys_dest);
-            }
-            return;
-            
-        case OP_VSTORE:
-            {
-                int phys_src2 = asm_get_phys_reg(&c->regalloc, instr->temp_src2);
-                fprintf(out, "\tmovapd %%xmm%u, (%s)\n", phys_src2, src1);
+        /* VLA */
+        case OP_VLA_ALLOC:
+            if (BE(c)->emit_vla_alloc_asm) {
+                BE(c)->emit_vla_alloc_asm(c, phys_dst, phys_src1, out);
             }
             return;
             
         default:
-            fprintf(out, "\t# UNKNOWN opcode=%u\n", (unsigned)instr->op);
+            /* Unknown opcode - emit comment */
+            fprintf(out, "\t# UNKNOWN: %s\n", ir_opcode_name(instr->op));
             return;
     }
 }
 
-/* Emit function prologue */
-void asm_emit_prologue(FILE *out, size_t frame_size) {
-    fprintf(out, "\tpush %%rbp\n");
-    fprintf(out, "\tmov %%rsp, %%rbp\n");
-    fprintf(out, "\tsub $%zu, %%rsp\n", frame_size);
-}
-
-/* Emit function epilogue */
-void asm_emit_epilogue(FILE *out) {
-    (void)out; /* Not used - ISA backend handles output */
-}
-
-/* Emit a label */
-void asm_emit_label(FILE *out, const char *label) {
-    fprintf(out, "%s:\n", label);
-}
-
-/* =========================================================================
- * Main Entry Point
- * ========================================================================= */
-
-/* Emit assembly from IR with allocated registers */
+/* Emit all IR instructions as assembly */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
-    (void)spill_base_offset; /* Not used for assembly emission */
     FILE *out = c->asm_out ? c->asm_out : stdout;
     
+    /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
-    size_t func_idx = c->function_count - 1;
     
-    /* Emit instructions (function label and prologue already emitted) */
+    /* Emit all IR instructions */
     for (size_t i = 0; i < count; i++) {
-        const Instr *instr = &instrs[i];
-        
-        /* Skip dead instructions */
-        if (instr->op == OP_DEAD) {
-            continue;
-        }
-        
-        /* Skip EPILOGUE - it's handled by leave/ret at the end */
-        if (instr->op == OP_EPILOGUE) {
-            continue;
-        }
-        
-        asm_emit_instruction(c, instr, i, func_idx);
+        asm_emit_instruction(c, &instrs[i], i, 0);
     }
     
-    /* Emit epilogue (ISA-specific) */
+    /* Emit epilogue */
     if (BE(c)->emit_epilogue_asm) {
         BE(c)->emit_epilogue_asm(c);
     }

@@ -21,10 +21,21 @@
 #include "../types/symbols.h"
 
 /*
- * Emit assembly from IR with allocated registers.
+ * Emit function label (.globl and func:).
+ *
+ * This function emits the function label before the prologue.
+ *
+ * Parameters:
+ *   c - Compiler context
+ */
+void emit_function_label_asm(ZeroCCCompiler *c);
+
+/*
+ * Emit assembly from IR with allocated registers (skips function label).
  *
  * This is the main entry point for assembly emission. It iterates through
  * the IR instruction buffer and emits GNU assembler syntax for each instruction.
+ * The function label should be emitted separately before calling this.
  *
  * Parameters:
  *   c              - Compiler context (contains IR, register allocator, backend info)
@@ -34,6 +45,22 @@
  *   Assembly is written to c->asm_out if set, otherwise to stdout.
  */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset);
+
+/*
+ * Emit function prologue directly (without IR instruction).
+ *
+ * This function emits the prologue instructions directly after register allocation,
+ * when we know the exact frame size. This avoids the fragility of emitting a
+ * placeholder IR instruction and patching it later.
+ *
+ * Parameters:
+ *   c            - Compiler context
+ *   frame_size   - Total 16-byte aligned stack frame size
+ *
+ * Output:
+ *   Assembly is written to c->asm_out if set, otherwise to stdout.
+ */
+void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size);
 
 /*
  * Emit a single IR instruction as assembly.
