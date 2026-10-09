@@ -1,6 +1,7 @@
 #include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
 #include "zero_cc/parser/asm_emitter.h"
+#include "riscv_asm.c"  /* Include assembly emission functions */
 #include <stdint.h>
 
 /* Helper macro to convert VREG to physical register */
@@ -147,44 +148,10 @@ static void riscv64_emit_leave(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x00002003 | (8 << 15) | (8 << 20));
 }
 
-/* Assembly emission functions for text output */
-static void riscv64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    const char *sp = BE(c)->regs->int_regs[BE(c)->sp_reg];
-    const char *fp = BE(c)->regs->int_regs[BE(c)->fp_reg];
-    const char *ra = BE(c)->regs->int_regs[1];  /* ra is always VREG 1 */
-    /* RISC-V prologue: addi sp, sp, -stack_size; sd ra, 0(sp); sd s0, 8(sp); addi s0, sp, stack_size */
-    fprintf(out, "\taddi %s, %s, -%zu\n", sp, sp, stack_size);
-    fprintf(out, "\tsd %s, 0(%s)\n", ra, sp);
-    fprintf(out, "\tsd %s, 8(%s)\n", fp, sp);
-    fprintf(out, "\taddi %s, %s, %zu\n", fp, sp, stack_size);
-}
-
-static void riscv64_emit_epilogue_asm(ZeroCCCompiler *c) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    const char *sp = BE(c)->regs->int_regs[BE(c)->sp_reg];
-    const char *fp = BE(c)->regs->int_regs[BE(c)->fp_reg];
-    const char *ra = BE(c)->regs->int_regs[1];  /* ra is always VREG 1 */
-    size_t stack_size = (c->current_stack_frame + 15) & ~15;
-    /* RISC-V epilogue: ld ra, 0(sp); ld s0, 8(sp); addi sp, sp, stack_size; ret */
-    fprintf(out, "\tld %s, 0(%s)\n", ra, sp);
-    fprintf(out, "\tld %s, 8(%s)\n", fp, sp);
-    fprintf(out, "\taddi %s, %s, %zu\n", sp, sp, stack_size);
-    fprintf(out, "\tret\n");
-}
-
-static const char *riscv64_get_hw_reg_name(int phys_reg) {
-    /* RISC-V: vreg numbers match hardware register numbers */
-    /* int_regs array is indexed by VREG which equals hardware number */
-    /* But we need to handle the special case where VREG 0 is "zero" */
-    static const char *riscv_hw_names[] = {
-        "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
-        "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
-        "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
-        "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
-    };
-    return (phys_reg >= 0 && phys_reg < 32) ? riscv_hw_names[phys_reg] : "zero";
-}
+/* Assembly emission functions for text output - defined in riscv_asm.c */
+/* static void riscv64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) { ... } */
+/* static void riscv64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
+/* static const char *riscv64_get_hw_reg_name(int phys_reg) { ... } */
 
 static size_t riscv64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
@@ -833,9 +800,9 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_epilogue = riscv64_emit_epilogue,
     .get_code_offset = riscv64_get_code_offset,
     
-    .emit_prologue_asm = riscv64_emit_prologue_asm,
-    .emit_epilogue_asm = riscv64_emit_epilogue_asm,
-    .get_hw_reg_name = riscv64_get_hw_reg_name,
+    .emit_prologue_asm = riscv_emit_prologue_asm,
+    .emit_epilogue_asm = riscv_emit_epilogue_asm,
+    .get_hw_reg_name = riscv_get_hw_reg_name,
     
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_mov_reg = riscv64_emit_mov_reg,
@@ -930,6 +897,43 @@ const ZeroCCISABackend riscv64_backend = {
     .emit_dec = riscv64_emit_dec,
     .emit_sar = riscv64_emit_sar,
     .emit_label = riscv64_emit_label,
+    
+    /* Assembly emission for IR instructions (Option A) */
+    .emit_mov_imm_asm = riscv_emit_mov_imm_asm,
+    .emit_mov_reg_asm = riscv_emit_mov_reg_asm,
+    .emit_load_asm = riscv_emit_load_asm,
+    .emit_store_asm = riscv_emit_store_asm,
+    .emit_add_asm = riscv_emit_add_asm,
+    .emit_sub_asm = riscv_emit_sub_asm,
+    .emit_mul_asm = riscv_emit_mul_asm,
+    .emit_div_asm = riscv_emit_div_asm,
+    .emit_and_asm = riscv_emit_and_asm,
+    .emit_or_asm = riscv_emit_or_asm,
+    .emit_xor_asm = riscv_emit_xor_asm,
+    .emit_shl_asm = riscv_emit_shl_asm,
+    .emit_shr_asm = riscv_emit_shr_asm,
+    .emit_sar_asm = riscv_emit_sar_asm,
+    .emit_cmp_asm = riscv_emit_cmp_asm,
+    .emit_cond_set_asm = riscv_emit_cond_set_asm,
+    .emit_neg_asm = riscv_emit_neg_asm,
+    .emit_lea_asm = riscv_emit_lea_asm,
+    .emit_deref_asm = riscv_emit_deref_asm,
+    .emit_call_asm = riscv_emit_call_asm,
+    .emit_ret_asm = riscv_emit_ret_asm,
+    .emit_label_asm = riscv_emit_label_asm,
+    .emit_jmp_asm = riscv_emit_jmp_asm,
+    .emit_jeq_asm = riscv_emit_jeq_asm,
+    .emit_jne_asm = riscv_emit_jne_asm,
+    .emit_jlt_asm = riscv_emit_jlt_asm,
+    .emit_jle_asm = riscv_emit_jle_asm,
+    .emit_jgt_asm = riscv_emit_jgt_asm,
+    .emit_jge_asm = riscv_emit_jge_asm,
+    .emit_fp_add_asm = riscv_emit_fp_add_asm,
+    .emit_fp_sub_asm = riscv_emit_fp_sub_asm,
+    .emit_fp_mul_asm = riscv_emit_fp_mul_asm,
+    .emit_fp_div_asm = riscv_emit_fp_div_asm,
+    .emit_fp_mov_asm = riscv_emit_fp_mov_asm,
+    .emit_vla_alloc_asm = riscv_emit_vla_alloc_asm,
 };
 
 /* RISC-V 32-bit backend (for ESP32-C3/C6/H2) - similar but 32-bit */

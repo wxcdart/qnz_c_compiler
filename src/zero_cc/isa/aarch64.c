@@ -1,6 +1,7 @@
 #include "isa_backend.h"
 #include "zero_cc/parser/machine_emitter.h"
 #include "zero_cc/parser/asm_emitter.h"
+#include "aarch64_asm.c"  /* Include assembly emission functions */
 #include <stdint.h>
 
 /* ARM64 register info */
@@ -153,35 +154,10 @@ static void aarch64_emit_leave(ZeroCCCompiler *c) {
     }
 }
 
-/* Assembly emission functions for text output */
-static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    /* AArch64 prologue: stp x29, x30, [sp, #-stack_size]!; mov x29, sp */
-    /* Note: x29 is FP, x30 is LR (link register) */
-    fprintf(out, "\tstp x29, x30, [sp, #%zu]!\n", stack_size);
-    fprintf(out, "\tmov x29, sp\n");
-}
-
-static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    /* AArch64 epilogue: ldp x29, x30, [sp]; add sp, sp, #stack_size; ret */
-    size_t stack_size = (c->current_stack_frame + 15) & ~15;
-    /* Note: x29 is FP, x30 is LR (link register) */
-    fprintf(out, "\tldp x29, x30, [sp]\n");
-    fprintf(out, "\tadd sp, sp, #%zu\n", stack_size);
-    fprintf(out, "\tret\n");
-}
-
-static const char *aarch64_get_hw_reg_name(int phys_reg) {
-    /* AArch64: x0-x30, sp is x31 */
-    static const char *aarch64_hw_names[] = {
-        "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
-        "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
-        "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
-        "x24", "x25", "x26", "x27", "x28", "x29", "x30", "sp"
-    };
-    return (phys_reg >= 0 && phys_reg < 32) ? aarch64_hw_names[phys_reg] : "x0";
-}
+/* Assembly emission functions for text output - defined in aarch64_asm.c */
+/* static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) { ... } */
+/* static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) { ... } */
+/* static const char *aarch64_get_hw_reg_name(int phys_reg) { ... } */
 
 static size_t aarch64_get_code_offset(ZeroCCCompiler *c) {
     return me_get_offset(c);
@@ -1024,6 +1000,43 @@ const ZeroCCISABackend aarch64_backend = {
     .emit_atomic_xadd = aarch64_emit_atomic_xadd,
     .emit_atomic_xchg = aarch64_emit_atomic_xchg,
     .emit_mfence = aarch64_emit_mfence,
+    
+    /* Assembly emission for IR instructions (Option A) */
+    .emit_mov_imm_asm = aarch64_emit_mov_imm_asm,
+    .emit_mov_reg_asm = aarch64_emit_mov_reg_asm,
+    .emit_load_asm = aarch64_emit_load_asm,
+    .emit_store_asm = aarch64_emit_store_asm,
+    .emit_add_asm = aarch64_emit_add_asm,
+    .emit_sub_asm = aarch64_emit_sub_asm,
+    .emit_mul_asm = aarch64_emit_mul_asm,
+    .emit_div_asm = aarch64_emit_div_asm,
+    .emit_and_asm = aarch64_emit_and_asm,
+    .emit_or_asm = aarch64_emit_or_asm,
+    .emit_xor_asm = aarch64_emit_xor_asm,
+    .emit_shl_asm = aarch64_emit_shl_asm,
+    .emit_shr_asm = aarch64_emit_shr_asm,
+    .emit_sar_asm = aarch64_emit_sar_asm,
+    .emit_cmp_asm = aarch64_emit_cmp_asm,
+    .emit_cond_set_asm = aarch64_emit_cond_set_asm,
+    .emit_neg_asm = aarch64_emit_neg_asm,
+    .emit_lea_asm = aarch64_emit_lea_asm,
+    .emit_deref_asm = aarch64_emit_deref_asm,
+    .emit_call_asm = aarch64_emit_call_asm,
+    .emit_ret_asm = aarch64_emit_ret_asm,
+    .emit_label_asm = aarch64_emit_label_asm,
+    .emit_jmp_asm = aarch64_emit_jmp_asm,
+    .emit_jeq_asm = aarch64_emit_jeq_asm,
+    .emit_jne_asm = aarch64_emit_jne_asm,
+    .emit_jlt_asm = aarch64_emit_jlt_asm,
+    .emit_jle_asm = aarch64_emit_jle_asm,
+    .emit_jgt_asm = aarch64_emit_jgt_asm,
+    .emit_jge_asm = aarch64_emit_jge_asm,
+    .emit_fp_add_asm = aarch64_emit_fp_add_asm,
+    .emit_fp_sub_asm = aarch64_emit_fp_sub_asm,
+    .emit_fp_mul_asm = aarch64_emit_fp_mul_asm,
+    .emit_fp_div_asm = aarch64_emit_fp_div_asm,
+    .emit_fp_mov_asm = aarch64_emit_fp_mov_asm,
+    .emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm,
 };
 /* =========================================================================
  * Virtual Register (VREG) Mapping for AArch64
