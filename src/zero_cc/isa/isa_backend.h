@@ -125,6 +125,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_vmulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vdivpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vmovss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_vmovsd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vmovaps_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vmovapd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vandps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
@@ -134,6 +135,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcmpss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
+    void (*emit_vcmpsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
     
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);

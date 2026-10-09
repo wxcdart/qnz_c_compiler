@@ -534,6 +534,13 @@ static void x86_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) 
     fprintf(out, "\tmovss\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* Vector scalar double move - movsd */
+static void x86_emit_vmovsd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tmovsd\t%%%s,%%%s\n", src_name, dst_name);
+}
+
 /* Vector move aligned packed single - movaps */
 static void x86_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -595,6 +602,13 @@ static void x86_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, 
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tcmpss\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
+}
+
+/* Vector scalar double comparison - cmpsd */
+static void x86_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tcmpsd\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
 }
 
 /* Initialize x86-64 assembly emission functions in backend */
@@ -660,6 +674,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vmulpd_asm = x86_emit_vmulpd_asm;
     be->emit_vdivpd_asm = x86_emit_vdivpd_asm;
     be->emit_vmovss_asm = x86_emit_vmovss_asm;
+    be->emit_vmovsd_asm = x86_emit_vmovsd_asm;
     be->emit_vmovaps_asm = x86_emit_vmovaps_asm;
     be->emit_vmovapd_asm = x86_emit_vmovapd_asm;
     be->emit_vandps_asm = x86_emit_vandps_asm;
@@ -669,4 +684,5 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vcvt_si2ss_asm = x86_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm;
     be->emit_vcmpss_asm = x86_emit_vcmpss_asm;
+    be->emit_vcmpsd_asm = x86_emit_vcmpsd_asm;
 }

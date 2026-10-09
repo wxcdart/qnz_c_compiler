@@ -477,6 +477,13 @@ static void aarch64_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *o
     fprintf(out, "\tfmov\ts%s, s%s\n", dst_name, src_name);
 }
 
+/* Vector scalar double move - fmov (double) */
+static void aarch64_emit_vmovsd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tfmov\td%s, d%s\n", dst_name, src_name);
+}
+
 /* Vector move packed single - mov */
 static void aarch64_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -538,6 +545,13 @@ static void aarch64_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tfcmp\ts%s, s%s\n", src1_name, src2_name);
+}
+
+/* Vector scalar double comparison - fcmp (double) */
+static void aarch64_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tfcmp\td%s, d%s\n", src1_name, src2_name);
 }
 
 /* Initialize AArch64 assembly emission functions in backend */
@@ -603,6 +617,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vmulpd_asm = aarch64_emit_vmulpd_asm;
     be->emit_vdivpd_asm = aarch64_emit_vdivpd_asm;
     be->emit_vmovss_asm = aarch64_emit_vmovss_asm;
+    be->emit_vmovsd_asm = aarch64_emit_vmovsd_asm;
     be->emit_vmovaps_asm = aarch64_emit_vmovaps_asm;
     be->emit_vmovapd_asm = aarch64_emit_vmovapd_asm;
     be->emit_vandps_asm = aarch64_emit_vandps_asm;
@@ -612,4 +627,5 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vcvt_si2ss_asm = aarch64_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = aarch64_emit_vcvt_ss2si_asm;
     be->emit_vcmpss_asm = aarch64_emit_vcmpss_asm;
+    be->emit_vcmpsd_asm = aarch64_emit_vcmpsd_asm;
 }

@@ -423,6 +423,193 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             }
             return;
             
+        /* SIMD/Vector Operations - Scalar Single-Precision */
+        case OP_VADDSS:
+            if (BE(c)->emit_vaddss_asm) {
+                BE(c)->emit_vaddss_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VSUBSS:
+            if (BE(c)->emit_vsubss_asm) {
+                BE(c)->emit_vsubss_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMULSS:
+            if (BE(c)->emit_vmulss_asm) {
+                BE(c)->emit_vmulss_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VDIVSS:
+            if (BE(c)->emit_vdivss_asm) {
+                BE(c)->emit_vdivss_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMOVSS:
+            if (BE(c)->emit_vmovss_asm) {
+                BE(c)->emit_vmovss_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        /* SIMD/Vector Operations - Scalar Double-Precision */
+        case OP_VADDSD:
+            if (BE(c)->emit_vaddsd_asm) {
+                BE(c)->emit_vaddsd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VSUBSD:
+            if (BE(c)->emit_vsubsd_asm) {
+                BE(c)->emit_vsubsd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMULSD:
+            if (BE(c)->emit_vmulsd_asm) {
+                BE(c)->emit_vmulsd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VDIVSD:
+            if (BE(c)->emit_vdivsd_asm) {
+                BE(c)->emit_vdivsd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMOVSD:
+            if (BE(c)->emit_vmovsd_asm) {
+                BE(c)->emit_vmovsd_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        /* SIMD/Vector Operations - Packed Single-Precision */
+        case OP_VADDPS:
+            if (BE(c)->emit_vaddps_asm) {
+                BE(c)->emit_vaddps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VSUBPS:
+            if (BE(c)->emit_vsubps_asm) {
+                BE(c)->emit_vsubps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMULPS:
+            if (BE(c)->emit_vmulps_asm) {
+                BE(c)->emit_vmulps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VDIVPS:
+            if (BE(c)->emit_vdivps_asm) {
+                BE(c)->emit_vdivps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMOVAPS:
+            if (BE(c)->emit_vmovaps_asm) {
+                BE(c)->emit_vmovaps_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        case OP_VANDPS:
+            if (BE(c)->emit_vandps_asm) {
+                BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VORPS:
+            if (BE(c)->emit_vorps_asm) {
+                BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VXORPS:
+            if (BE(c)->emit_vxorps_asm) {
+                BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VSHUFPS:
+            if (BE(c)->emit_vshufps_asm) {
+                BE(c)->emit_vshufps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+            
+        /* SIMD/Vector Operations - Packed Double-Precision */
+        case OP_VADDPD:
+            if (BE(c)->emit_vaddpd_asm) {
+                BE(c)->emit_vaddpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VSUBPD:
+            if (BE(c)->emit_vsubpd_asm) {
+                BE(c)->emit_vsubpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMULPD:
+            if (BE(c)->emit_vmulpd_asm) {
+                BE(c)->emit_vmulpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VDIVPD:
+            if (BE(c)->emit_vdivpd_asm) {
+                BE(c)->emit_vdivpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        case OP_VMOVAPD:
+            if (BE(c)->emit_vmovapd_asm) {
+                BE(c)->emit_vmovapd_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        /* SIMD/Vector Memory Operations */
+        case OP_VLOAD:
+            if (BE(c)->emit_vload_asm) {
+                BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, out);
+            }
+            return;
+            
+        case OP_VSTORE:
+            if (BE(c)->emit_vstore_asm) {
+                BE(c)->emit_vstore_asm(c, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+            
+        /* SIMD/Vector Conversions */
+        case OP_VCVT_SI2SS:
+            if (BE(c)->emit_vcvt_si2ss_asm) {
+                BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        case OP_VCVT_SS2SI:
+            if (BE(c)->emit_vcvt_ss2si_asm) {
+                BE(c)->emit_vcvt_ss2si_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+            
+        /* SIMD/Vector Comparison */
+        case OP_VCMPSS:
+            if (BE(c)->emit_vcmpss_asm) {
+                BE(c)->emit_vcmpss_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+            
+        case OP_VCMPSD:
+            if (BE(c)->emit_vcmpsd_asm) {
+                BE(c)->emit_vcmpsd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+            
         default:
             /* Unknown opcode - emit comment */
             fprintf(out, "\t# UNKNOWN: %s\n", ir_opcode_name(instr->op));

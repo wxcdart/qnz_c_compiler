@@ -480,6 +480,13 @@ static void riscv_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out
     fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src_name);
 }
 
+/* Vector scalar double move - vmv.v (double) */
+static void riscv_emit_vmovsd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tvmv.v\tv%s, v%s\n", dst_name, src_name);
+}
+
 /* Vector move packed - vmv.v */
 static void riscv_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -542,6 +549,13 @@ static void riscv_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2
     const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tfcmp.s\tf%s, f%s\n", src1_name, src2_name);
+}
+
+/* Vector scalar double comparison - fcmp (double) */
+static void riscv_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tfcmp.d\tf%s, f%s\n", src1_name, src2_name);
 }
 
 /* Initialize RISC-V assembly emission functions in backend */
@@ -607,6 +621,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vmulpd_asm = riscv_emit_vmulpd_asm;
     be->emit_vdivpd_asm = riscv_emit_vdivpd_asm;
     be->emit_vmovss_asm = riscv_emit_vmovss_asm;
+    be->emit_vmovsd_asm = riscv_emit_vmovsd_asm;
     be->emit_vmovaps_asm = riscv_emit_vmovaps_asm;
     be->emit_vmovapd_asm = riscv_emit_vmovapd_asm;
     be->emit_vandps_asm = riscv_emit_vandps_asm;
@@ -616,4 +631,5 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vcvt_si2ss_asm = riscv_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = riscv_emit_vcvt_ss2si_asm;
     be->emit_vcmpss_asm = riscv_emit_vcmpss_asm;
+    be->emit_vcmpsd_asm = riscv_emit_vcmpsd_asm;
 }
