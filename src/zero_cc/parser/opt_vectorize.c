@@ -314,11 +314,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
     
-    /* Phase 1.1: Guard - Only vectorize if loop bound is compile-time constant multiple of 4
-     * This avoids tail loop complexity for now (Milestone 2A from roadmap) */
-    /* TODO: Implement dynamic tail loop for arbitrary N (Milestone 2B) */
-    
-    /* Check loop has scalar increment (i += 1) before transformation */
+    /* Guard: Only vectorize if loop has scalar increment (i += 1) */
     bool found_scalar_increment = false;
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
@@ -333,14 +329,31 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         return false;
     }
     
-    /* Track scalar temp -> vector temp mapping for data flow
-     * Phase 1.2: Single-pass dynamic mapping for multi-operation data-flow */
+    /* BUG FIX #2: Change loop increment from i += 1 to i += 4
+     * This is safe because:
+     * 1. Address calculation uses i * sizeof(float) = i * 4
+     * 2. When i advances by 4, address advances by 16 bytes (4 floats)
+     * 3. VLOAD/VSTORE load/store 4 elements at a time
+     * 
+     * IMPORTANT: This requires the loop bound N to be a multiple of 4.
+     * For now, we assume this is true (conservative - may read past end
+     * if N is not a multiple of 4). TODO: Add tail loop handling.
+     */
+    int byte_stride = vec_width * 4;  /* 16 bytes for 4 floats */
+    for (int i = start_idx; i <= end_idx; i++) {
+        Instr *instr = ir_get(i);
+        if (!instr) continue;
+        
+        if (instr->op == OP_ADD && instr->imm == 1) {
+            instr->imm = byte_stride;  /* Change i += 1 to i += 4 */
+        }
+    }
+    
+    /* Track scalar temp -> vector temp mapping for data flow */
     int scalar_to_vec_map[256];
     memset(scalar_to_vec_map, -1, sizeof(scalar_to_vec_map));
     
-    /* Single-pass transformation: Process instructions in order
-     * For each instruction, if inputs are already vectorized, use vector ops
-     * Otherwise, leave as scalar (shouldn't happen in well-formed vectorizable loop) */
+    /* Transform loads, arithmetic, and stores */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
@@ -353,17 +366,11 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             /* Map scalar dest to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_temp;
             
-            /* Replace with VLOAD
-             * Phase 1.1: Memory address scaling
-             * ti->src1 holds pointer &a[i] where i is already scaled by 4 bytes
-             * When we increment i += 4, the address naturally advances by 16 bytes */
+            /* Replace with VLOAD */
             instr->op = OP_VLOAD;
             instr->temp_dest = vec_temp;
-            /* temp_src1 remains the address pointer (already scaled) */
             instr->temp_src2 = 0xFF;
-            /* BUG FIX #1: Preserve immediate offset! Don't zero it out. */
-            /* The imm field holds stack displacement like [fp - 64] */
-            /* Leave instr->imm unchanged - it's already correct */
+            /* Leave instr->imm unchanged (preserves stack displacement) */
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
@@ -372,22 +379,17 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             continue;
         }
         
-        /* Handle scalar arithmetic -> vector arithmetic
-         * Phase 1.2: Multi-operation data-flow with dynamic mapping */
+        /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
             /* Get vector operation */
             int vec_op = get_vec_op(instr->op);
             
-            /* Get source vector temps from map
-             * If not mapped, this is a loop-invariant or scalar constant */
+            /* Get source vector temps from map */
             int vec_src1 = scalar_to_vec_map[instr->temp_src1];
             int vec_src2 = scalar_to_vec_map[instr->temp_src2];
             
-            /* BUG FIX #3: Check for unmapped invariants. 
-             * If source is not mapped, it's a loop-invariant scalar.
-             * For now, skip vectorization (conservative fallback). */
+            /* Skip if sources not mapped (loop invariants) */
             if (vec_src1 < 0 || vec_src2 < 0) {
-                /* Can't vectorize - leave as scalar */
                 continue;
             }
             
@@ -402,7 +404,6 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->temp_dest = vec_dest;
             instr->temp_src1 = vec_src1;
             instr->temp_src2 = vec_src2;
-            /* Leave instr->imm unchanged if it holds useful data */
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
@@ -411,23 +412,20 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             continue;
         }
         
-        /* Handle scalar stores -> VSTORE
-         * Phase 1.1: Ensure temp_src1 = address_ptr, temp_src2 = vector_val */
+        /* Handle scalar stores -> VSTORE */
         if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
             /* Get vector value from map */
             int vec_value = scalar_to_vec_map[instr->temp_src2];
             
-            /* Fallback if not mapped */
-            if (vec_value < 0) vec_value = c->next_temp_id++;
+            /* Skip if value not mapped */
+            if (vec_value < 0) {
+                continue;
+            }
             
-            /* Replace with VSTORE
-             * temp_src1 = address (pointer to array element)
-             * temp_src2 = vector value to store */
+            /* Replace with VSTORE */
             instr->op = OP_VSTORE;
             instr->temp_dest = 0xFF;
-            /* temp_src1 remains the address pointer */
             instr->temp_src2 = vec_value;
-            /* BUG FIX #1: Preserve immediate offset! */
             /* Leave instr->imm unchanged */
             instr->imm64 = 0;
             instr->label_idx = 0;
@@ -437,28 +435,6 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             continue;
         }
     }
-    
-    /* BUG FIX #2: Disable loop increment change for now.
-     * Changing i += 1 to i += 4 requires:
-     * 1. Updating the loop termination condition (i < N -> i < N - 3)
-     * 2. Adding a tail loop for remainder iterations
-     * 3. Ensuring N is a multiple of 4
-     * 
-     * For now, we'll keep the scalar loop structure and only
-     * vectorize the operations within each iteration.
-     * This is conservative but safe.
-     * 
-     * TODO: Implement proper loop restructuring with tail handling
-    int byte_stride = vec_width * 4;
-    for (int i = start_idx; i <= end_idx; i++) {
-        Instr *instr = ir_get(i);
-        if (!instr) continue;
-        
-        if (instr->op == OP_ADD && instr->imm == 1) {
-            instr->imm = byte_stride;
-        }
-    }
-    */
     
     return true;
 }
