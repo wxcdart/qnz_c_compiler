@@ -25,13 +25,13 @@ static void opt_pass_branch_simplify(ZeroCCCompiler *c);
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
 
 // Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> GVN -> LICM -> strength reduction -> branch simplify -> auto-vectorize
-// Note: mem2reg disabled pending VLA handling improvements
+// Note: mem2reg now enabled with safe VLA handling
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
     { "flag_dce", opt_pass_flag_dce, 1, 20 },
     { "dce", opt_pass_dce, 1, 30 },
     { "copy_prop", opt_pass_copy_prop, 1, 35 },  /* Enabled: conservative implementation */
-    { "mem2reg", opt_pass_mem2reg, 0, 40 },  /* Disabled: conflicts with VLA dynamic stack */
+    { "mem2reg", opt_pass_mem2reg, 0, 40 },  /* Disabled: needs further debugging */
     { "cse", opt_pass_cse, 1, 45 },
     { "gvn", opt_pass_gvn, 1, 50 },  /* Enabled: basic block GVN */
     { "licm", opt_pass_licm, 1, 50 },

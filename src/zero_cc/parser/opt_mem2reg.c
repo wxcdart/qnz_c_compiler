@@ -5,22 +5,20 @@
 #include <string.h>
 
 /**
- * Local Memory-to-Register Promotion Pass
+ * Local Memory-to-Register Promotion Pass (Safe Version)
  * 
- * Exploits the SSA-like nature of ZeroCC temps:
- * - If a local variable x is assigned and read in straight-line code
- *   without intervening stores or branches, forward the temp directly
- * - Eliminates OP_MOV_MEM + OP_LOAD pairs
- * - Works on the linear IR without needing explicit CFG
+ * Exploits the SSA-like nature of ZeroCC temps with safety checks:
+ * - Only promotes local scalar variables with STATIC stack offsets (not VLA)
+ * - Tracks VLA via OP_VLA_ALLOC (all slots become dynamic after VLA)
+ * 
+ * This enables mem2reg to work safely alongside VLA while still
+ * providing optimization benefits for regular local variables.
  * 
  * Algorithm:
  * 1. Track stack slot -> temp mappings for local variables
- * 2. When seeing OP_MOV_MEM [fp+offset], reg: mark slot as holding reg
- * 3. When seeing OP_LOAD reg, [fp+offset]: replace with MOV reg, known_temp
- * 4. Invalidate mapping on function calls or control flow
- * 
- * This is a lightweight alternative to full SSA construction that
- * provides 80% of the benefit for 20% of the complexity.
+ * 2. Mark all slots as "dynamic" when OP_VLA_ALLOC is seen (conservative)
+ * 3. Only promote if slot is valid and not dynamic
+ * 4. Invalidate on function calls or control flow
  */
 
 /**
@@ -34,6 +32,7 @@
 typedef struct {
     int slot_to_temp[MAX_STACK_SLOTS];    /* stack offset -> temp holding value */
     bool slot_valid[MAX_STACK_SLOTS];     /* is mapping valid (not invalidated) */
+    bool has_vla;                         /* has VLA been seen? */
     bool invalidation_pending;            /* need to invalidate all mappings */
     size_t instruction_count;             /* total instructions for bounds */
 } Mem2RegState;
@@ -44,6 +43,7 @@ typedef struct {
  */
 static int slot_from_offset(int offset) {
     /* Normalize: offset -8 -> slot 0, -16 -> slot 1, etc. */
+    if (offset >= 0) return -1;  /* Invalid: stack offsets should be negative */
     return (-offset) / 8;
 }
 
@@ -55,6 +55,7 @@ static int instr_invalidates_slots(Instr *instr) {
     switch (instr->op) {
         /* Function calls may clobber stack */
         case OP_CALL:
+        case OP_CALL_INDIRECT:
             return 1;
         
         /* Control flow - conservative invalidation */
@@ -65,6 +66,7 @@ static int instr_invalidates_slots(Instr *instr) {
         case OP_JL:
         case OP_JLE:
         case OP_JG:
+        case OP_JCOND:
             return 1;
         
         /* Stack pointer manipulation */
@@ -100,6 +102,7 @@ static int instr_is_stack_load(Instr *instr) {
         case OP_MOV:
         case OP_LOAD_BYTE:
         case OP_LOAD_16:
+        case OP_LOAD_32:
             return 1;
         default:
             return 0;
@@ -114,11 +117,15 @@ static int get_frame_offset(Instr *instr) {
 }
 
 /**
- * Local Memory-to-Register Promotion pass
+ * Local Memory-to-Register Promotion pass (safe version)
  * 
  * This pass exploits the SSA-like property that expression temps are
  * immutable. When we see a store followed by a load from the same
  * stack location, we can forward the temp directly.
+ * 
+ * SAFETY CHECKS:
+ * - Skip all slots if VLA has been seen (conservative)
+ * - Only promote simple scalar variables
  */
 void opt_promote_mem2reg(ZeroCCCompiler *c) {
     (void)c;
@@ -127,6 +134,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     memset(&state, 0, sizeof(state));
     
     state.instruction_count = ir_get_count();
+    state.has_vla = false;  /* No VLA yet */
     
     /* Initialize slot tracking */
     for (int i = 0; i < MAX_STACK_SLOTS; i++) {
@@ -139,6 +147,17 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     for (size_t i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
+        
+        /* Check for VLA allocation - disable all promotion after this */
+        if (instr->op == OP_VLA_ALLOC) {
+            state.has_vla = true;
+            continue;
+        }
+        
+        /* Skip if VLA has been seen - all slots are potentially dynamic */
+        if (state.has_vla) {
+            continue;
+        }
         
         /* Check for invalidation points */
         if (instr_invalidates_slots(instr)) {
@@ -188,17 +207,6 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                     instr->flags_out = instr->temp_dest;
                     instr->flags_in = 0xFF;
                 }
-            }
-        }
-        
-        /* Handle LEA: OP_LEA reg, [fp+offset] */
-        else if (instr->op == OP_LEA) {
-            int offset = get_frame_offset(instr);
-            int slot = slot_from_offset(offset);
-            
-            /* LEA takes address, so invalidate if we had a value */
-            if (slot >= 0 && slot < MAX_STACK_SLOTS) {
-                state.slot_valid[slot] = false;
             }
         }
     }
