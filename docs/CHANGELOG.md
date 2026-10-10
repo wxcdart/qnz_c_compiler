@@ -1,5 +1,39 @@
 # ZeroCC Changelog
 
+## [Sprint 13] - 2026 - Mem2Reg Stabilization & Register Allocator Spill Safety
+
+### Added / Enabled
+- **Local Mem2Reg Pass Enabled**:
+  - Store-to-load forwarding within basic blocks now enabled and active (`opt_pass.c`).
+  - Promotes repeated local variable loads (`[rbp - offset]`) to virtual expression temporaries, keeping values in registers and eliminating redundant stack memory round-trips.
+
+### Fixed - Mem2Reg Load/Store Safety (`opt_mem2reg.c`)
+- **8-Byte Slot Alignment Constraint**:
+  - Restricted stack slot tracking strictly to negative multiples of 8 bytes (`offset < 0 && (offset % 8) == 0`).
+  - Prevents non-8-byte struct subfields and bitfield stores/loads from corrupting or aliasing 8-byte slot mappings.
+- **Conservative Invalidation**:
+  - Invalidated active slot states across block/control-flow boundaries (`OP_LABEL`, `OP_RET`, `OP_EPILOGUE`, jumps, conditional branches).
+  - Invalidated across function calls (`OP_CALL`, `OP_CALL_INDIRECT`).
+  - Invalidated across indirect memory stores (`OP_STORE_BYTE..64`, vector/float stores, atomics).
+  - Invalidated when stack addresses are taken (`OP_LEA`).
+  - Invalidated cached slot values when an existing temporary is overwritten (`temp_dest == state.slot_to_temp[s]`).
+- **Flags Preservation**:
+  - Preserved condition flags registers by resetting `instr->flags_out = 0xFF` on promoted loads instead of overwriting with destination temp.
+
+### Fixed - Register Allocator & Spill Emitter Safety (`regalloc.h`)
+- **Stack & Frame Pointer Reservation**:
+  - Physical registers `4` (`%rsp`) and `5` (`%rbp`) were incorrectly part of `pool_to_phys` and marked free in `regalloc_init()`.
+  - Under high register pressure (>12 live variables), the allocator assigned `%rsp` and `%rbp` to temporaries, causing segmentation faults.
+  - Reserved `gpr_free[4]` (`RSP`) and `gpr_free[5]` (`RBP`) in `regalloc_init()` and removed from `pool_to_phys`.
+- **Scratch Register Collision**:
+  - Physical registers `10` (`%r10`) and `11` (`%r11`) were in the general allocator pool while also serving as backend scratch registers (`scratch_reg1` and `scratch_reg2` in `ast_lowering_mc.c`) for spill reloading and spill stores.
+  - Under spill pressure, scratch reloading clobbered live variables assigned to `r10` and `r11`.
+  - Reserved `gpr_free[10]` and `gpr_free[11]` in `regalloc_init()`, removed them from `pool_to_phys`, leaving the clean allocatable GPR pool (`rax, rbx, rcx, rdx, rsi, rdi, r8, r9, r12, r13, r14, r15`).
+  - Fixed loop bound to iterate over the actual size of `pool_to_phys`.
+
+### Test Results
+- **Pass Rate**: 119/119 tests passing (100%), including `jit/regalloc_test`, `jit/anon_struct_test`, `jit/bitfield_test`, `jit/compound_literal_jit`.
+
 ## [Sprint 12] - 2024 - SIMD Infrastructure Complete
 
 ### Added - Complete SIMD Infrastructure

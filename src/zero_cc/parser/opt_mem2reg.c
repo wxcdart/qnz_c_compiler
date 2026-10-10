@@ -42,23 +42,29 @@ typedef struct {
  * Frame offsets are typically negative multiples of 8
  */
 static int slot_from_offset(int offset) {
-    /* Normalize: offset -8 -> slot 0, -16 -> slot 1, etc. */
-    if (offset >= 0) return -1;  /* Invalid: stack offsets should be negative */
+    /* Stack offsets are negative multiples of 8 */
+    if (offset >= 0 || (offset % 8) != 0) return -1;
     return (-offset) / 8;
 }
 
 /**
  * Check if instruction invalidates all slot mappings
- * Function calls and control flow can clobber stack slots
+ * Function calls, control flow, and block boundaries clobber / reset local slot tracking.
  */
 static int instr_invalidates_slots(Instr *instr) {
     switch (instr->op) {
-        /* Function calls may clobber stack */
+        /* Block boundaries */
+        case OP_LABEL:
+        case OP_RET:
+        case OP_EPILOGUE:
+            return 1;
+
+        /* Function calls may read/modify memory */
         case OP_CALL:
         case OP_CALL_INDIRECT:
             return 1;
         
-        /* Control flow - conservative invalidation */
+        /* Control flow */
         case OP_JMP:
         case OP_JMP_LABEL:
         case OP_JE:
@@ -69,6 +75,25 @@ static int instr_invalidates_slots(Instr *instr) {
         case OP_JCOND:
             return 1;
         
+        /* Any indirect memory write or other store may alias local stack slots */
+        case OP_STORE_BYTE:
+        case OP_STORE_16:
+        case OP_STORE_32:
+        case OP_STORE_64:
+        case OP_FSTORE:
+        case OP_VSTORE:
+        case OP_VSTORESS:
+        case OP_VSTORESD:
+        case OP_ATOMIC_XADD:
+        case OP_ATOMIC_CMPXCHG:
+        case OP_ATOMIC_CMPXCHG_BOOL:
+        case OP_ATOMIC_XCHG:
+            return 1;
+
+        /* Address taken of a stack slot (via LEA) means it can be modified through pointer */
+        case OP_LEA:
+            return 1;
+
         /* Stack pointer manipulation */
         case OP_PUSH:
         case OP_POP:
@@ -83,30 +108,14 @@ static int instr_invalidates_slots(Instr *instr) {
  * Check if instruction is a store to a stack slot
  */
 static int instr_is_stack_store(Instr *instr) {
-    switch (instr->op) {
-        case OP_MOV_MEM:
-        case OP_STORE_BYTE:
-        case OP_STORE_16:
-        case OP_STORE_32:
-            return 1;
-        default:
-            return 0;
-    }
+    return (instr->op == OP_MOV_MEM);
 }
 
 /**
  * Check if instruction is a load from a stack slot
  */
 static int instr_is_stack_load(Instr *instr) {
-    switch (instr->op) {
-        case OP_MOV:
-        case OP_LOAD_BYTE:
-        case OP_LOAD_16:
-        case OP_LOAD_32:
-            return 1;
-        default:
-            return 0;
-    }
+    return (instr->op == OP_MOV && instr->temp_src1 == 0xFF);
 }
 
 /**
@@ -151,6 +160,9 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         /* Check for VLA allocation - disable all promotion after this */
         if (instr->op == OP_VLA_ALLOC) {
             state.has_vla = true;
+            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+                state.slot_valid[s] = false;
+            }
             continue;
         }
         
@@ -159,21 +171,23 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             continue;
         }
         
-        /* Check for invalidation points */
+        /* Check for invalidation points (control flow, calls, stores through pointers, etc.) */
         if (instr_invalidates_slots(instr)) {
-            state.invalidation_pending = true;
-            continue;
-        }
-        
-        /* Apply pending invalidation */
-        if (state.invalidation_pending) {
             for (int s = 0; s < MAX_STACK_SLOTS; s++) {
                 state.slot_valid[s] = false;
             }
-            state.invalidation_pending = false;
             continue;
         }
         
+        /* Invalidate any slot holding a temp that is redefined as a destination */
+        if (instr->temp_dest != 0xFF) {
+            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+                if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
+                    state.slot_valid[s] = false;
+                }
+            }
+        }
+
         /* Handle stack stores: OP_MOV_MEM [fp+offset], reg */
         if (instr_is_stack_store(instr)) {
             int offset = get_frame_offset(instr);
@@ -204,7 +218,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                     instr->imm64 = 0;
                     instr->label_idx = 0;
                     instr->cond = 0;
-                    instr->flags_out = instr->temp_dest;
+                    instr->flags_out = 0xFF;
                     instr->flags_in = 0xFF;
                 }
             }

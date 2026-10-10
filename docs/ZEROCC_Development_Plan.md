@@ -56,6 +56,14 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
   - `b453e55` - Sprint 11 summary
   - `beb8ebd` - Verification report
 
+### Sprint 13: Mem2Reg Stabilization & Register Allocator Spill Safety ✅
+- **Status**: COMPLETE
+- **Achievement**: Local mem2reg pass safely enabled; register allocator fixed to protect reserved stack/frame pointers and scratch registers during spilling.
+- **Key Fixes**:
+  - `opt_mem2reg.c`: 8-byte alignment constraint for slots, comprehensive invalidation across control flow/calls/indirect stores/address-taken slots, flag register safety.
+  - `regalloc.h`: Removed `%rsp` (4), `%rbp` (5), and scratch registers `%r10` (10) and `%r11` (11) from allocatable GPR pool; reserved in `regalloc_init()`.
+- **Result**: All 119/119 tests passing (100% pass rate)
+
 ## Current Status
 
 ### ✅ Completed Features
@@ -64,7 +72,8 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
 - Semantic analysis
 - Type checking and promotion
 - IR generation
-- Register allocation
+- Optimization passes: Constant folding, DCE, Copy propagation, Mem2Reg
+- Register allocation (linear scan with spill handling)
 - Machine code generation (JIT)
 - Assembly generation (AOT with -S flag)
 - ISA-specific backends (x86-64, AArch64, RISC-V)
@@ -75,9 +84,10 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
 - SIMD IR opcodes (32 opcodes defined)
 
 ### 📊 Test Coverage
-- **Total Tests**: 118/118 passing (100%)
+- **Total Tests**: 119/119 passing (100%)
 - **Test Categories**:
-  - JIT compilation tests
+  - JIT compilation tests (100%)
+  - Register allocation tests under extreme pressure (18+ live variables)
   - Semantic analysis tests
   - Unit tests (IR, hash tables, etc.)
 - **No Regressions**: All changes maintain backward compatibility

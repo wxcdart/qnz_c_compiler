@@ -160,6 +160,10 @@ static void regalloc_init(RegAllocator *ra) {
     ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
+    ra->gpr_free[4] = false;  /* RSP is reserved for stack pointer */
+    ra->gpr_free[5] = false;  /* RBP is reserved for frame pointer */
+    ra->gpr_free[10] = false; /* r10 is reserved for backend scratch1 (spill reload/store) */
+    ra->gpr_free[11] = false; /* r11 is reserved for backend scratch2 (spill reload) */
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
     for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
 }
@@ -293,8 +297,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         }
 
         /* General pool: iterate over pool indices, not physical register numbers */
-        static const int pool_to_phys[] = {0, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5};
-        for (int pool_idx = 0; pool_idx < GPR_COUNT; pool_idx++) {
+        static const int pool_to_phys[] = {0, 3, 1, 2, 6, 7, 8, 9, 12, 13, 14, 15};
+        for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
             int phys_reg = pool_to_phys[pool_idx];
             if (ra->gpr_free[phys_reg]) {
                 ra->gpr_free[phys_reg] = false;
