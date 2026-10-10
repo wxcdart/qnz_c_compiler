@@ -31,7 +31,7 @@ static const OptPass g_opt_passes[] = {
     { "flag_dce", opt_pass_flag_dce, 1, 20 },
     { "dce", opt_pass_dce, 1, 30 },
     { "copy_prop", opt_pass_copy_prop, 1, 35 },  /* Enabled: conservative implementation */
-    { "mem2reg", opt_pass_mem2reg, 0, 40 },  /* Disabled: needs further debugging */
+    { "mem2reg", opt_pass_mem2reg, 1, 40 },  /* Enabled for testing */
     { "cse", opt_pass_cse, 1, 45 },
     { "gvn", opt_pass_gvn, 1, 50 },  /* Enabled: basic block GVN */
     { "licm", opt_pass_licm, 1, 50 },
