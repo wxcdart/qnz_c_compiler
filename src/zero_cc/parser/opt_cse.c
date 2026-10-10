@@ -109,20 +109,21 @@ static int cse_find(Instr *instr) {
     uint32_t key = cse_key(instr);
     uint32_t existing_key;
     
-    // Search for exact match
+    /* Search for exact match */
     for (size_t i = 0; i < g_cse_table->capacity; i++) {
         size_t slot = (key + i) % g_cse_table->capacity;
         existing_key = g_cse_table->keys[slot];
         
         if (existing_key == UINT32_MAX) {
-            // Empty slot - not found
+            /* Empty slot - not found */
             return -1;
         }
         
-        // Decode the stored instruction info from the key
-        Instr *existing = ir_get((int)(existing_key & 0xFFFF));
+        /* The value stores the instruction index */
+        int existing_idx = (int)g_cse_table->vals[slot];
+        Instr *existing = ir_get(existing_idx);
         if (existing && cse_equal(instr, existing)) {
-            return g_cse_table->vals[slot];  // Return result temp
+            return existing->temp_dest;  /* Return result temp */
         }
     }
     
@@ -134,12 +135,10 @@ static int cse_find(Instr *instr) {
  */
 static void cse_add(Instr *instr, int idx) {
     uint32_t key = cse_key(instr);
-    uint32_t result = (uint32_t)instr->temp_dest;
     
-    // Store instruction index in lower 16 bits of key for lookup
-    uint32_t store_key = key | ((uint32_t)idx & 0xFFFF0000);
-    
-    ht32_put(g_cse_table, store_key, result);
+    /* Store instruction index as the value */
+    /* When we find a match, we look up the instruction to get its result temp */
+    ht32_put(g_cse_table, key, (uint32_t)idx);
 }
 
 /**
