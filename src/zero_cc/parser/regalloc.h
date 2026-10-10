@@ -160,6 +160,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->target_isa = ISA_X86_64;  /* Default to x86-64, will be set by caller */
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
+    ra->gpr_free[1] = false;  /* RCX is reserved for shift count (CL) on x86-64 */
     ra->gpr_free[4] = false;  /* RSP is reserved for stack pointer */
     ra->gpr_free[5] = false;  /* RBP is reserved for frame pointer */
     ra->gpr_free[10] = false; /* r10 is reserved for backend scratch1 (spill reload/store) */

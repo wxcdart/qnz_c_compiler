@@ -197,6 +197,30 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) __attri
 static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
     if (!lra || !ra) return;
     
+    /* Detect loops to extend live intervals across backedges:
+     * If a temp is defined before or within a loop and used within the loop,
+     * its live interval must extend to at least the loop backedge (exit_idx)
+     * so that its assigned physical register is preserved across loop iterations! */
+    size_t instr_count = ir_get_count();
+    int max_label = -1;
+    for (size_t i = 0; i < instr_count; i++) {
+        Instr *ins = ir_get(i);
+        if (ins && ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
+            max_label = (int)ins->label_idx;
+        }
+    }
+    int *label_to_pos = NULL;
+    if (max_label >= 0) {
+        label_to_pos = (int *)malloc((max_label + 1) * sizeof(int));
+        if (label_to_pos) {
+            for (int i = 0; i <= max_label; i++) label_to_pos[i] = -1;
+            for (size_t i = 0; i < instr_count; i++) {
+                Instr *ins = ir_get(i);
+                if (ins && ins->op == OP_LABEL) label_to_pos[ins->label_idx] = (int)i;
+            }
+        }
+    }
+
     /* Process each temp that was defined */
     for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
         if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
@@ -205,6 +229,29 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         
         size_t start = lra->temp_def_pos[temp_id];
         size_t end = lra->temp_live_end[temp_id];
+        
+        /* Extend end position across any loop that contains uses of this temp */
+        if (label_to_pos) {
+            for (size_t i = 0; i < instr_count; i++) {
+                Instr *ins = ir_get(i);
+                if (!ins) continue;
+                if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
+                    ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
+                    int lbl = (int)ins->label_idx;
+                    if (lbl >= 0 && lbl <= max_label) {
+                        int hdr = label_to_pos[lbl];
+                        if (hdr >= 0 && (size_t)hdr < i) {
+                            /* Loop from hdr to i: if temp is defined before or in loop and used in loop */
+                            if (start <= i && end >= (size_t)hdr) {
+                                if (end < i) {
+                                    end = i;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         /* Skip if start > end (shouldn't happen, but be safe) */
         if (start > end) continue;
@@ -226,6 +273,8 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
             }
         }
     }
+    
+    if (label_to_pos) free(label_to_pos);
 }
 
 /* Record a call position in the analyzer */

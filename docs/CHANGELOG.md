@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Sprint 14] - 2026 - LICM Two-Pass Rebuild & Linear-Scan Loop Lifetime Safety
+
+### Added / Enabled
+- **Loop-Invariant Code Motion (LICM) Two-Pass Rebuild**:
+  - Implemented safe Two-Pass Rebuild architecture in `opt_loop.c` (`opt_licm()`).
+  - **Pass 1 (Analysis)**: Replaced flawed label index assumption with a full synthetic label map (`label_to_idx`), correctly resolving loop headers (`OP_LABEL`) and backedges (`OP_JMP`, `OP_JE`, `OP_JNE`, etc.). Iteratively marks pure, side-effect-free invariant expressions and constants.
+  - **Pass 2 (Rebuild)**: Reconstructs IR into a fresh `IRArena`, emitting hoisted loop invariants immediately preceding the loop header label, and replacing original in-loop definitions with `OP_NOP`.
+  - **IRCallArgs Remapping**: Remapped call argument tracking table indices (`g_compiler->ir_call_args`) for 5+ argument calls so call sites match updated instruction positions in the new buffer.
+
+### Fixed - Loop Live-Range & Register Allocation Safety
+- **Loop Backedge Live-Interval Extension (`live_range.h`)**:
+  - Linear scan previously calculated variable end positions at the last lexical instruction where the variable was read. When variables were defined before or inside a loop and read inside the loop body, their live intervals ended on the first iteration, allowing subsequent instructions to overwrite their assigned registers.
+  - Extended live intervals for temporaries defined prior to or within a loop and consumed in the loop across the backedge to the loop exit.
+- **x86-64 `%rcx` Reservation (`regalloc.h`)**:
+  - Reserved physical register `1` (`%rcx`) in `regalloc_init()`.
+  - Prevents the linear-scan allocator from assigning `%rcx` to loop-carried or hoisted temporaries where x86-64 variable shift instructions (`shl`, `shr`, `sar`) clobber `%cl`.
+
+### Test Results
+- **Pass Rate**: 119/119 tests passing (100%) in `make test`.
+
 ## [Sprint 13] - 2026 - Mem2Reg Stabilization & Register Allocator Spill Safety
 
 ### Added / Enabled
