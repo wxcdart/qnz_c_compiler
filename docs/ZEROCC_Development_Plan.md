@@ -64,6 +64,16 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
   - `regalloc.h`: Removed `%rsp` (4), `%rbp` (5), and scratch registers `%r10` (10) and `%r11` (11) from allocatable GPR pool; reserved in `regalloc_init()`.
 - **Result**: All 119/119 tests passing (100% pass rate)
 
+### Sprint 14: LICM Two-Pass Rebuild & Loop Lifetime Safety ✅
+- **Status**: COMPLETE
+- **Achievement**: Loop-Invariant Code Motion (LICM) safely implemented and active using a Two-Pass Rebuild architecture; loop lifetime register allocator extensions and `%rcx` reservation resolved.
+- **Key Fixes**:
+  - `opt_loop.c`: Corrected loop detection by mapping synthetic `label_idx` values to IR instruction indices (`label_to_idx`). Rebuilt optimized IR into a fresh `IRArena`, hoisting pure invariants before loop headers and replacing loop definitions with `OP_NOP`.
+  - `ir.h` / `opt_loop.c`: Remapped `ir_call_args` indices for call sites shifting during the rebuild.
+  - `live_range.h`: Extended live intervals for loop-carried and loop-used temporaries across backedges to the loop exit.
+  - `regalloc.h`: Reserved physical register `1` (`%rcx`) on x86-64 so dynamic shifts (`shl`, `shr`, `sar`) do not clobber temporaries or constants assigned to `%rcx`.
+- **Result**: All 119/119 tests passing (100% pass rate)
+
 ## Current Status
 
 ### ✅ Completed Features
@@ -72,7 +82,7 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
 - Semantic analysis
 - Type checking and promotion
 - IR generation
-- Optimization passes: Constant folding, DCE, Copy propagation, Mem2Reg
+- Optimization passes: Constant folding, DCE, Copy propagation, Mem2Reg, LICM (Two-Pass Rebuild)
 - Register allocation (linear scan with spill handling)
 - Machine code generation (JIT)
 - Assembly generation (AOT with -S flag)
