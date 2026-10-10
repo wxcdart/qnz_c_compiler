@@ -41,6 +41,15 @@ void opt_profile_dump(FILE *f) {
         fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
     }
     
+    /* GVN statistics */
+    fprintf(f, "\nGVN (Global Value Numbering):\n");
+    fprintf(f, "  Total instructions scanned: %zu\n", g_stats.gvn_total_instructions);
+    fprintf(f, "  Eliminated (replaced with MOV): %zu\n", g_stats.gvn_eliminated);
+    if (g_stats.gvn_total_instructions > 0) {
+        double elim_rate = (double)g_stats.gvn_eliminated / g_stats.gvn_total_instructions * 100.0;
+        fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
+    }
+    
     /* DCE statistics */
     fprintf(f, "\nDCE (Dead Code Elimination):\n");
     fprintf(f, "  Instructions eliminated: %zu\n", g_stats.dce_eliminated);
@@ -137,4 +146,23 @@ void opt_profile_set_instructions_after(size_t count) {
 
 void opt_profile_count_iteration(void) {
     if (g_profile_enabled) g_stats.optimization_iterations++;
+}
+
+/* GVN profiling */
+void opt_profile_count_gvn_instruction(void) {
+    if (g_profile_enabled) g_stats.gvn_total_instructions++;
+}
+void opt_profile_count_gvn_eliminated(void) {
+    if (g_profile_enabled) g_stats.gvn_eliminated++;
+}
+
+void opt_profile_print_gvn(void) {
+    printf("\nGVN (Global Value Numbering):\n");
+    printf("  Total instructions scanned: %zu\n", g_stats.gvn_total_instructions);
+    printf("  Eliminated (replaced with MOV): %zu\n", g_stats.gvn_eliminated);
+    if (g_stats.gvn_total_instructions > 0) {
+        printf("  Elimination rate: %.2f%%\n", (100.0 * g_stats.gvn_eliminated) / g_stats.gvn_total_instructions);
+    } else {
+        printf("  Elimination rate: 0.00%%\n");
+    }
 }

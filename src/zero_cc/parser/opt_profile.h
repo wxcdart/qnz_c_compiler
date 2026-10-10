@@ -23,6 +23,10 @@ typedef struct {
     size_t cse_eliminated;
     size_t cse_basic_blocks;
     
+    /* GVN statistics */
+    size_t gvn_total_instructions;
+    size_t gvn_eliminated;
+    
     /* DCE statistics */
     size_t dce_eliminated;
     size_t dce_iterations;
@@ -68,6 +72,8 @@ void opt_profile_enable(int enable);
 void opt_profile_count_cse_instruction(void);
 void opt_profile_count_cse_eliminated(void);
 void opt_profile_count_cse_basic_block(void);
+void opt_profile_count_gvn_instruction(void);
+void opt_profile_count_gvn_eliminated(void);
 void opt_profile_count_dce_eliminated(void);
 void opt_profile_count_dce_iteration(void);
 void opt_profile_count_licm_loop(void);
@@ -81,3 +87,7 @@ void opt_profile_set_instructions_after(size_t count);
 void opt_profile_count_iteration(void);
 
 #endif /* ZERO_CC_OPT_PROFILE_H */
+
+/* GVN profiling */
+void opt_profile_count_gvn_instruction(void);
+void opt_profile_count_gvn_eliminated(void);

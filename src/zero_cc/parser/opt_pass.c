@@ -5,9 +5,9 @@
 #include "opt_mem2reg.h"
 #include "opt_loop.h"
 #include "opt_vectorize.h"
+#include "opt_gvn.h"
 #include "opt_profile.h"
 #include "ir.h"
-#include "regalloc.h"
 
 static OptLevel g_opt_level = OPT_LEVEL_NONE;
 
@@ -16,12 +16,13 @@ static void opt_pass_flag_dce(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_mem2reg(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
+static void opt_pass_gvn(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
 static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
 
-// Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> LICM -> strength reduction -> branch simplify -> auto-vectorize
+// Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> GVN -> LICM -> strength reduction -> branch simplify -> auto-vectorize
 // Note: mem2reg disabled pending VLA handling improvements
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
@@ -29,6 +30,7 @@ static const OptPass g_opt_passes[] = {
     { "dce", opt_pass_dce, 1, 30 },
     { "mem2reg", opt_pass_mem2reg, 0, 35 },  /* Disabled: conflicts with VLA dynamic stack */
     { "cse", opt_pass_cse, 1, 40 },
+    { "gvn", opt_pass_gvn, 1, 45 },  /* Enabled: basic block GVN */
     { "licm", opt_pass_licm, 1, 50 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 70 },
@@ -80,6 +82,7 @@ static void opt_pass_flag_dce(ZeroCCCompiler *c) { opt_flag_dce(c); }
 static void opt_pass_dce(ZeroCCCompiler *c) { opt_eliminate_dead_code(c); }
 static void opt_pass_mem2reg(ZeroCCCompiler *c) { opt_promote_mem2reg(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
+static void opt_pass_gvn(ZeroCCCompiler *c) { opt_eliminate_gvn(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }
 static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduction(c); }
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }
