@@ -50,6 +50,15 @@ void opt_profile_dump(FILE *f) {
         fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
     }
     
+    /* Copy propagation statistics */
+    fprintf(f, "\nCopy Propagation:\n");
+    fprintf(f, "  Total instructions scanned: %zu\n", g_stats.copy_prop_instructions);
+    fprintf(f, "  Changes made: %zu\n", g_stats.copy_prop_changes);
+    if (g_stats.copy_prop_instructions > 0) {
+        double change_rate = (double)g_stats.copy_prop_changes / g_stats.copy_prop_instructions * 100.0;
+        fprintf(f, "  Change rate: %.2f%%\n", change_rate);
+    }
+    
     /* DCE statistics */
     fprintf(f, "\nDCE (Dead Code Elimination):\n");
     fprintf(f, "  Instructions eliminated: %zu\n", g_stats.dce_eliminated);
@@ -164,5 +173,27 @@ void opt_profile_print_gvn(void) {
         printf("  Elimination rate: %.2f%%\n", (100.0 * g_stats.gvn_eliminated) / g_stats.gvn_total_instructions);
     } else {
         printf("  Elimination rate: 0.00%%\n");
+    }
+}
+
+/* Copy propagation profiling */
+void opt_profile_count_copy_prop_instruction(void) {
+    if (g_profile_enabled) g_stats.copy_prop_instructions++;
+}
+void opt_profile_count_copy_prop_changed(void) {
+    if (g_profile_enabled) g_stats.copy_prop_changes++;
+}
+void opt_profile_set_copy_prop_changes(size_t changes) {
+    if (g_profile_enabled) g_stats.copy_prop_changes = changes;
+}
+
+void opt_profile_print_copy_prop(void) {
+    printf("\nCopy Propagation:\n");
+    printf("  Total instructions scanned: %zu\n", g_stats.copy_prop_instructions);
+    printf("  Changes made: %zu\n", g_stats.copy_prop_changes);
+    if (g_stats.copy_prop_instructions > 0) {
+        printf("  Change rate: %.2f%%\n", (100.0 * g_stats.copy_prop_changes) / g_stats.copy_prop_instructions);
+    } else {
+        printf("  Change rate: 0.00%%\n");
     }
 }

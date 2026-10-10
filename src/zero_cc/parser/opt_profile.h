@@ -27,6 +27,10 @@ typedef struct {
     size_t gvn_total_instructions;
     size_t gvn_eliminated;
     
+    /* Copy propagation statistics */
+    size_t copy_prop_instructions;
+    size_t copy_prop_changes;
+    
     /* DCE statistics */
     size_t dce_eliminated;
     size_t dce_iterations;
@@ -74,6 +78,9 @@ void opt_profile_count_cse_eliminated(void);
 void opt_profile_count_cse_basic_block(void);
 void opt_profile_count_gvn_instruction(void);
 void opt_profile_count_gvn_eliminated(void);
+void opt_profile_count_copy_prop_instruction(void);
+void opt_profile_count_copy_prop_changed(void);
+void opt_profile_set_copy_prop_changes(size_t changes);
 void opt_profile_count_dce_eliminated(void);
 void opt_profile_count_dce_iteration(void);
 void opt_profile_count_licm_loop(void);

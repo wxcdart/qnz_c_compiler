@@ -6,6 +6,7 @@
 #include "opt_loop.h"
 #include "opt_vectorize.h"
 #include "opt_gvn.h"
+#include "opt_copy_prop.h"
 #include "opt_profile.h"
 #include "ir.h"
 
@@ -15,6 +16,7 @@ static void opt_pass_constant_fold(ZeroCCCompiler *c);
 static void opt_pass_flag_dce(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_mem2reg(ZeroCCCompiler *c);
+static void opt_pass_copy_prop(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_gvn(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
@@ -28,9 +30,10 @@ static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10 },
     { "flag_dce", opt_pass_flag_dce, 1, 20 },
     { "dce", opt_pass_dce, 1, 30 },
-    { "mem2reg", opt_pass_mem2reg, 0, 35 },  /* Disabled: conflicts with VLA dynamic stack */
-    { "cse", opt_pass_cse, 1, 40 },
-    { "gvn", opt_pass_gvn, 1, 45 },  /* Enabled: basic block GVN */
+    { "copy_prop", opt_pass_copy_prop, 1, 35 },  /* Enabled: conservative implementation */
+    { "mem2reg", opt_pass_mem2reg, 0, 40 },  /* Disabled: conflicts with VLA dynamic stack */
+    { "cse", opt_pass_cse, 1, 45 },
+    { "gvn", opt_pass_gvn, 1, 50 },  /* Enabled: basic block GVN */
     { "licm", opt_pass_licm, 1, 50 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 70 },
@@ -80,6 +83,7 @@ int opt_is_enabled(OptLevel required_level) { return g_opt_level >= required_lev
 static void opt_pass_constant_fold(ZeroCCCompiler *c) { opt_fold_constants(c); }
 static void opt_pass_flag_dce(ZeroCCCompiler *c) { opt_flag_dce(c); }
 static void opt_pass_dce(ZeroCCCompiler *c) { opt_eliminate_dead_code(c); }
+static void opt_pass_copy_prop(ZeroCCCompiler *c) { opt_copy_propagate(c); }
 static void opt_pass_mem2reg(ZeroCCCompiler *c) { opt_promote_mem2reg(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_gvn(ZeroCCCompiler *c) { opt_eliminate_gvn(c); }
