@@ -115,8 +115,8 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         /* Integer or struct assignment: use IR store */
                         ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
-                            /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
-                            ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                            /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2) */
+                            ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
                         }
                     }
                 }
@@ -143,8 +143,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             // 1. Load lower 8 bytes into rax (VREG_0) via IR
             ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
             
-            // 2. Load upper 8 bytes into rdx (physical register 2) via IR
-            ir_emit_load(2, BE(c)->fp_reg, struct_offset + 8);
+            // 2. Load upper 8 bytes into rdx (VREG_2) via IR
+            ir_emit_load(VREG_2, BE(c)->fp_reg, struct_offset + 8);
             
             // 3. Jump to epilogue (which will emit leave; ret)
             ir_emit_jmp(c->lowering.epilogue_label);

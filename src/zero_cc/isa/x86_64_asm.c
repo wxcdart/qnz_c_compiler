@@ -51,7 +51,7 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         int reg = callee_saved[i];
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tmovq\t%%%s, %d(%%rbp)\n", reg_name, offset);
+        fprintf(out, "\tmovq\t%%%s, -%d(%%rbp)\n", reg_name, offset);
     }
 }
 
@@ -67,7 +67,7 @@ static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
         int reg = callee_saved[i];
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tmovq\t%d(%%rbp), %%%s\n", offset, reg_name);
+        fprintf(out, "\tmovq\t-%d(%%rbp), %%%s\n", offset, reg_name);
     }
     
     fprintf(out, "\tleave\n");
@@ -249,7 +249,7 @@ static void x86_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *ou
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *cc[] = {"l", "le", "g", "ge", "e", "ne"};
     fprintf(out, "\tset%s\t%%al\n", cc[cond]);
-    fprintf(out, "\tmovzbl\t%%al,%%%s\n", dst_name);
+    fprintf(out, "\tmovzbq\t%%al,%%%s\n", dst_name);
 }
 
 /* NEG */
@@ -397,6 +397,29 @@ static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *o
     fprintf(out, "\tandq\t$-16,%%rax\n");
     fprintf(out, "\tsubq\t%%rax,%%rsp\n");
     fprintf(out, "\tmovq\t%%rsp,%%%s\n", dst_name);
+}
+
+/* PARAM_SAVE_INT: mov [rbp - offset], reg */
+static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+    static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+    if (reg_idx >= 0 && reg_idx < 6) {
+        fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[reg_idx], -offset);
+    }
+}
+
+/* PARAM_SAVE_FP: movsd [rbp - offset], xmmN */
+static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+    if (reg_idx >= 0 && reg_idx < 8) {
+        fprintf(out, "\tmovsd\t%%xmm%d,%d(%%rbp)\n", reg_idx, -offset);
+    }
+}
+
+/* VARIADIC_SPILL: spill remaining integer registers for va_start */
+static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
+    static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+    for (int i = 0; i < param_count && i < 6; i++) {
+        fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[i], base_offset - i * 8);
+    }
 }
 
 /* =========================================================================
@@ -653,6 +676,9 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_div_asm = x86_emit_fp_div_asm;
     be->emit_fp_mov_asm = x86_emit_fp_mov_asm;
     be->emit_vla_alloc_asm = x86_emit_vla_alloc_asm;
+    be->emit_param_save_int_asm = x86_emit_param_save_int_asm;
+    be->emit_param_save_fp_asm = x86_emit_param_save_fp_asm;
+    be->emit_variadic_spill_asm = x86_emit_variadic_spill_asm;
     
     /* Vector instruction emission (SSE2) */
     be->emit_vload_asm = x86_emit_vload_asm;

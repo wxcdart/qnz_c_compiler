@@ -104,6 +104,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_fp_mov_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vla_alloc_asm)(ZeroCCCompiler *c, int dst, int size, FILE *out);
+    void (*emit_param_save_int_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
+    void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
+    void (*emit_variadic_spill_asm)(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out);
     
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);

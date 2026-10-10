@@ -1,6 +1,25 @@
 # ZeroCC Changelog
 
-## [Sprint 14] - 2026 - LICM Two-Pass Rebuild & Linear-Scan Loop Lifetime Safety
+## [Sprint 15] - 2026 - System V AMD64 ABI Completeness & AOT Parity
+
+### Added / Enabled
+- **System V AMD64 ABI Full Support**:
+  - Implemented parameter passing and spilling for >6 integer arguments and >8 floating point arguments across stack boundaries.
+  - Implemented `va_start` variadic parameter register spilling in both JIT (`x86_64.c`) and AOT (`x86_64_asm.c`).
+  - Implemented 9–16 byte struct by-value parameter and return value handling in registers (`rax` / `rdx`).
+  - Added new backend hooks `emit_param_save_int_asm`, `emit_param_save_fp_asm`, and `emit_variadic_spill_asm` to `ZeroCCISABackend`.
+
+### Fixed - AOT Code Generation
+- **Callee-Saved Register Slot Offsets (`x86_64_asm.c`)**:
+  - Fixed sign of callee-saved register save/restore offsets in assembly generation: changed positive `%d(%%rbp)` to negative `-%d(%%rbp)`. Previously, positive offsets directly corrupted the caller's return address at `8(%rbp)`, causing crashes upon function return.
+- **9–16 Byte Struct Return Virtual Register Tracking (`ast_lowering_stmt.c`)**:
+  - Replaced hardcoded physical register `2` with `VREG_2` for loading/storing the second eightbyte (`rdx`) so the register allocator and live interval analysis recognize the live range across function returns and assignments.
+- **Assembly Condition Set Zero Extension (`x86_64_asm.c`)**:
+  - Fixed `movzbl %al, %<reg64>` to `movzbq %al, %<reg64>` to avoid operand width mismatch errors with standard assemblers.
+
+### Test Results
+- **Pass Rate**: 123/123 tests passing (100%) in `make test`, including `stack_args_test`, `stack_args_edge`, `variadic_test`, `struct_byval_test`, and `struct_return_9_16_jit` (both JIT and AOT).
+
 
 ### Added / Enabled
 - **Loop-Invariant Code Motion (LICM) Two-Pass Rebuild**:

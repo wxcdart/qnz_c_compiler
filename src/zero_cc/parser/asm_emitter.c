@@ -422,6 +422,23 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
                 BE(c)->emit_vla_alloc_asm(c, phys_dst, phys_src1, out);
             }
             return;
+
+        /* Parameter saving */
+        case OP_PARAM_SAVE_INT:
+            if (BE(c)->emit_param_save_int_asm) {
+                BE(c)->emit_param_save_int_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
+            }
+            return;
+        case OP_PARAM_SAVE_FP:
+            if (BE(c)->emit_param_save_fp_asm) {
+                BE(c)->emit_param_save_fp_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
+            }
+            return;
+        case OP_VARIADIC_SPILL:
+            if (BE(c)->emit_variadic_spill_asm) {
+                BE(c)->emit_variadic_spill_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
+            }
+            return;
             
         /* SIMD/Vector Operations - Scalar Single-Precision */
         case OP_VADDSS:
