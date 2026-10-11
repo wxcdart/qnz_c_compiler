@@ -1,5 +1,5 @@
-	.globl make_st20
-make_st20:
+	.globl make_big20
+make_big20:
 	pushq	%rbp
 	movq	%rsp, %rbp
 	subq	$112, %rsp
@@ -74,7 +74,7 @@ main:
 	movq	%rdx, %rdx
 	movq	%rsi, %rcx
 	movq	%rdi, %r8
-	call	make_st20
+	call	make_big20
 	movq	%rax,%rax
 	movq	%rax,-68(%rbp)
 	movq	-68(%rbp),%rax
@@ -86,70 +86,6 @@ main:
 	xorq	%rbx,%rax
 	movq	%rax,%rax
 	subq	%rbx,%rax
-	movq	$1,%rbx
-	cmpq	%rbx,%rax
-	sete	%al
-	movzbq	%al,%rax
-	movq	-64(%rbp),%rbx
-	movq	$4294967295,%rdx
-	movq	%rbx,%rbx
-	andq	%rdx,%rbx
-	movq	$2147483648,%rdx
-	movq	%rbx,%rbx
-	xorq	%rdx,%rbx
-	movq	%rbx,%rbx
-	subq	%rdx,%rbx
-	movq	$2,%rdx
-	cmpq	%rdx,%rbx
-	sete	%al
-	movzbq	%al,%rbx
-	movq	%rax,%rax
-	movq	-60(%rbp),%rbx
-	movq	$4294967295,%rdx
-	movq	%rbx,%rbx
-	andq	%rdx,%rbx
-	movq	$2147483648,%rdx
-	movq	%rbx,%rbx
-	xorq	%rdx,%rbx
-	movq	%rbx,%rbx
-	subq	%rdx,%rbx
-	movq	$3,%rdx
-	cmpq	%rdx,%rbx
-	sete	%al
-	movzbq	%al,%rbx
-	movq	%rax,%rax
-	movq	-56(%rbp),%rbx
-	movq	$4294967295,%rdx
-	movq	%rbx,%rbx
-	andq	%rdx,%rbx
-	movq	$2147483648,%rdx
-	movq	%rbx,%rbx
-	xorq	%rdx,%rbx
-	movq	%rbx,%rbx
-	subq	%rdx,%rbx
-	movq	$4,%rdx
-	cmpq	%rdx,%rbx
-	sete	%al
-	movzbq	%al,%rbx
-	movq	%rax,%rax
-	movq	-52(%rbp),%rbx
-	movq	$4294967295,%rdx
-	movq	%rbx,%rbx
-	andq	%rdx,%rbx
-	movq	$2147483648,%rdx
-	movq	%rbx,%rbx
-	xorq	%rdx,%rbx
-	movq	%rbx,%rbx
-	subq	%rdx,%rbx
-	movq	$5,%rdx
-	cmpq	%rdx,%rbx
-	sete	%al
-	movzbq	%al,%rbx
-	movq	%rax,%rax
-	movq	$0,%rax
-	movq	%rax,%rax
-	movq	$1,%rbx
-	movq	%rbx,%rax
 	movq	%rax,%rax
 	movq	-8(%rbp), %rbx
 	movq	-16(%rbp), %r12

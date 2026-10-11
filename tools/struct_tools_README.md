@@ -251,3 +251,51 @@ STRUCT ASSEMBLY ANALYSIS
 - [ ] Support for nested struct analysis
 - [ ] Automated test generation for edge cases
 - [ ] Integration with CI/CD pipeline
+
+## sret Verifier (`sret_verifier.py`)
+
+**Purpose**: Verify that structs >16 bytes are returned via hidden pointer (sret) per System V AMD64 ABI.
+
+**Usage**:
+```bash
+# Verify specific test file
+python3 tools/sret_verifier.py --test test/jit/struct_test.c
+
+# Run built-in test cases
+python3 tools/sret_verifier.py --verify-all
+
+# Verbose output with assembly
+python3 tools/sret_verifier.py --verify-all --verbose
+```
+
+**Checks**:
+1. **Callee**: RDI used as hidden pointer (not first int arg)
+2. **Callee**: Struct written to caller buffer [RDI+offset]
+3. **Callee**: Returns caller buffer pointer in RAX
+4. **Caller**: Allocates buffer and passes pointer in RDI
+5. **Caller**: Shifts real arguments (RDI→RSI, RSI→RDX, etc.)
+
+**Example Output**:
+```
+--- 20_byte_struct (20 bytes) ---
+
+Callee
+[FAIL] make_big20 (callee)
+  ✗ RDI as hidden pointer
+      Expected: RDI moved to RAX (hidden pointer)
+      Actual: RDI used: mov %rdi,-0x38(%rbp)  <-- BUG: treating RDI as first int arg!
+  ✗ Writes to caller buffer [RDI]
+      Expected: Struct written to [RDI+offset]
+      Actual: No writes to [RDI] found
+  ✗ Returns hidden pointer in RAX
+      Expected: RAX = RDI (hidden pointer)
+      Actual: Returns local stack: lea -0x6c(%rbp),%rax  <-- BUG: returns local stack!
+
+Caller
+[FAIL] main calls make_big20 (caller)
+  ✗ Passes buffer pointer in RDI
+      Expected: RDI = buffer address (hidden pointer)
+      Actual: No lea into RDI found before call  <-- BUG: no buffer allocation!
+```
+
+**Status**: Tool created and working. Currently detects that sret is NOT implemented (all tests fail as expected).
