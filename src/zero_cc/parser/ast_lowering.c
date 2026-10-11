@@ -91,12 +91,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
-    /* Debug: Dump IR after parameter save */
-    if (c->dump_ir) {
-        fprintf(stderr, "DEBUG: IR after parameter save:\n");
-        ir_dump(stderr);
-    }
-
     c->lowering.epilogue_label = c->ir_next_label++;
     
     /* Lower AST to IR (instruction selection) */
