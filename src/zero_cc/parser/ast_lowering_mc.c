@@ -55,6 +55,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
 
         switch (instr->op) {
+            /* Parameter saving */
             case OP_PARAM_SAVE_INT:
                 if (BE(c)->emit_param_save_int) {
                     BE(c)->emit_param_save_int(c, (int)instr->imm, (int32_t)instr->imm64);

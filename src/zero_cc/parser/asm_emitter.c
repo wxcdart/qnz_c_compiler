@@ -122,19 +122,19 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             
         case OP_MOV:  /* Load from stack */
             if (BE(c)->emit_load_asm) {
-                BE(c)->emit_load_asm(c, phys_dst, BE(c)->sp_reg, instr->imm, out);
+                BE(c)->emit_load_asm(c, phys_dst, BE(c)->fp_reg, instr->imm, out);
             }
             return;
             
         case OP_MOV_MEM:  /* Store to stack */
             if (BE(c)->emit_store_asm) {
-                BE(c)->emit_store_asm(c, phys_src1, BE(c)->sp_reg, instr->imm, out);
+                BE(c)->emit_store_asm(c, phys_src1, BE(c)->fp_reg, instr->imm, out);
             }
             return;
             
         case OP_LEA:
             if (BE(c)->emit_lea_asm) {
-                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->sp_reg, instr->imm, out);
+                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->fp_reg, instr->imm, out);
             }
             return;
             

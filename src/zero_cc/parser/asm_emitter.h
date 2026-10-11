@@ -62,6 +62,9 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset);
  */
 void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size);
 
+/* Emit parameter saves (must be before prologue) */
+void emit_param_saves_mc(ZeroCCCompiler *c);
+
 /*
  * Emit a single IR instruction as assembly.
  *

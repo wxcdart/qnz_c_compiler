@@ -790,7 +790,7 @@ static void riscv64_emit_mfence(ZeroCCCompiler *c) {
  * Special: use BE(c)->fp_reg (s0/x8) and BE(c)->sp_reg (sp/x2)
  */
 
-const ZeroCCISABackend riscv64_backend = {
+ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_RISCV64,
     .regs = &riscv_regs,
     .conv = &riscv64_conv,
@@ -1279,7 +1279,7 @@ static void riscv32_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 /* RISC-V 32-bit backend instance */
-const ZeroCCISABackend riscv32_backend = {
+ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_RISCV32,
     .regs = &riscv_regs,
     .conv = &riscv32_conv,

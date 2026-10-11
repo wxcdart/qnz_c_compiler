@@ -91,6 +91,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
+    /* Debug: Dump IR after parameter save */
+    if (c->dump_ir) {
+        fprintf(stderr, "DEBUG: IR after parameter save:\n");
+        ir_dump(stderr);
+    }
+
     c->lowering.epilogue_label = c->ir_next_label++;
     
     /* Lower AST to IR (instruction selection) */
@@ -138,12 +144,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Emit machine code or assembly from IR with allocated registers */
     if (c->emit_asm) {
-        /* For assembly: emit function label first, then prologue, then rest */
+        /* For assembly: emit function label, then prologue, then IR (param saves in IR) */
         emit_function_label_asm(c);
         emit_prologue_asm(c, total_frame_size);
         emit_ir_to_asm(c, spill_base_offset);
     } else {
-        /* For machine code: emit prologue first, then rest */
+        /* For machine code: emit prologue first, then IR (param saves in IR) */
         emit_prologue_mc(c, total_frame_size);
         emit_ir_to_machine_code(c, spill_base_offset);
     }

@@ -1326,7 +1326,7 @@ static size_t x86_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t targe
 static int x86_get_int_reg(int vreg) { return vreg; }
 static int x86_get_fp_reg(int vreg) { return vreg; }
 
-const ZeroCCISABackend x86_64_backend = {
+ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,
     .conv = &x86_64_conv,
@@ -1491,7 +1491,20 @@ const ZeroCCISABackend x86_64_backend = {
     
     };
 
+/* Fill in ASM-emission function pointers once. The backend tables are
+ * writable statics (not .rodata), so no const cast is needed; callers only
+ * ever see them through const pointers. */
+static void zero_cc_init_backends_once(void) {
+    static bool done = false;
+    if (done) return;
+    x86_init_asm_emission(&x86_64_backend);
+    aarch64_init_asm_emission(&aarch64_backend);
+    riscv64_init_asm_emission(&riscv64_backend);
+    done = true;
+}
+
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
+    zero_cc_init_backends_once();
     switch (isa) {
         case ISA_X86_64: return &x86_64_backend;
         case ISA_AARCH64: return &aarch64_backend;
@@ -1502,6 +1515,7 @@ const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
 }
 
 const ZeroCCISABackend *zero_cc_get_native_backend(void) {
+    zero_cc_init_backends_once();
 #if defined(__x86_64__)
     return &x86_64_backend;
 #elif defined(__aarch64__)

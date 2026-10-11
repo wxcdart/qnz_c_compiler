@@ -892,7 +892,7 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 static int aarch64_get_int_reg(int vreg) { return vreg; }
 static int aarch64_get_fp_reg(int vreg) { return vreg; }
 
-const ZeroCCISABackend aarch64_backend = {
+ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_AARCH64,
     .regs = &aarch64_regs,
     .conv = &aarch64_conv,

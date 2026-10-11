@@ -362,6 +362,12 @@ void ir_dump(FILE *f) {
                                        break;
             case OP_CALLEE_SAVE_LOADS: fprintf(f, "CALLEE_SAVE_LOADS mask=0x%x", (unsigned)instr->imm);
                                        break;
+            case OP_PARAM_SAVE_INT: fprintf(f, "PARAM_SAVE_INT reg=%d offset=%d", (int)instr->imm, (int)instr->imm64);
+                                    break;
+            case OP_PARAM_SAVE_FP: fprintf(f, "PARAM_SAVE_FP reg=%d offset=%d", (int)instr->imm, (int)instr->imm64);
+                                   break;
+            case OP_VARIADIC_SPILL: fprintf(f, "VARIADIC_SPILL param_count=%d base_offset=%d", (int)instr->imm, (int)instr->imm64);
+                                    break;
             case OP_ATOMIC_XADD: fprintf(f, "ATOMIC_XADD r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                                  break;
             case OP_ATOMIC_XCHG: fprintf(f, "ATOMIC_XCHG r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

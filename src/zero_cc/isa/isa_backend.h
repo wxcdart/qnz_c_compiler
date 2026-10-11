@@ -271,10 +271,10 @@ typedef struct ZeroCCISABackend {
 } ZeroCCISABackend;
 
 /* Backend registry */
-extern const ZeroCCISABackend x86_64_backend;
-extern const ZeroCCISABackend aarch64_backend;
-extern const ZeroCCISABackend riscv64_backend;
-extern const ZeroCCISABackend riscv32_backend;
+extern ZeroCCISABackend x86_64_backend;
+extern ZeroCCISABackend aarch64_backend;
+extern ZeroCCISABackend riscv64_backend;
+extern ZeroCCISABackend riscv32_backend;
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa);
 const ZeroCCISABackend *zero_cc_get_native_backend(void);
 
@@ -295,5 +295,10 @@ static inline int backend_get_fp_arg_reg(const ZeroCCISABackend *be, int idx) {
     }
     return -1;  /* Stack-passed */
 }
+
+/* ASM emission initialization functions */
+void x86_init_asm_emission(ZeroCCISABackend *be);
+void aarch64_init_asm_emission(ZeroCCISABackend *be);
+void riscv64_init_asm_emission(ZeroCCISABackend *be);
 
 #endif /* ZERO_CC_ISA_BACKEND_H */
