@@ -53,6 +53,11 @@
   - Implemented <=8 byte struct return values (`ast_lowering_stmt.c`) directly into `rax` (`VREG_0`).
   - Implemented 9–16 byte struct by-value parameter and return value handling in registers (`rax` / `rdx`).
   - Added new backend hooks `emit_param_save_int_asm`, `emit_param_save_fp_asm`, and `emit_variadic_spill_asm` to `ZeroCCISABackend`.
+  - **Struct by-value passing**: Full support for structs of all sizes (1-64 bytes) passed by value in function arguments.
+  - **Struct by-value returning**: Support for structs up to 16 bytes returned in registers (RAX:RDX).
+
+### Test Results
+- **Pass Rate**: 128/128 tests passing (100%) in `make test`, including **13 struct by-value tests** in `test/abi/` covering various sizes, alignments, nesting, and edge cases.
 
 ### Fixed - Code Generation & Optimization
 - **Callee-Saved Register Slot Offsets (`x86_64_asm.c`)**:
