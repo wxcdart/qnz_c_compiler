@@ -124,11 +124,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             }
         }
         else if (strcmp(arg, "-dump-ir") == 0) {
-            fprintf(stderr, "DEBUG: Parsed -dump-ir flag\n");
             opts->dump_ir = 1;
         }
         else if (strcmp(arg, "--profile-opts") == 0) {
-            fprintf(stderr, "DEBUG: Parsed --profile-opts flag\n");
             opts->profile_opts = 1;
         }
         else if (arg[0] != '-') {
@@ -228,13 +226,11 @@ static int compile_jit(CompileOptions *opts) {
     
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
-        fprintf(stderr, "DEBUG: Setting dump_ir flag\n");
         comp->dump_ir = 1;
     }
     
     /* Enable optimization profiling if requested */
     if (opts->profile_opts) {
-        fprintf(stderr, "DEBUG: Enabling optimization profiling\n");
         opt_profile_enable(1);
         opt_profile_reset();
     }
@@ -410,7 +406,6 @@ static int compile_object(CompileOptions *opts) {
     
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
-        fprintf(stderr, "DEBUG: Setting dump_ir flag in compile_object\n");
         comp->dump_ir = 1;
     }
     
