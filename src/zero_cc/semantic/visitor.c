@@ -110,6 +110,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 Symbol *sym = scope_lookup(ctx->current_scope, ident_name);
                 if (sym) {
                     res = sym->type;
+                } else if (strcmp(ident_name, "__func__") == 0) {
+                    /* __func__ is implicitly declared as char[] (pointer to function name) */
+                    res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
                 } else if (strncmp(ident_name, "__builtin_", 10) == 0 ||
                            strncmp(ident_name, "__sync_", 7) == 0 ||
                            strncmp(ident_name, "__atomic_", 9) == 0) {

@@ -59,6 +59,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         case NODE_IDENT: {
             const char *name = node->s.str;
+            
+            /* Special case: __func__ returns pointer to function name string */
+            if (strcmp(name, "__func__") == 0) {
+                const char *fn_name = "";
+                if (c->function_count > 0) {
+                    fn_name = c->functions[c->function_count - 1].name;
+                }
+                size_t len = strlen(fn_name);
+                size_t rodata_offset = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, fn_name, len);
+                zero_cc_buf_put_bytes(&c->rodata_section, "\0", 1);
+                int temp = c->next_temp_id++;
+                ir_emit_lea_rip(temp, rodata_offset);
+                c->last_expr_is_float = 0;
+                return temp;
+            }
+            
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {

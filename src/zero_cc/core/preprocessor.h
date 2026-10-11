@@ -1028,8 +1028,8 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                 zero_cc_buf_puts(out, line_buf);
                 continue;
             } else if (strcmp(ident, "__func__") == 0) {
-                /* __func__ is handled during parsing, emit empty string here */
-                zero_cc_buf_puts(out, "\"\"");
+                /* __func__ is handled during AST lowering - emit as-is */
+                zero_cc_buf_puts(out, "__func__");
                 continue;
             } else if (strcmp(ident, "_Pragma") == 0) {
                 /* Handle _Pragma operator */
