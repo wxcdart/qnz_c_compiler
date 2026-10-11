@@ -334,7 +334,10 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_VAND: case OP_VOR: case OP_VXOR:
         case OP_VSHUF: case OP_VANDN:
         case OP_VORPS: case OP_VSUBPS: case OP_VMULPS:
-        case OP_VADDPD:
+        case OP_VADDPS: case OP_VDIVPS:
+        case OP_VSUBPD: case OP_VMULPD: case OP_VADDPD: case OP_VDIVPD:
+        case OP_VMOVAPS: case OP_VMOVAPD:
+        case OP_VANDPS: case OP_VXORPS: case OP_VSHUFPS:
             return true;
         default:
             return false;

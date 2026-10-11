@@ -712,6 +712,18 @@ static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
     return -1;
 }
 
+/* Get register class for a temporary variable */
+static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
+static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) {
+    if (!ra || temp_id == 0xFF) return REG_CLASS_GPR;
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        if (ra->intervals[i].temp_id == temp_id) {
+            return ra->intervals[i].reg_class;
+        }
+    }
+    return REG_CLASS_GPR;
+}
+
 /* Get the number of intervals (for debugging) */
 static size_t regalloc_get_interval_count(RegAllocator *ra) __attribute__((unused));
 static size_t regalloc_get_interval_count(RegAllocator *ra) {

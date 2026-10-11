@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 16] - 2026 - SIMD Auto-Vectorizer Fix & Enablement
+
+### Added / Enabled
+- **Auto-Vectorizer Pass Enabled**:
+  - Re-enabled `auto_vectorize` pass in `g_opt_passes` (`opt_pass.c`).
+  - Added full test coverage in `test/jit/simd_loop_test.c` verifying 4-element SIMD vector addition and element verification.
+  - Test suite passing at **125/125** tests (100%).
+
+### Fixed - Code Generation & Register Allocation
+- **Vector Store Operand Order (`ast_lowering_mc.c`)**:
+  - Fixed operand ordering when calling `emit_vstore` and `emit_vstore_asm` for `OP_VSTORE`/`OP_VSTORESS`/`OP_VSTORESD`: passed `phys_src2` (vector register value) as source and `phys_src1` as base address. Resolved segmentation fault caused by register inversion.
+- **Floating-Point Comparison in Machine Code Lowering (`ast_lowering_mc.c`, `regalloc.h`, `ast_lowering_expr.c`)**:
+  - Implemented `regalloc_get_class_for_temp` in `regalloc.h`.
+  - Added support in `ast_lowering_mc.c` under `OP_CMP` to detect `REG_CLASS_XMM` and `REG_CLASS_VEC` operands and dispatch to `emit_fp_cmp` (`ucomisd`) instead of integer GPR `cmp`.
+  - Added floating-point comparison handling (`TK_EQ`, `TK_NE`, `TK_LT`, etc.) in `NODE_BINOP` in `ast_lowering_expr.c`.
+- **Loop Stride in Vectorization (`opt_vectorize.c`)**:
+  - Changed vector loop stride from `byte_stride` (16) to element `vec_width` (4) so loop counter matches address calculation scaling.
+  - Added `OP_VLOADSS` and `OP_VSTORESS` detection in `analyze_loop_for_vectorization_full` and `vectorization_transform`.
+- **Two-Address Vector Arithmetic in x86-64 Backend (`x86_64.c`, `x86_64_asm.c`)**:
+  - Added commutative operand swapping and `vmovaps dst, src1` copies when `dst != src1` for `addps`, `subps`, `mulps`, and `divps`.
+  - Updated memory vector load/store in `x86_64_asm.c` to use unaligned `movups`.
+
 ## [Sprint 15] - 2026 - System V AMD64 ABI Completeness & AOT Parity
 
 ### Added / Enabled

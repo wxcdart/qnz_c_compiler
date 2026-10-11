@@ -426,16 +426,16 @@ static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int3
  * Vector Instruction Emission (SSE2)
  * ========================================================================= */
 
-/* Vector load (128-bit aligned) - movaps */
+/* Vector load (128-bit unaligned) - movups */
 static void x86_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
-    fprintf(out, "\tmovaps\t%d(%%%s),%%%s\n", offset, BE(c)->get_hw_reg_name(base), dst_name);
+    fprintf(out, "\tmovups\t%d(%%%s),%%%s\n", offset, BE(c)->get_hw_reg_name(base), dst_name);
 }
 
-/* Vector store (128-bit aligned) - movaps */
+/* Vector store (128-bit unaligned) - movups */
 static void x86_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
     const char *src_name = BE(c)->get_vec_reg_name(src);
-    fprintf(out, "\tmovaps\t%%%s,%d(%%%s)\n", src_name, offset, BE(c)->get_hw_reg_name(base));
+    fprintf(out, "\tmovups\t%%%s,%d(%%%s)\n", src_name, offset, BE(c)->get_hw_reg_name(base));
 }
 
 /* Vector scalar add - addss */

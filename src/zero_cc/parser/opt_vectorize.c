@@ -183,13 +183,13 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (!instr) continue;
         
         /* Look for array access pattern */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD) {
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
             load_count++;
             if (base_temp < 0) {
                 base_temp = instr->temp_src1;
             }
         }
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
             store_count++;
         }
         if (is_vec_arith(instr)) {
@@ -329,23 +329,18 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         return false;
     }
     
-    /* BUG FIX #2: Change loop increment from i += 1 to i += 4
-     * This is safe because:
-     * 1. Address calculation uses i * sizeof(float) = i * 4
-     * 2. When i advances by 4, address advances by 16 bytes (4 floats)
-     * 3. VLOAD/VSTORE load/store 4 elements at a time
-     * 
-     * IMPORTANT: This requires the loop bound N to be a multiple of 4.
-     * For now, we assume this is true (conservative - may read past end
-     * if N is not a multiple of 4). TODO: Add tail loop handling.
+    /* Change loop increment from i += 1 to i += vec_width (e.g. 4)
+     * This is correct because:
+     * 1. Address calculation scales i by sizeof(elem) = i * 4 (e.g. via shl 2)
+     * 2. When i advances by vec_width (4), address advances by 16 bytes (4 floats)
+     * 3. VLOAD/VSTORE load/store 4 elements (16 bytes) at a time
      */
-    int byte_stride = vec_width * 4;  /* 16 bytes for 4 floats */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
         if (instr->op == OP_ADD && instr->imm == 1) {
-            instr->imm = byte_stride;  /* Change i += 1 to i += 4 */
+            instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
         }
     }
     
@@ -359,7 +354,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         if (!instr) continue;
         
         /* Handle scalar loads -> VLOAD */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD) {
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
             /* Allocate vector temp using compiler's temp allocator */
             int vec_temp = c->next_temp_id++;
             
@@ -413,7 +408,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
         
         /* Handle scalar stores -> VSTORE */
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE) {
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
             /* Get vector value from map */
             int vec_value = scalar_to_vec_map[instr->temp_src2];
             

@@ -107,23 +107,48 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             int right_temp = lower_expr(c, arena, node->right);
             bool right_is_float = c->last_expr_is_float;
 
-            /* Float arithmetic - use IR for proper register allocation */
+            /* Float arithmetic and comparisons - use IR for proper register allocation */
             if (left_is_float && right_is_float) {
                 /* At this point: left_temp and right_temp are float temps in XMM registers */
                 int result_temp = c->next_temp_id++;
                 switch (node->aux.op) {
                     case TK_PLUS:
                         ir_emit_fadd((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
-                        break;
+                        c->last_expr_is_float = 1;
+                        return result_temp;
                     case TK_MINUS:
                         ir_emit_fsub((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
-                        break;
+                        c->last_expr_is_float = 1;
+                        return result_temp;
                     case TK_STAR:
                         ir_emit_fmul((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
-                        break;
+                        c->last_expr_is_float = 1;
+                        return result_temp;
                     case TK_SLASH:
                         ir_emit_fdiv((uint8_t)result_temp, (uint8_t)left_temp, (uint8_t)right_temp);
-                        break;
+                        c->last_expr_is_float = 1;
+                        return result_temp;
+                    case TK_EQ:
+                    case TK_NE:
+                    case TK_LT:
+                    case TK_LE:
+                    case TK_GT:
+                    case TK_GE: {
+                        int cond;
+                        switch (node->aux.op) {
+                            case TK_EQ: cond = CC_EQ; break;
+                            case TK_NE: cond = CC_NE; break;
+                            case TK_LT: cond = CC_LT; break;
+                            case TK_LE: cond = CC_LE; break;
+                            case TK_GT: cond = CC_GT; break;
+                            case TK_GE: cond = CC_GE; break;
+                            default: cond = CC_EQ; break;
+                        }
+                        ir_emit_cmp(left_temp, right_temp);
+                        ir_emit_cond_set(result_temp, cond);
+                        c->last_expr_is_float = 0;
+                        return result_temp;
+                    }
                     default:
                         break;
                 }
@@ -618,17 +643,38 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     right_temp = op_res;
                 }
 
-                if (elem_size == 1) {
-                    ir_emit_store_byte(right_temp, addr_temp);
-                } else if (elem_size == 2) {
-                    ir_emit_store_16(right_temp, addr_temp);
-                } else if (elem_size == 4) {
-                    ir_emit_store_32(right_temp, addr_temp);
+                bool is_elem_float = false;
+                if (elem_ti && type_is_floating(elem_ti)) {
+                    is_elem_float = true;
                 } else {
-                    ir_emit_store_64(right_temp, addr_temp);
+                    ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
+                    if (ln && ln->tag == NODE_IDENT) {
+                        ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                        if (sym && sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE)) {
+                            is_elem_float = true;
+                        }
+                    }
                 }
 
-                c->last_expr_is_float = 0;
+                if (is_elem_float) {
+                    if (elem_size == 4) {
+                        ir_emit_vstoress(addr_temp, (uint8_t)right_temp);
+                    } else {
+                        ir_emit_vstoresd(addr_temp, (uint8_t)right_temp);
+                    }
+                    c->last_expr_is_float = 1;
+                } else {
+                    if (elem_size == 1) {
+                        ir_emit_store_byte(right_temp, addr_temp);
+                    } else if (elem_size == 2) {
+                        ir_emit_store_16(right_temp, addr_temp);
+                    } else if (elem_size == 4) {
+                        ir_emit_store_32(right_temp, addr_temp);
+                    } else {
+                        ir_emit_store_64(right_temp, addr_temp);
+                    }
+                    c->last_expr_is_float = 0;
+                }
                 return right_temp;
             }
 
@@ -972,18 +1018,39 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             int addr_temp = c->next_temp_id++;
             ir_emit_add(addr_temp, array_temp, scaled_index);  /* addr = base + scaled_index */
 
-            int result_temp = c->next_temp_id++;
-            if (elem_size == 1) {
-                ir_emit_load_byte(result_temp, addr_temp);
-            } else if (elem_size == 2) {
-                ir_emit_load_16(result_temp, addr_temp);
-            } else if (elem_size == 4) {
-                ir_emit_load_32(result_temp, addr_temp);
+            bool is_elem_float = false;
+            if (elem_ti && type_is_floating(elem_ti)) {
+                is_elem_float = true;
             } else {
-                ir_emit_deref(result_temp, addr_temp);
+                ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+                if (ln && ln->tag == NODE_IDENT) {
+                    ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                    if (sym && sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE)) {
+                        is_elem_float = true;
+                    }
+                }
             }
 
-            c->last_expr_is_float = 0;
+            int result_temp = c->next_temp_id++;
+            if (is_elem_float) {
+                if (elem_size == 4) {
+                    ir_emit_vloadss((uint8_t)result_temp, (uint8_t)addr_temp);
+                } else {
+                    ir_emit_vloadsd((uint8_t)result_temp, (uint8_t)addr_temp);
+                }
+                c->last_expr_is_float = 1;
+            } else {
+                if (elem_size == 1) {
+                    ir_emit_load_byte(result_temp, addr_temp);
+                } else if (elem_size == 2) {
+                    ir_emit_load_16(result_temp, addr_temp);
+                } else if (elem_size == 4) {
+                    ir_emit_load_32(result_temp, addr_temp);
+                } else {
+                    ir_emit_deref(result_temp, addr_temp);
+                }
+                c->last_expr_is_float = 0;
+            }
             return result_temp;
         }
         

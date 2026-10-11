@@ -354,13 +354,16 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         if (instr->temp_src1 != 0xFF) {
             live_range_add_use(lra, i, instr->temp_src1, false);
             if ((size_t)instr->temp_src1 < lra->temp_capacity) {
-                if (instr->op == OP_CVTSI2SD) {
+                if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
+                    instr->op == OP_VLOAD || instr->op == OP_VSTORE ||
+                    instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
+                    instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
                 } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
-                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_VEC;
                 }
             }
         }
@@ -373,7 +376,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
-                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC;
                 }
             }
         }

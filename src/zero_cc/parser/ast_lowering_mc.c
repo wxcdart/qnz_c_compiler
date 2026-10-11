@@ -139,12 +139,19 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_shr(c, phys_dst, phys_src1, phys_src2);
                 break;
             
-            case OP_CMP:
+            case OP_CMP: {
                 /* Store operands for RISC-V backend (flags materialization) */
                 c->lowering.cmp_src1 = phys_src1;
                 c->lowering.cmp_src2 = phys_src2;
-                BE(c)->emit_cmp(c, phys_src1, phys_src2);
+                RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
+                RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2);
+                if ((rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC || rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC) && BE(c)->emit_fp_cmp) {
+                    BE(c)->emit_fp_cmp(c, phys_src1, phys_src2);
+                } else {
+                    BE(c)->emit_cmp(c, phys_src1, phys_src2);
+                }
                 break;
+            }
             
             case OP_COND_SET:
                 /* set dst based on flags and condition code */
@@ -347,6 +354,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
              * ========================================================================= */
 
             case OP_VLOAD:
+            case OP_VLOADSS:
+            case OP_VLOADSD:
                 if (c->emit_asm && BE(c)->emit_vload_asm) {
                     /* Assembly mode: emit textual assembly */
                     BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
@@ -357,12 +366,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VSTORE:
+            case OP_VSTORESS:
+            case OP_VSTORESD:
                 if (c->emit_asm && BE(c)->emit_vstore_asm) {
-                    /* Assembly mode: emit textual assembly */
-                    BE(c)->emit_vstore_asm(c, phys_src1, phys_src2, instr->imm, c->asm_out);
+                    /* Assembly mode: emit textual assembly: emit_vstore_asm(c, src_val, base, offset, out) */
+                    BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
                 } else if (!c->emit_asm && BE(c)->emit_vstore) {
-                    /* JIT binary mode: emit machine code directly */
-                    BE(c)->emit_vstore(c, phys_src1, phys_src2, instr->imm);
+                    /* JIT binary mode: emit machine code directly: emit_vstore(c, src_val, base, offset) */
+                    BE(c)->emit_vstore(c, phys_src2, phys_src1, instr->imm);
                 }
                 break;
 

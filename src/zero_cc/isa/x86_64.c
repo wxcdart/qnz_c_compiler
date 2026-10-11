@@ -187,25 +187,46 @@ static void x86_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
 /* Vector operations for JIT binary emission (SSE2) */
 static void x86_emit_vload(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
     /* movups xmm_dest, [base + offset] - unaligned move (works for any alignment) */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (base >> 3) & 1);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x10);  /* movups */
-    x86_modrm(c, 0, dst & 7, base & 7);
-    me_emit_u32(c, offset);
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
 }
 
 static void x86_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset) {
     /* movups [base + offset], xmm_src - unaligned move */
-    x86_rex(c, 1, 0, 0, (base >> 3) & 1);
+    x86_rex(c, 0, (src >> 3) & 1, 0, (base >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x11);  /* movups */
-    x86_modrm(c, 0, src & 7, base & 7);
-    me_emit_u32(c, offset);
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
 }
+
+static void x86_emit_vmovaps(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* addps xmm_dest, xmm_src - packed single-precision add */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    if (dst == src2 && dst != src1) {
+        /* Commutative: swap operands so dst = src2 + src1 */
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x58);  /* addps */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -213,7 +234,15 @@ static void x86_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_vsubps(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* subps xmm_dest, xmm_src - packed single-precision subtract */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    if (dst == src2 && dst != src1) {
+        /* dst == src2: use scratch register or swap isn't commutative */
+        /* If dst != src1, we can copy src1 to dst, but if dst == src2, copy clobbers src2 */
+        /* ZeroCC regalloc ensures separate temps or dst == src1 */
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x5C);  /* subps */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -221,7 +250,13 @@ static void x86_emit_vsubps(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_vmulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* mulps xmm_dest, xmm_src - packed single-precision multiply */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x59);  /* mulps */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -229,7 +264,10 @@ static void x86_emit_vmulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_vdivps(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* divps xmm_dest, xmm_src - packed single-precision divide */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (src2 >> 3) & 1);
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x5E);  /* divps */
     x86_modrm(c, 3, dst & 7, src2 & 7);
@@ -237,7 +275,8 @@ static void x86_emit_vdivps(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void x86_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
     /* movaps xmm_dest, xmm_src - aligned packed move */
-    x86_rex(c, 1, 0, (dst >> 3) & 1, (src >> 3) & 1);
+    if (dst == src) return;
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x28);  /* movaps */
     x86_modrm(c, 3, dst & 7, src & 7);

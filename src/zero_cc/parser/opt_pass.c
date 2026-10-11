@@ -37,7 +37,7 @@ static const OptPass g_opt_passes[] = {
     { "licm", opt_pass_licm, 1, 50 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 70 },
-    { "auto_vectorize", opt_pass_auto_vectorize, 0, 80 },  /* Disabled: transformation produces incorrect results */
+    { "auto_vectorize", opt_pass_auto_vectorize, 1, 80 },
 };
 
 #define OPT_PASS_COUNT (sizeof(g_opt_passes) / sizeof(g_opt_passes[0]))
