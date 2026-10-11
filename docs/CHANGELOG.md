@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 16] - 2026 - AOT Assembly Emission Fixes & Cleanup
+
+### Fixed - AOT Assembly Emission
+- **Backend ASM Emission Initialization (`x86_64.c`, `aarch64.c`, `riscv.c`, `isa_backend.h`)**:
+  - Fixed uninitialized ASM emission function pointers (`emit_param_save_int_asm`, `emit_param_save_fp_asm`, `emit_variadic_spill_asm`) in the AOT assembly path.
+  - Made backend tables writable (removed `const` from `x86_64_backend`, `aarch64_backend`, `riscv64_backend`) to allow runtime initialization.
+  - Added lazy initialization via `zero_cc_init_backends_once()` called from `zero_cc_get_backend()` and `zero_cc_get_native_backend()`.
+  - Assembly output now correctly emits parameter saves after the prologue using `rbp` as the base register.
+- **Parameter Save Placement (`ast_lowering.c`, `asm_emitter.c`)**:
+  - Moved parameter saves to occur after the prologue (`pushq %rbp; movq %rsp, %rbp`) instead of before.
+  - Changed from red-zone writes (`rsp - offset`) to frame-pointer-relative writes (`rbp - offset`).
+  - Stack-passed arguments (7th+ integer args) now correctly load from caller's stack frame after prologue setup.
+
+### Cleaned Up
+- **Debug Output Removal (`main.c`, `ast_lowering.c`)**:
+  - Removed 5 DEBUG fprintf statements from `main.c` that printed when `-dump-ir` or `--profile-opts` flags were used.
+  - Removed redundant IR dump debug print from `ast_lowering.c`.
+  - Kept the `-dump-ir` flag functionality for intentional debugging.
+
+### Test Results
+- **Pass Rate**: 128/128 tests passing (100%) in `make test`.
+
 ## [Sprint 16] - 2026 - SIMD Auto-Vectorizer Fix & Enablement
 
 ### Added / Enabled

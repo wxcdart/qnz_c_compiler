@@ -74,6 +74,16 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
   - `regalloc.h`: Reserved physical register `1` (`%rcx`) on x86-64 so dynamic shifts (`shl`, `shr`, `sar`) do not clobber temporaries or constants assigned to `%rcx`.
 - **Result**: All 119/119 tests passing (100% pass rate)
 
+### Sprint 16: AOT Assembly Emission Fixes & Cleanup ✅
+- **Status**: COMPLETE
+- **Achievement**: Fixed AOT assembly emission initialization and parameter save placement; removed debug output from production code.
+- **Key Fixes**:
+  - `x86_64.c`, `aarch64.c`, `riscv.c`: Made backend tables writable (removed `const`) to allow runtime initialization of ASM emission function pointers.
+  - `isa_backend.h`: Added `zero_cc_init_backends_once()` for lazy initialization of ASM emission pointers.
+  - `ast_lowering.c`, `asm_emitter.c`: Moved parameter saves to occur after the prologue, using `rbp` as base register instead of red-zone writes to `rsp`.
+  - `main.c`, `ast_lowering.c`: Removed 5 DEBUG fprintf statements from production code.
+- **Result**: All 128/128 tests passing (100% pass rate)
+
 ## Current Status
 
 ### ✅ Completed Features
