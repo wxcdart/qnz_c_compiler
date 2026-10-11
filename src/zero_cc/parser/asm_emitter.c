@@ -24,9 +24,11 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     size_t func_idx = c->function_count - 1;
     
-    /* Emit .globl and label */
+    /* Emit .globl and label (skip .globl for static functions) */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
-        fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
+        if (!c->functions[func_idx].is_static) {
+            fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
+        }
         fprintf(out, "%s:\n", c->functions[func_idx].name);
         fflush(out);
     }
