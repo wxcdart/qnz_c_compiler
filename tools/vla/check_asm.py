@@ -76,7 +76,7 @@ def parse_assembly(filepath: str) -> Dict[str, FunctionInfo]:
             
             func_name = line[:-1]
             current_func = func_name
-            current_func_info = FunctionInfo(name=func_name, start_line=line_num)
+            current_func_info = FunctionInfo(name=func_name, start_line=line_num, end_line=0)
             i += 1
             continue
         

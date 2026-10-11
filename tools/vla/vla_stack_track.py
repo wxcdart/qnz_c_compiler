@@ -154,7 +154,7 @@ def analyze_stack_balance(trace: StackTrace) -> bool:
         if op == StackOp.SUB:
             if delta == 'vla':
                 vla_allocs.append(line_num)
-                total_delta += 'vla'  # Special marker
+                # VLA allocation - don't add to total_delta, track separately
             else:
                 total_delta += delta
         elif op == StackOp.ADD:
