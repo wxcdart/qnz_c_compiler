@@ -105,6 +105,32 @@ void ir_emit(Instr instr) {
         fprintf(stderr, "Error: IR arena not initialized\n");
         exit(1);
     }
+
+    /* restrict alias-group tagging: loads/stores inherit the group of their
+     * address temp; pointer arithmetic propagates the group to its result. */
+    if (g_compiler) {
+        uint8_t *tg = g_compiler->lowering.temp_alias_group;
+        switch (instr.op) {
+            case OP_DEREF: case OP_LOAD_BYTE: case OP_LOAD_16: case OP_LOAD_32:
+                if (instr.temp_src1 != 0xFF) instr.alias_group = tg[instr.temp_src1];
+                break;
+            case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
+                if (instr.temp_src2 != 0xFF) instr.alias_group = tg[instr.temp_src2];
+                break;
+            case OP_MOV_REG: case OP_ADD_IMM: case OP_SUB_IMM:
+                if (instr.temp_dest != 0xFF && instr.temp_src1 != 0xFF)
+                    tg[instr.temp_dest] = tg[instr.temp_src1];
+                break;
+            case OP_ADD: case OP_SUB:
+                if (instr.temp_dest != 0xFF && instr.temp_src1 != 0xFF && instr.temp_src2 != 0xFF) {
+                    uint8_t g1 = tg[instr.temp_src1], g2 = tg[instr.temp_src2];
+                    tg[instr.temp_dest] = (g1 && g2 && g1 != g2) ? 0 : (g1 ? g1 : g2);
+                }
+                break;
+            default:
+                break;
+        }
+    }
     
     Instr *ptr = ir_arena_emit(arena, instr);
     if (!ptr) {

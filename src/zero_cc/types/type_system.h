@@ -58,6 +58,7 @@ typedef struct ZeroCCType {
     bool is_atomic;                       /* For _Atomic */
     bool is_const;
     bool is_volatile;
+    bool is_restrict;
     bool is_vla;
 
     size_t member_count;
@@ -95,6 +96,7 @@ typedef struct {
     bool is_atomic;
     bool is_const;
     bool is_volatile;
+    bool is_restrict;
 } ZeroCCSym;
 
 /* Function Definition Record */

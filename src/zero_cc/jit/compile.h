@@ -154,6 +154,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 bool is_ptr = false;
                 bool p_ptr_is_const = false;
                 bool p_ptr_is_volatile = false;
+                bool p_ptr_is_restrict = false;
                 while (c->tokens[c->token_pos].type == TK_STAR) {
                     is_ptr = true;
                     c->token_pos++;
@@ -162,6 +163,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                            c->tokens[c->token_pos].type == TK_RESTRICT) {
                         if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_is_const = true;
                         if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_is_volatile = true;
+                        if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_is_restrict = true;
                         c->token_pos++;
                     }
                 }
@@ -193,6 +195,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                             pt = zero_cc_type_ptr(&pt);
                             pt.is_const = p_ptr_is_const;
                             pt.is_volatile = p_ptr_is_volatile;
+                            pt.is_restrict = p_ptr_is_restrict;
                         }
                         param_types[param_count] = pt;
                         param_count++;
@@ -322,6 +325,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
 
         if (sem_ok) {
+            /* Set active compiler for IR emission */
+            ir_set_compiler(c);
+            
             /* Reset register allocator for this function */
             regalloc_init(&c->regalloc);
             c->next_temp_id = VREG_USER_START;

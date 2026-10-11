@@ -344,18 +344,19 @@ static inline bool ir_opcode_is_simd(Opcode op) {
     }
 }
 
-/* Instruction structure - 18 bytes packed */
+/* Instruction structure - 19 bytes packed */
 typedef struct __attribute__((packed)) {
-    uint8_t  op;        /* Operation code (0-255) */
-    uint8_t  temp_dest; /* Destination temp (0-255, 0xFF if none) */
-    uint8_t  temp_src1; /* Source temp 1 (0-255, 0xFF if none) */
-    uint8_t  temp_src2; /* Source temp 2 (0-255, 0xFF if none) */
-    uint8_t  cond;      /* Condition code for OP_COND_SET (0-5) */
-    uint8_t  flags_out; /* Flags output register (REG_FLAGS or 0xFF) */
-    uint8_t  flags_in;  /* Flags input register (REG_FLAGS or 0xFF) */
-    int16_t  imm;       /* Immediate value (-32768 to 32767) */
-    int64_t  imm64;     /* 64-bit immediate value */
-    uint16_t label_idx; /* Label index for jumps (0-65535) */
+    uint8_t  op;          /* Operation code (0-255) */
+    uint8_t  temp_dest;   /* Destination temp (0-255, 0xFF if none) */
+    uint8_t  temp_src1;   /* Source temp 1 (0-255, 0xFF if none) */
+    uint8_t  temp_src2;   /* Source temp 2 (0-255, 0xFF if none) */
+    uint8_t  cond;        /* Condition code for OP_COND_SET (0-5) */
+    uint8_t  flags_out;   /* Flags output register (REG_FLAGS or 0xFF) */
+    uint8_t  flags_in;    /* Flags input register (REG_FLAGS or 0xFF) */
+    uint8_t  alias_group; /* Alias group for restrict pointer tracking (0 = unconstrained) */
+    int16_t  imm;         /* Immediate value (-32768 to 32767) */
+    int64_t  imm64;       /* 64-bit immediate value */
+    uint16_t label_idx;   /* Label index for jumps (0-65535) */
 } Instr;
 
 /* IR Access Functions - Arena-based (per-compiler-instance) */

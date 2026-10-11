@@ -53,6 +53,9 @@ typedef struct {
     
     /* Hybrid VLA enforcement state */
     VLAState vla;                      /* VLA tracking and enforcement */
+    
+    /* Alias group tracking for restrict pointers (temp -> alias_group ID) */
+    uint8_t temp_alias_group[256];
 } LoweringState;
 
 #endif /* ZERO_CC_PARSER_LOWERING_STATE_H */

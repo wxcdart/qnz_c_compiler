@@ -565,6 +565,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     bool param_is_ptr = false;
                     bool param_ptr_is_const = false;
                     bool param_ptr_is_volatile = false;
+                    bool param_ptr_is_restrict = false;
                     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
                         param_is_ptr = true;
                         c->token_pos++;
@@ -574,6 +575,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                 c->tokens[c->token_pos].type == TK_RESTRICT)) {
                             if (c->tokens[c->token_pos].type == TK_CONST) param_ptr_is_const = true;
                             if (c->tokens[c->token_pos].type == TK_VOLATILE) param_ptr_is_volatile = true;
+                            if (c->tokens[c->token_pos].type == TK_RESTRICT) param_ptr_is_restrict = true;
                             c->token_pos++;
                         }
                     }
@@ -628,6 +630,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                             ptype = zero_cc_type_ptr(&ptype);
                             ptype.is_const = param_ptr_is_const;
                             ptype.is_volatile = param_ptr_is_volatile;
+                            ptype.is_restrict = param_ptr_is_restrict;
                         }
                         TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
                         decl_node_set_type(ctx, p_node, ptype_ti);

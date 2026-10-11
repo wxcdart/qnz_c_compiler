@@ -93,6 +93,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else {
                     int temp = c->next_temp_id++;
                     ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    if (sym->is_restrict && sym->type.tag == TYPE_PTR && temp < 256) {
+                        /* Each restrict pointer gets its own alias group (locals index + 1) */
+                        c->lowering.temp_alias_group[temp] = (uint8_t)((sym - c->locals) + 1);
+                    }
                     c->last_expr_is_float = 0;
                     return temp;
                 }

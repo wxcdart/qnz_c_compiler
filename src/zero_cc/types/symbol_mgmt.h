@@ -45,6 +45,7 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     sym->is_atomic = type.is_atomic;
     sym->is_const = type.is_const;
     sym->is_volatile = type.is_volatile;
+    sym->is_restrict = type.is_restrict;
     decl_align_spec = 0;
     return sym;
 }
