@@ -191,6 +191,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
         /* Global variable declarations */
         if (c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_INLINE ||
             c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_CHAR ||
             c->tokens[c->token_pos].type == TK_VOID || c->tokens[c->token_pos].type == TK_FLOAT_KW ||
             c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
@@ -201,10 +202,15 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_IDENT) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
-            /* Check for static keyword */
+            /* Check for static / inline keywords */
             bool is_static = false;
-            if (c->tokens[c->token_pos].type == TK_STATIC) {
-                is_static = true;
+            while (c->tokens[c->token_pos].type == TK_STATIC ||
+                   c->tokens[c->token_pos].type == TK_INLINE ||
+                   c->tokens[c->token_pos].type == TK_CONST ||
+                   c->tokens[c->token_pos].type == TK_VOLATILE) {
+                if (c->tokens[c->token_pos].type == TK_STATIC) {
+                    is_static = true;
+                }
                 c->token_pos++;
             }
             /* Parse type */

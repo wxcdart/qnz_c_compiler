@@ -111,6 +111,8 @@ typedef struct {
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */
     bool is_external;                     /* True for extern declarations */
+    bool is_inline;                       /* True for inline declarations (C99) */
+    bool is_static;                       /* True for static functions (internal linkage) */
 } ZeroCCFunction;
 
 /* Relocation Record */

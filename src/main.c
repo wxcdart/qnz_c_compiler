@@ -562,8 +562,9 @@ static int compile_object(CompileOptions *opts) {
             if (!fn->is_prototype) {
                 section_idx = 1;  // Compiled functions go in .text section
             }
+            int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
             elf_writer_add_symbol(&elf_ctx, fn->name,
-                                  ELF_STB_GLOBAL, ELF_STT_FUNC,
+                                  binding, ELF_STT_FUNC,
                                   section_idx,
                                   fn->text_offset,
                                   fn_size);

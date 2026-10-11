@@ -19,11 +19,15 @@
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
+    bool fn_inline = false;
+    bool fn_static = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
            c->tokens[c->token_pos].type == TK_NORETURN || c->tokens[c->token_pos].type == TK_CONST ||
            c->tokens[c->token_pos].type == TK_VOLATILE ||
            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0)) {
         if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
+        if (c->tokens[c->token_pos].type == TK_INLINE) fn_inline = true;
+        if (c->tokens[c->token_pos].type == TK_STATIC) fn_static = true;
         c->token_pos++;
     }
 
@@ -215,6 +219,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->is_variadic = is_variadic_fn;
             fn->noreturn = fn_noreturn;
             fn->is_prototype = true;
+            fn->is_inline = fn_inline;
+            fn->is_static = fn_static;
         }
         c->token_pos++;
         return;
@@ -233,6 +239,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->is_variadic = is_variadic_fn;
         fn->noreturn = fn_noreturn;
         fn->is_prototype = false;
+        fn->is_inline = fn_inline;
+        fn->is_static = fn_static;
         /* Copy parameter types and names to function struct */
         for (size_t i = 0; i < param_count && i < 8; i++) {
             fn->param_types[i] = param_types[i];
