@@ -18,7 +18,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
 /* Helper: Check if token is a primary expression */
 static inline bool is_primary_token(ZeroCCTokType t) {
-    return (t == TK_NUM || t == TK_FLOAT || t == TK_STRING ||
+    return (t == TK_NUM || t == TK_CHAR_LIT || t == TK_FLOAT || t == TK_STRING ||
             t == TK_NULLPTR || t == TK_TRUE || t == TK_FALSE ||
             t == TK_IDENT || t == TK_GENERIC || t == TK_LPAREN);
 }
@@ -130,6 +130,17 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     /* Switch for simple primary tokens */
     switch (tok->type) {
         case TK_NUM: {
+            c->token_pos++;
+            ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+            n->line = (uint32_t)tok->line;
+            n->col = (uint32_t)tok->col;
+            n->int_val = tok->num_val;
+            return ref;
+        }
+
+        case TK_CHAR_LIT: {
+            /* Character constant: type int in C, value from the lexer */
             c->token_pos++;
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
