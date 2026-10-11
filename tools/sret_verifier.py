@@ -123,7 +123,7 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
     # Check 1: RDI should be saved/used as hidden pointer (not as first int arg)
     # Pattern: mov %rdi, %rax (save hidden pointer) OR mov %rdi, offset(%rbp)
     # objdump format: mov    %rdi,-0x38(%rbp)
-    rdi_usage = re.search(r'mov\s+%rdi,\s*(%rax|-?\d*\(%rbp\))', func_asm)
+    rdi_usage = re.search(r'mov\s+%rdi,\s*(%rax|-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\))', func_asm)
     
     if rdi_usage:
         check = SretCheck(
@@ -149,7 +149,7 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
     
     # Check 2: Should write to [RDI+offset] not local stack
     # Pattern: mov %reg, offset(%rdi)
-    writes_to_rdi = re.findall(r'mov\s+%\w+,\s*(-?\d*)\(%rdi\)', func_asm)
+    writes_to_rdi = re.findall(r'mov\s+%\w+,\s*-?0x[0-9a-f]+\(%rdi\)|-?\d+\(%rdi\)', func_asm)
     
     if writes_to_rdi:
         check = SretCheck(
@@ -185,7 +185,7 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
         result.checks.append(check)
     else:
         # Check if RAX is set to something else (like local stack)
-        returns_local = re.search(r'lea\s+(-?\d*)\(%rbp\),\s*%rax', func_asm)
+        returns_local = re.search(r'lea\s+(-?0x[0-9a-f]+|-?\d+)\(%rbp\),\s*%rax', func_asm)
         if returns_local:
             check = SretCheck(
                 name="Returns hidden pointer in RAX",
@@ -207,7 +207,7 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
             result.issues.append("Could not verify return value")
     
     # Check for WRONG patterns (treating RDI as first int arg)
-    wrong_rdi_usage = re.search(r'mov\s+%rdi,\s*-?\d*\(%rbp\)', func_asm)
+    wrong_rdi_usage = re.search(r'mov\s+%rdi,\s*-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\)', func_asm)
     if wrong_rdi_usage and not returns_rdi:
         result.issues.append(f"WARNING: Treating RDI as first int arg: {wrong_rdi_usage.group(0)}")
     
@@ -243,7 +243,7 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
     
     # Check 1: Should allocate buffer and pass in RDI
     # Pattern: lea offset(%rbp), %rdi (load buffer address into RDI)
-    loads_rdi = re.search(r'lea\s+(-?\d*)\(%%rbp\),\s*%%rdi', before_call)
+    loads_rdi = re.search(r'lea\s+(-?0x[0-9a-f]+|-?\d+)\(%rbp\),\s*%rdi', before_call)
     
     if loads_rdi:
         check = SretCheck(
@@ -293,7 +293,7 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
     
     # Check 3: Should read result from buffer after call
     # Pattern: movq %rax, offset(%rbp) (save return pointer) OR read from buffer
-    reads_result = re.search(r'movq\s+%%rax,\s*-?\d*\(%%rbp\)', before_call)
+    reads_result = re.search(r'mov\s+%rax,\s*-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\)', before_call)
     
     if reads_result:
         check = SretCheck(
