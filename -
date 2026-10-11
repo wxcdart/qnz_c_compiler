@@ -1,0 +1,160 @@
+	.globl make_st20
+make_st20:
+	pushq	%rbp
+	movq	%rsp, %rbp
+	subq	$112, %rsp
+	movq	%rbx, -8(%rbp)
+	movq	%r12, -16(%rbp)
+	movq	%r13, -24(%rbp)
+	movq	%r14, -32(%rbp)
+	movq	%r15, -40(%rbp)
+	movq	%rdi,-56(%rbp)
+	movq	%rsi,-64(%rbp)
+	movq	%rdx,-72(%rbp)
+	movq	%rcx,-80(%rbp)
+	movq	%r8,-88(%rbp)
+	movq	$0,%rax
+	movq	%rax,-108(%rbp)
+	movq	%rax,-100(%rbp)
+	leaq	-92(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	movq	-56(%rbp),%rax
+	leaq	-108(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	movq	-64(%rbp),%rax
+	leaq	-104(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	movq	-72(%rbp),%rax
+	leaq	-100(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	movq	-80(%rbp),%rax
+	leaq	-96(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	movq	-88(%rbp),%rax
+	leaq	-92(%rbp),%rbx
+	# UNKNOWN: STORE_32
+	leaq	-108(%rbp),%rax
+	movq	%rax,-108(%rbp)
+	movq	-108(%rbp),%rax
+	movq	%rax,%rax
+	movq	-8(%rbp), %rbx
+	movq	-16(%rbp), %r12
+	movq	-24(%rbp), %r13
+	movq	-32(%rbp), %r14
+	movq	-40(%rbp), %r15
+	leave
+	ret
+	.globl main
+main:
+	pushq	%rbp
+	movq	%rsp, %rbp
+	subq	$112, %rsp
+	movq	%rbx, -8(%rbp)
+	movq	%r12, -16(%rbp)
+	movq	%r13, -24(%rbp)
+	movq	%r14, -32(%rbp)
+	movq	%r15, -40(%rbp)
+	movq	$1,%rax
+	movq	%rax,-80(%rbp)
+	movq	$2,%rbx
+	movq	%rbx,-88(%rbp)
+	movq	$3,%rdx
+	movq	%rdx,-96(%rbp)
+	movq	$4,%rsi
+	movq	%rsi,-104(%rbp)
+	movq	$5,%rdi
+	movq	%rdi,-112(%rbp)
+	movq	%rax,%rax
+	movq	%rbx,%rbx
+	movq	%rdx,%rdx
+	movq	%rsi,%rsi
+	movq	%rdi,%rdi
+	movq	%rax, %rdi
+	movq	%rbx, %rsi
+	movq	%rdx, %rdx
+	movq	%rsi, %rcx
+	movq	%rdi, %r8
+	call	make_st20
+	movq	%rax,%rax
+	movq	%rax,-68(%rbp)
+	movq	-68(%rbp),%rax
+	movq	$4294967295,%rbx
+	movq	%rax,%rax
+	andq	%rbx,%rax
+	movq	$2147483648,%rbx
+	movq	%rax,%rax
+	xorq	%rbx,%rax
+	movq	%rax,%rax
+	subq	%rbx,%rax
+	movq	$1,%rbx
+	cmpq	%rbx,%rax
+	sete	%al
+	movzbq	%al,%rax
+	movq	-64(%rbp),%rbx
+	movq	$4294967295,%rdx
+	movq	%rbx,%rbx
+	andq	%rdx,%rbx
+	movq	$2147483648,%rdx
+	movq	%rbx,%rbx
+	xorq	%rdx,%rbx
+	movq	%rbx,%rbx
+	subq	%rdx,%rbx
+	movq	$2,%rdx
+	cmpq	%rdx,%rbx
+	sete	%al
+	movzbq	%al,%rbx
+	movq	%rax,%rax
+	movq	-60(%rbp),%rbx
+	movq	$4294967295,%rdx
+	movq	%rbx,%rbx
+	andq	%rdx,%rbx
+	movq	$2147483648,%rdx
+	movq	%rbx,%rbx
+	xorq	%rdx,%rbx
+	movq	%rbx,%rbx
+	subq	%rdx,%rbx
+	movq	$3,%rdx
+	cmpq	%rdx,%rbx
+	sete	%al
+	movzbq	%al,%rbx
+	movq	%rax,%rax
+	movq	-56(%rbp),%rbx
+	movq	$4294967295,%rdx
+	movq	%rbx,%rbx
+	andq	%rdx,%rbx
+	movq	$2147483648,%rdx
+	movq	%rbx,%rbx
+	xorq	%rdx,%rbx
+	movq	%rbx,%rbx
+	subq	%rdx,%rbx
+	movq	$4,%rdx
+	cmpq	%rdx,%rbx
+	sete	%al
+	movzbq	%al,%rbx
+	movq	%rax,%rax
+	movq	-52(%rbp),%rbx
+	movq	$4294967295,%rdx
+	movq	%rbx,%rbx
+	andq	%rdx,%rbx
+	movq	$2147483648,%rdx
+	movq	%rbx,%rbx
+	xorq	%rdx,%rbx
+	movq	%rbx,%rbx
+	subq	%rdx,%rbx
+	movq	$5,%rdx
+	cmpq	%rdx,%rbx
+	sete	%al
+	movzbq	%al,%rbx
+	movq	%rax,%rax
+	movq	$0,%rax
+	movq	%rax,%rax
+	movq	$1,%rbx
+	movq	%rbx,%rax
+	movq	%rax,%rax
+	movq	-8(%rbp), %rbx
+	movq	-16(%rbp), %r12
+	movq	-24(%rbp), %r13
+	movq	-32(%rbp), %r14
+	movq	-40(%rbp), %r15
+	leave
+	ret

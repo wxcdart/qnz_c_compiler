@@ -152,14 +152,20 @@ Register Allocator
 
 ## Next Steps (Future Sprints)
 
-### Phase 3: Return Value Handling (Priority)
-- **Objective**: Implement proper multi-register returns for larger structs
+### Phase 3: Large Struct Returns >16 bytes (Priority)
+- **Objective**: Implement struct return via hidden pointer (sret) for structs >16 bytes
 - **Estimated Duration**: 2 days
+- **System V AMD64 ABI Requirements**:
+  - Caller allocates buffer and passes pointer in RDI (shifts real args: RDI→RSI, RSI→RDX, etc.)
+  - Callee writes struct to caller-provided buffer
+  - Callee returns same pointer in RAX
 - **Key Tasks**:
-  - Handle __int128 returns
-  - Implement struct returns via hidden parameter for >16 byte structs
-  - Proper return register assignment
-  - Larger struct returns (>16 bytes)
+  - Detect struct returns >16 bytes in AST lowering
+  - Add hidden pointer parameter (sret) to function signature
+  - Shift argument registers (rdi→rsi, rsi→rdx, etc.)
+  - Write struct to caller-provided buffer instead of local stack
+  - Return pointer in RAX
+  - Update caller to allocate buffer and pass as first argument
 
 ### SIMD Implementation
 - **Objective**: Implement SIMD instruction emission for all ISAs
@@ -266,7 +272,7 @@ Register Allocator
 ## Known Limitations
 
 ### Current Limitations
-1. **Return Values**: Larger struct returns (>16 bytes) need hidden pointer implementation
+1. **Large Struct Returns (>16 bytes)**: Missing sret (struct return) implementation
 2. **SIMD**: IR opcodes defined but auto-vectorizer disabled due to bugs
 3. **Float Printf**: One pre-existing test failure (unrelated to recent changes)
 4. **Multi-dim VLA**: Only 1D VLAs supported
@@ -275,16 +281,16 @@ Register Allocator
 ### Completed Features (Previously Planned)
 - ✅ Stack Arguments (>6 integer args on x86-64)
 - ✅ Variadic function support (va_start, va_arg)
-- ✅ 8-byte struct return values
-- ✅ 9-16 byte struct by-value parameters
+- ✅ 8-byte struct return values (in RAX)
+- ✅ 9-16 byte struct by-value parameters (in registers)
+- ✅ **9-16 byte struct returns** (in RAX:RDX)
 - ✅ **Struct by-value passing** (all sizes, System V AMD64 ABI compliant)
-- ✅ **Struct by-value returning** (up to 16 bytes in registers)
-- ✅ System V AMD64 ABI full compliance
+- ✅ System V AMD64 ABI full compliance (except sret for >16 byte returns)
 
 ## Conclusion
 
-ZeroCC has achieved significant milestones with complete VLA support, multi-ISA backend architecture, ABI-compliant function call argument passing, struct by-value handling, and AOT assembly emission fixes. All 128 tests pass with no regressions. The compiler is production-ready for basic C code compilation across three ISAs (x86-64, AArch64, RISC-V).
+ZeroCC has achieved significant milestones with complete VLA support, multi-ISA backend architecture, ABI-compliant function call argument passing, struct by-value handling (up to 16 bytes), and AOT assembly emission fixes. All 128 tests pass with no regressions. The compiler is production-ready for basic C code compilation across three ISAs (x86-64, AArch64, RISC-V).
 
-**Current Status**: ✅ Production-ready for integer code with full System V AMD64 ABI support (including struct by-value)
-**Next Priority**: Large struct returns >16 bytes (Phase 3)
+**Current Status**: ✅ Production-ready for integer code with System V AMD64 ABI support (except sret for >16 byte returns)
+**Next Priority**: Large struct returns >16 bytes via hidden pointer (sret) - Phase 3
 **Long-term Vision**: Full SIMD support and optimization passes
