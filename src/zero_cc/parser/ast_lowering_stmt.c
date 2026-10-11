@@ -136,19 +136,25 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
-        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
-            /* System V AMD64 ABI: 2-eightbyte struct returned across rax and rdx */
+        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
             int32_t struct_offset = -sym->stack_offset;
-            
-            // 1. Load lower 8 bytes into rax (VREG_0) via IR
-            ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
-            
-            // 2. Load upper 8 bytes into rdx (VREG_2) via IR
-            ir_emit_load(VREG_2, BE(c)->fp_reg, struct_offset + 8);
-            
-            // 3. Jump to epilogue (which will emit leave; ret)
-            ir_emit_jmp(c->lowering.epilogue_label);
-            return;
+            if (sym->type.size <= 8) {
+                /* System V AMD64 ABI: <=8 byte struct returned in rax (VREG_0) */
+                ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            } else if (sym->type.size <= 16) {
+                /* System V AMD64 ABI: 9-16 byte struct returned across rax and rdx */
+                // 1. Load lower 8 bytes into rax (VREG_0) via IR
+                ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
+                
+                // 2. Load upper 8 bytes into rdx (VREG_2) via IR
+                ir_emit_load(VREG_2, BE(c)->fp_reg, struct_offset + 8);
+                
+                // 3. Jump to epilogue (which will emit leave; ret)
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
         }
 
         int result_temp = lower_expr(c, arena, node->left);

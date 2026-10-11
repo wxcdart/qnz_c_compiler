@@ -6,19 +6,22 @@
 - **System V AMD64 ABI Full Support**:
   - Implemented parameter passing and spilling for >6 integer arguments and >8 floating point arguments across stack boundaries.
   - Implemented `va_start` variadic parameter register spilling in both JIT (`x86_64.c`) and AOT (`x86_64_asm.c`).
+  - Implemented <=8 byte struct return values (`ast_lowering_stmt.c`) directly into `rax` (`VREG_0`).
   - Implemented 9–16 byte struct by-value parameter and return value handling in registers (`rax` / `rdx`).
   - Added new backend hooks `emit_param_save_int_asm`, `emit_param_save_fp_asm`, and `emit_variadic_spill_asm` to `ZeroCCISABackend`.
 
-### Fixed - AOT Code Generation
+### Fixed - Code Generation & Optimization
 - **Callee-Saved Register Slot Offsets (`x86_64_asm.c`)**:
   - Fixed sign of callee-saved register save/restore offsets in assembly generation: changed positive `%d(%%rbp)` to negative `-%d(%%rbp)`. Previously, positive offsets directly corrupted the caller's return address at `8(%rbp)`, causing crashes upon function return.
 - **9–16 Byte Struct Return Virtual Register Tracking (`ast_lowering_stmt.c`)**:
   - Replaced hardcoded physical register `2` with `VREG_2` for loading/storing the second eightbyte (`rdx`) so the register allocator and live interval analysis recognize the live range across function returns and assignments.
+- **`opt_mem2reg` Sub-8-Byte Stack Store Invalidation (`opt_mem2reg.c`)**:
+  - When non-8-byte aligned subfield stores occur (e.g. `p.y = y` at `[fp - 68]`), invalidate both boundary 8-byte slots (`(-offset)/8` and `(-offset + 7)/8`) so `opt_mem2reg` does not forward stale 64-bit slot values to subsequent 8-byte loads.
 - **Assembly Condition Set Zero Extension (`x86_64_asm.c`)**:
   - Fixed `movzbl %al, %<reg64>` to `movzbq %al, %<reg64>` to avoid operand width mismatch errors with standard assemblers.
 
 ### Test Results
-- **Pass Rate**: 123/123 tests passing (100%) in `make test`, including `stack_args_test`, `stack_args_edge`, `variadic_test`, `struct_byval_test`, and `struct_return_9_16_jit` (both JIT and AOT).
+- **Pass Rate**: 124/124 tests passing (100%) in `make test`, including `struct_return_8byte_test`, `struct_return_9_16_jit`, `stack_args_test`, `stack_args_edge`, `variadic_test`, and `struct_byval_test`.
 
 
 ### Added / Enabled

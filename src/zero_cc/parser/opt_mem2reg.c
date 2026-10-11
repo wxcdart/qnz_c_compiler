@@ -197,6 +197,13 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                 /* Track that this slot now holds the source temp */
                 state.slot_to_temp[slot] = instr->temp_src1;
                 state.slot_valid[slot] = true;
+            } else if (offset < 0) {
+                /* Non-8-byte store to stack (e.g. struct member at unaligned offset):
+                 * Invalidate any overlapping 8-byte slots so stale 64-bit values aren't forwarded! */
+                int s1 = (-offset) / 8;
+                int s2 = (-offset + 7) / 8;
+                if (s1 >= 0 && s1 < MAX_STACK_SLOTS) state.slot_valid[s1] = false;
+                if (s2 >= 0 && s2 < MAX_STACK_SLOTS) state.slot_valid[s2] = false;
             }
         }
         
