@@ -28,12 +28,17 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    /* Track block depth for VLA hybrid rule enforcement */
+    c->lowering.vla.block_depth++;
+    
     ASTRef stmt = ref;
     while (stmt != AST_NULL) {
         lower_node(c, arena, stmt);
         ZeroCCASTNode *snode = zero_cc_ast_get(arena, stmt);
         stmt = snode ? snode->next : AST_NULL;
     }
+    
+    c->lowering.vla.block_depth--;
 }
 
 void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -45,7 +50,28 @@ void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     if (node->flags & NODE_DECL_IS_VLA) {
-        /* Variable Length Array (C99 VLA) */
+        /* Variable Length Array (C99 VLA) - enforce hybrid rules */
+        
+        /* Rule 1: Only one VLA per function */
+        if (c->lowering.vla.has_runtime_vla) {
+            diag_report_error_at_token(c, "Only one VLA allowed per function (hybrid VLA rule)");
+            return;
+        }
+        c->lowering.vla.has_runtime_vla = true;
+        c->lowering.vla.vla_count = 1;
+        
+        /* Rule 2: VLA must be at function scope (block_depth == 1) */
+        if (c->lowering.vla.block_depth > 1) {
+            diag_report_error_at_token(c, "VLA must be at function scope, not in nested blocks (hybrid VLA rule)");
+            return;
+        }
+        
+        /* Rule 3: VLA not allowed in loops */
+        if (c->lowering.vla.loop_depth > 0) {
+            diag_report_error_at_token(c, "VLA not allowed inside loops (hybrid VLA rule)");
+            return;
+        }
+        
         const char *var = node->s.str;
         ZeroCCSym *sym = zero_cc_find_local(c, var);
         if (sym && node->right != AST_NULL) {
@@ -198,6 +224,9 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
 }
 
 void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    /* Track loop depth for VLA hybrid rule enforcement */
+    c->lowering.vla.loop_depth++;
+    
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
@@ -209,9 +238,14 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
+    
+    c->lowering.vla.loop_depth--;
 }
 
 void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    /* Track loop depth for VLA hybrid rule enforcement */
+    c->lowering.vla.loop_depth++;
+    
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_cond = c->ir_next_label++;
@@ -224,9 +258,14 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     ir_emit_jne((uint8_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
+    
+    c->lowering.vla.loop_depth--;
 }
 
 void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    /* Track loop depth for VLA hybrid rule enforcement */
+    c->lowering.vla.loop_depth++;
+    
     if (!node) return;
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
@@ -250,6 +289,8 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
+    
+    c->lowering.vla.loop_depth--;
 }
 
 void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {

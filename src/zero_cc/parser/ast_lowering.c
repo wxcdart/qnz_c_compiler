@@ -38,6 +38,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
     
+    /* Initialize VLA state */
+    c->lowering.vla.has_runtime_vla = false;
+    c->lowering.vla.vla_count = 0;
+    c->lowering.vla.block_depth = 0;
+    c->lowering.vla.loop_depth = 0;
+    
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
     c->regalloc.target_isa = c->isa;  /* Set target ISA for ISA-specific allocation */

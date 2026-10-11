@@ -34,6 +34,14 @@ typedef struct {
     int call_count;
 } IREmitterContext;
 
+/* VLA State - Hybrid VLA enforcement (single-scope, no nested, no loops) */
+typedef struct {
+    bool has_runtime_vla;              /* Function has runtime VLA */
+    int vla_count;                     /* Number of runtime VLA in function */
+    int block_depth;                   /* Current block nesting depth */
+    int loop_depth;                    /* Current loop nesting depth */
+} VLAState;
+
 /* Lowering State - Encapsulated per-compiler-instance state for Task 61/62 */
 typedef struct {
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
@@ -42,6 +50,9 @@ typedef struct {
     /* CMP operand tracking for RISC-V backend (flags materialization) */
     int cmp_src1;                      /* First operand of last CMP instruction */
     int cmp_src2;                      /* Second operand of last CMP instruction */
+    
+    /* Hybrid VLA enforcement state */
+    VLAState vla;                      /* VLA tracking and enforcement */
 } LoweringState;
 
 #endif /* ZERO_CC_PARSER_LOWERING_STATE_H */

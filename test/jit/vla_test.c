@@ -65,12 +65,12 @@ int main(void) {
         assert(res == 46);
     }
 
-    /* Test 3: Multiple VLAs in one function */
+    /* Test 3: VLA with fixed-size array (hybrid VLA rule: only one runtime VLA) */
     {
         const char *src =
             "int run_multi_vla(int n, int m) {\n"
-            "    int a[n];\n"
-            "    int b[m];\n"
+            "    int a[n];\n"           /* Runtime VLA */
+            "    int b[4];\n"           /* Fixed-size array (comptime) */
             "    for (int i = 0; i < n; i++) a[i] = i + 1;\n"
             "    for (int j = 0; j < m; j++) b[j] = (j + 1) * 10;\n"
             "    return a[n - 1] + b[m - 1];\n"
@@ -79,7 +79,7 @@ int main(void) {
             "    return run_multi_vla(3, 4);\n"
             "}\n";
         int res = run_snippet(src);
-        printf("Test 3 (multiple VLAs): %d (expected 43)\n", res);
+        printf("Test 3 (VLA + fixed array): %d (expected 43)\n", res);
         assert(res == 43);
     }
 
