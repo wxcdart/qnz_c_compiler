@@ -84,24 +84,82 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     shdrs[3].sh_size = shstrtab_len; shdrs[3].sh_addralign = 1;
     offset += shdrs[3].sh_size;
 
-    Elf64_Sym syms[2];
-    memset(syms, 0, sizeof(syms));
-    syms[1].st_name = 1;
-    syms[1].st_info = ELF64_ST_INFO(STB_GLOBAL, STT_FUNC);
-    syms[1].st_shndx = 1;
-    syms[1].st_size = c->text_section.length;
-
-    const char strtab[] = "\0main";
-    size_t strtab_len = sizeof(strtab);
-
+    /* Build dynamic symbol table for all functions */
+    size_t fn_count = 0;
+    for (size_t i = 0; i < c->function_count; i++) {
+        if (!c->functions[i].is_prototype) fn_count++;
+    }
+    
+    /* Allocate symbol table: 1 null entry + function entries */
+    Elf64_Sym *syms = calloc(fn_count + 1, sizeof(Elf64_Sym));
+    if (!syms) { fclose(f); return false; }
+    
+    /* Build string table for function names */
+    size_t strtab_size = 1;  /* null byte */
+    for (size_t i = 0; i < c->function_count; i++) {
+        if (!c->functions[i].is_prototype) {
+            strtab_size += strlen(c->functions[i].name) + 1;
+        }
+    }
+    
+    char *strtab = calloc(strtab_size, 1);
+    if (!strtab) { free(syms); fclose(f); return false; }
+    strtab[0] = '\0';
+    
+    /* Populate symbols - local symbols first, then global symbols */
+    size_t sym_idx = 1;  /* Skip null entry */
+    size_t str_off = 1;  /* Skip null byte */
+    
+    /* First pass: add local symbols (static functions) */
+    for (size_t i = 0; i < c->function_count; i++) {
+        ZeroCCFunction *fn = &c->functions[i];
+        if (fn->is_prototype) continue;
+        if (fn->is_static) {  /* Local symbol */
+            size_t name_len = strlen(fn->name);
+            memcpy(strtab + str_off, fn->name, name_len + 1);
+            syms[sym_idx].st_name = str_off;
+            syms[sym_idx].st_info = ELF64_ST_INFO(STB_LOCAL, STT_FUNC);
+            syms[sym_idx].st_shndx = 1;
+            syms[sym_idx].st_size = 0;
+            str_off += name_len + 1;
+            sym_idx++;
+        }
+    }
+    
+    /* Second pass: add global symbols (non-static functions) */
+    for (size_t i = 0; i < c->function_count; i++) {
+        ZeroCCFunction *fn = &c->functions[i];
+        if (fn->is_prototype) continue;
+        if (!fn->is_static) {  /* Global symbol */
+            size_t name_len = strlen(fn->name);
+            memcpy(strtab + str_off, fn->name, name_len + 1);
+            syms[sym_idx].st_name = str_off;
+            syms[sym_idx].st_info = ELF64_ST_INFO(STB_GLOBAL, STT_FUNC);
+            syms[sym_idx].st_shndx = 1;
+            syms[sym_idx].st_size = 0;
+            str_off += name_len + 1;
+            sym_idx++;
+        }
+    }
+    
+    size_t local_sym_count = sym_idx - 1;  /* Count of local symbols (excluding null entry) */
+    
     shdrs[4].sh_name = 25; shdrs[4].sh_type = SHT_SYMTAB; shdrs[4].sh_offset = offset;
-    shdrs[4].sh_size = sizeof(syms); shdrs[4].sh_link = 5; shdrs[4].sh_info = 1;
+    shdrs[4].sh_size = sizeof(Elf64_Sym) * (fn_count + 1); shdrs[4].sh_link = 5; shdrs[4].sh_info = 1 + local_sym_count;
     shdrs[4].sh_entsize = sizeof(Elf64_Sym); shdrs[4].sh_addralign = 8;
     offset += shdrs[4].sh_size;
 
     shdrs[5].sh_name = 33; shdrs[5].sh_type = SHT_STRTAB; shdrs[5].sh_offset = offset;
-    shdrs[5].sh_size = strtab_len; shdrs[5].sh_addralign = 1;
+    shdrs[5].sh_size = strtab_size; shdrs[5].sh_addralign = 1;
     offset += shdrs[5].sh_size;
+
+    /* Write symbol table and string table */
+    fwrite(syms, sizeof(Elf64_Sym), fn_count + 1, f);
+    fwrite(strtab, 1, strtab_size, f);
+    
+    /* Cleanup */
+    free(syms);
+    free(strtab);
 
     ehdr.e_shoff = offset;
 
@@ -109,8 +167,6 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     fwrite(c->text_section.data, 1, c->text_section.length, f);
     if (c->rodata_section.length) fwrite(c->rodata_section.data, 1, c->rodata_section.length, f);
     fwrite(shstrtab, 1, shstrtab_len, f);
-    fwrite(syms, 1, sizeof(syms), f);
-    fwrite(strtab, 1, strtab_len, f);
     fwrite(shdrs, 1, sizeof(shdrs), f);
 
     fclose(f);

@@ -381,18 +381,37 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     memset(symtab, 0, sizeof(Elf64Sym));
     symtab++;
 
-    // Add symbols
+    // Add symbols - local symbols first, then global symbols
+    ElfWriterSymbol* symtab_start = symtab;
+    
+    // First pass: add local symbols
     for (int i = 0; i < ctx->symbol_count; i++) {
         ElfWriterSymbol* sym = &ctx->symbols[i];
-
-        symtab->st_name = (uint32_t)(sym->name - ctx->strtab);
-        symtab->st_info = sym->info;
-        symtab->st_other = sym->other;
-        symtab->st_shndx = sym->section_idx;
-        symtab->st_value = sym->value;
-        symtab->st_size = sym->size;
-
-        symtab++;
+        int binding = (sym->info >> 4) & 0xF;
+        if (binding == ELF_STB_LOCAL) {
+            symtab->st_name = (uint32_t)(sym->name - ctx->strtab);
+            symtab->st_info = sym->info;
+            symtab->st_other = sym->other;
+            symtab->st_shndx = sym->section_idx;
+            symtab->st_value = sym->value;
+            symtab->st_size = sym->size;
+            symtab++;
+        }
+    }
+    
+    // Second pass: add global symbols
+    for (int i = 0; i < ctx->symbol_count; i++) {
+        ElfWriterSymbol* sym = &ctx->symbols[i];
+        int binding = (sym->info >> 4) & 0xF;
+        if (binding != ELF_STB_LOCAL) {
+            symtab->st_name = (uint32_t)(sym->name - ctx->strtab);
+            symtab->st_info = sym->info;
+            symtab->st_other = sym->other;
+            symtab->st_shndx = sym->section_idx;
+            symtab->st_value = sym->value;
+            symtab->st_size = sym->size;
+            symtab++;
+        }
     }
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
