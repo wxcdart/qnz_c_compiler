@@ -140,16 +140,27 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     if (!(sym->type.tag == TYPE_ARRAY && init_node && init_node->tag == NODE_COMPOUND_LIT)) {
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
                             /* System V AMD64 ABI: sret buffer pointer in result_temp.
+                             * Spill result_temp to a stack slot so offset additions don't clobber it.
                              * Copy chunks from [result_temp + i*8] to local stack -(sym->stack_offset - i*8) */
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int32_t buf_ptr_off = c->current_stack_frame;
+                            ir_emit_store(result_temp, BE(c)->fp_reg, -buf_ptr_off);
+
                             int num_chunks = (sym->type.size + 7) / 8;
                             for (int i = 0; i < num_chunks; i++) {
                                 int chunk_temp = c->next_temp_id++;
-                                int addr_temp = result_temp;
-                                if (i > 0) {
+                                int addr_temp;
+                                if (i == 0) {
+                                    addr_temp = c->next_temp_id++;
+                                    ir_emit_load(addr_temp, BE(c)->fp_reg, -buf_ptr_off);
+                                } else {
+                                    int base_temp = c->next_temp_id++;
+                                    ir_emit_load(base_temp, BE(c)->fp_reg, -buf_ptr_off);
                                     int off_temp = c->next_temp_id++;
                                     ir_emit_mov_imm(off_temp, i * 8);
                                     addr_temp = c->next_temp_id++;
-                                    ir_emit_add(addr_temp, result_temp, off_temp);
+                                    ir_emit_add(addr_temp, base_temp, off_temp);
                                 }
                                 ir_emit_deref(chunk_temp, addr_temp);
                                 ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
@@ -208,18 +219,22 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 
                 /* Load hidden pointer directly into VREG_0 (RAX) from stack slot (RDI saved at -sret_off) */
                 ir_emit_load(VREG_0, BE(c)->fp_reg, -sret_off);
-                int hidden_ptr_temp = VREG_0;  /* hidden pointer is in RAX */
                 
                 /* Store each 8-byte chunk to [hidden_ptr + i*8] */
                 int num_chunks = (sym->type.size + 7) / 8;
                 for (int i = 0; i < num_chunks; i++) {
                     int chunk_temp = c->next_temp_id++;
-                    int addr_temp = hidden_ptr_temp;
-                    if (i > 0) {
+                    int addr_temp;
+                    if (i == 0) {
+                        addr_temp = c->next_temp_id++;
+                        ir_emit_load(addr_temp, BE(c)->fp_reg, -sret_off);
+                    } else {
+                        int base_temp = c->next_temp_id++;
+                        ir_emit_load(base_temp, BE(c)->fp_reg, -sret_off);
                         int off_temp = c->next_temp_id++;
                         ir_emit_mov_imm(off_temp, i * 8);
                         addr_temp = c->next_temp_id++;
-                        ir_emit_add(addr_temp, hidden_ptr_temp, off_temp);
+                        ir_emit_add(addr_temp, base_temp, off_temp);
                     }
                     
                     /* Load chunk from local stack: local offset is -(sym->stack_offset - i*8) */
@@ -230,7 +245,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     ir_emit_store_64(chunk_temp, addr_temp);
                 }
                 
-                /* Return hidden pointer in RAX (already in VREG_0) */
+                /* Return hidden pointer in RAX (VREG_0) */
+                ir_emit_load(VREG_0, BE(c)->fp_reg, -sret_off);
                 ir_emit_jmp(c->lowering.epilogue_label);
                 return;
             }

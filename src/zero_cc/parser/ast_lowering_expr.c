@@ -821,16 +821,27 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16 && !is_compound) {
                             /* System V AMD64 ABI: sret buffer pointer in right_temp.
+                             * Spill right_temp to stack so offset additions don't clobber it.
                              * Copy chunks from [right_temp + i*8] to local stack -(sym->stack_offset - i*8) */
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int32_t buf_ptr_off = c->current_stack_frame;
+                            ir_emit_store(right_temp, BE(c)->fp_reg, -buf_ptr_off);
+
                             int num_chunks = (sym->type.size + 7) / 8;
                             for (int i = 0; i < num_chunks; i++) {
                                 int chunk_temp = c->next_temp_id++;
-                                int addr_temp = right_temp;
-                                if (i > 0) {
+                                int addr_temp;
+                                if (i == 0) {
+                                    addr_temp = c->next_temp_id++;
+                                    ir_emit_load(addr_temp, BE(c)->fp_reg, -buf_ptr_off);
+                                } else {
+                                    int base_temp = c->next_temp_id++;
+                                    ir_emit_load(base_temp, BE(c)->fp_reg, -buf_ptr_off);
                                     int off_temp = c->next_temp_id++;
                                     ir_emit_mov_imm(off_temp, i * 8);
                                     addr_temp = c->next_temp_id++;
-                                    ir_emit_add(addr_temp, right_temp, off_temp);
+                                    ir_emit_add(addr_temp, base_temp, off_temp);
                                 }
                                 ir_emit_deref(chunk_temp, addr_temp);
                                 ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
@@ -1105,23 +1116,41 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             ZeroCCASTNode *base_node = curr;
             int32_t base_stack_offset = 0;
-            
+            int val_temp = c->next_temp_id++;
             if (base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
                 if (sym) {
                     base_stack_offset = -sym->stack_offset;
                 }
+                int32_t total_offset = base_stack_offset + member_offset;
+                ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
             } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
                 (void)lower_expr(c, arena, base_ref);
                 ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
                 if (sym) {
                     base_stack_offset = -sym->stack_offset;
                 }
+                int32_t total_offset = base_stack_offset + member_offset;
+                ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+            } else {
+                /* General expression returning struct (e.g. NODE_CALL returning buffer pointer) */
+                int base_ptr = lower_expr(c, arena, base_ref);
+                int addr_temp = base_ptr;
+                if (member_offset != 0) {
+                    /* Spill base_ptr to stack to avoid clobbering in addition */
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    int32_t bptr_off = c->current_stack_frame;
+                    ir_emit_store(base_ptr, BE(c)->fp_reg, -bptr_off);
+                    int b_temp = c->next_temp_id++;
+                    ir_emit_load(b_temp, BE(c)->fp_reg, -bptr_off);
+                    int off_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(off_temp, member_offset);
+                    addr_temp = c->next_temp_id++;
+                    ir_emit_add(addr_temp, b_temp, off_temp);
+                }
+                ir_emit_deref(val_temp, addr_temp);
             }
-            
-            int32_t total_offset = base_stack_offset + member_offset;
-            int val_temp = c->next_temp_id++;
-            ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
 
             if (node->flags & NODE_MEMBER_IS_BITFIELD) {
                 uint8_t bit_offset = (uint8_t)(node->aux.step & 0xFF);

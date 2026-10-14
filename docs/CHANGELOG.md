@@ -1,5 +1,32 @@
 # ZeroCC Changelog
 
+## [Sprint 17] - 2026 - System V AMD64 ABI Hidden Pointer (sret) Large Struct Returns
+
+### Added - Core ABI Features
+- **Hidden Return Pointer (sret) for Large Structs (>16 bytes)**:
+  - Implemented System V AMD64 ABI compliant struct return for types exceeding 16 bytes.
+  - **Callee Side**:
+    - Function prologue reserves an 8-byte stack slot (`fn->sret_stack_offset`) below the frame base.
+    - Saves hidden return pointer received in `%rdi` into `-sret_stack_offset(%rbp)` and shifts incoming integer parameter registers (`int_idx = 1`, real arguments start in `%rsi`).
+    - Struct return lowering (`ast_lowering_stmt.c`) copies struct data in 8-byte chunks to `[hidden_ptr + i*8]` using safe base pointer reloading.
+    - Preserves and returns caller's hidden pointer in `%rax` upon function epilogue.
+  - **Caller Side**:
+    - Allocates 16-byte aligned return buffer on local stack.
+    - Passes buffer address in `%rdi` as hidden first argument.
+    - Shifts user integer arguments to `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9`.
+    - Handles returned buffer pointer in `%rax` and copies chunks to destination lvalue or provides pointer to expression.
+- **Sret Edge Cases Handled**:
+  - Direct member access on call expressions (`make_big20(...).c`) without requiring separate local variable binding.
+  - Direct assignment to existing local struct (`r = make_big20(...)`) with stack-spilled buffer pointer safety to prevent register clobbering.
+  - Struct return tail pass-through (`return make_inner(...)`).
+  - Safe parallel argument moves in x86-64 assembly emission (`x86_64_asm.c`) using push/pop sequence to avoid register overwriting during argument setup.
+  - Function prototype parameter recording in JIT/parser (`compile.h`) for external prototypes.
+- **Interoperability & Verification**:
+  - Full bidirectional compatibility verified between GCC and ZeroCC (`GCC caller -> ZeroCC callee` and `ZeroCC caller -> GCC callee`).
+  - Automated verification suite `tools/sret_verifier.py --verify-all` passes 6/6 checks.
+  - Added test cases `test/abi/struct_return_edge.c` and `test/abi/struct_return_tail.c`.
+  - Full test suite passes 135/135 tests (100%).
+
 ## [Sprint 16] - 2026 - AOT Assembly Emission Fixes & Cleanup
 
 ### Fixed - AOT Assembly Emission

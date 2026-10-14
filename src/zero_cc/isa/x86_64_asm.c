@@ -284,22 +284,37 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
     
+    /* Handle FP args first */
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
         const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
-        
-        /* Use is_fp array to determine if argument is FP */
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        
         if (arg_is_fp && fp_arg_idx < 8) {
             fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
             fp_arg_idx++;
-        } else if (!arg_is_fp && int_arg_idx < 6) {
-            fprintf(out, "\tmovq\t%%%s, %%%s\n", reg_name, int_arg_regs[int_arg_idx]);
-            int_arg_idx++;
         }
-        /* Stack arguments would go here for calls with >6 integer args or >8 FP args */
+    }
+
+    /* Collect integer argument register names and emit safe parallel move via push/pop */
+    const char *int_src_regs[6];
+    int n_int_args = 0;
+    for (int i = 0; i < arg_count && n_int_args < 6; i++) {
+        int arg_is_fp = is_fp ? is_fp[i] : 0;
+        if (!arg_is_fp) {
+            int temp = arg_temps[i];
+            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+            int_src_regs[n_int_args++] = BE(c)->get_hw_reg_name(phys_reg);
+        }
+    }
+
+    /* Push all src integer registers to stack */
+    for (int i = 0; i < n_int_args; i++) {
+        fprintf(out, "\tpushq\t%%%s\n", int_src_regs[i]);
+    }
+    /* Pop in reverse into destination ABI registers */
+    for (int i = n_int_args - 1; i >= 0; i--) {
+        fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
     }
     
     fprintf(out, "\tcall\t%s\n", func_name);

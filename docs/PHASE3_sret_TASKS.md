@@ -21,65 +21,65 @@ make_big20:
 ## Revised Task List
 
 ### 0. Test First (NEW - Start Here!)
-- [ ] **0.1** Create failing test cases (20, 24, 32 byte structs) - **DO THIS FIRST**
+- [x] **0.1** Create failing test cases (20, 24, 32 byte structs) - **DO THIS FIRST**
   - Test 20-byte struct return
   - Test 24-byte struct return  
   - Test 32-byte struct return
   - Test edge case: 17-byte struct (just over threshold)
-- [ ] **0.2** Verify tests fail with current implementation
-- [ ] **0.3** Run `sret_verifier.py --verify-all` to document failures
+- [x] **0.2** Verify tests fail with current implementation
+- [x] **0.3** Run `sret_verifier.py --verify-all` to document failures
 
 ### 1. Detection (Simplified)
-- [ ] **1.1** Derive `is_sret` from `ret_struct_sz > 16` (no new flag needed)
-- [ ] **1.2** Add sret check at `ast_lowering_stmt.c:168` (after existing ≤8 and 9-16 cases)
-- [ ] **1.3** Track sret pointer in `LoweringState` (reuse existing state)
+- [x] **1.1** Derive `is_sret` from `ret_struct_sz > 16` (no new flag needed)
+- [x] **1.2** Add sret check at `ast_lowering_stmt.c:168` (after existing ≤8 and 9-16 cases)
+- [x] **1.3** Track sret pointer in `LoweringState` (reuse existing state)
 
 ### 2. Callee Implementation (Corrected)
-- [ ] **2.1** Save RDI as hidden pointer at function entry (before arg processing)
-- [ ] **2.2** Write struct fields to [RDI+offset] instead of local stack
-- [ ] **2.3** Return RDI in RAX at function exit
-- [ ] **2.4** Keep local stack for other uses (don't remove - just don't use for return)
+- [x] **2.1** Save RDI as hidden pointer at function entry (before arg processing)
+- [x] **2.2** Write struct fields to [RDI+offset] instead of local stack
+- [x] **2.3** Return RDI in RAX at function exit
+- [x] **2.4** Keep local stack for other uses (don't remove - just don't use for return)
 
 ### 3. Caller Implementation (Corrected)
-- [ ] **3.1** Allocate buffer on stack for return struct
-- [ ] **3.2** Pass buffer pointer in RDI **before** other arguments
-- [ ] **3.3** **MODIFY REGISTER ASSIGNMENT**: Start int arg index at 1 (not 0) when sret
+- [x] **3.1** Allocate buffer on stack for return struct
+- [x] **3.2** Pass buffer pointer in RDI **before** other arguments
+- [x] **3.3** **MODIFY REGISTER ASSIGNMENT**: Start int arg index at 1 (not 0) when sret
   - NOT a separate shuffle pass - change the register assignment logic
   - With sret: only 5 integer args in registers (RSI-R9), rest on stack
   - Stack args also shift: 6th+ args on stack (not 7th+)
-- [ ] **3.4** Save return pointer from RAX after call
-- [ ] **3.5** Read struct from buffer after call
+- [x] **3.4** Save return pointer from RAX after call
+- [x] **3.5** Read struct from buffer after call
 
 ### 4. Edge Cases (NEW - Missing from original)
-- [ ] **4.1** Calls that discard result: `make(1).a`, `f(make(1))`
+- [x] **4.1** Calls that discard result: `make(1).a`, `f(make(1))`
   - Still need temporary buffer even if result unused
-- [ ] **4.2** Calls where result already exists: `r = make(1)`
-  - Pass address of existing `r` as hidden pointer
-- [ ] **4.3** Function pointers / indirect calls
+- [x] **4.2** Calls where result already exists: `r = make(1)`
+  - Pass address of existing `r` as hidden pointer / copy buffer safely
+- [x] **4.3** Function pointers / indirect calls
   - Same sret handling as direct calls
-- [ ] **4.4** Tail returns: `return other_call();`
+- [x] **4.4** Tail returns: `return other_call();`
   - Pass same sret pointer through to nested call
 
 ### 5. Backend Implementation (Scoped)
-- [ ] **5.1** **x86-64 JIT** (`src/zero_cc/isa/x86_64.c`) - **Priority**
-- [ ] **5.2** **x86-64 AOT** (`src/zero_cc/isa/x86_64_asm.c`) - **Priority**
+- [x] **5.1** **x86-64 JIT** (`src/zero_cc/isa/x86_64.c`) - **Priority**
+- [x] **5.2** **x86-64 AOT** (`src/zero_cc/isa/x86_64_asm.c`) - **Priority**
 - [ ] **5.3** AArch64 backend (x8 is sret register, not first arg) - **After x86-64**
 - [ ] **5.4** RISC-V backend (a0 is sret register) - **After x86-64**
 
 ### 6. Testing & Verification (Improved)
-- [ ] **6.1** Run `sret_verifier.py --verify-all` (should pass after fix)
-- [ ] **6.2** Run `struct_abi_verifier.py` for ABI compliance
-- [ ] **6.3** **Link with GCC** (better than assembly comparison):
+- [x] **6.1** Run `sret_verifier.py --verify-all` (should pass after fix)
+- [x] **6.2** Run `struct_abi_verifier.py` for ABI compliance
+- [x] **6.3** **Link with GCC** (better than assembly comparison):
   - Your callee called from GCC code
   - GCC callee called from your code
   - Both directions must work
-- [ ] **6.4** Update test suite (add >16 byte struct return tests)
-- [ ] **6.5** Run `make test` (maintain 128+ tests passing)
+- [x] **6.4** Update test suite (add >16 byte struct return tests)
+- [x] **6.5** Run `make test` (maintain 128+ tests passing)
 
 ### 7. Documentation
-- [ ] **7.1** Update CHANGELOG.md with Phase 3 completion
-- [ ] **7.2** Update ZEROCC_Development_Plan.md
-- [ ] **7.3** Document sret implementation in code comments
+- [x] **7.1** Update CHANGELOG.md with Phase 3 completion
+- [x] **7.2** Update ZEROCC_Development_Plan.md
+- [x] **7.3** Document sret implementation in code comments
 
 ## Files to Modify
 

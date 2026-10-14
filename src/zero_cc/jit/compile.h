@@ -224,6 +224,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->is_prototype = true;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
+            for (size_t i = 0; i < param_count && i < 8; i++) {
+                fn->param_types[i] = param_types[i];
+                snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
+            }
         }
         c->token_pos++;
         return;

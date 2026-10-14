@@ -6,6 +6,17 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
 
 ## Completed Sprints
 
+### Sprint 17: System V AMD64 ABI Hidden Pointer (sret) Struct Returns ✅
+- **Status**: COMPLETE
+- **Achievement**: Implemented System V AMD64 ABI hidden return pointer (`sret`) for structs >16 bytes across JIT and AOT code paths with full bidirectional GCC interoperability.
+- **Key Deliverables**:
+  - Callee saves hidden pointer passed in `%rdi`, shifts user integer args to `%rsi`+, writes struct chunks to `[hidden_ptr + i*8]`, and returns `hidden_ptr` in `%rax`.
+  - Caller allocates 16-byte aligned buffer, passes address in `%rdi`, shifts arguments, and copies chunks or references returned pointer.
+  - Safe parallel argument moves in x86-64 backend via push/pop sequence to avoid register overwriting.
+  - Handled edge cases: direct member access on call return (`make().c`), struct assignment to existing local (`r = make()`), and tail returns (`return other()`).
+  - Automated verification: `sret_verifier.py --verify-all` passes 6/6 checks. Bidirectional GCC linking passes.
+- **Result**: All 135/135 tests passing (100% pass rate)
+
 ### Sprint 9.5: VLA Array Access Bug Fix ✅
 - **Status**: COMPLETE
 - **Achievement**: Fixed critical x86-64 shift instruction bug affecting VLA array indexing
