@@ -109,6 +109,7 @@ typedef struct {
     ZeroCCType param_types[8];
     bool returns_struct;
     size_t ret_struct_sz;
+    int32_t sret_stack_offset;            /* Stack offset (positive, below rbp) for hidden sret ptr */
     bool is_variadic;
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */

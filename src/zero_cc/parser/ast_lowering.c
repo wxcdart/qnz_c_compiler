@@ -65,6 +65,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int xmm_idx = 0;
         int int_idx = 0;
         int stack_idx = 0;
+        
+        /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI */
+        /* If function returns >16 byte struct, RDI is the hidden pointer, not param 0 */
+        bool uses_sret = fn->ret_struct_sz > 16;
+        if (uses_sret) {
+            /* Save RDI as hidden pointer at fn->sret_stack_offset (reserved before params) */
+            ir_emit_param_save_int(0, fn->sret_stack_offset);  /* int_idx=0 means RDI */
+            int_idx = 1;  /* Start real params at RSI (int_idx=1) */
+        }
 
         for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
             ZeroCCSym *sym = &c->locals[p];

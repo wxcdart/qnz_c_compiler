@@ -143,6 +143,50 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
                 BE(c)->emit_deref_asm(c, phys_dst, phys_src1, out);
             }
             return;
+
+        case OP_STORE_64: {
+            const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
+            fprintf(out, "\tmovq\t%%%s,(%%%s)\n", val_name, addr_name);
+            return;
+        }
+
+        case OP_STORE_32: {
+            const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
+            /* 32-bit register name: eax/ebx/etc */
+            static const char *r32_names[] = {
+                "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+                "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+            };
+            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r32_names[phys_src1] : val_name;
+            fprintf(out, "\tmovl\t%%%s,(%%%s)\n", reg_name, addr_name);
+            return;
+        }
+
+        case OP_STORE_16: {
+            const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
+            static const char *r16_names[] = {
+                "ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
+                "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
+            };
+            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r16_names[phys_src1] : val_name;
+            fprintf(out, "\tmovw\t%%%s,(%%%s)\n", reg_name, addr_name);
+            return;
+        }
+
+        case OP_STORE_BYTE: {
+            const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
+            static const char *r8_names[] = {
+                "al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
+                "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"
+            };
+            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r8_names[phys_src1] : val_name;
+            fprintf(out, "\tmovb\t%%%s,(%%%s)\n", reg_name, addr_name);
+            return;
+        }
             
         /* Arithmetic */
         case OP_ADD:

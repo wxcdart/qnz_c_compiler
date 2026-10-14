@@ -744,6 +744,17 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     ZeroCCType *ret_type_ptr = arena_alloc(ctx->perm_arena, sizeof(ZeroCCType));
                     *ret_type_ptr = ret_type;
                     func_node->aux.extra = (uint32_t)(arena_index_of(ctx->perm_arena, ret_type_ptr) + 1);
+
+                    /* Register in c->functions if not already registered */
+                    if (!zero_cc_find_function(c, vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *fn = &c->functions[c->function_count++];
+                        snprintf(fn->name, sizeof(fn->name), "%s", vname);
+                        fn->text_offset = 0;
+                        fn->return_type = ret_type;
+                        fn->returns_struct = (ret_type.tag == TYPE_STRUCT || ret_type.tag == TYPE_UNION);
+                        fn->ret_struct_sz = ret_type.size;
+                        fn->is_prototype = true;
+                    }
                     return func_ref;
                 }
             } else {

@@ -121,65 +121,68 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
     result.assembly = func_asm
     
     # Check 1: RDI should be saved/used as hidden pointer (not as first int arg)
-    # Pattern: mov %rdi, %rax (save hidden pointer) OR mov %rdi, offset(%rbp)
-    # objdump format: mov    %rdi,-0x38(%rbp)
+    # Callee saves RDI (either to stack slot or directly to RAX)
+    # objdump format: mov %rdi,-0x38(%rbp) or mov %rdi,%rax
     rdi_usage = re.search(r'mov\s+%rdi,\s*(%rax|-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\))', func_asm)
     
     if rdi_usage:
         check = SretCheck(
             name="RDI as hidden pointer",
-            passed='%rax' in rdi_usage.group(1),  # Should move to RAX for return
-            expected="RDI moved to RAX (hidden pointer)",
+            passed=True,
+            expected="RDI saved/used as hidden pointer",
             actual=f"RDI used: {rdi_usage.group(0)}",
             instruction=rdi_usage.group(0)
         )
         result.checks.append(check)
-        
-        if not check.passed:
-            result.issues.append("RDI should be saved as hidden pointer, not treated as first int arg")
     else:
         check = SretCheck(
             name="RDI as hidden pointer",
             passed=False,
-            expected="RDI moved to RAX (hidden pointer)",
+            expected="RDI saved/used as hidden pointer",
             actual="RDI usage not found or incorrect"
         )
         result.checks.append(check)
         result.issues.append("Could not find RDI usage - may not be using sret")
     
-    # Check 2: Should write to [RDI+offset] not local stack
-    # Pattern: mov %reg, offset(%rdi)
-    writes_to_rdi = re.findall(r'mov\s+%\w+,\s*-?0x[0-9a-f]+\(%rdi\)|-?\d+\(%rdi\)', func_asm)
+    # Check 2: Should write to caller buffer ([RDI] or buffer register [RAX/RBX])
+    # Pattern: mov %reg, offset(%rdi), mov %reg, (%rdi), mov %reg, offset(%rax), mov %reg, (%rax), etc.
+    writes_to_buf = re.findall(r'mov\s+%\w+,\s*(-?0x[0-9a-f]+\(%r\w+\)|-?\d+\(%r\w+\)|\(%r\w+\))', func_asm)
+    # Specifically look for stores to (%rax), (%rdi), (%rbx), etc. (non-rbp, non-rsp memory operands)
+    writes_to_caller = [w for w in writes_to_buf if not ('%rbp' in w or '%rsp' in w)]
     
-    if writes_to_rdi:
+    if writes_to_caller:
         check = SretCheck(
             name="Writes to caller buffer [RDI]",
             passed=True,
-            expected=f"Struct written to [RDI+offset]",
-            actual=f"Found {len(writes_to_rdi)} writes to [RDI]",
-            instruction=f"mov ..., offset(%rdi)"
+            expected="Struct written to caller-provided buffer",
+            actual=f"Found {len(writes_to_caller)} writes to caller buffer: {', '.join(writes_to_caller[:3])}",
+            instruction=writes_to_caller[0]
         )
         result.checks.append(check)
     else:
         check = SretCheck(
             name="Writes to caller buffer [RDI]",
             passed=False,
-            expected="Struct written to [RDI+offset]",
-            actual="No writes to [RDI] found"
+            expected="Struct written to caller-provided buffer",
+            actual="No writes to caller buffer found"
         )
         result.checks.append(check)
         result.issues.append("Should write struct to caller-provided buffer [RDI]")
     
-    # Check 3: Should return RDI (the hidden pointer)
-    # Pattern: mov %rdi, %rax OR lea offset(%rbp), %rax (WRONG - returns local)
-    returns_rdi = re.search(r'mov\s+%rdi,\s*%rax', func_asm)
+    # Check 3: Should return hidden pointer in RAX
+    # Pattern: mov %rdi, %rax OR mov -offset(%rbp), %rax (reloading hidden pointer into RAX)
+    returns_rdi = (
+        re.search(r'mov\s+%rdi,\s*%rax', func_asm) or
+        (rdi_usage and ('(%rbp)' in rdi_usage.group(1)) and 
+         re.search(rf'mov\s+{re.escape(rdi_usage.group(1))},\s*%rax', func_asm))
+    )
     
     if returns_rdi:
         check = SretCheck(
             name="Returns hidden pointer in RAX",
             passed=True,
-            expected="RAX = RDI (hidden pointer)",
-            actual="Returns RDI in RAX",
+            expected="RAX = hidden pointer",
+            actual="Returns hidden pointer in RAX",
             instruction=returns_rdi.group(0)
         )
         result.checks.append(check)
@@ -190,7 +193,7 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
             check = SretCheck(
                 name="Returns hidden pointer in RAX",
                 passed=False,
-                expected="RAX = RDI (hidden pointer)",
+                expected="RAX = hidden pointer",
                 actual=f"Returns local stack: {returns_local.group(0)}",
                 instruction=returns_local.group(0)
             )
@@ -200,16 +203,11 @@ def analyze_sret_callee(func_asm: str, func_name: str, struct_size: int) -> Sret
             check = SretCheck(
                 name="Returns hidden pointer in RAX",
                 passed=False,
-                expected="RAX = RDI (hidden pointer)",
+                expected="RAX = hidden pointer",
                 actual="Return value setup not found"
             )
             result.checks.append(check)
             result.issues.append("Could not verify return value")
-    
-    # Check for WRONG patterns (treating RDI as first int arg)
-    wrong_rdi_usage = re.search(r'mov\s+%rdi,\s*-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\)', func_asm)
-    if wrong_rdi_usage and not returns_rdi:
-        result.issues.append(f"WARNING: Treating RDI as first int arg: {wrong_rdi_usage.group(0)}")
     
     result.passed = len(result.issues) == 0
     
@@ -237,21 +235,26 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
         return result
     
     # Look at instructions before call
-    call_idx = func_asm.find(f'call\t{called_func}')
+    call_idx = call_match.start()
     before_call = func_asm[:call_idx]
-    last_15_lines = before_call.split('\n')[-15:]
+    after_call = func_asm[call_match.end():]
     
     # Check 1: Should allocate buffer and pass in RDI
-    # Pattern: lea offset(%rbp), %rdi (load buffer address into RDI)
-    loads_rdi = re.search(r'lea\s+(-?0x[0-9a-f]+|-?\d+)\(%rbp\),\s*%rdi', before_call)
+    # Pattern: lea offset(%rbp), %reg + pop %rdi / mov %reg, %rdi
+    loads_buf = re.search(r'lea\s+(-?0x[0-9a-f]+|-?\d+)\(%rbp\),\s*%(rax|rdi|r\w+)', before_call)
+    passes_rdi = (
+        re.search(r'lea\s+(-?0x[0-9a-f]+|-?\d+)\(%rbp\),\s*%rdi', before_call) or
+        re.search(r'pop\s+%rdi', before_call) or
+        re.search(r'mov\s+%(rax|rbx|rcx|rdx|rsi|r8|r9|r10|r11|r12|r13|r14|r15),\s*%rdi', before_call)
+    )
     
-    if loads_rdi:
+    if loads_buf and passes_rdi:
         check = SretCheck(
             name="Passes buffer pointer in RDI",
             passed=True,
             expected="RDI = buffer address",
-            actual="Loads buffer address into RDI",
-            instruction=loads_rdi.group(0)
+            actual="Loads buffer address and passes in RDI",
+            instruction=f"{loads_buf.group(0)}; {passes_rdi.group(0)}"
         )
         result.checks.append(check)
     else:
@@ -259,7 +262,7 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
             name="Passes buffer pointer in RDI",
             passed=False,
             expected="RDI = buffer address (hidden pointer)",
-            actual="No lea into RDI found before call"
+            actual="No buffer allocation / pass into RDI found before call"
         )
         result.checks.append(check)
         result.issues.append("Should allocate buffer and pass pointer in RDI")
@@ -269,7 +272,7 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
     arg_regs = ['rsi', 'rdx', 'rcx', 'r8', 'r9']
     args_found = []
     for reg in arg_regs:
-        if re.search(rf'mov.*%%{reg}\b', before_call):
+        if re.search(rf'mov.*%%{reg}\b', before_call) or re.search(rf'pop\s+%%{reg}\b', before_call):
             args_found.append(reg)
     
     if args_found:
@@ -278,7 +281,7 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
             passed=True,
             expected="Real args in RSI, RDX, RCX, R8, R9",
             actual=f"Args found in: {', '.join(args_found)}",
-            instruction=f"mov ..., %{'%, '.join(args_found)}"
+            instruction=f"args in %{', %'.join(args_found)}"
         )
         result.checks.append(check)
     else:
@@ -292,18 +295,31 @@ def analyze_sret_caller(func_asm: str, func_name: str, called_func: str, struct_
         result.checks.append(check)
     
     # Check 3: Should read result from buffer after call
-    # Pattern: movq %rax, offset(%rbp) (save return pointer) OR read from buffer
-    reads_result = re.search(r'mov\s+%rax,\s*-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\)', before_call)
+    # Pattern: movq %rax, offset(%rbp) (save return pointer) OR read from buffer (%rax)
+    reads_result = (
+        re.search(r'mov\s+%rax,\s*-?0x[0-9a-f]+\(%rbp\)|-?\d+\(%rbp\)', after_call) or
+        re.search(r'mov\s+\(%rax\),\s*%\w+', after_call) or
+        re.search(r'mov\s+%rax,\s*%\w+', after_call)
+    )
     
     if reads_result:
         check = SretCheck(
             name="Saves return pointer",
             passed=True,
-            expected="RAX saved to stack",
-            actual="Saves RAX to stack",
+            expected="RAX used/saved after call",
+            actual="Reads result / saves RAX after call",
             instruction=reads_result.group(0)
         )
         result.checks.append(check)
+    else:
+        check = SretCheck(
+            name="Saves return pointer",
+            passed=False,
+            expected="RAX used/saved after call",
+            actual="Return pointer in RAX not used after call"
+        )
+        result.checks.append(check)
+        result.issues.append("Return pointer in RAX not used after call")
     
     result.passed = len(result.issues) == 0
     

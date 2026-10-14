@@ -253,6 +253,16 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         c->local_count = 0;
         c->current_stack_frame = BE(c)->callee_save_frame_reserve; /* Reserve top of frame for callee-saves */
 
+        /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI.
+         * Reserve an 8-byte stack slot for the hidden pointer before params. */
+        if (fn->ret_struct_sz > 16) {
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            fn->sret_stack_offset = c->current_stack_frame;
+        } else {
+            fn->sret_stack_offset = 0;
+        }
+
         /* Parameters and locals are allocated stack offsets in c->current_stack_frame.
          * The function prologue and parameter save instructions will be emitted into IR in zero_cc_lower_ast(). */
         int xmm_reg_idx = 0;

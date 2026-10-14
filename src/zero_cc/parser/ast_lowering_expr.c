@@ -819,10 +819,28 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 case TK_SHR_ASSIGN: ir_emit_shr(right_temp, left_temp, right_temp); break;
                             }
                         }
-                        ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
-                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
-                            /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
-                            ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16 && !is_compound) {
+                            /* System V AMD64 ABI: sret buffer pointer in right_temp.
+                             * Copy chunks from [right_temp + i*8] to local stack -(sym->stack_offset - i*8) */
+                            int num_chunks = (sym->type.size + 7) / 8;
+                            for (int i = 0; i < num_chunks; i++) {
+                                int chunk_temp = c->next_temp_id++;
+                                int addr_temp = right_temp;
+                                if (i > 0) {
+                                    int off_temp = c->next_temp_id++;
+                                    ir_emit_mov_imm(off_temp, i * 8);
+                                    addr_temp = c->next_temp_id++;
+                                    ir_emit_add(addr_temp, right_temp, off_temp);
+                                }
+                                ir_emit_deref(chunk_temp, addr_temp);
+                                ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                            }
+                        } else {
+                            ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
+                            if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
+                                /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
+                                ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                            }
                         }
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -1380,7 +1398,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_reload_idx = 0;
                 int fp_reload_idx = 0;
                 
-                /* First reload integer arguments */
+                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
+                bool callee_uses_sret = callee_fn && (callee_fn->return_type.tag == TYPE_STRUCT || callee_fn->return_type.tag == TYPE_UNION) && (callee_fn->return_type.size > 16);
+                int sret_buf_temp = 0;
+
+                /* System V AMD64 ABI: >16 byte struct return requires caller to allocate buffer
+                 * and pass its address in RDI (as first integer argument). */
+                if (callee_uses_sret) {
+                    c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame += (int32_t)callee_fn->return_type.size;
+                    int32_t buf_stack_off = c->current_stack_frame;
+
+                    sret_buf_temp = c->next_temp_id++;
+                    ir_emit_lea(sret_buf_temp, BE(c)->fp_reg, -buf_stack_off);
+
+                    all_arg_temps[all_arg_count] = sret_buf_temp;
+                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_count++;
+                }
+
+                /* Then reload user integer arguments */
                 for (int a = 0; a < int_arg_idx; a++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
@@ -1400,19 +1437,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     fp_reload_idx++;
                 }
                 
+                /* Total integer arguments including sret if present */
+                int total_int_args = int_arg_idx + (callee_uses_sret ? 1 : 0);
+
                 /* Emit IR call */
                 ir_emit_call(name);
                 
                 /* Pack argument info into the instruction */
                 if (ir_get_count() > 0) {
                     Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
-                    last_instr->temp_dest = (uint8_t)int_arg_idx;
-                    if (int_arg_idx > 0) last_instr->temp_src1 = (uint8_t)all_arg_temps[0];
-                    if (int_arg_idx > 1) last_instr->temp_src2 = (uint8_t)all_arg_temps[1];
-                    if (int_arg_idx > 2) {
+                    last_instr->temp_dest = (uint8_t)total_int_args;
+                    if (total_int_args > 0) last_instr->temp_src1 = (uint8_t)all_arg_temps[0];
+                    if (total_int_args > 1) last_instr->temp_src2 = (uint8_t)all_arg_temps[1];
+                    if (total_int_args > 2) {
                         last_instr->imm = 0;
-                        if (int_arg_idx > 2) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[2]) << 0;
-                        if (int_arg_idx > 3) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[3]) << 8;
+                        if (total_int_args > 2) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[2]) << 0;
+                        if (total_int_args > 3) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[3]) << 8;
                     }
                     /* Full argument list (needed for 5+ args) */
                     ir_call_args_record(ir_get_count() - 1, all_arg_count, all_arg_temps, all_arg_is_fp);
@@ -1429,7 +1469,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
                 
-                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
                 if (callee_fn && (callee_fn->return_type.tag == TYPE_FLOAT || callee_fn->return_type.tag == TYPE_DOUBLE)) {
                     c->last_expr_is_float = 1;
                     return VREG_F0;  /* Return value in xmm0 */
@@ -1449,6 +1488,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return VREG_0;
                 }
                 
+                /* If function returns >16 byte struct, return pointer to allocated buffer (returned in RAX) */
+                if (callee_uses_sret) {
+                    int call_res_temp = c->next_temp_id++;
+                    ir_emit_mov_reg(call_res_temp, VREG_0);
+                    return call_res_temp;
+                }
+
                 int call_res_temp = c->next_temp_id++;
                 ir_emit_mov_reg(call_res_temp, VREG_0);
                 return call_res_temp;
