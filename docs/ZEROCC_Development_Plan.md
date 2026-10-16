@@ -115,12 +115,12 @@ ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The proj
 - SIMD IR opcodes (32 opcodes defined)
 
 ### 📊 Test Coverage
-- **Total Tests**: 128/128 passing (100%)
+- **Total Tests**: 136/136 passing (100%)
 - **Test Categories**:
   - JIT compilation tests (100%)
   - AOT assembly generation tests (100%)
   - Register allocation tests under extreme pressure (18+ live variables)
-  - System V AMD64 ABI compliance tests (stack args, variadic, struct by-value)
+  - System V AMD64 ABI compliance tests (stack args, variadic, struct by-value, struct return sret >16B, indirect funcptr calls)
   - Semantic analysis tests
   - Unit tests (IR, hash tables, etc.)
 - **No Regressions**: All changes maintain backward compatibility
@@ -163,28 +163,14 @@ Register Allocator
 
 ## Next Steps (Future Sprints)
 
-### Phase 3: Large Struct Returns >16 bytes (Priority)
-- **Objective**: Implement struct return via hidden pointer (sret) for structs >16 bytes
-- **Estimated Duration**: 2 days
-- **System V AMD64 ABI Requirements**:
-  - Caller allocates buffer and passes pointer in RDI (shifts real args: RDI→RSI, RSI→RDX, etc.)
-  - Callee writes struct to caller-provided buffer
-  - Callee returns same pointer in RAX
-- **Key Tasks**:
-  - Detect struct returns >16 bytes in AST lowering
-  - Add hidden pointer parameter (sret) to function signature
-  - Shift argument registers (rdi→rsi, rsi→rdx, etc.)
-  - Write struct to caller-provided buffer instead of local stack
-  - Return pointer in RAX
-  - Update caller to allocate buffer and pass as first argument
+### Phase 3b & 3c: Multi-ISA Large Struct Returns >16 bytes (`sret` for AArch64 & RISC-V)
+- **Objective**: Extend `>16`-byte struct `sret` support to AArch64 (`x8` indirect result register) and RISC-V (`a0` hidden first argument)
+- **x86-64 Status**: ✅ COMPLETE (direct calls, member access, struct reassignment, tail returns, and indirect function pointer calls)
 
-### SIMD Implementation
-- **Objective**: Implement SIMD instruction emission for all ISAs
-- **Status**: IR opcodes defined (32 opcodes), auto-vectorizer disabled due to bugs
-- **Estimated Duration**: 1-2 weeks
+### Multi-ISA SIMD Emission (AArch64 NEON & RISC-V RVV)
+- **Objective**: Implement SIMD instruction emission for AArch64 and RISC-V
+- **Status**: x86-64 SSE2 emission and `auto_vectorize` pass are enabled and passing (`test/jit/simd_loop_test.c`)
 - **Key Tasks**:
-  - Fix auto-vectorizer bugs
-  - Implement x86-64 SSE2 emission
   - Implement AArch64 NEON emission
   - Implement RISC-V RVV emission
 
@@ -283,11 +269,10 @@ Register Allocator
 ## Known Limitations
 
 ### Current Limitations
-1. **Large Struct Returns (>16 bytes)**: Missing sret (struct return) implementation
-2. **SIMD**: IR opcodes defined but auto-vectorizer disabled due to bugs
-3. **Float Printf**: One pre-existing test failure (unrelated to recent changes)
-4. **Multi-dim VLA**: Only 1D VLAs supported
-5. **`__int128`**: Not yet implemented
+1. **Multi-ISA `sret` (>16B struct returns)**: Completed on x86-64; AArch64 (`x8`) and RISC-V (`a0`) `sret` in progress
+2. **Multi-ISA SIMD**: x86-64 SSE2 and `auto_vectorize` enabled; AArch64 NEON and RISC-V RVV emission remaining
+3. **Multi-dim VLA**: Only 1D VLAs supported
+4. **`__int128`**: Not yet implemented
 
 ### Completed Features (Previously Planned)
 - ✅ Stack Arguments (>6 integer args on x86-64)
@@ -295,13 +280,15 @@ Register Allocator
 - ✅ 8-byte struct return values (in RAX)
 - ✅ 9-16 byte struct by-value parameters (in registers)
 - ✅ **9-16 byte struct returns** (in RAX:RDX)
+- ✅ **>16 byte struct returns (`sret`) on x86-64** (direct calls, member access, reassignment, tail returns, indirect function pointer calls)
 - ✅ **Struct by-value passing** (all sizes, System V AMD64 ABI compliant)
-- ✅ System V AMD64 ABI full compliance (except sret for >16 byte returns)
+- ✅ **SIMD Auto-Vectorizer (`opt_vectorize.c`)** on x86-64
+- ✅ **Open Knowledge Format (OKF v0.2) Knowledge Graph (`docs/okf/` & `tools/okf.py`)**
 
 ## Conclusion
 
-ZeroCC has achieved significant milestones with complete VLA support, multi-ISA backend architecture, ABI-compliant function call argument passing, struct by-value handling (up to 16 bytes), and AOT assembly emission fixes. All 128 tests pass with no regressions. The compiler is production-ready for basic C code compilation across three ISAs (x86-64, AArch64, RISC-V).
+ZeroCC has achieved complete VLA support, multi-ISA backend architecture, ABI-compliant function call argument passing, full System V AMD64 struct by-value and `sret` (`>16` byte) return handling, SIMD auto-vectorization, and an OKF v0.2 knowledge graph. All 136/136 tests pass with no regressions.
 
-**Current Status**: ✅ Production-ready for integer code with System V AMD64 ABI support (except sret for >16 byte returns)
-**Next Priority**: Large struct returns >16 bytes via hidden pointer (sret) - Phase 3
-**Long-term Vision**: Full SIMD support and optimization passes
+**Current Status**: ✅ Production-ready for x86-64 with full System V AMD64 ABI compliance (136/136 tests passing)
+**Next Priority**: Multi-ISA `sret` (>16 byte struct returns) for AArch64 (`x8`) and RISC-V (`a0`)
+**Long-term Vision**: Full Multi-ISA SIMD support and language extensions (`__int128`)
