@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 136-test suite, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, okf]
-timestamp: 2026-10-15T22:55:00Z
+timestamp: 2026-10-16T04:58:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -62,6 +62,9 @@ Note that `build/test/abi/*` binaries built by `make all` are compiled by the ho
 ```bash
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
 python3 tools/sret_verifier.py --verify-all
+
+# Cross-verify sret (>16B struct return) execution across x86-64, AArch64, and RISC-V under QEMU
+python3 tools/sret_verifier.py --target-all
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

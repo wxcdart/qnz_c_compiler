@@ -277,6 +277,8 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
     int indirect_temp = -1;
     int sret_temp = -1;
     int int_src_regs[8];
+    int int_arg_temps[IR_CALL_MAX_ARGS];
+    int total_int_count = 0;
     
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
@@ -291,8 +293,11 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         } else if (arg_is_fp == 1 && fp_arg_idx < 8) {
             fprintf(out, "\tfmov\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
             fp_arg_idx++;
-        } else if (arg_is_fp == 0 && int_arg_idx < 8) {
-            int_src_regs[int_arg_idx++] = phys_reg;
+        } else if (arg_is_fp == 0) {
+            int_arg_temps[total_int_count++] = temp;
+            if (int_arg_idx < 8) {
+                int_src_regs[int_arg_idx++] = phys_reg;
+            }
         }
     }
     
@@ -308,6 +313,17 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         fprintf(out, "\tmov\tx8, %s\n", BE(c)->get_hw_reg_name(r_sret));
     }
     
+    /* Arguments beyond x0-x7 (8 args) go on the stack: 16-byte aligned */
+    int n_stack = (total_int_count > 8) ? total_int_count - 8 : 0;
+    int stack_alloc = ((n_stack * 8) + 15) & ~15;
+    if (n_stack > 0) {
+        fprintf(out, "\tsub\tsp, sp, #%d\n", stack_alloc);
+        for (int a = 8; a < total_int_count; a++) {
+            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+            fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(phys_reg), (a - 8) * 8);
+        }
+    }
+
     /* Parallel move of integer arguments via stack push/pop so x0..x7 don't clobber each other */
     if (int_arg_idx > 0) {
         int alloc_bytes = ((int_arg_idx * 8) + 15) & ~15;
@@ -325,6 +341,11 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         fprintf(out, "\tblr\tx10\n");
     } else if (func_name) {
         fprintf(out, "\tbl\t%s\n", func_name);
+    }
+
+    /* Clean up stack arguments after call */
+    if (n_stack > 0) {
+        fprintf(out, "\tadd\tsp, sp, #%d\n", stack_alloc);
     }
 }
 

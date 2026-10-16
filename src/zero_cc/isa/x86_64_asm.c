@@ -311,12 +311,29 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     /* Collect integer argument register names and emit safe parallel move via push/pop */
     const char *int_src_regs[6];
     int n_int_args = 0;
-    for (int i = 0; i < arg_count && n_int_args < 6; i++) {
+    int int_arg_temps[IR_CALL_MAX_ARGS];
+    int total_int_count = 0;
+
+    for (int i = 0; i < arg_count; i++) {
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         if (arg_is_fp == 0) {
             int temp = arg_temps[i];
-            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
-            int_src_regs[n_int_args++] = BE(c)->get_hw_reg_name(phys_reg);
+            int_arg_temps[total_int_count++] = temp;
+            if (n_int_args < 6) {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+                int_src_regs[n_int_args++] = BE(c)->get_hw_reg_name(phys_reg);
+            }
+        }
+    }
+
+    /* Arguments beyond 6 are passed on the stack: push in reverse order, maintain 16-byte alignment */
+    int n_stack = (total_int_count > 6) ? total_int_count - 6 : 0;
+    int stack_pad = (n_stack & 1) ? 8 : 0;
+    if (n_stack > 0) {
+        if (stack_pad) fprintf(out, "\tsubq\t$8, %%rsp\n");
+        for (int a = total_int_count - 1; a >= 6; a--) {
+            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
         }
     }
 
@@ -333,6 +350,12 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         fprintf(out, "\tcall\t*%%r11\n");
     } else {
         fprintf(out, "\tcall\t%s\n", func_name);
+    }
+
+    /* Clean up stack arguments after call */
+    if (n_stack > 0) {
+        int total_cleanup = n_stack * 8 + stack_pad;
+        fprintf(out, "\taddq\t$%d, %%rsp\n", total_cleanup);
     }
 }
 

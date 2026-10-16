@@ -473,8 +473,59 @@ def main():
                         help='Verify all built-in test cases')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose output with assembly')
+    parser.add_argument('--target-all', action='store_true',
+                        help='Verify all struct_return tests cross-compiled for x86-64, AArch64, and RISC-V under QEMU')
     
     args = parser.parse_args()
+
+    if args.target_all:
+        test_files = [
+            'test/abi/struct_return_17byte.c',
+            'test/abi/struct_return_20byte.c',
+            'test/abi/struct_return_24byte.c',
+            'test/abi/struct_return_32byte.c',
+            'test/abi/struct_return_tail.c',
+            'test/abi/struct_return_edge.c',
+            'test/abi/struct_return_funcptr.c',
+        ]
+        targets = [
+            ('x86-64', 'gcc', ''),
+            ('aarch64', 'aarch64-linux-gnu-gcc', 'qemu-aarch64-static'),
+            ('riscv64', 'riscv64-linux-gnu-gcc -march=rv64gc', 'qemu-riscv64-static'),
+        ]
+        print("=" * 70)
+        print("MULTI-ISA SRET CROSS-VERIFICATION (QEMU / Native)")
+        print("=" * 70)
+        all_ok = True
+        for t in test_files:
+            print(f"\nTest: {t}")
+            for target_name, cc_cmd, qemu_runner in targets:
+                s_file = f"/tmp/sret_test_{target_name}.s"
+                bin_file = f"/tmp/sret_test_{target_name}"
+                target_flag = f"--target {target_name}" if target_name != "x86-64" else ""
+                cmd1 = f"./build/bin/zerocc {t} {target_flag} -S -o {s_file}"
+                r1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True)
+                if r1.returncode != 0:
+                    print(f"  ✗ [{target_name}] Code generation failed: {r1.stderr.strip()}")
+                    all_ok = False
+                    continue
+                cmd2 = f"{cc_cmd} -static {s_file} -o {bin_file}"
+                r2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True)
+                if r2.returncode != 0:
+                    print(f"  ✗ [{target_name}] Assembly/link failed: {r2.stderr.strip()}")
+                    all_ok = False
+                    continue
+                cmd3 = f"{qemu_runner} {bin_file}" if qemu_runner else bin_file
+                r3 = subprocess.run(cmd3, shell=True, capture_output=True, text=True)
+                if r3.returncode != 0:
+                    print(f"  ✗ [{target_name}] Execution failed (code {r3.returncode}): {r3.stderr.strip()}")
+                    all_ok = False
+                else:
+                    print(f"  ✓ [{target_name}] PASS")
+        print("\n" + "=" * 70)
+        print(f"MULTI-ISA SRET SUMMARY: {'ALL PASSED' if all_ok else 'FAILURES DETECTED'}")
+        print("=" * 70)
+        sys.exit(0 if all_ok else 1)
     
     if args.test:
         with open(args.test, 'r') as f:
