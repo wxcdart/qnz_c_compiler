@@ -178,13 +178,17 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
         }
 
         case TYPE_KIND_FUNCTION: {
+            if (!type_is_compatible(t1->details.function.ret, t2->details.function.ret)) {
+                return false;
+            }
+            if ((t1->details.function.is_variadic && t1->details.function.param_cnt == 0) ||
+                (t2->details.function.is_variadic && t2->details.function.param_cnt == 0)) {
+                return true;
+            }
             if (t1->details.function.is_variadic != t2->details.function.is_variadic) {
                 return false;
             }
             if (t1->details.function.param_cnt != t2->details.function.param_cnt) {
-                return false;
-            }
-            if (!type_is_compatible(t1->details.function.ret, t2->details.function.ret)) {
                 return false;
             }
             for (size_t i = 0; i < t1->details.function.param_cnt; ++i) {

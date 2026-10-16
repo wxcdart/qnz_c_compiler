@@ -227,7 +227,6 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_CALL: {
             TypeInfo *fn_t = sem_analyze_ref(ctx, node->left);
-            /* Walk arguments */
             ASTRef arg_ref = node->right;
             while (arg_ref != AST_NULL) {
                 ZeroCCASTNode *arg_node = sem_get_node(ctx, arg_ref);
@@ -240,7 +239,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             }
             if (fn_t && type_is_function(fn_t)) {
                 res = fn_t->details.function.ret;
+            } else if (fn_t && type_is_pointer(fn_t) && fn_t->details.pointer.base &&
+                       type_is_function(fn_t->details.pointer.base)) {
+                res = fn_t->details.pointer.base->details.function.ret;
             }
+            expr_node_set_type(ctx, node, res);
             break;
         }
         case NODE_COMPOUND_LIT: {

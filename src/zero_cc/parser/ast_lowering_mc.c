@@ -593,10 +593,18 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 /* Extract integer argument info packed into the instruction */
                 int arg_count = instr->temp_dest;
                 int arg_temps[IR_CALL_MAX_ARGS] = {0};
+                int indirect_callee_temp = -1;
                 const IRCallArgs *full_args = ir_call_args_find(i);
                 if (full_args) {
-                    arg_count = full_args->count;
-                    for (int a = 0; a < arg_count; a++) arg_temps[a] = full_args->temps[a];
+                    int int_c = 0;
+                    for (int a = 0; a < full_args->count; a++) {
+                        if (full_args->is_fp[a] == 2) {
+                            indirect_callee_temp = full_args->temps[a];
+                        } else if (full_args->is_fp[a] == 0) {
+                            arg_temps[int_c++] = full_args->temps[a];
+                        }
+                    }
+                    arg_count = int_c;
                 } else {
                     if (arg_count > 4) arg_count = 4;
                     if (arg_count > 0) arg_temps[0] = instr->temp_src1;
@@ -608,8 +616,23 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                 }
                 
+                /* If indirect call, save callee register into scratch_reg2 (r11) before argument setup */
+                if (!fn_name && indirect_callee_temp >= 0) {
+                    int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_callee_temp);
+                    int sp_callee = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_callee_temp);
+                    if (sp_callee >= 0) {
+                        int32_t off = spill_base_offset + (sp_callee + 1) * 8;
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2 /* r11 */, BE(c)->fp_reg, -off);
+                    } else if (BE(c)->emit_mov_reg) {
+                        BE(c)->emit_mov_reg(c, BE(c)->scratch_reg2 /* r11 */, r_callee);
+                    }
+                }
+
                 /* Extract fp_reg_idx (number of float args) from label_idx */
-                int fp_reg_idx = (int)instr->label_idx;
+                int fp_reg_idx = (int)(instr->label_idx & 0xFF);
+                if ((instr->label_idx & 0xFF00) == 0x0100) {
+                    fp_reg_idx = 0;
+                }
                 
                 /* Args beyond int_arg_count go on the stack:
                  * so push them in reverse order, padding to keep stack 16-byte aligned. */
@@ -692,7 +715,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 
                 /* Emit the call */
-                BE(c)->emit_call(c, fn_name);
+                if (!fn_name && indirect_callee_temp >= 0 && BE(c)->emit_call_reg) {
+                    BE(c)->emit_call_reg(c, BE(c)->scratch_reg2 /* r11 */);
+                } else {
+                    BE(c)->emit_call(c, fn_name);
+                }
                 
                 /* Restore x3-x7 after the call */
                 if (c->isa == ISA_AARCH64) {

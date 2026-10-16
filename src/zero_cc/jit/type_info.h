@@ -39,6 +39,10 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             // FIX: Guard against NULL base pointer (incomplete types like FILE*)
             if (!t.base) {
                 ti = type_pointer_to(perm, type_void(perm));
+            } else if (t.is_func_ptr) {
+                TypeInfo *ret_ti = zero_cc_type_to_typeinfo(perm, *t.base);
+                TypeInfo *fn_ti = type_function(perm, ret_ti, NULL, 0, true);
+                ti = type_pointer_to(perm, fn_ti);
             } else {
                 TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);
                 ti = type_pointer_to(perm, base);

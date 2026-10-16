@@ -496,16 +496,49 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             }
         }
 
+        /* Check for inline function pointer declarator: Type (*name)(params) */
+        bool is_inline_func_ptr = false;
+        const char *fp_vname = NULL;
+        if (c->token_pos + 1 < c->token_count &&
+            c->tokens[c->token_pos].type == TK_LPAREN &&
+            c->tokens[c->token_pos + 1].type == TK_STAR) {
+            is_inline_func_ptr = true;
+            c->token_pos += 2; /* consume '(' and '*' */
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                ZeroCCToken *var_tok = &c->tokens[c->token_pos];
+                fp_vname = var_tok->allocated_str ? var_tok->allocated_str : var_tok->str_val;
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pdepth = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && pdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                    c->token_pos++;
+                }
+            }
+        }
+
         /* Check for identifier name */
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
-            ZeroCCToken *var_tok = &c->tokens[c->token_pos];
-            const char *vname = var_tok->allocated_str ? var_tok->allocated_str : var_tok->str_val;
-            c->token_pos++;
+        if (is_inline_func_ptr || (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT)) {
+            const char *vname = fp_vname;
+            if (!is_inline_func_ptr) {
+                ZeroCCToken *var_tok = &c->tokens[c->token_pos];
+                vname = var_tok->allocated_str ? var_tok->allocated_str : var_tok->str_val;
+                c->token_pos++;
+            }
 
             /* Check if this is a function declarator */
             bool is_function = false;
             ASTRef param_list = AST_NULL;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            if (!is_inline_func_ptr && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 is_function = true;
                 c->token_pos++; // consume '('
                 /* Parse parameter list */
@@ -764,7 +797,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 ASTRef dim_expr = AST_NULL;
                 size_t fixed_count = 0;
 
-                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                if (!is_inline_func_ptr && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                     c->token_pos++; // consume '['
                     is_array = true;
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
@@ -807,6 +840,10 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     decl_type = zero_cc_type_ptr(&decl_type);
                     decl_type.is_const = ptr_is_const;
                     decl_type.is_volatile = ptr_is_volatile;
+                }
+                if (is_inline_func_ptr) {
+                    decl_type = zero_cc_type_ptr(&decl_type);
+                    decl_type.is_func_ptr = true;
                 }
 
                 TypeInfo *decl_ti = NULL;

@@ -597,22 +597,29 @@ static int compile_object(CompileOptions *opts) {
             break;
     }
     
-    /* Add relocation entries for external function calls */
+    /* Add relocation entries for external function calls and symbol address loads */
     for (size_t i = 0; i < comp->reloc_count; i++) {
         ZeroCCReloc *r = &comp->relocs[i];
-        if (r->is_call) {
-            int symbol_idx = 0;
-            for (int j = 0; j < elf_ctx.symbol_count; j++) {
-                if (strcmp(elf_ctx.symbols[j].name, r->target_symbol) == 0) {
-                    symbol_idx = j + 1;
-                    break;
-                }
+        int symbol_idx = 0;
+        for (int j = 0; j < elf_ctx.symbol_count; j++) {
+            if (strcmp(elf_ctx.symbols[j].name, r->target_symbol) == 0) {
+                symbol_idx = j + 1;
+                break;
             }
+        }
+        if (r->is_call) {
             elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
                                       r->text_patch_offset,
                                       symbol_idx,
                                       reloc_type_call,
                                       addend_call);
+        } else if (symbol_idx > 0) {
+            int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      r->text_patch_offset,
+                                      symbol_idx,
+                                      reloc_type_abs64,
+                                      0);
         }
     }
     
@@ -697,7 +704,7 @@ static int compile_and_link(CompileOptions *opts) {
     
     /* Select appropriate linker based on target ISA */
     const char *linker = "gcc";
-    const char *abi_flags = "";
+    const char *abi_flags = "-no-pie";
     if (target_isa == ISA_AARCH64) {
         linker = "aarch64-linux-gnu-gcc";
         abi_flags = "-mabi=lp64d -march=armv8-a";

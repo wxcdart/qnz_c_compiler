@@ -60,6 +60,7 @@ typedef struct ZeroCCType {
     bool is_volatile;
     bool is_restrict;
     bool is_vla;
+    bool is_func_ptr;
 
     size_t member_count;
 } ZeroCCType;

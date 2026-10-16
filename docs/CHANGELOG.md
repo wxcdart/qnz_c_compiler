@@ -17,15 +17,16 @@
     - Handles returned buffer pointer in `%rax` and copies chunks to destination lvalue or provides pointer to expression.
 - **Sret Edge Cases Handled**:
   - Direct member access on call expressions (`make_big20(...).c`) without requiring separate local variable binding.
-  - Direct assignment to existing local struct (`r = make_big20(...)`) with stack-spilled buffer pointer safety to prevent register clobbering.
+  - Direct assignment to existing local struct (`r = make_big20(...)`) with stack-spilled buffer pointer safety and size-aware tail chunk copy to prevent adjacent stack clobbering.
+  - Indirect calls through function pointers (`typedef Ret (*fn_t)(...)` and inline `Ret (*fn)(...)`) returning >16 byte structs via `sret` in both JIT and AOT modes (`call *%r11` after parallel argument register setup).
   - Struct return tail pass-through (`return make_inner(...)`).
   - Safe parallel argument moves in x86-64 assembly emission (`x86_64_asm.c`) using push/pop sequence to avoid register overwriting during argument setup.
   - Function prototype parameter recording in JIT/parser (`compile.h`) for external prototypes.
 - **Interoperability & Verification**:
   - Full bidirectional compatibility verified between GCC and ZeroCC (`GCC caller -> ZeroCC callee` and `ZeroCC caller -> GCC callee`).
   - Automated verification suite `tools/sret_verifier.py --verify-all` passes 6/6 checks.
-  - Added test cases `test/abi/struct_return_edge.c` and `test/abi/struct_return_tail.c`.
-  - Full test suite passes 135/135 tests (100%).
+  - Added test cases `test/abi/struct_return_edge.c`, `test/abi/struct_return_tail.c`, and `test/abi/struct_return_funcptr.c`.
+  - Full test suite passes 136/136 tests (100%).
 
 ## [Sprint 16] - 2026 - AOT Assembly Emission Fixes & Cleanup
 

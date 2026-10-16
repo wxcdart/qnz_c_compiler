@@ -115,6 +115,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 0;
                     return temp;
                 }
+                ZeroCCFunction *fn = zero_cc_find_function(c, name);
+                if (fn) {
+                    int temp = c->next_temp_id++;
+                    ir_emit_mov_global(temp, fn->name);
+                    c->last_expr_is_float = 0;
+                    return temp;
+                }
                 return 0xFF;
             }
         }
@@ -318,6 +325,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         } else {
                             ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
                         }
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                    ZeroCCFunction *fn = zero_cc_find_function(c, operand->s.str);
+                    if (fn) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_mov_global(addr_temp, fn->name);
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -830,6 +844,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                             int num_chunks = (sym->type.size + 7) / 8;
                             for (int i = 0; i < num_chunks; i++) {
+                                size_t rem = sym->type.size - (size_t)(i * 8);
                                 int chunk_temp = c->next_temp_id++;
                                 int addr_temp;
                                 if (i == 0) {
@@ -843,8 +858,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     addr_temp = c->next_temp_id++;
                                     ir_emit_add(addr_temp, base_temp, off_temp);
                                 }
-                                ir_emit_deref(chunk_temp, addr_temp);
-                                ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                                int32_t dst_off = -(sym->stack_offset - i * 8);
+                                if (rem >= 8) {
+                                    ir_emit_deref(chunk_temp, addr_temp);
+                                    ir_emit_store(chunk_temp, BE(c)->fp_reg, dst_off);
+                                } else if (rem >= 4) {
+                                    ir_emit_load_32(chunk_temp, addr_temp);
+                                    int dst_addr = c->next_temp_id++;
+                                    ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                    ir_emit_store_32(chunk_temp, dst_addr);
+                                } else if (rem >= 2) {
+                                    ir_emit_load_16(chunk_temp, addr_temp);
+                                    int dst_addr = c->next_temp_id++;
+                                    ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                    ir_emit_store_16(chunk_temp, dst_addr);
+                                } else {
+                                    ir_emit_load_byte(chunk_temp, addr_temp);
+                                    int dst_addr = c->next_temp_id++;
+                                    ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                    ir_emit_store_byte(chunk_temp, dst_addr);
+                                }
                             }
                         } else {
                             ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
@@ -1397,6 +1430,38 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
                 
+                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
+                ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
+                bool is_indirect_call = (callee_fn == NULL && callee_sym != NULL);
+
+                /* Determine return type of the call */
+                ZeroCCType call_ret_type;
+                memset(&call_ret_type, 0, sizeof(call_ret_type));
+                if (callee_fn) {
+                    call_ret_type = callee_fn->return_type;
+                } else if (callee_sym && callee_sym->type.tag == TYPE_PTR && callee_sym->type.base) {
+                    call_ret_type = *callee_sym->type.base;
+                } else if (c->sem_ctx && node->aux.extra > 0) {
+                    TypeInfo *ret_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
+                    if (ret_ti) {
+                        if (ret_ti->kind == TYPE_KIND_STRUCT) call_ret_type.tag = TYPE_STRUCT;
+                        else if (ret_ti->kind == TYPE_KIND_UNION) call_ret_type.tag = TYPE_UNION;
+                        else if (ret_ti->kind == TYPE_KIND_FLOAT) call_ret_type.tag = TYPE_FLOAT;
+                        else if (ret_ti->kind == TYPE_KIND_DOUBLE) call_ret_type.tag = TYPE_DOUBLE;
+                        call_ret_type.size = type_size(ret_ti);
+                    }
+                }
+
+                /* Spill indirect callee pointer if needed */
+                int32_t indirect_callee_spill_off = 0;
+                if (is_indirect_call) {
+                    int callee_ptr_temp = lower_expr(c, arena, node->left);
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    indirect_callee_spill_off = c->current_stack_frame;
+                    ir_emit_store(callee_ptr_temp, BE(c)->fp_reg, -indirect_callee_spill_off);
+                }
+
                 while (arg != AST_NULL) {
                     int temp = lower_expr(c, arena, arg);
                     if (c->last_expr_is_float) {
@@ -1427,15 +1492,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_reload_idx = 0;
                 int fp_reload_idx = 0;
                 
-                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
-                bool callee_uses_sret = callee_fn && (callee_fn->return_type.tag == TYPE_STRUCT || callee_fn->return_type.tag == TYPE_UNION) && (callee_fn->return_type.size > 16);
+                bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
                 int sret_buf_temp = 0;
 
                 /* System V AMD64 ABI: >16 byte struct return requires caller to allocate buffer
                  * and pass its address in RDI (as first integer argument). */
                 if (callee_uses_sret) {
                     c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
-                    c->current_stack_frame += (int32_t)callee_fn->return_type.size;
+                    int32_t sret_alloc_sz = (int32_t)((call_ret_type.size + 7) & ~((size_t)7));
+                    c->current_stack_frame += sret_alloc_sz;
                     int32_t buf_stack_off = c->current_stack_frame;
 
                     sret_buf_temp = c->next_temp_id++;
@@ -1465,12 +1530,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     all_arg_count++;
                     fp_reload_idx++;
                 }
+
+                /* Reload indirect callee pointer if needed */
+                if (is_indirect_call && all_arg_count < IR_CALL_MAX_ARGS) {
+                    int callee_reload_temp = c->next_temp_id++;
+                    ir_emit_load(callee_reload_temp, BE(c)->fp_reg, -indirect_callee_spill_off);
+                    all_arg_temps[all_arg_count] = callee_reload_temp;
+                    all_arg_is_fp[all_arg_count] = 2; /* 2 marks indirect callee register */
+                    all_arg_count++;
+                }
                 
                 /* Total integer arguments including sret if present */
                 int total_int_args = int_arg_idx + (callee_uses_sret ? 1 : 0);
 
-                /* Emit IR call */
-                ir_emit_call(name);
+                /* Emit IR call (NULL name for indirect calls) */
+                ir_emit_call(is_indirect_call ? NULL : name);
                 
                 /* Pack argument info into the instruction */
                 if (ir_get_count() > 0) {
@@ -1483,7 +1557,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         if (total_int_args > 2) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[2]) << 0;
                         if (total_int_args > 3) last_instr->imm |= ((int16_t)(uint8_t)all_arg_temps[3]) << 8;
                     }
-                    /* Full argument list (needed for 5+ args) */
+                    /* Full argument list (needed for 5+ args or indirect calls) */
                     ir_call_args_record(ir_get_count() - 1, all_arg_count, all_arg_temps, all_arg_is_fp);
                     /* Store fp_arg_idx in label_idx for variadic handling */
                     last_instr->label_idx = (uint16_t)fp_arg_idx;
@@ -1498,7 +1572,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
                 
-                if (callee_fn && (callee_fn->return_type.tag == TYPE_FLOAT || callee_fn->return_type.tag == TYPE_DOUBLE)) {
+                if (call_ret_type.tag == TYPE_FLOAT || call_ret_type.tag == TYPE_DOUBLE) {
                     c->last_expr_is_float = 1;
                     return VREG_F0;  /* Return value in xmm0 */
                 }
@@ -1506,12 +1580,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 0;
                 
                 /* Check if function returns a 9-16 byte struct/union */
-                if (callee_fn && (callee_fn->return_type.tag == TYPE_STRUCT || callee_fn->return_type.tag == TYPE_UNION) && 
-                    callee_fn->return_type.size > 8 && callee_fn->return_type.size <= 16) {
+                if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && 
+                    call_ret_type.size > 8 && call_ret_type.size <= 16) {
                     /* Store struct return info in label_idx: high byte = 1, low byte = size */
                     if (ir_get_count() > 0) {
                         Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
-                        last_instr->label_idx = 0x0100 | (callee_fn->return_type.size & 0xFF);
+                        last_instr->label_idx = 0x0100 | (call_ret_type.size & 0xFF);
                     }
                     /* 9-16 byte struct return uses integer register pair */
                     return VREG_0;

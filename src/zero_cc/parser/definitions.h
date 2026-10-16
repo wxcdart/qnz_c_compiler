@@ -893,6 +893,35 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     bool is_ptr = false;
     while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
     if (is_ptr) { ttype = zero_cc_type_ptr(&ttype); }
+
+    /* Function pointer typedef: typedef RetType (*Alias)(params...); */
+    if (c->tokens[c->token_pos].type == TK_LPAREN) {
+        c->token_pos++; /* consume '(' */
+        while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+        char alias[128] = "";
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+        }
+        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_LPAREN) {
+            int pdepth = 1;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && pdepth > 0) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                c->token_pos++;
+            }
+        }
+        ZeroCCType fp_type = zero_cc_type_ptr(&ttype);
+        fp_type.is_func_ptr = true;
+        if (alias[0] != '\0') {
+            zero_cc_register_typedef(c, alias, fp_type);
+        }
+        if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+
     if (c->tokens[c->token_pos].type == TK_IDENT) {
         char alias[128];
         snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);

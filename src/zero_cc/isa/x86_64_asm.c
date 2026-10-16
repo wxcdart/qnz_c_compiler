@@ -284,13 +284,25 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
     
+    /* Check if this is an indirect call (func_name == NULL) */
+    const char *indirect_reg_name = NULL;
+    for (int i = 0; i < arg_count; i++) {
+        if (is_fp && is_fp[i] == 2) {
+            int temp = arg_temps[i];
+            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+            indirect_reg_name = BE(c)->get_hw_reg_name(phys_reg);
+            /* Save to r11 so argument register moves don't clobber the callee pointer */
+            fprintf(out, "\tmovq\t%%%s,%%r11\n", indirect_reg_name);
+        }
+    }
+
     /* Handle FP args first */
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
         const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        if (arg_is_fp && fp_arg_idx < 8) {
+        if (arg_is_fp == 1 && fp_arg_idx < 8) {
             fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
             fp_arg_idx++;
         }
@@ -301,7 +313,7 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     int n_int_args = 0;
     for (int i = 0; i < arg_count && n_int_args < 6; i++) {
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        if (!arg_is_fp) {
+        if (arg_is_fp == 0) {
             int temp = arg_temps[i];
             int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
             int_src_regs[n_int_args++] = BE(c)->get_hw_reg_name(phys_reg);
@@ -317,7 +329,11 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
     }
     
-    fprintf(out, "\tcall\t%s\n", func_name);
+    if (indirect_reg_name) {
+        fprintf(out, "\tcall\t*%%r11\n");
+    } else {
+        fprintf(out, "\tcall\t%s\n", func_name);
+    }
 }
 
 /* RET */

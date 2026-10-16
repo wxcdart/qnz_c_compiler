@@ -70,10 +70,16 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             }
         } else {
-            /* Address patch for external function indirect calls */
-            void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
-            if (host_fn) {
-                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+            /* Address patch for internal or external function pointers */
+            ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
+            if (target_fn && !target_fn->is_prototype) {
+                uintptr_t fn_addr = (uintptr_t)mem + target_fn->text_offset;
+                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &fn_addr, 8);
+            } else {
+                void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+                if (host_fn) {
+                    memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+                }
             }
         }
     }

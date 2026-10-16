@@ -401,6 +401,13 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             }
             return;
             
+        case OP_MOV_GLOBAL: {
+            const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            fprintf(out, "\tleaq\t%s(%%rip),%%%s\n", symbol_name, dst_name);
+            return;
+        }
+
         case OP_CALL: {
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;

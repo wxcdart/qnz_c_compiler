@@ -139,31 +139,52 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
                     if (!(sym->type.tag == TYPE_ARRAY && init_node && init_node->tag == NODE_COMPOUND_LIT)) {
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
-                            /* System V AMD64 ABI: sret buffer pointer in result_temp.
-                             * Spill result_temp to a stack slot so offset additions don't clobber it.
-                             * Copy chunks from [result_temp + i*8] to local stack -(sym->stack_offset - i*8) */
-                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                            c->current_stack_frame += 8;
-                            int32_t buf_ptr_off = c->current_stack_frame;
-                            ir_emit_store(result_temp, BE(c)->fp_reg, -buf_ptr_off);
+                            if (!(init_node && init_node->tag == NODE_COMPOUND_LIT)) {
+                                /* System V AMD64 ABI: sret buffer pointer in result_temp.
+                                 * Spill result_temp to a stack slot so offset additions don't clobber it.
+                                 * Copy chunks from [result_temp + i*8] to local stack -(sym->stack_offset - i*8) */
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int32_t buf_ptr_off = c->current_stack_frame;
+                                ir_emit_store(result_temp, BE(c)->fp_reg, -buf_ptr_off);
 
-                            int num_chunks = (sym->type.size + 7) / 8;
-                            for (int i = 0; i < num_chunks; i++) {
-                                int chunk_temp = c->next_temp_id++;
-                                int addr_temp;
-                                if (i == 0) {
-                                    addr_temp = c->next_temp_id++;
-                                    ir_emit_load(addr_temp, BE(c)->fp_reg, -buf_ptr_off);
-                                } else {
-                                    int base_temp = c->next_temp_id++;
-                                    ir_emit_load(base_temp, BE(c)->fp_reg, -buf_ptr_off);
-                                    int off_temp = c->next_temp_id++;
-                                    ir_emit_mov_imm(off_temp, i * 8);
-                                    addr_temp = c->next_temp_id++;
-                                    ir_emit_add(addr_temp, base_temp, off_temp);
+                                int num_chunks = (sym->type.size + 7) / 8;
+                                for (int i = 0; i < num_chunks; i++) {
+                                    size_t rem = sym->type.size - (size_t)(i * 8);
+                                    int chunk_temp = c->next_temp_id++;
+                                    int addr_temp;
+                                    if (i == 0) {
+                                        addr_temp = c->next_temp_id++;
+                                        ir_emit_load(addr_temp, BE(c)->fp_reg, -buf_ptr_off);
+                                    } else {
+                                        int base_temp = c->next_temp_id++;
+                                        ir_emit_load(base_temp, BE(c)->fp_reg, -buf_ptr_off);
+                                        int off_temp = c->next_temp_id++;
+                                        ir_emit_mov_imm(off_temp, i * 8);
+                                        addr_temp = c->next_temp_id++;
+                                        ir_emit_add(addr_temp, base_temp, off_temp);
+                                    }
+                                    int32_t dst_off = -(sym->stack_offset - i * 8);
+                                    if (rem >= 8) {
+                                        ir_emit_deref(chunk_temp, addr_temp);
+                                        ir_emit_store(chunk_temp, BE(c)->fp_reg, dst_off);
+                                    } else if (rem >= 4) {
+                                        ir_emit_load_32(chunk_temp, addr_temp);
+                                        int dst_addr = c->next_temp_id++;
+                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_store_32(chunk_temp, dst_addr);
+                                    } else if (rem >= 2) {
+                                        ir_emit_load_16(chunk_temp, addr_temp);
+                                        int dst_addr = c->next_temp_id++;
+                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_store_16(chunk_temp, dst_addr);
+                                    } else {
+                                        ir_emit_load_byte(chunk_temp, addr_temp);
+                                        int dst_addr = c->next_temp_id++;
+                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_store_byte(chunk_temp, dst_addr);
+                                    }
                                 }
-                                ir_emit_deref(chunk_temp, addr_temp);
-                                ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
                             }
                         } else {
                             /* Integer or small struct assignment: use IR store */
@@ -223,6 +244,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* Store each 8-byte chunk to [hidden_ptr + i*8] */
                 int num_chunks = (sym->type.size + 7) / 8;
                 for (int i = 0; i < num_chunks; i++) {
+                    size_t rem = sym->type.size - (size_t)(i * 8);
                     int chunk_temp = c->next_temp_id++;
                     int addr_temp;
                     if (i == 0) {
@@ -239,10 +261,25 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     
                     /* Load chunk from local stack: local offset is -(sym->stack_offset - i*8) */
                     int32_t chunk_stack_off = -(sym->stack_offset - i * 8);
-                    ir_emit_load(chunk_temp, BE(c)->fp_reg, chunk_stack_off);
-                    
-                    /* Store chunk to [addr_temp] */
-                    ir_emit_store_64(chunk_temp, addr_temp);
+                    if (rem >= 8) {
+                        ir_emit_load(chunk_temp, BE(c)->fp_reg, chunk_stack_off);
+                        ir_emit_store_64(chunk_temp, addr_temp);
+                    } else if (rem >= 4) {
+                        int src_addr = c->next_temp_id++;
+                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_load_32(chunk_temp, src_addr);
+                        ir_emit_store_32(chunk_temp, addr_temp);
+                    } else if (rem >= 2) {
+                        int src_addr = c->next_temp_id++;
+                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_load_16(chunk_temp, src_addr);
+                        ir_emit_store_16(chunk_temp, addr_temp);
+                    } else {
+                        int src_addr = c->next_temp_id++;
+                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_load_byte(chunk_temp, src_addr);
+                        ir_emit_store_byte(chunk_temp, addr_temp);
+                    }
                 }
                 
                 /* Return hidden pointer in RAX (VREG_0) */
