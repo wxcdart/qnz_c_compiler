@@ -290,6 +290,61 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         }
 
         int result_temp = lower_expr(c, arena, node->left);
+        ZeroCCFunction *cur_fn = (c->function_count > 0) ? &c->functions[c->function_count - 1] : NULL;
+        if (cur_fn && cur_fn->ret_struct_sz > 16) {
+            /* Return expression (e.g., NODE_CALL or NODE_COMPOUND_LIT) evaluated to a pointer to a >16B struct buffer.
+             * Copy chunks from [result_temp + i*8] to caller's sret buffer at -sret_off. */
+            int32_t sret_off = cur_fn->sret_stack_offset;
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            int32_t src_ptr_off = c->current_stack_frame;
+            ir_emit_store(result_temp, BE(c)->fp_reg, -src_ptr_off);
+
+            size_t st_size = (size_t)cur_fn->ret_struct_sz;
+            int num_chunks = (int)((st_size + 7) / 8);
+            for (int i = 0; i < num_chunks; i++) {
+                size_t rem = st_size - (size_t)(i * 8);
+                int chunk_temp = c->next_temp_id++;
+                int src_addr;
+                int dst_addr;
+                if (i == 0) {
+                    src_addr = c->next_temp_id++;
+                    ir_emit_load(src_addr, BE(c)->fp_reg, -src_ptr_off);
+                    dst_addr = c->next_temp_id++;
+                    ir_emit_load(dst_addr, BE(c)->fp_reg, -sret_off);
+                } else {
+                    int s_base = c->next_temp_id++;
+                    ir_emit_load(s_base, BE(c)->fp_reg, -src_ptr_off);
+                    int s_off = c->next_temp_id++;
+                    ir_emit_mov_imm(s_off, i * 8);
+                    src_addr = c->next_temp_id++;
+                    ir_emit_add(src_addr, s_base, s_off);
+
+                    int d_base = c->next_temp_id++;
+                    ir_emit_load(d_base, BE(c)->fp_reg, -sret_off);
+                    int d_off = c->next_temp_id++;
+                    ir_emit_mov_imm(d_off, i * 8);
+                    dst_addr = c->next_temp_id++;
+                    ir_emit_add(dst_addr, d_base, d_off);
+                }
+                if (rem >= 8) {
+                    ir_emit_deref(chunk_temp, src_addr);
+                    ir_emit_store_64(chunk_temp, dst_addr);
+                } else if (rem >= 4) {
+                    ir_emit_load_32(chunk_temp, src_addr);
+                    ir_emit_store_32(chunk_temp, dst_addr);
+                } else if (rem >= 2) {
+                    ir_emit_load_16(chunk_temp, src_addr);
+                    ir_emit_store_16(chunk_temp, dst_addr);
+                } else {
+                    ir_emit_load_byte(chunk_temp, src_addr);
+                    ir_emit_store_byte(chunk_temp, dst_addr);
+                }
+            }
+            ir_emit_load(VREG_0, BE(c)->fp_reg, -sret_off);
+            ir_emit_jmp(c->lowering.epilogue_label);
+            return;
+        }
         /* Ensure result is in rax (VREG_0) for return */
         if (!c->last_expr_is_float) {
             /* Move result to rax if not already there - emit IR */

@@ -340,6 +340,10 @@ void ir_dump(FILE *f) {
                             break;
             case OP_VMULPS: fprintf(f, "VMULPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
+            case OP_VADDPS: fprintf(f, "VADDPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
             case OP_VADDPD: fprintf(f, "VADDPD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_LABEL: fprintf(f, "L%u:", instr->label_idx);

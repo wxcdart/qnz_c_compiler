@@ -1,8 +1,24 @@
 # ZeroCC Changelog
 
-## [Sprint 17] - 2026 - System V AMD64 ABI Hidden Pointer (sret) Large Struct Returns
+## [Sprint 17] - 2026 - System V AMD64 & Multi-ISA Hidden Pointer (sret) Large Struct Returns
 
-### Added - Core ABI Features
+### Added - Multi-ISA sret & Backend Codegen
+- **Multi-ISA Support for Large Struct Returns (>16 bytes)**:
+  - **AArch64 (ARM64 AAPCS64 ABI)**:
+    - Dedicated `x8` register used as indirect result location buffer pointer.
+    - Caller passes stack return buffer in `x8`; arguments start at `x0` without register consumption.
+    - Callee prologue saves incoming `x8` (`param_save_int_asm(8, sret_offset)`) and epilogue returns pointer in `x0`.
+    - Implemented register reservation and allocation pools avoiding reserved `x8`, `x9` (scratch), `x10`, `x16-x18`, `x29`, `x30`.
+  - **RISC-V (RV64GC LP64D ABI)**:
+    - Struct return buffer pointer passed in first integer argument register `a0`.
+    - User arguments shifted starting at `a1` (param 1); callee preserves `a0` and returns buffer pointer in `a0`.
+    - Reserved registers configured in register allocator (`zero`, `ra`, `sp`, `gp`, `tp`, `t0`, `t1`, `s0`), pre-coloring return registers (`VREG_0` -> `a0`, `VREG_2` -> `a1`).
+  - **Assembly Emitter (`asm_emitter.c`, `aarch64_asm.c`, `riscv_asm.c`)**:
+    - Added ISA-generic emission for `OP_LOAD_32`, `OP_LOAD_16`, `OP_LOAD_BYTE`, `OP_STORE_64`, `OP_STORE_32`, `OP_STORE_16`, `OP_STORE_BYTE`, `OP_LEA_RIP`, and `OP_MOV_GLOBAL`.
+    - Added multi-ISA frame pointer layouts (`x29`/`s0`) with proper negative frame offsets, callee-saved preservation, and large immediate handling via scratch registers.
+    - String literals and `.rodata` references emitted cleanly in AOT mode across x86-64, AArch64 (`adrp` + `:lo12:`), and RISC-V (`lla` + `addi`).
+  - **Direct Verification**:
+    - End-to-end static compilation and execution verified under QEMU user emulation (`qemu-aarch64-static` and `qemu-riscv64-static`) across `test/abi/struct_return_20byte.c`, `struct_return_edge.c`, `struct_return_tail.c`, and `struct_return_funcptr.c`.
 - **Hidden Return Pointer (sret) for Large Structs (>16 bytes)**:
   - Implemented System V AMD64 ABI compliant struct return for types exceeding 16 bytes.
   - **Callee Side**:

@@ -412,10 +412,10 @@ static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
     aarch64_emit_sete(c, dst);
 }
 
-/* param_save_int - save integer parameter */
+/* param_save_int - save integer parameter (or x8 sret when param_idx == 8) */
 static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
-    if (param_idx < 0 || param_idx >= 8) return; /* Stack params handled by caller */
-    int src_reg = aarch64_int_arg_regs[param_idx];
+    if (param_idx < 0 || param_idx > 8) return; /* Stack params handled by caller */
+    int src_reg = (param_idx == 8) ? 8 : aarch64_int_arg_regs[param_idx];
     /* stur x<src_reg>, [fp, #-offset] */
     arm64_emit_u32(c, 0xF8000000 | ((-offset & 0x1FF) << 12) | (29 << 5) | (src_reg & 0x1F));
 }
@@ -1043,6 +1043,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_div_asm = aarch64_emit_fp_div_asm,
     .emit_fp_mov_asm = aarch64_emit_fp_mov_asm,
     .emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm,
+    .emit_param_save_int_asm = aarch64_emit_param_save_int_asm,
+    .emit_param_save_fp_asm = aarch64_emit_param_save_fp_asm,
 };
 /* =========================================================================
  * Virtual Register (VREG) Mapping for AArch64

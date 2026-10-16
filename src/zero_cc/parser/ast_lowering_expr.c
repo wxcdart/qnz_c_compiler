@@ -1494,20 +1494,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 
                 bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
                 int sret_buf_temp = 0;
+                int32_t buf_stack_off = 0;
 
-                /* System V AMD64 ABI: >16 byte struct return requires caller to allocate buffer
-                 * and pass its address in RDI (as first integer argument). */
+                /* >16 byte struct return requires caller to allocate buffer:
+                 * - System V AMD64 (x86-64) & RISC-V LP64D: pass address as first integer argument (RDI / a0, is_fp = 0)
+                 * - AArch64 AAPCS64: pass address in x8 (Indirect Result Location Register, is_fp = 3), user args start at x0 */
                 if (callee_uses_sret) {
                     c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                     int32_t sret_alloc_sz = (int32_t)((call_ret_type.size + 7) & ~((size_t)7));
                     c->current_stack_frame += sret_alloc_sz;
-                    int32_t buf_stack_off = c->current_stack_frame;
+                    buf_stack_off = c->current_stack_frame;
 
                     sret_buf_temp = c->next_temp_id++;
                     ir_emit_lea(sret_buf_temp, BE(c)->fp_reg, -buf_stack_off);
 
                     all_arg_temps[all_arg_count] = sret_buf_temp;
-                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_is_fp[all_arg_count] = (c->isa == ISA_AARCH64) ? 3 : 0;
                     all_arg_count++;
                 }
 
@@ -1540,8 +1542,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     all_arg_count++;
                 }
                 
-                /* Total integer arguments including sret if present */
-                int total_int_args = int_arg_idx + (callee_uses_sret ? 1 : 0);
+                /* Total integer arguments in standard arg registers (x0..x7 on AArch64 excludes x8 sret) */
+                int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
 
                 /* Emit IR call (NULL name for indirect calls) */
                 ir_emit_call(is_indirect_call ? NULL : name);
@@ -1591,10 +1593,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return VREG_0;
                 }
                 
-                /* If function returns >16 byte struct, return pointer to allocated buffer (returned in RAX) */
+                /* If function returns >16 byte struct, return pointer to allocated buffer */
                 if (callee_uses_sret) {
                     int call_res_temp = c->next_temp_id++;
-                    ir_emit_mov_reg(call_res_temp, VREG_0);
+                    if (c->isa == ISA_AARCH64) {
+                        /* AAPCS64 does not require callee to preserve x8 or return the address in x0;
+                         * recompute the caller's sret buffer address directly from -buf_stack_off */
+                        ir_emit_lea(call_res_temp, BE(c)->fp_reg, -buf_stack_off);
+                    } else {
+                        ir_emit_mov_reg(call_res_temp, VREG_0);
+                    }
                     return call_res_temp;
                 }
 

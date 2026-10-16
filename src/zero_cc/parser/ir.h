@@ -293,7 +293,17 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VORPS: return "VORPS";
         case OP_VSUBPS: return "VSUBPS";
         case OP_VMULPS: return "VMULPS";
+        case OP_VADDPS: return "VADDPS";
+        case OP_VDIVPS: return "VDIVPS";
+        case OP_VSUBPD: return "VSUBPD";
+        case OP_VMULPD: return "VMULPD";
         case OP_VADDPD: return "VADDPD";
+        case OP_VDIVPD: return "VDIVPD";
+        case OP_VMOVAPS: return "VMOVAPS";
+        case OP_VMOVAPD: return "VMOVAPD";
+        case OP_VANDPS: return "VANDPS";
+        case OP_VXORPS: return "VXORPS";
+        case OP_VSHUFPS: return "VSHUFPS";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         default: return "UNKNOWN";

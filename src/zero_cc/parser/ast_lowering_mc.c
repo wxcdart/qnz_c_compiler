@@ -594,12 +594,15 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int arg_count = instr->temp_dest;
                 int arg_temps[IR_CALL_MAX_ARGS] = {0};
                 int indirect_callee_temp = -1;
+                int aarch64_sret_temp = -1;
                 const IRCallArgs *full_args = ir_call_args_find(i);
                 if (full_args) {
                     int int_c = 0;
                     for (int a = 0; a < full_args->count; a++) {
                         if (full_args->is_fp[a] == 2) {
                             indirect_callee_temp = full_args->temps[a];
+                        } else if (full_args->is_fp[a] == 3) {
+                            aarch64_sret_temp = full_args->temps[a];
                         } else if (full_args->is_fp[a] == 0) {
                             arg_temps[int_c++] = full_args->temps[a];
                         }
@@ -616,15 +619,27 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                 }
                 
-                /* If indirect call, save callee register into scratch_reg2 (r11) before argument setup */
+                /* If indirect call, save callee register into scratch_reg2 before argument setup */
                 if (!fn_name && indirect_callee_temp >= 0) {
                     int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_callee_temp);
                     int sp_callee = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_callee_temp);
                     if (sp_callee >= 0) {
                         int32_t off = spill_base_offset + (sp_callee + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2 /* r11 */, BE(c)->fp_reg, -off);
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -off);
                     } else if (BE(c)->emit_mov_reg) {
-                        BE(c)->emit_mov_reg(c, BE(c)->scratch_reg2 /* r11 */, r_callee);
+                        BE(c)->emit_mov_reg(c, BE(c)->scratch_reg2, r_callee);
+                    }
+                }
+
+                /* If AArch64 sret (AAPCS64), move sret buffer address into x8 (Indirect Result Location Register) */
+                if (aarch64_sret_temp >= 0) {
+                    int r_sret = regalloc_get_reg_for_temp(&c->regalloc, aarch64_sret_temp);
+                    int sp_sret = regalloc_get_spill_slot_for_temp(&c->regalloc, aarch64_sret_temp);
+                    if (sp_sret >= 0) {
+                        int32_t off = spill_base_offset + (sp_sret + 1) * 8;
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, 8 /* x8 */, BE(c)->fp_reg, -off);
+                    } else if (BE(c)->emit_mov_reg) {
+                        BE(c)->emit_mov_reg(c, 8 /* x8 */, r_sret);
                     }
                 }
 
@@ -646,8 +661,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                         if (sp >= 0) {
                             int32_t off = spill_base_offset + (sp + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -off);
-                            r = 10;
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -off);
+                            r = BE(c)->scratch_reg1;
                         }
                         BE(c)->emit_push_reg(c, r);
                     }
@@ -661,8 +676,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                     if (sp >= 0) {
                         int32_t off = spill_base_offset + (sp + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -off);
-                        r = 10;
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -off);
+                        r = BE(c)->scratch_reg1;
                     }
                     src_regs[a] = r;
                     BE(c)->emit_push_reg(c, src_regs[a]);

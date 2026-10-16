@@ -36,16 +36,17 @@ typedef struct {
     int iter_count_temp;       /* Temporary for iteration count */
 } VectorizationInfo;
 
+#define MAX_VECTOR_LOOPS 64
+
 /**
  * Vectorization analysis state
  */
 typedef struct {
-    VectorizationInfo *loops;
+    VectorizationInfo loops[MAX_VECTOR_LOOPS];
     int loop_count;
     int capacity;
     int vector_width;          /* Target vector width */
-    bool *invariant_map;       /* Loop-invariant instruction map */
-    int invariant_count;
+    int target_isa;
 } VectorizationState;
 
 /**

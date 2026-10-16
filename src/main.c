@@ -292,8 +292,22 @@ static int compile_jit(CompileOptions *opts) {
     /* Execute or emit assembly */
     int result = 0;
     if (opts->emit_asm) {
-        /* Assembly emission is handled in ast_lowering.c */
+        /* Assembly emission is handled in ast_lowering.c; emit .rodata if present */
         if (comp->asm_out) {
+            if (comp->rodata_section.length > 0) {
+                fprintf(comp->asm_out, "\t.section\t.rodata\n");
+                if (comp->isa == ISA_AARCH64) {
+                    fprintf(comp->asm_out, "\t.align\t3\n");
+                } else {
+                    fprintf(comp->asm_out, "\t.p2align\t3\n");
+                }
+                fprintf(comp->asm_out, ".Lrodata:\n");
+                const uint8_t *ro = (const uint8_t *)comp->rodata_section.data;
+                for (size_t i = 0; i < comp->rodata_section.length; i++) {
+                    fprintf(comp->asm_out, "\t.byte\t0x%02x\n", ro[i]);
+                }
+                fprintf(comp->asm_out, "\t.text\n");
+            }
             fclose(comp->asm_out);
             comp->asm_out = NULL;
         }
@@ -321,7 +335,7 @@ ZeroCCISA parse_target_arch(const char *target) {
     if (!target) return ISA_X86_64;  // Default
     if (strcmp(target, "x86-64") == 0 || strcmp(target, "x86_64") == 0) return ISA_X86_64;
     if (strcmp(target, "aarch64") == 0 || strcmp(target, "arm64") == 0) return ISA_AARCH64;
-    if (strcmp(target, "riscv64") == 0) return ISA_RISCV64;
+    if (strcmp(target, "riscv64") == 0 || strcmp(target, "riscv") == 0) return ISA_RISCV64;
     if (strcmp(target, "riscv32") == 0) return ISA_RISCV32;
     fprintf(stderr, "Warning: Unknown target architecture '%s', defaulting to x86-64\n", target);
     return ISA_X86_64;
@@ -637,8 +651,22 @@ static int compile_object(CompileOptions *opts) {
     
     /* Write ELF file or emit assembly */
     if (opts->emit_asm) {
-        /* Assembly emission is handled in ast_lowering.c */
+        /* Assembly emission is handled in ast_lowering.c; emit .rodata if present */
         if (comp->asm_out) {
+            if (comp->rodata_section.length > 0) {
+                fprintf(comp->asm_out, "\t.section\t.rodata\n");
+                if (comp->isa == ISA_AARCH64) {
+                    fprintf(comp->asm_out, "\t.align\t3\n");
+                } else {
+                    fprintf(comp->asm_out, "\t.p2align\t3\n");
+                }
+                fprintf(comp->asm_out, ".Lrodata:\n");
+                const uint8_t *ro = (const uint8_t *)comp->rodata_section.data;
+                for (size_t i = 0; i < comp->rodata_section.length; i++) {
+                    fprintf(comp->asm_out, "\t.byte\t0x%02x\n", ro[i]);
+                }
+                fprintf(comp->asm_out, "\t.text\n");
+            }
             fclose(comp->asm_out);
             comp->asm_out = NULL;
         }

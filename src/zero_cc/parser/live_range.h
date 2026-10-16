@@ -241,8 +241,10 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
                     if (lbl >= 0 && lbl <= max_label) {
                         int hdr = label_to_pos[lbl];
                         if (hdr >= 0 && (size_t)hdr < i) {
-                            /* Loop from hdr to i: if temp is defined before or in loop and used in loop */
-                            if (start <= i && end >= (size_t)hdr) {
+                            /* Loop from hdr to i: only loop-carried values (defined BEFORE loop and used in loop)
+                             * need their live interval extended to the backedge i so their register is preserved.
+                             * Temporaries defined inside the loop (start >= hdr) are recomputed every iteration. */
+                            if (start < (size_t)hdr && end >= (size_t)hdr) {
                                 if (end < i) {
                                     end = i;
                                 }

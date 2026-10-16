@@ -63,8 +63,8 @@ make_big20:
 ### 5. Backend Implementation (Scoped)
 - [x] **5.1** **x86-64 JIT** (`src/zero_cc/isa/x86_64.c`) - **Priority**
 - [x] **5.2** **x86-64 AOT** (`src/zero_cc/isa/x86_64_asm.c`) - **Priority**
-- [ ] **5.3** AArch64 backend (x8 is sret register, not first arg) - **After x86-64**
-- [ ] **5.4** RISC-V backend (a0 is sret register) - **After x86-64**
+- [x] **5.3** AArch64 backend (x8 is sret register, not first arg) - **Completed**
+- [x] **5.4** RISC-V backend (a0 is sret register) - **Completed**
 
 ### 6. Testing & Verification (Improved)
 - [x] **6.1** Run `sret_verifier.py --verify-all` (should pass after fix)

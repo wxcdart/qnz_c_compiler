@@ -46,7 +46,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
-    c->regalloc.target_isa = c->isa;  /* Set target ISA for ISA-specific allocation */
+    regalloc_set_isa(&c->regalloc, c->isa);  /* Set target ISA and reserved registers */
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
     
@@ -66,13 +66,19 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int int_idx = 0;
         int stack_idx = 0;
         
-        /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI */
-        /* If function returns >16 byte struct, RDI is the hidden pointer, not param 0 */
+        /* >16 byte struct returns use hidden sret pointer:
+         * - System V AMD64 ABI (x86-64): RDI (param_idx=0), real params start at RSI (int_idx=1)
+         * - RISC-V LP64D ABI: a0 (param_idx=0), real params start at a1 (int_idx=1)
+         * - AArch64 AAPCS64 ABI: x8 (Indirect Result Location Register, param_idx=8), real params start at x0 (int_idx=0) */
         bool uses_sret = fn->ret_struct_sz > 16;
         if (uses_sret) {
-            /* Save RDI as hidden pointer at fn->sret_stack_offset (reserved before params) */
-            ir_emit_param_save_int(0, fn->sret_stack_offset);  /* int_idx=0 means RDI */
-            int_idx = 1;  /* Start real params at RSI (int_idx=1) */
+            if (c->isa == ISA_AARCH64) {
+                ir_emit_param_save_int(8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
+                int_idx = 0;  /* Real params still start at x0 */
+            } else {
+                ir_emit_param_save_int(0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 */
+                int_idx = 1;  /* Real params start at RSI / a1 */
+            }
         }
 
         for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
@@ -118,6 +124,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     live_range_compute(&lra, &c->regalloc);
 
     regalloc_allocate(&c->regalloc);
+
+    if (c->dump_ir) {
+        fprintf(stderr, "=== Allocated Intervals (%zu) ===\n", c->regalloc.interval_count);
+        for (size_t i = 0; i < c->regalloc.interval_count; i++) {
+            LiveInterval *inv = &c->regalloc.intervals[i];
+            fprintf(stderr, "temp r%d (class %d): start=%zu, end=%zu -> reg %d (spill=%d)\n",
+                    inv->temp_id, inv->reg_class, inv->start, inv->end, inv->assigned_reg, inv->spill_slot);
+        }
+    }
 
     /* Emit callee-save IR instructions after register allocation (Phase D: IR-based callee-save) */
     uint32_t callee_save_mask = c->regalloc.used_callee_saved_gpr_mask;

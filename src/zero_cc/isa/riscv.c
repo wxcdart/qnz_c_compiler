@@ -796,6 +796,9 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .conv = &riscv64_conv,
     .fp_reg = 8,   /* s0 */
     .sp_reg = 2,   /* sp */
+    .scratch_reg1 = 5,                         /* t0 */
+    .scratch_reg2 = 6,                         /* t1 */
+    .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
     
     .emit_prologue = riscv64_emit_prologue,
     .emit_leave = riscv64_emit_leave,
@@ -937,6 +940,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_div_asm = riscv_emit_fp_div_asm,
     .emit_fp_mov_asm = riscv_emit_fp_mov_asm,
     .emit_vla_alloc_asm = riscv_emit_vla_alloc_asm,
+    .emit_param_save_int_asm = riscv_emit_param_save_int_asm,
+    .emit_param_save_fp_asm = riscv_emit_param_save_fp_asm,
 };
 
 /* RISC-V 32-bit backend (for ESP32-C3/C6/H2) - similar but 32-bit */

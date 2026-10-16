@@ -41,42 +41,7 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
     }
 }
 
-/* Get register name with % prefix */
-static const char *asm_get_reg_name_prefixed(ZeroCCCompiler *c, int phys_reg, int is_fp) {
-    static char bufs[4][16];
-    static int idx = 0;
-    char *buf = bufs[idx++ % 4];
-    
-    if (BE(c)->get_hw_reg_name && !is_fp) {
-        snprintf(buf, sizeof(bufs[0]), "%%%s", BE(c)->get_hw_reg_name(phys_reg));
-    } else if (BE(c)->regs && (is_fp ? BE(c)->regs->fp_regs : BE(c)->regs->int_regs)) {
-        const char **regs = is_fp ? BE(c)->regs->fp_regs : BE(c)->regs->int_regs;
-        snprintf(buf, sizeof(bufs[0]), "%%%s", phys_reg < 32 ? regs[phys_reg] : "rax");
-    } else {
-        snprintf(buf, sizeof(bufs[0]), "%%r%d", phys_reg);
-    }
-    return buf;
-}
 
-/* Get vector register name with prefix */
-static const char *asm_get_vec_reg_name(ZeroCCCompiler *c, int vec_reg_idx) {
-    static char buf[16];
-    
-    if (BE(c)->get_vec_reg_name) {
-        const char *name = BE(c)->get_vec_reg_name(vec_reg_idx);
-        snprintf(buf, sizeof(buf), "%%%s", name);
-    } else {
-        /* Fallback: use ISA-specific naming */
-        if (c->regalloc.target_isa == ISA_AARCH64) {
-            snprintf(buf, sizeof(buf), "%%v%d", vec_reg_idx);
-        } else if (c->regalloc.target_isa == ISA_RISCV64) {
-            snprintf(buf, sizeof(buf), "%%v%d", vec_reg_idx);
-        } else {
-            snprintf(buf, sizeof(buf), "%%xmm%d", vec_reg_idx);
-        }
-    }
-    return buf;
-}
 
 /* =========================================================================
  * Core Emission Functions - Delegate to Backend
@@ -144,47 +109,114 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             }
             return;
 
+        case OP_LOAD_32: {
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tldr\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlw\t%s, 0(%s)\n", dst_name, addr_name);
+            } else {
+                static const char *r32_names[] = {
+                    "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+                    "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+                };
+                const char *reg_name = (phys_dst >= 0 && phys_dst < 16) ? r32_names[phys_dst] : dst_name;
+                fprintf(out, "\tmovl\t(%%%s),%%%s\n", addr_name, reg_name);
+            }
+            return;
+        }
+
+        case OP_LOAD_16: {
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tldrh\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlhu\t%s, 0(%s)\n", dst_name, addr_name);
+            } else {
+                fprintf(out, "\tmovzwq\t(%%%s),%%%s\n", addr_name, dst_name);
+            }
+            return;
+        }
+
+        case OP_LOAD_BYTE: {
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tldrb\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlbu\t%s, 0(%s)\n", dst_name, addr_name);
+            } else {
+                fprintf(out, "\tmovzbq\t(%%%s),%%%s\n", addr_name, dst_name);
+            }
+            return;
+        }
+
         case OP_STORE_64: {
             const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
-            fprintf(out, "\tmovq\t%%%s,(%%%s)\n", val_name, addr_name);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tsd\t%s, 0(%s)\n", val_name, addr_name);
+            } else {
+                fprintf(out, "\tmovq\t%%%s,(%%%s)\n", val_name, addr_name);
+            }
             return;
         }
 
         case OP_STORE_32: {
             const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
-            /* 32-bit register name: eax/ebx/etc */
-            static const char *r32_names[] = {
-                "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
-                "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
-            };
-            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r32_names[phys_src1] : val_name;
-            fprintf(out, "\tmovl\t%%%s,(%%%s)\n", reg_name, addr_name);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tstr\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
+            } else {
+                static const char *r32_names[] = {
+                    "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+                    "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+                };
+                const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r32_names[phys_src1] : val_name;
+                fprintf(out, "\tmovl\t%%%s,(%%%s)\n", reg_name, addr_name);
+            }
             return;
         }
 
         case OP_STORE_16: {
             const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
-            static const char *r16_names[] = {
-                "ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
-                "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
-            };
-            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r16_names[phys_src1] : val_name;
-            fprintf(out, "\tmovw\t%%%s,(%%%s)\n", reg_name, addr_name);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tstrh\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tsh\t%s, 0(%s)\n", val_name, addr_name);
+            } else {
+                static const char *r16_names[] = {
+                    "ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
+                    "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
+                };
+                const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r16_names[phys_src1] : val_name;
+                fprintf(out, "\tmovw\t%%%s,(%%%s)\n", reg_name, addr_name);
+            }
             return;
         }
 
         case OP_STORE_BYTE: {
             const char *val_name = BE(c)->get_hw_reg_name(phys_src1);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
-            static const char *r8_names[] = {
-                "al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
-                "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"
-            };
-            const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r8_names[phys_src1] : val_name;
-            fprintf(out, "\tmovb\t%%%s,(%%%s)\n", reg_name, addr_name);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tstrb\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tsb\t%s, 0(%s)\n", val_name, addr_name);
+            } else {
+                static const char *r8_names[] = {
+                    "al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
+                    "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"
+                };
+                const char *reg_name = (phys_src1 >= 0 && phys_src1 < 16) ? r8_names[phys_src1] : val_name;
+                fprintf(out, "\tmovb\t%%%s,(%%%s)\n", reg_name, addr_name);
+            }
             return;
         }
             
@@ -271,140 +303,119 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         /* Control Flow */
         case OP_LABEL:
             if (BE(c)->emit_label_asm) {
-                /* Get label name from labels array */
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    BE(c)->emit_label_asm(c, label_name, out);
-                }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_label_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JMP:
             if (BE(c)->emit_jmp_asm) {
-                /* Get label name from labels array */
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    BE(c)->emit_jmp_asm(c, label_name, out);
-                }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_jmp_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JE:
             if (BE(c)->emit_jeq_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                const char *src_name = BE(c)->get_hw_reg_name(phys_src1);
+                if (c->isa == ISA_AARCH64) {
+                    fprintf(out, "\tcmp\t%s, #0\n", src_name);
+                } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                    fprintf(out, "\tbeq\t%s, zero, %s\n", src_name, lbl_buf);
+                    return;
+                } else {
+                    fprintf(out, "\ttestq\t%%%s, %%%s\n", src_name, src_name);
                 }
-                if (label_name) {
-                    BE(c)->emit_jeq_asm(c, label_name, out);
-                }
+                BE(c)->emit_jeq_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JNE:
             if (BE(c)->emit_jne_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                const char *src_name = BE(c)->get_hw_reg_name(phys_src1);
+                if (c->isa == ISA_AARCH64) {
+                    fprintf(out, "\tcmp\t%s, #0\n", src_name);
+                } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                    fprintf(out, "\tbne\t%s, zero, %s\n", src_name, lbl_buf);
+                    return;
+                } else {
+                    fprintf(out, "\ttestq\t%%%s, %%%s\n", src_name, src_name);
                 }
-                if (label_name) {
-                    BE(c)->emit_jne_asm(c, label_name, out);
-                }
+                BE(c)->emit_jne_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JL:
             if (BE(c)->emit_jlt_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    BE(c)->emit_jlt_asm(c, label_name, out);
-                }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_jlt_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JLE:
             if (BE(c)->emit_jle_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    BE(c)->emit_jle_asm(c, label_name, out);
-                }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_jle_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JG:
             if (BE(c)->emit_jgt_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    BE(c)->emit_jgt_asm(c, label_name, out);
-                }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_jgt_asm(c, lbl_buf, out);
             }
             return;
             
         case OP_JCOND:
-            /* Conditional jump - emit based on cond field */
             if (BE(c)->emit_jeq_asm || BE(c)->emit_jne_asm || BE(c)->emit_jlt_asm || 
                 BE(c)->emit_jle_asm || BE(c)->emit_jgt_asm || BE(c)->emit_jge_asm) {
-                const char *label_name = NULL;
-                for (int i = 0; i < c->label_count; i++) {
-                    if (c->labels[i].name && instr->label_idx == (size_t)i) {
-                        label_name = c->labels[i].name;
-                        break;
-                    }
-                }
-                if (label_name) {
-                    /* Use cond field to determine which jump */
-                    switch (instr->cond) {
-                        case 0: if (BE(c)->emit_jlt_asm) BE(c)->emit_jlt_asm(c, label_name, out); break;
-                        case 1: if (BE(c)->emit_jle_asm) BE(c)->emit_jle_asm(c, label_name, out); break;
-                        case 2: if (BE(c)->emit_jgt_asm) BE(c)->emit_jgt_asm(c, label_name, out); break;
-                        case 3: if (BE(c)->emit_jge_asm) BE(c)->emit_jge_asm(c, label_name, out); break;
-                        case 4: if (BE(c)->emit_jeq_asm) BE(c)->emit_jeq_asm(c, label_name, out); break;
-                        case 5: if (BE(c)->emit_jne_asm) BE(c)->emit_jne_asm(c, label_name, out); break;
-                    }
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                switch (instr->cond) {
+                    case 0: if (BE(c)->emit_jlt_asm) BE(c)->emit_jlt_asm(c, lbl_buf, out); break;
+                    case 1: if (BE(c)->emit_jle_asm) BE(c)->emit_jle_asm(c, lbl_buf, out); break;
+                    case 2: if (BE(c)->emit_jgt_asm) BE(c)->emit_jgt_asm(c, lbl_buf, out); break;
+                    case 3: if (BE(c)->emit_jge_asm) BE(c)->emit_jge_asm(c, lbl_buf, out); break;
+                    case 4: if (BE(c)->emit_jeq_asm) BE(c)->emit_jeq_asm(c, lbl_buf, out); break;
+                    case 5: if (BE(c)->emit_jne_asm) BE(c)->emit_jne_asm(c, lbl_buf, out); break;
                 }
             }
             return;
             
+        case OP_LEA_RIP: {
+            size_t rodata_offset = (size_t)instr->imm64;
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tadrp\t%s, .Lrodata+%zu\n", dst_name, rodata_offset);
+                fprintf(out, "\tadd\t%s, %s, :lo12:.Lrodata+%zu\n", dst_name, dst_name, rodata_offset);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlla\t%s, .Lrodata+%zu\n", dst_name, rodata_offset);
+            } else {
+                fprintf(out, "\tleaq\t.Lrodata+%zu(%%rip),%%%s\n", rodata_offset, dst_name);
+            }
+            return;
+        }
+
         case OP_MOV_GLOBAL: {
             const char *symbol_name = (const char *)(intptr_t)instr->imm64;
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
-            fprintf(out, "\tleaq\t%s(%%rip),%%%s\n", symbol_name, dst_name);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tadrp\t%s, %s\n", dst_name, symbol_name);
+                fprintf(out, "\tadd\t%s, %s, :lo12:%s\n", dst_name, dst_name, symbol_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlla\t%s, %s\n", dst_name, symbol_name);
+            } else {
+                fprintf(out, "\tleaq\t%s(%%rip),%%%s\n", symbol_name, dst_name);
+            }
             return;
         }
 
@@ -648,11 +659,89 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             }
             return;
             
-        case OP_VSTORE:
-            if (BE(c)->emit_vstore_asm) {
-                BE(c)->emit_vstore_asm(c, phys_src1, phys_src2, instr->imm, out);
+        case OP_VLOADSS: {
+            const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tldr\ts%s, [%s, #%d]\n", dst_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tldr\ts%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
+                fprintf(out, "\tflw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovss\t%d(%%%s),%%%s\n", instr->imm, addr_name, dst_name);
             }
             return;
+        }
+
+        case OP_VLOADSD: {
+            const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tldr\td%s, [%s, #%d]\n", dst_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tldr\td%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
+                fprintf(out, "\tfld\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovsd\t%d(%%%s),%%%s\n", instr->imm, addr_name, dst_name);
+            }
+            return;
+        }
+            
+        case OP_VSTORE:
+            if (BE(c)->emit_vstore_asm) {
+                BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_VSTORESS: {
+            const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tstr\ts%s, [%s, #%d]\n", val_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tstr\ts%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_src2 >= 0 && phys_src2 < 32) ? BE(c)->regs->fp_regs[phys_src2] : "fa0";
+                fprintf(out, "\tfsw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", val_name, instr->imm, addr_name);
+            }
+            return;
+        }
+
+        case OP_VSTORESD: {
+            const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tstr\td%s, [%s, #%d]\n", val_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tstr\td%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_src2 >= 0 && phys_src2 < 32) ? BE(c)->regs->fp_regs[phys_src2] : "fa0";
+                fprintf(out, "\tfsd\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovsd\t%%%s,%d(%%%s)\n", val_name, instr->imm, addr_name);
+            }
+            return;
+        }
+
+        /* Floating-point Literals and Operations */
+        case OP_FMOV_IMM: {
+            size_t rodata_offset = (size_t)instr->imm64;
+            const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tadrp\tx9, .Lrodata+%zu\n", rodata_offset);
+                fprintf(out, "\tldr\ts%s, [x9, :lo12:.Lrodata+%zu]\n", dst_name + 1, rodata_offset);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
+                fprintf(out, "\tlla\tt0, .Lrodata+%zu\n", rodata_offset);
+                fprintf(out, "\tflw\t%s, 0(t0)\n", fp_name);
+            } else {
+                fprintf(out, "\tmovss\t.Lrodata+%zu(%%rip),%%%s\n", rodata_offset, dst_name);
+            }
+            return;
+        }
+
             
         /* SIMD/Vector Conversions */
         case OP_VCVT_SI2SS:
@@ -689,15 +778,16 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 
 /* Emit all IR instructions as assembly */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
+    (void)spill_base_offset;
     
     /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
+    size_t func_idx = c->function_count > 0 ? c->function_count - 1 : 0;
     
     /* Emit all IR instructions */
     for (size_t i = 0; i < count; i++) {
-        asm_emit_instruction(c, &instrs[i], i, 0);
+        asm_emit_instruction(c, &instrs[i], i, func_idx);
     }
     
     /* Emit epilogue */

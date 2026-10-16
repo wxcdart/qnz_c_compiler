@@ -37,27 +37,32 @@ static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
     return buf;
 }
 
-/* Prologue: stp x29, x30, [sp, #-16]!, mov x29, sp, save callee-saved */
+/* Prologue: stp x29, x30, [sp, #-16]!, mov x29, sp, sub sp, sp, #frame_size, save callee-saved */
 static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     
-    /* Frame setup */
-    fprintf(out, "\tstp\tx29, x30, [sp, #%zu]!\n", stack_size);
+    /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp */
+    fprintf(out, "\tstp\tx29, x30, [sp, #-16]!\n");
     fprintf(out, "\tmov\tx29, sp\n");
+    size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
+    if (aligned_sz > 0) {
+        fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
+    }
     
-    /* Save callee-saved registers */
+    /* Save callee-saved registers x19..x28 at [x29, #-offset] */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
     
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
+        if (reg == 29 || reg == 30) continue; /* x29, x30 already saved by stp */
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tstr\t%s, [x29, #%d]\n", reg_name, offset);
+        fprintf(out, "\tstr\t%s, [x29, #-%d]\n", reg_name, offset);
     }
 }
 
-/* Epilogue: restore callee-saved, ldp x29, x30, [sp], ret */
+/* Epilogue: restore callee-saved, mov sp, x29, ldp x29, x30, [sp], #16, ret */
 static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     
@@ -67,22 +72,24 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
     
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
+        if (reg == 29 || reg == 30) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tldr\t%s, [x29, #%d]\n", reg_name, offset);
+        fprintf(out, "\tldr\t%s, [x29, #-%d]\n", reg_name, offset);
     }
     
+    fprintf(out, "\tmov\tsp, x29\n");
     fprintf(out, "\tldp\tx29, x30, [sp], #16\n");
     fprintf(out, "\tret\n");
 }
 
-/* MOV_IMM: mov $imm, dst */
+/* MOV_IMM: mov dst, #imm */
 static void aarch64_emit_mov_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     fprintf(out, "\tmov\t%s, #%ld\n", dst_name, (long)imm);
 }
 
-/* MOV_REG: mov src, dst */
+/* MOV_REG: mov dst, src */
 static void aarch64_emit_mov_reg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
@@ -93,14 +100,32 @@ static void aarch64_emit_mov_reg_asm(ZeroCCCompiler *c, int dst, int src, FILE *
 static void aarch64_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tldr\t%s, [%s, #%d]\n", dst_name, base_name, offset);
+    if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
+        if (offset < 0) {
+            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+        } else {
+            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+        }
+        fprintf(out, "\tldr\t%s, [x9]\n", dst_name);
+    } else {
+        fprintf(out, "\tldr\t%s, [%s, #%d]\n", dst_name, base_name, offset);
+    }
 }
 
 /* STORE: str src, [base, #offset] */
 static void aarch64_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tstr\t%s, [%s, #%d]\n", src_name, base_name, offset);
+    if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
+        if (offset < 0) {
+            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+        } else {
+            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+        }
+        fprintf(out, "\tstr\t%s, [x9]\n", src_name);
+    } else {
+        fprintf(out, "\tstr\t%s, [%s, #%d]\n", src_name, base_name, offset);
+    }
 }
 
 /* ADD: add dst, src1, src2 */
@@ -172,7 +197,7 @@ static void aarch64_emit_shr_asm(ZeroCCCompiler *c, int dst, int src, int shift,
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *shift_name = BE(c)->get_hw_reg_name(shift);
-    fprintf(out, "\tlsl\t%s, %s, %s\n", dst_name, src_name, shift_name);
+    fprintf(out, "\tlsr\t%s, %s, %s\n", dst_name, src_name, shift_name);
 }
 
 /* ASR: asr dst, src, shift */
@@ -193,7 +218,7 @@ static void aarch64_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *ou
 /* COND_SET: cset dst, cond */
 static void aarch64_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
-    const char *cc[] = {"lo", "ls", "hi", "hs", "eq", "ne"};
+    const char *cc[] = {"lt", "le", "gt", "ge", "eq", "ne"};
     fprintf(out, "\tcset\t%s, %s\n", dst_name, cc[cond]);
 }
 
@@ -204,11 +229,15 @@ static void aarch64_emit_neg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tneg\t%s, %s\n", dst_name, src_name);
 }
 
-/* LEA: add dst, base, #offset */
+/* LEA: add/sub dst, base, #offset */
 static void aarch64_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tadd\t%s, %s, #%d\n", dst_name, base_name, offset);
+    if (offset < 0) {
+        fprintf(out, "\tsub\t%s, %s, #%d\n", dst_name, base_name, -offset);
+    } else {
+        fprintf(out, "\tadd\t%s, %s, #%d\n", dst_name, base_name, offset);
+    }
 }
 
 /* DEREF: ldr dst, [src] */
@@ -218,35 +247,85 @@ static void aarch64_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *ou
     fprintf(out, "\tldr\t%s, [%s]\n", dst_name, src_name);
 }
 
-/* CALL - Full AArch64 ABI compliance */
+/* PARAM_SAVE_INT: save incoming integer parameter (or x8 sret pointer) to [x29, #-offset] */
+static void aarch64_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+    if (reg_idx < 0 || reg_idx > 8) return;
+    const char *reg_name = aarch64_get_hw_reg_name(reg_idx); /* x0..x7, or x8 for sret */
+    aarch64_emit_store_asm(c, reg_idx, 29, -offset, out);
+    (void)reg_name;
+}
+
+/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to [x29, #-offset] */
+static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+    (void)c;
+    if (reg_idx < 0 || reg_idx >= 8) return;
+    if (-offset < -256) {
+        fprintf(out, "\tsub\tx9, x29, #%d\n", offset);
+        fprintf(out, "\tstr\td%d, [x9]\n", reg_idx);
+    } else {
+        fprintf(out, "\tstr\td%d, [x29, #-%d]\n", reg_idx, offset);
+    }
+}
+
+/* CALL - Full AArch64 AAPCS64 compliance (including x8 sret and indirect blr calls) */
 static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
-    /* AArch64 ABI argument registers */
     static const char *int_arg_regs[] = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-    static const char *fp_arg_regs[] = {"v0", "v1", "v2", "v3", 
-                                         "v4", "v5", "v6", "v7"};
+    static const char *fp_arg_regs[] = {"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7"};
     
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
+    int indirect_temp = -1;
+    int sret_temp = -1;
+    int int_src_regs[8];
     
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
         const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
-        
-        /* Use is_fp array to determine if argument is FP */
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         
-        if (arg_is_fp && fp_arg_idx < 8) {
+        if (arg_is_fp == 2) {
+            indirect_temp = temp;
+        } else if (arg_is_fp == 3) {
+            sret_temp = temp;
+        } else if (arg_is_fp == 1 && fp_arg_idx < 8) {
             fprintf(out, "\tfmov\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
             fp_arg_idx++;
-        } else if (!arg_is_fp && int_arg_idx < 8) {
-            fprintf(out, "\tmov\t%s, %s\n", int_arg_regs[int_arg_idx], reg_name);
-            int_arg_idx++;
+        } else if (arg_is_fp == 0 && int_arg_idx < 8) {
+            int_src_regs[int_arg_idx++] = phys_reg;
         }
-        /* Stack arguments would go here for calls with >8 args */
     }
     
-    fprintf(out, "\tbl\t%s\n", func_name);
+    /* Save indirect callee into x10 before clobbering argument registers */
+    if (!func_name && indirect_temp >= 0) {
+        int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_temp);
+        fprintf(out, "\tmov\tx10, %s\n", BE(c)->get_hw_reg_name(r_callee));
+    }
+    
+    /* Save AAPCS64 sret pointer into x8 before clobbering argument registers */
+    if (sret_temp >= 0) {
+        int r_sret = regalloc_get_reg_for_temp(&c->regalloc, sret_temp);
+        fprintf(out, "\tmov\tx8, %s\n", BE(c)->get_hw_reg_name(r_sret));
+    }
+    
+    /* Parallel move of integer arguments via stack push/pop so x0..x7 don't clobber each other */
+    if (int_arg_idx > 0) {
+        int alloc_bytes = ((int_arg_idx * 8) + 15) & ~15;
+        fprintf(out, "\tsub\tsp, sp, #%d\n", alloc_bytes);
+        for (int a = 0; a < int_arg_idx; a++) {
+            fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);
+        }
+        for (int a = 0; a < int_arg_idx; a++) {
+            fprintf(out, "\tldr\t%s, [sp, #%d]\n", int_arg_regs[a], a * 8);
+        }
+        fprintf(out, "\tadd\tsp, sp, #%d\n", alloc_bytes);
+    }
+    
+    if (!func_name && indirect_temp >= 0) {
+        fprintf(out, "\tblr\tx10\n");
+    } else if (func_name) {
+        fprintf(out, "\tbl\t%s\n", func_name);
+    }
 }
 
 /* RET: ret */
@@ -344,144 +423,168 @@ static void aarch64_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FIL
  * Vector Instruction Emission (NEON)
  * ========================================================================= */
 
-/* Vector load - ld1 */
+/* Vector load (128-bit) - ldr q */
 static void aarch64_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tld1\t{%s.4s}, [%s, #%d]\n", dst_name, base_name, offset);
+    if (offset != 0) {
+        fprintf(out, "\tldr\tq%s, [%s, #%d]\n", dst_name + 1, base_name, offset);
+    } else {
+        fprintf(out, "\tldr\tq%s, [%s]\n", dst_name + 1, base_name);
+    }
 }
 
-/* Vector store - st1 */
+/* Vector store (128-bit) - str q */
 static void aarch64_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
     const char *src_name = BE(c)->get_vec_reg_name(src);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tst1\t{%s.4s}, [%s, #%d]\n", src_name, base_name, offset);
+    if (offset != 0) {
+        fprintf(out, "\tstr\tq%s, [%s, #%d]\n", src_name + 1, base_name, offset);
+    } else {
+        fprintf(out, "\tstr\tq%s, [%s]\n", src_name + 1, base_name);
+    }
 }
 
 /* Vector scalar single add - fadd s */
 static void aarch64_emit_vaddss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfadd\ts%s, s%s, s%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfadd\ts%s, s%s, s%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar single sub - fsub s */
 static void aarch64_emit_vsubss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfsub\ts%s, s%s, s%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfsub\ts%s, s%s, s%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar single mul - fmul s */
 static void aarch64_emit_vmulss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfmul\ts%s, s%s, s%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfmul\ts%s, s%s, s%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar single div - fdiv s */
 static void aarch64_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfdiv\ts%s, s%s, s%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfdiv\ts%s, s%s, s%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector packed single add - fadd.4s */
 static void aarch64_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfadd\t%s.4s, %s.4s, %s.4s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfadd\t%s.4s, %s.4s, %s.4s\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed single sub - fsub.4s */
 static void aarch64_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfsub\t%s.4s, %s.4s, %s.4s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfsub\t%s.4s, %s.4s, %s.4s\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed single mul - fmul.4s */
 static void aarch64_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfmul\t%s.4s, %s.4s, %s.4s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfmul\t%s.4s, %s.4s, %s.4s\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed single div - fdiv.4s */
 static void aarch64_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfdiv\t%s.4s, %s.4s, %s.4s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfdiv\t%s.4s, %s.4s, %s.4s\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector scalar double add - fadd d */
 static void aarch64_emit_vaddsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfadd\td%s, d%s, d%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfadd\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar double sub - fsub d */
 static void aarch64_emit_vsubsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfsub\td%s, d%s, d%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfsub\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar double mul - fmul d */
 static void aarch64_emit_vmulsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfmul\td%s, d%s, d%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfmul\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar double div - fdiv d */
 static void aarch64_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfdiv\td%s, d%s, d%s\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfdiv\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* Vector packed double add - fadd.2d */
 static void aarch64_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfadd\t%s.2d, %s.2d, %s.2d\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfadd\t%s.2d, %s.2d, %s.2d\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed double sub - fsub.2d */
 static void aarch64_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfsub\t%s.2d, %s.2d, %s.2d\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfsub\t%s.2d, %s.2d, %s.2d\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed double mul - fmul.2d */
 static void aarch64_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfmul\t%s.2d, %s.2d, %s.2d\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfmul\t%s.2d, %s.2d, %s.2d\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector packed double div - fdiv.2d */
 static void aarch64_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfdiv\t%s.2d, %s.2d, %s.2d\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tfdiv\t%s.2d, %s.2d, %s.2d\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector move scalar - fmov */
 static void aarch64_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src_name = BE(c)->get_vec_reg_name(src);
-    fprintf(out, "\tfmov\ts%s, s%s\n", dst_name, src_name);
+    fprintf(out, "\tfmov\ts%s, s%s\n", dst_name + 1, src_name + 1);
 }
 
 /* Vector scalar double move - fmov (double) */
 static void aarch64_emit_vmovsd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src_name = BE(c)->get_vec_reg_name(src);
-    fprintf(out, "\tfmov\td%s, d%s\n", dst_name, src_name);
+    fprintf(out, "\tfmov\td%s, d%s\n", dst_name + 1, src_name + 1);
 }
 
 /* Vector move packed single - mov */
@@ -501,57 +604,63 @@ static void aarch64_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *
 /* Vector bitwise and - and */
 static void aarch64_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tand\t%s.16b, %s.16b, %s.16b\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\tand\t%s.16b, %s.16b, %s.16b\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector bitwise or - orr */
 static void aarch64_emit_vorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\torr\t%s.16b, %s.16b, %s.16b\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\torr\t%s.16b, %s.16b, %s.16b\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector bitwise xor - eor */
 static void aarch64_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\teor\t%s.16b, %s.16b, %s.16b\n", dst_name, dst_name, src2_name);
+    fprintf(out, "\teor\t%s.16b, %s.16b, %s.16b\n", dst_name, src1_name, src2_name);
 }
 
 /* Vector shuffle - ext */
 static void aarch64_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\text\t%s.16b, %s.16b, %s.16b, #%d\n", dst_name, dst_name, src2_name, imm);
+    fprintf(out, "\text\t%s.16b, %s.16b, %s.16b, #%d\n", dst_name, src1_name, src2_name, imm);
 }
 
 /* Convert scalar int to scalar single - scvtf s */
 static void aarch64_emit_vcvt_si2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
-    fprintf(out, "\tscvtf\ts%s, %s\n", dst_name, src_name);
+    fprintf(out, "\tscvtf\ts%s, %s\n", dst_name + 1, src_name);
 }
 
 /* Convert scalar single to scalar int - fcvtzs */
 static void aarch64_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_vec_reg_name(src);
-    fprintf(out, "\tfcvtzs\t%s, s%s\n", dst_name, src_name);
+    fprintf(out, "\tfcvtzs\t%s, s%s\n", dst_name, src_name + 1);
 }
 
 /* Vector compare scalar single - fcmp */
 static void aarch64_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    (void)dst; (void)pred;
     const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfcmp\ts%s, s%s\n", src1_name, src2_name);
+    fprintf(out, "\tfcmp\ts%s, s%s\n", src1_name + 1, src2_name + 1);
 }
 
 /* Vector scalar double comparison - fcmp (double) */
 static void aarch64_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+    (void)dst; (void)pred;
     const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
-    fprintf(out, "\tfcmp\td%s, d%s\n", src1_name, src2_name);
+    fprintf(out, "\tfcmp\td%s, d%s\n", src1_name + 1, src2_name + 1);
 }
 
 /* Initialize AArch64 assembly emission functions in backend */
@@ -596,6 +705,8 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_div_asm = aarch64_emit_fp_div_asm;
     be->emit_fp_mov_asm = aarch64_emit_fp_mov_asm;
     be->emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm;
+    be->emit_param_save_int_asm = aarch64_emit_param_save_int_asm;
+    be->emit_param_save_fp_asm = aarch64_emit_param_save_fp_asm;
     
     /* Vector instruction emission (NEON) */
     be->emit_vload_asm = aarch64_emit_vload_asm;

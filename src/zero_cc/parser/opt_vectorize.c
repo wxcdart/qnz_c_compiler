@@ -1,5 +1,6 @@
 #include "opt_vectorize.h"
 #include "opt_loop.h"
+#include "opt_constant_fold.h"
 #include "ir.h"
 #include "ir_arena.h"
 #include "ir_emit_ops.h"
@@ -21,7 +22,6 @@
  * 4. Generate tail loop for remainder iterations
  */
 
-#define MAX_VECTOR_LOOPS 64
 #define MAX_VEC_BODY 256
 
 /**
@@ -67,12 +67,11 @@ int vectorization_get_width(int target_isa) {
  * Initialize vectorization state
  */
 void vectorization_init(VectorizationState *state, int target_isa) {
-    state->loops = malloc(sizeof(VectorizationInfo) * MAX_VECTOR_LOOPS);
+    memset(state, 0, sizeof(*state));
     state->loop_count = 0;
     state->capacity = MAX_VECTOR_LOOPS;
     state->vector_width = vectorization_get_width(target_isa);
-    state->invariant_map = NULL;
-    state->invariant_count = 0;
+    state->target_isa = target_isa;
     
     for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
         state->loops[i].is_vectorizable = false;
@@ -90,10 +89,6 @@ void vectorization_init(VectorizationState *state, int target_isa) {
  * Free vectorization resources
  */
 void vectorization_free(VectorizationState *state) {
-    free(state->loops);
-    free(state->invariant_map);
-    state->loops = NULL;
-    state->invariant_map = NULL;
     state->loop_count = 0;
 }
 
@@ -197,8 +192,12 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         }
         
         /* Look for loop variable increment */
-        if (instr->op == OP_ADD && instr->imm == 1) {
-            loop_var = instr->temp_src1;
+        if (instr->op == OP_ADD) {
+            if (instr->imm == 1) {
+                loop_var = instr->temp_src1;
+            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+                loop_var = instr->temp_src1;
+            }
         }
     }
     
@@ -319,9 +318,14 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        if (instr->op == OP_ADD && instr->imm == 1) {
-            found_scalar_increment = true;
-            break;
+        if (instr->op == OP_ADD) {
+            if (instr->imm == 1) {
+                found_scalar_increment = true;
+                break;
+            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+                found_scalar_increment = true;
+                break;
+            }
         }
     }
     
@@ -339,8 +343,26 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        if (instr->op == OP_ADD && instr->imm == 1) {
-            instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
+        if (instr->op == OP_ADD) {
+            if (instr->imm == 1) {
+                instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
+            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+                /* Replace constant temp definition or instruction */
+                int step_temp = c->next_temp_id++;
+                /* Insert before or change the constant definition if local, or convert to OP_ADD_IMM if available */
+                /* Easiest and clean: change OP_MOV_IMM of temp_src2 to vec_width if unique, or emit new imm */
+                instr->temp_src2 = (uint8_t)step_temp;
+                /* Insert OP_MOV_IMM step_temp, vec_width right before this ADD */
+                /* In our IR arena, we can change instr->imm = vec_width and make it OP_ADD_IMM, or update the MOV_IMM */
+                for (int j = start_idx; j < i; j++) {
+                    Instr *prev = ir_get(j);
+                    if (prev && prev->op == OP_MOV_IMM && prev->temp_dest == instr->temp_src2) {
+                        prev->imm = (int16_t)vec_width;
+                        prev->imm64 = vec_width;
+                        break;
+                    }
+                }
+            }
         }
     }
     
