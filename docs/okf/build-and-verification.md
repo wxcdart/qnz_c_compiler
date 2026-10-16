@@ -67,7 +67,8 @@ python3 tools/sret_verifier.py --verify-all
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c
 
 # Validate the docs/okf/ Open Knowledge Format bundle (YAML frontmatter & graph links)
-python3 tools/okf_validator.py
+python3 tools/okf.py lint
+python3 tools/okf.py index
 ```
 
 ## Related Concepts

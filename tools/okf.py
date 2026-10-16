@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Unified Open Knowledge Format (OKF v0.2) CLI for ZeroCC (`docs/okf/`).
-Zero external dependencies (Python 3 stdlib only).
+Portable, single-file Open Knowledge Format (OKF v0.2) CLI & Skill Bootstrapper (`okf.py`).
+Zero external dependencies (Python 3 stdlib only). Drop this single script into any repository!
 
 Subcommands:
-  lint   [bundle]               Validate YAML frontmatter, relative links, and reachability
+  init   [bundle]               Scaffold a new OKF v0.2 knowledge bundle (index.md + log.md)
+  setup  [--repo ROOT]          Generate/update portable agent skill (.agents/skills/...) and AGENTS.md rules
+  lint   [bundle]               Validate YAML frontmatter, relative links, and graph reachability
   search <query...> [--toc]     Ranked search across OKF concept pages (title/tags/desc/headings/body)
   status [bundle]               Display bundle health, page counts, graph edges, and recent updates
   update <page> [--log MSG]     Bump frontmatter ISO-8601 timestamp and optionally append to log.md
-  index  [bundle] [--check]     Check or synchronize concept listing in index.md
+  index  [bundle]               Check that all peer pages in bundle are linked in index.md
   now                           Print current UTC ISO-8601 timestamp
 """
 
@@ -19,6 +21,7 @@ from datetime import datetime, timezone
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,13 +30,88 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 
+SKILL_TEMPLATE = """---
+name: okf-knowledge-graph
+description: >-
+  Use this skill to navigate, query, update, and validate the Open Knowledge Format (OKF v0.2)
+  knowledge bundle in {bundle_rel}/ whenever researching project architecture or recording new
+  architectural decisions, ABI/API rules, or invariants.
+---
+
+# Open Knowledge Format (OKF v0.2) Skill
+
+This skill provides the workflow for traversing and maintaining the structured knowledge graph in [`{bundle_rel}/index.md`](../../../{bundle_rel}/index.md).
+
+## 1. Navigating & Searching the Knowledge Graph (Query-First)
+
+1. **Always start at [`{bundle_rel}/index.md`](../../../{bundle_rel}/index.md).**
+2. Follow relative markdown links from `index.md` to the specific domain concept page you need.
+3. **Ranked Search & Table of Contents**: Before falling back to raw `grep` across legacy docs, use `{script_rel}`:
+   ```bash
+   # Ranked keyword search across title (5x), tags/resource (4x), description (3x), headings (2x), body (1x)
+   python3 {script_rel} search <keywords>
+
+   # Print full Table of Contents with summaries and tags
+   python3 {script_rel} search --toc
+
+   # Check bundle status and page timestamps
+   python3 {script_rel} status
+   ```
+
+## 2. Adding or Updating an OKF Concept Node
+
+Every `.md` file in `{bundle_rel}/` must begin with a valid OKF v0.2 YAML frontmatter block containing all required keys (`type`, `title`, `description`, `resource`, `tags`, `timestamp`, `status`):
+
+```markdown
+---
+type: Concept
+title: Concise Concept Title
+description: One-sentence summary of the architectural rule or subsystem.
+resource: category/slug
+tags: [tag1, tag2, tag3]
+timestamp: {timestamp}
+generated: antigravity-agent
+verified: engineering-lead
+status: active
+---
+```
+
+### Graph Linking & Updating Rules
+- Link every new concept file from [`{bundle_rel}/index.md`](../../../{bundle_rel}/index.md) using a relative path (`[Title](./my-concept.md)`).
+- Include a `## Related Concepts` section at the bottom of each concept file with relative links back to `[Root Index](./index.md)` and related peer nodes.
+- After editing a concept page, bump its timestamp and append a changelog entry to [`{bundle_rel}/log.md`](../../../{bundle_rel}/log.md):
+  ```bash
+  python3 {script_rel} update <page.md> --log "Describe the architectural update"
+  ```
+
+## 3. Validating the OKF Bundle
+
+After creating or editing any file in `{bundle_rel}/`, always run:
+
+```bash
+python3 {script_rel} lint
+python3 {script_rel} index
+```
+
+Ensure both report `[PASS]` / `[OK]` with `0` broken links, valid YAML frontmatter, and 100% reachability from `index.md`.
+"""
+
+AGENTS_SECTION_MARKER = "## Knowledge Graph First (`docs/okf/`)"
+
+
+def find_repo_root() -> Path:
+    here = Path(__file__).resolve().parent
+    for p in [here, *here.parents]:
+        if (p / ".git").exists():
+            return p
+    return Path.cwd()
+
 
 def default_bundle_dir() -> Path:
-    # Check if run from tools/ or .agents/skills/okf-knowledge-graph/scripts/
-    here = Path(__file__).resolve().parent
-    for candidate in [here.parent / "docs" / "okf", here.parent.parent.parent.parent / "docs" / "okf", Path.cwd() / "docs" / "okf"]:
-        if candidate.is_dir():
-            return candidate
+    root = find_repo_root()
+    candidate = root / "docs" / "okf"
+    if candidate.is_dir():
+        return candidate
     return Path.cwd() / "docs" / "okf"
 
 
@@ -67,6 +145,127 @@ def parse_page(fpath: Path) -> tuple[dict[str, str] | None, str, str | None]:
 
     body = "\n".join(lines[end_idx + 1 :])
     return meta, body, None
+
+
+def cmd_init(bundle_dir: Path, project_name: str) -> int:
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    ts = now_iso()
+    index_path = bundle_dir / "index.md"
+    log_path = bundle_dir / "log.md"
+
+    if not index_path.exists():
+        index_path.write_text(
+            f"""---
+type: Index
+title: {project_name} Knowledge Graph (OKF Bundle)
+description: Root navigator and knowledge graph entry point for AI coding agents working on {project_name}.
+resource: okf/index
+tags: [index, navigation, okf]
+timestamp: {ts}
+generated: okf-cli
+verified: engineering-lead
+status: active
+---
+
+# {project_name} Open Knowledge Format (OKF) Bundle
+
+Welcome to the **{project_name} Knowledge Graph**. Start here to navigate architectural rules, invariants, and workflows.
+
+- **Changelog / Evolution**: [Bundle Log](./log.md)
+""",
+            encoding="utf-8",
+        )
+        print(f"[OK] Created {index_path}")
+    else:
+        print(f"[SKIP] {index_path} already exists")
+
+    if not log_path.exists():
+        log_path.write_text(
+            f"""---
+type: Log
+title: {project_name} OKF Knowledge Bundle Log
+description: Sequential changelog tracking how and when the {project_name} OKF knowledge bundle evolves.
+resource: okf/log
+tags: [changelog, log, okf]
+timestamp: {ts}
+generated: okf-cli
+verified: engineering-lead
+status: active
+---
+
+# {project_name} OKF Bundle Log
+
+This file tracks sequential updates to the [{project_name} OKF Knowledge Graph](./index.md).
+
+## {ts[:10]} — Initialized OKF v0.2 Bundle
+- Created [index.md](./index.md) and [log.md](./log.md).
+""",
+            encoding="utf-8",
+        )
+        print(f"[OK] Created {log_path}")
+    else:
+        print(f"[SKIP] {log_path} already exists")
+
+    return 0
+
+
+def cmd_setup(repo_root: Path, bundle_rel: str, copy_script: bool) -> int:
+    repo_root = repo_root.resolve()
+    bundle_dir = repo_root / bundle_rel
+    if not bundle_dir.is_dir():
+        cmd_init(bundle_dir, repo_root.name)
+
+    # Determine where okf.py lives relative to repo_root
+    self_path = Path(__file__).resolve()
+    target_script = repo_root / "tools" / "okf.py"
+    if copy_script or not self_path.is_relative_to(repo_root):
+        target_script.parent.mkdir(parents=True, exist_ok=True)
+        if self_path != target_script:
+            shutil.copy2(self_path, target_script)
+            os.chmod(target_script, 0o755)
+            print(f"[OK] Installed portable CLI -> {target_script}")
+        script_rel = "tools/okf.py"
+    else:
+        script_rel = str(self_path.relative_to(repo_root))
+
+    skill_dir = repo_root / ".agents" / "skills" / "okf-knowledge-graph"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_content = SKILL_TEMPLATE.format(
+        bundle_rel=bundle_rel.strip("/"),
+        script_rel=script_rel,
+        timestamp=now_iso(),
+    )
+    skill_file.write_text(skill_content, encoding="utf-8")
+    print(f"[OK] Configured agent skill -> {skill_file}")
+
+    agents_md = repo_root / "AGENTS.md"
+    if not agents_md.exists():
+        agents_md.write_text(
+            f"""# Agent Instructions & Workspace Rules
+
+{AGENTS_SECTION_MARKER}
+
+Before scanning historical files in `docs/`, **always consult the Open Knowledge Format (OKF v0.2) bundle** at [`{bundle_rel}/index.md`]({bundle_rel}/index.md):
+
+- **Root Navigator**: [`{bundle_rel}/index.md`]({bundle_rel}/index.md)
+- **Sequential Evolution Log**: [`{bundle_rel}/log.md`]({bundle_rel}/log.md)
+- **CLI Commands**:
+  ```bash
+  python3 {script_rel} search --toc
+  python3 {script_rel} search <query>
+  python3 {script_rel} status
+  python3 {script_rel} update <page.md> --log "Summary of update"
+  python3 {script_rel} lint
+  ```
+""",
+            encoding="utf-8",
+        )
+        print(f"[OK] Created workspace rules -> {agents_md}")
+    else:
+        print(f"[OK] Verified existing workspace rules -> {agents_md}")
+
+    return 0
 
 
 def cmd_lint(bundle_dir: Path) -> int:
@@ -208,7 +407,6 @@ def cmd_search(bundle_dir: Path, query: str, toc: bool = False, as_json: bool = 
                 score += term_score
 
         if score > 0:
-            # Find best matching snippet line
             snippet = meta.get("description", "")
             for line in body.splitlines():
                 sline = line.strip()
@@ -354,8 +552,22 @@ def cmd_index(bundle_dir: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="ZeroCC Open Knowledge Format (OKF v0.2) CLI")
+    parser = argparse.ArgumentParser(
+        description="Portable single-file Open Knowledge Format (OKF v0.2) CLI & Skill Bootstrapper"
+    )
     sub = parser.add_subparsers(dest="subcommand")
+
+    p_init = sub.add_parser("init", help="Scaffold a new OKF v0.2 bundle (index.md + log.md)")
+    p_init.add_argument("bundle", nargs="?", default=None, help="Path to OKF bundle directory (default: docs/okf)")
+    p_init.add_argument("--name", default=None, help="Project name for titles")
+
+    p_setup = sub.add_parser(
+        "setup",
+        help="Bootstrap or update .agents/skills/okf-knowledge-graph/SKILL.md and AGENTS.md in target repo",
+    )
+    p_setup.add_argument("--repo", default=None, help="Target repository root (default: auto-detected git root)")
+    p_setup.add_argument("--bundle-rel", default="docs/okf", help="Bundle path relative to repo root (default: docs/okf)")
+    p_setup.add_argument("--copy-script", action="store_true", help="Copy okf.py into <repo>/tools/okf.py if external")
 
     p_lint = sub.add_parser("lint", help="Validate YAML frontmatter, relative links, and graph reachability")
     p_lint.add_argument("bundle", nargs="?", default=None, help="Path to OKF bundle directory")
@@ -385,6 +597,13 @@ def main() -> int:
     if args.subcommand in (None, "lint"):
         bdir = Path(getattr(args, "bundle", None) or default_bundle_dir())
         return cmd_lint(bdir)
+    if args.subcommand == "init":
+        bdir = Path(args.bundle) if args.bundle else default_bundle_dir()
+        proj_name = args.name or find_repo_root().name
+        return cmd_init(bdir, proj_name)
+    if args.subcommand == "setup":
+        rroot = Path(args.repo) if args.repo else find_repo_root()
+        return cmd_setup(rroot, args.bundle_rel, args.copy_script)
     if args.subcommand == "search":
         bdir = Path(args.bundle) if args.bundle else default_bundle_dir()
         return cmd_search(bdir, " ".join(args.query), toc=args.toc, as_json=args.json, max_results=args.max_results)

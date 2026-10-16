@@ -28,4 +28,4 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 - **Recorded Sprint 17 System V AMD64 `sret` Invariants**:
   - Documented hidden return pointer (`%rdi`) handling for structs `>16` bytes across direct calls, member access on call expressions, struct reassignment, tail returns, and indirect function pointer calls (`Task 4.3`).
   - Documented size-aware tail chunk copy (`32`/`16`/`8`-bit load/store) to prevent stack clobbering on non-multiple-of-8 structs (such as 20-byte structs).
-  - Documented `tools/okf_validator.py` for validating YAML frontmatter and relative markdown graph links.
+  - Documented `tools/okf.py` for validating YAML frontmatter, relative markdown graph links, ranked search, and portable skill setup.

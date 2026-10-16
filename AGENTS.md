@@ -29,12 +29,13 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   ```bash
   make test
   python3 tools/sret_verifier.py --verify-all
-  python3 tools/okf_validator.py
+  python3 tools/okf.py lint
   ```
 
 ## 3. Maintaining the OKF Knowledge Bundle
 
 When completing a feature, bug fix, or architectural change:
 1. Update the relevant concept file(s) in `docs/okf/` (or add a new OKF v0.2 single-concept `.md` file linked from `docs/okf/index.md`).
-2. Append an entry to `docs/okf/log.md` and `docs/CHANGELOG.md`.
-3. Run `python3 tools/okf_validator.py` to verify YAML frontmatter schemas, relative markdown links, and graph reachability.
+2. Run `python3 tools/okf.py update <page.md> --log "Summary"` to bump timestamps and append to `docs/okf/log.md` (and update `docs/CHANGELOG.md`).
+3. Run `python3 tools/okf.py lint && python3 tools/okf.py index` to verify YAML frontmatter schemas, relative markdown links, and graph reachability.
+4. To bootstrap the OKF skill and rules in a new repo using this portable script: `python3 tools/okf.py setup --repo /path/to/repo --copy-script`.
