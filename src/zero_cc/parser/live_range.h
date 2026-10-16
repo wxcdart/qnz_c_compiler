@@ -301,8 +301,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
     for (size_t i = 0; i < instr_count; i++) {
         const Instr *instr = &instrs[i];
         
-        /* Skip labels, prologue (now emitted separately), and unconditional jumps (they don't use temps) */
-        if (instr->op == OP_LABEL || instr->op == OP_JMP ||
+        /* Skip labels, dead/nop instructions, prologue, and unconditional jumps */
+        if (instr->op == OP_LABEL || instr->op == OP_JMP || instr->op == OP_DEAD || instr->op == OP_NOP ||
             instr->op == OP_PARAM_SAVE_INT || instr->op == OP_PARAM_SAVE_FP || instr->op == OP_VARIADIC_SPILL) {
             continue;
         }

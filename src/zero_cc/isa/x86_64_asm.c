@@ -101,7 +101,7 @@ static void x86_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t off
     fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", src_name, offset, base_name);
 }
 
-/* ADD: Handle src2 == dst case */
+/* ADD: Handle src2 == dst or src1 == dst */
 static void x86_emit_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
@@ -110,12 +110,14 @@ static void x86_emit_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     if (dst == src2) {
         fprintf(out, "\taddq\t%%%s,%%%s\n", src1_name, dst_name);
     } else {
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+        if (dst != src1) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+        }
         fprintf(out, "\taddq\t%%%s,%%%s\n", src2_name, dst_name);
     }
 }
 
-/* SUB: Handle src2 == dst case */
+/* SUB: Handle src2 == dst or src1 == dst */
 static void x86_emit_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
@@ -124,7 +126,9 @@ static void x86_emit_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     if (dst == src2) {
         fprintf(out, "\tsubq\t%%%s,%%%s\n", src1_name, dst_name);
     } else {
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+        if (dst != src1) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+        }
         fprintf(out, "\tsubq\t%%%s,%%%s\n", src2_name, dst_name);
     }
 }
@@ -135,9 +139,13 @@ static void x86_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
+    if (src1 != 0) {  /* RAX */
+        fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
+    }
     fprintf(out, "\timulq\t%%%s\n", src2_name);
-    fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    if (dst != 0) {
+        fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    }
 }
 
 /* DIV: x86-64 uses rax:rdx for division */
@@ -146,10 +154,14 @@ static void x86_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
+    if (src1 != 0) {  /* RAX */
+        fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
+    }
     fprintf(out, "\tcqo\n");
     fprintf(out, "\tidivq\t%%%s\n", src2_name);
-    fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    if (dst != 0) {
+        fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    }
 }
 
 /* AND */
@@ -158,7 +170,9 @@ static void x86_emit_and_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    if (dst != src1) {
+        fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    }
     fprintf(out, "\tandq\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
@@ -168,7 +182,9 @@ static void x86_emit_or_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    if (dst != src1) {
+        fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    }
     fprintf(out, "\torq\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
@@ -178,7 +194,9 @@ static void x86_emit_xor_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    if (dst != src1) {
+        fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+    }
     fprintf(out, "\txorq\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
@@ -195,7 +213,9 @@ static void x86_emit_shl_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
         fprintf(out, "\tshlq\t%%cl,%%r10\n");
         fprintf(out, "\tmovq\t%%r10,%%%s\n", dst_name);
     } else {
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        if (dst != src) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        }
         fprintf(out, "\tmovq\t%%%s,%%rcx\n", shift_name);
         fprintf(out, "\tshlq\t%%cl,%%%s\n", dst_name);
     }
@@ -213,7 +233,9 @@ static void x86_emit_shr_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
         fprintf(out, "\tshrq\t%%cl,%%r10\n");
         fprintf(out, "\tmovq\t%%r10,%%%s\n", dst_name);
     } else {
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        if (dst != src) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        }
         fprintf(out, "\tmovq\t%%%s,%%rcx\n", shift_name);
         fprintf(out, "\tshrq\t%%cl,%%%s\n", dst_name);
     }
@@ -231,7 +253,9 @@ static void x86_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
         fprintf(out, "\tsarq\t%%cl,%%r10\n");
         fprintf(out, "\tmovq\t%%r10,%%%s\n", dst_name);
     } else {
-        fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        if (dst != src) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
+        }
         fprintf(out, "\tmovq\t%%%s,%%rcx\n", shift_name);
         fprintf(out, "\tsarq\t%%cl,%%%s\n", dst_name);
     }

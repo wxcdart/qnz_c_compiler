@@ -51,8 +51,8 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
 void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     
-    /* Skip DEAD instructions */
-    if (instr->op == OP_DEAD) {
+    /* Skip DEAD and NOP instructions */
+    if (instr->op == OP_DEAD || instr->op == OP_NOP) {
         return;
     }
     
@@ -80,6 +80,10 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             return;
             
         case OP_MOV_REG:
+            /* Peephole: eliminate redundant register self-moves (mov reg, reg) */
+            if (phys_dst == phys_src1) {
+                return;
+            }
             if (BE(c)->emit_mov_reg_asm) {
                 BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);
             }

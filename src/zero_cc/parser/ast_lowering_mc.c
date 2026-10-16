@@ -24,6 +24,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
     for (size_t i = 0; i < count; i++) {
         const Instr *instr = &instrs[i];
+        if (instr->op == OP_DEAD || instr->op == OP_NOP) {
+            continue;
+        }
 
         /* Frame pointer (0xFF) should NOT be allocated - use actual FP register */
         int phys_dst = (instr->temp_dest == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
@@ -87,7 +90,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             
             case OP_MOV_REG:
-                BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
+                if (phys_dst != phys_src1) {
+                    BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
+                }
                 break;
             
             case OP_LEA:
