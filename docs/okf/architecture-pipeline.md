@@ -1,0 +1,56 @@
+---
+type: Architecture
+title: ZeroCC Compilation Pipeline & Two-Pass Architecture
+description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
+resource: architecture/pipeline
+tags: [architecture, pipeline, ast, ir, jit, aot]
+timestamp: 2026-10-15T22:55:00Z
+generated: antigravity-agent
+verified: engineering-lead
+status: active
+---
+
+# ZeroCC Compilation Pipeline & Two-Pass Architecture
+
+ZeroCC compiles C99/C11 source files through a unified pipeline that supports both **in-memory JIT execution** (`--run`) and **AOT compilation** (`-S` assembly, `-c` ELF object, `-o` linked executable).
+
+## Pipeline Stages
+
+1. **Lexer (`src/zero_cc/lexer/`)**
+   - Tokenizes preprocessed/raw C source, handling `#include`, `#define` macros, and `#pragma pack` / diagnostic pragmas (`src/zero_cc/core/pragma_state.c`).
+2. **Parser & AST Arena (`src/zero_cc/parser/`)**
+   - Parses declarations (`definitions.h`), statements (`ast_stmt.h`), and expressions (`expressions.h`) into a contiguous `ZeroCCASTArena` indexed by `ASTRef` (`uint32_t`).
+   - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.h`).
+3. **Semantic Analysis (`src/zero_cc/semantic/`)**
+   - Validates types, scopes, and promotions (`visitor.c`, `expr.c`, `stmt.c`, `promote.c`) and annotates AST nodes with `TypeInfo *`.
+   - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
+4. **AST-to-IR Lowering (`src/zero_cc/parser/ast_lowering*.c`)**
+   - Lowers each function's AST into a linear buffer of 51-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
+   - Entry points: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions & calls).
+   - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md).
+5. **IR Optimization Passes (`src/zero_cc/parser/opt_*.c`)**
+   - Runs modular optimization passes over `IRArena` before register allocation.
+   - See [Optimization Passes & Safety Invariants](./optimization-passes.md).
+6. **Live Interval Analysis & Linear Scan Register Allocation (`live_range.h`, `regalloc.h`)**
+   - Computes live ranges (extending across loop backedges) and assigns virtual temporaries to ISA physical registers or spill slots.
+7. **Backend Emission (`ast_lowering_mc.c`, `asm_emitter.c`, `src/zero_cc/isa/`)**
+   - **JIT Path (`ast_lowering_mc.c` + `execution.h`)**: Emits native machine code bytes into a `CodeBuffer`, patches relocations/calls, maps pages `PROT_READ | PROT_EXEC` (W^X), and executes `main`.
+   - **AOT Path (`asm_emitter.c` / `elf_writer.c` / `src/main.c`)**: Emits `.s` assembly via backend `*_asm.c` hooks or writes `.o` ELF relocatable objects and links executables.
+   - See [Multi-ISA Backends](./isa-backends.md).
+
+## Key Source Files Map
+
+| Subsystem | Primary Files |
+| :--- | :--- |
+| CLI & Driver | `src/main.c`, `src/zero_cc/jit/compile.h`, `src/zero_cc/jit/execution.h` |
+| Type System & Symbols | `src/zero_cc/types/type_system.h`, `src/zero_cc/types/symbol_mgmt.h`, `src/zero_cc/jit/type_info.h` |
+| Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/expressions.h` |
+| Semantic Checker | `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/semantic/promote.c` |
+| IR & Lowering | `src/zero_cc/parser/ir.h`, `src/zero_cc/parser/ast_lowering.c`, `src/zero_cc/parser/ast_lowering_stmt.c`, `src/zero_cc/parser/ast_lowering_expr.c` |
+| Codegen & Backends | `src/zero_cc/parser/ast_lowering_mc.c`, `src/zero_cc/parser/asm_emitter.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c` |
+
+## Related Concepts
+- Return to [Root Index](./index.md)
+- See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md)
+- See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md)
+- See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
