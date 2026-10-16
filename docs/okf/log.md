@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-16T04:58:49Z
+timestamp: 2026-10-16T05:11:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -41,3 +41,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-16 — Updated `build-and-verification.md`
 - Multi-ISA sret cross-verification across x86-64, AArch64, and RISC-V under QEMU
+
+## 2026-10-16 — Updated `optimization-passes.md`
+- Expand auto-vectorization pass to support packed 64-bit double precision SIMD loops (OP_VADDPD, OP_VSUBPD, OP_VMULPD, OP_VDIVPD, vec_width=2) across x86-64, AArch64, and RISC-V.

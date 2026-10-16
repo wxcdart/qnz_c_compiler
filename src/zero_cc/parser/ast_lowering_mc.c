@@ -468,26 +468,34 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VADDPD:
-                if (BE(c)->emit_vaddpd_asm) {
+                if (c->emit_asm && BE(c)->emit_vaddpd_asm) {
                     BE(c)->emit_vaddpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vaddpd) {
+                    BE(c)->emit_vaddpd(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VSUBPD:
-                if (BE(c)->emit_vsubpd_asm) {
+                if (c->emit_asm && BE(c)->emit_vsubpd_asm) {
                     BE(c)->emit_vsubpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vsubpd) {
+                    BE(c)->emit_vsubpd(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VMULPD:
-                if (BE(c)->emit_vmulpd_asm) {
+                if (c->emit_asm && BE(c)->emit_vmulpd_asm) {
                     BE(c)->emit_vmulpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vmulpd) {
+                    BE(c)->emit_vmulpd(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VDIVPD:
-                if (BE(c)->emit_vdivpd_asm) {
+                if (c->emit_asm && BE(c)->emit_vdivpd_asm) {
                     BE(c)->emit_vdivpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vdivpd) {
+                    BE(c)->emit_vdivpd(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 

@@ -171,6 +171,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     int arith_count = 0;
     int base_temp = -1;
     int loop_var = -1;
+    bool has_double = false;
     
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
@@ -178,14 +179,20 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (!instr) continue;
         
         /* Look for array access pattern */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             load_count++;
             if (base_temp < 0) {
                 base_temp = instr->temp_src1;
             }
+            if (instr->op == OP_VLOADSD) {
+                has_double = true;
+            }
         }
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
             store_count++;
+            if (instr->op == OP_VSTORESD) {
+                has_double = true;
+            }
         }
         if (is_vec_arith(instr)) {
             arith_count++;
@@ -209,9 +216,18 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      */
     if (load_count >= 2 && store_count >= 1 && arith_count >= 1) {
         vinfo->is_vectorizable = true;
+        vinfo->is_double = has_double;
         vinfo->loop_var_temp = loop_var;
         vinfo->array_base_temp = base_temp;
-        vinfo->vector_width = state->vector_width;
+        if (has_double) {
+            vinfo->vector_width = 2;  /* 2x 64-bit doubles in 128-bit vector */
+            vinfo->elem_size = 8;
+            vinfo->array_stride = 8;
+        } else {
+            vinfo->vector_width = state->vector_width;  /* 4x 32-bit floats */
+            vinfo->elem_size = 4;
+            vinfo->array_stride = 4;
+        }
         state->loop_count++;
     }
 }
@@ -275,17 +291,31 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
 /**
  * Get vector operation for scalar operation
  */
-static int get_vec_op(int scalar_op) {
-    switch (scalar_op) {
-        case OP_ADD:  return OP_VADDPS;
-        case OP_SUB:  return OP_VSUBPS;
-        case OP_MUL:  return OP_VMULPS;
-        case OP_DIV:  return OP_VDIVPS;
-        case OP_FADD: return OP_VADDPS;
-        case OP_FSUB: return OP_VSUBPS;
-        case OP_FMUL: return OP_VMULPS;
-        case OP_FDIV: return OP_VDIVPS;
-        default:      return scalar_op;
+static int get_vec_op(int scalar_op, bool is_double) {
+    if (is_double) {
+        switch (scalar_op) {
+            case OP_ADD:
+            case OP_FADD: return OP_VADDPD;
+            case OP_SUB:
+            case OP_FSUB: return OP_VSUBPD;
+            case OP_MUL:
+            case OP_FMUL: return OP_VMULPD;
+            case OP_DIV:
+            case OP_FDIV: return OP_VDIVPD;
+            default:      return scalar_op;
+        }
+    } else {
+        switch (scalar_op) {
+            case OP_ADD:  return OP_VADDPS;
+            case OP_SUB:  return OP_VSUBPS;
+            case OP_MUL:  return OP_VMULPS;
+            case OP_DIV:  return OP_VDIVPS;
+            case OP_FADD: return OP_VADDPS;
+            case OP_FSUB: return OP_VSUBPS;
+            case OP_FMUL: return OP_VMULPS;
+            case OP_FDIV: return OP_VDIVPS;
+            default:      return scalar_op;
+        }
     }
 }
 
@@ -376,7 +406,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         if (!instr) continue;
         
         /* Handle scalar loads -> VLOAD */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             /* Allocate vector temp using compiler's temp allocator */
             int vec_temp = c->next_temp_id++;
             
@@ -399,7 +429,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
             /* Get vector operation */
-            int vec_op = get_vec_op(instr->op);
+            int vec_op = get_vec_op(instr->op, vinfo->is_double);
             
             /* Get source vector temps from map */
             int vec_src1 = scalar_to_vec_map[instr->temp_src1];
@@ -430,18 +460,32 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
         
         /* Handle scalar stores -> VSTORE */
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
+            int scalar_val_temp = -1;
+            int scalar_addr_temp = -1;
+            
+            if (instr->op == OP_STORE_32) {
+                /* STORE_32 [src2], src1: src1 is val, src2 is addr */
+                scalar_val_temp = instr->temp_src1;
+                scalar_addr_temp = instr->temp_src2;
+            } else {
+                /* FSTORE/VSTORESS/VSTORESD [src1], src2: src1 is addr, src2 is val */
+                scalar_val_temp = instr->temp_src2;
+                scalar_addr_temp = instr->temp_src1;
+            }
+            
             /* Get vector value from map */
-            int vec_value = scalar_to_vec_map[instr->temp_src2];
+            int vec_value = (scalar_val_temp >= 0 && scalar_val_temp < 256) ? scalar_to_vec_map[scalar_val_temp] : -1;
             
             /* Skip if value not mapped */
             if (vec_value < 0) {
                 continue;
             }
             
-            /* Replace with VSTORE */
+            /* Replace with VSTORE [addr], vec_value */
             instr->op = OP_VSTORE;
             instr->temp_dest = 0xFF;
+            instr->temp_src1 = scalar_addr_temp;
             instr->temp_src2 = vec_value;
             /* Leave instr->imm unchanged */
             instr->imm64 = 0;

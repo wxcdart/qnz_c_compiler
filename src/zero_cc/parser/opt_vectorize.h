@@ -34,6 +34,8 @@ typedef struct {
     int body_start_idx;        /* Start of loop body */
     int body_end_idx;          /* End of loop body */
     int iter_count_temp;       /* Temporary for iteration count */
+    bool is_double;            /* 64-bit double precision floating point */
+    int elem_size;             /* Element size in bytes (4 or 8) */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64

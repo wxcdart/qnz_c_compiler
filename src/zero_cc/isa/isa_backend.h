@@ -166,6 +166,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_vsubps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmulps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vdivps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vaddpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vsubpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vmulpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vdivpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
     
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);

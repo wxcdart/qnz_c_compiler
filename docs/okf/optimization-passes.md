@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-16T04:32:21Z
+timestamp: 2026-10-16T05:11:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -34,7 +34,10 @@ Optimization passes are registered in `src/zero_cc/parser/opt_pass.c` (`g_opt_pa
    - Identifies natural loops by mapping synthetic `label_idx` targets to instruction indices (`label_to_idx`).
    - Uses a **Two-Pass Rebuild** into a new `IRArena`: hoists pure loop-invariant instructions immediately before the loop header label, turns their in-loop originals into `OP_NOP`, and updates `c->ir_call_args` instruction indices.
 7. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
-   - Detects counted `float`/`int` array loops (`OP_VLOADSS`, `OP_VSTORESS`, arithmetic) and transforms 4 scalar iterations into 128-bit packed vector instructions (`OP_VADDPS`, `OP_VMULPS`, `OP_VLOAD`, `OP_VSTORE`) with loop stride `vec_width = 4`.
+   - Detects countable array arithmetic loops:
+     - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
+     - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).
+     - Supports multi-ISA backend lowering across x86-64 SSE2, AArch64 NEON (`fadd.2d`, `fadd.4s`, `ldr/str q`), and RISC-V RVV 1.0 (`vsetivli`, `vfadd.vv`, `vle32.v`/`vse32.v`).
 8. **Dead Code Elimination (`opt_dce.c`)**
    - Marks unused temporaries and dead instructions as `OP_DEAD` / `OP_NOP` while preserving instructions with side effects (stores, calls, volatile loads, flag setters consumed by branches).
 

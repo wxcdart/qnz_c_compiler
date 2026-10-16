@@ -374,6 +374,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if ((size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
+                } else if (instr->op == OP_VSTORE) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {

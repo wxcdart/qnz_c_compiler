@@ -282,6 +282,60 @@ static void x86_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
     x86_modrm(c, 3, dst & 7, src & 7);
 }
 
+static void x86_emit_vaddpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* addpd xmm_dest, xmm_src - packed double-precision add (66 0F 58 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x58);  /* addpd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vsubpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* subpd xmm_dest, xmm_src - packed double-precision subtract (66 0F 5C /r) */
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5C);  /* subpd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vmulpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* mulpd xmm_dest, xmm_src - packed double-precision multiply (66 0F 59 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x59);  /* mulpd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* divpd xmm_dest, xmm_src - packed double-precision divide (66 0F 5E /r) */
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5E);  /* divpd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1371,6 +1425,10 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vsubps = x86_emit_vsubps,
     .emit_vmulps = x86_emit_vmulps,
     .emit_vdivps = x86_emit_vdivps,
+    .emit_vaddpd = x86_emit_vaddpd,
+    .emit_vsubpd = x86_emit_vsubpd,
+    .emit_vmulpd = x86_emit_vmulpd,
+    .emit_vdivpd = x86_emit_vdivpd,
     .emit_vmovaps = x86_emit_vmovaps,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
