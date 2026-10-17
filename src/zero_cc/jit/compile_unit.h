@@ -21,6 +21,40 @@
 
 /* Forward declaration */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
+
+/* Evaluate a floating-point constant initializer (literal, char literal,
+ * unary +/-, parenthesized). Advances token_pos past the consumed value. */
+static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
+    double sign = 1.0;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
+        if (c->tokens[c->token_pos].type == TK_MINUS) sign = -sign;
+        c->token_pos++;
+    }
+    double v = 0.0;
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+        c->token_pos++;
+        v = zero_cc_eval_const_expr_float(c);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
+        v = c->tokens[c->token_pos].float_val;
+        c->token_pos++;
+    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
+        v = (double)c->tokens[c->token_pos].num_val;
+        c->token_pos++;
+    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR_LIT) {
+        v = (double)(int)c->tokens[c->token_pos].num_val;
+        c->token_pos++;
+    }
+    return sign * v;
+}
+
+/* Emit `width` low bytes of `bits` (little-endian) into a section buffer. */
+static inline void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint64_t bits) {
+    for (size_t i = 0; i < width && i < 8; i++) {
+        zero_cc_emit_u8(b, (uint8_t)(bits >> (8 * i)));
+    }
+}
 /* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
 /* Returns true if a top-level declaration was consumed, false otherwise */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
@@ -215,6 +249,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         /* Global variable declarations */
         if (c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_INLINE ||
+            c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_EXTERN ||
             c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_CHAR ||
             c->tokens[c->token_pos].type == TK_VOID || c->tokens[c->token_pos].type == TK_FLOAT_KW ||
             c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
@@ -227,10 +264,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             size_t global_start = c->token_pos;
             /* Check for static / inline keywords */
             bool is_static = false;
-            while (c->tokens[c->token_pos].type == TK_STATIC ||
+            while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_STATIC ||
                    c->tokens[c->token_pos].type == TK_INLINE ||
                    c->tokens[c->token_pos].type == TK_CONST ||
-                   c->tokens[c->token_pos].type == TK_VOLATILE) {
+                   c->tokens[c->token_pos].type == TK_VOLATILE ||
+                   c->tokens[c->token_pos].type == TK_EXTERN)) {
                 if (c->tokens[c->token_pos].type == TK_STATIC) {
                     is_static = true;
                 }
@@ -238,51 +276,306 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
             /* Parse type */
             ZeroCCType gtype = zero_cc_parse_type_name(c);
+            /* Pointer declarators: int *p;  char **pp;  (qualifiers after stars are skipped) */
+            int ptr_depth = 0;
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                ptr_depth++;
+                c->token_pos++;
+                while (c->token_pos < c->token_count &&
+                       (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+                    c->token_pos++;
+                }
+            }
+            for (int pd = 0; pd < ptr_depth; pd++) {
+                gtype = zero_cc_type_ptr(&gtype);
+            }
             /* Expect identifier */
             if (c->tokens[c->token_pos].type == TK_IDENT) {
-                /* Check if this is a function (followed by '(') or variable (followed by ';' or '=') */
+                /* Check if this is a function (followed by '(') or variable */
                 if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                     /* This is a function definition, back up to start and let function parser handle it */
                     c->token_pos = global_start;
                 } else {
-                    /* This is a variable declaration */
-                    char var_name[128];
-                    snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
-                    c->token_pos++;
-                    /* Optional initializer */
-                    size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
-                    size_t align = gtype.align > 0 ? gtype.align : 8;
-                    if (align < 8) align = 8;
-                    /* Align to alignment boundary */
-                    size_t padding = (align - (c->data_section.length % align)) % align;
-                    for (size_t i = 0; i < padding; i++) {
-                        zero_cc_emit_u8(&c->data_section, 0);
-                    }
-                    size_t var_offset = c->data_section.length;
-                    bool has_initializer = false;
-                    if (c->tokens[c->token_pos].type == TK_ASSIGN) {
-                        c->token_pos++; /* skip = */
-                        has_initializer = true;
-                        /* Evaluate constant expression */
-                        int64_t init_val = zero_cc_eval_const_expr(c);
-                        /* Emit to data_section */
-                        if (size <= 8) {
-                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                    /* This is a variable declaration (may declare several names: int a, b = 3;) */
+                    size_t elem_size = gtype.size > 0 ? gtype.size : 8;
+                    size_t elem_align = gtype.align > 0 ? gtype.align : 8;
+                    if (elem_align < 8) elem_align = 8;
+                    do {
+                        char var_name[128];
+                        snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+                        c->token_pos++;
+
+                        /* Optional array suffix: name[N] */
+                        int64_t array_len = 1;
+                        bool is_char_array = (ptr_depth == 0 && gtype.tag == TYPE_INT8);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                            c->token_pos++;
+                            array_len = zero_cc_eval_const_expr(c);
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                            if (array_len <= 0) array_len = 1;
+                        }
+                        size_t size = (size_t)array_len * elem_size;
+
+                        /* Align to alignment boundary */
+                        size_t padding = (elem_align - (c->data_section.length % elem_align)) % elem_align;
+                        for (size_t i = 0; i < padding; i++) {
+                            zero_cc_emit_u8(&c->data_section, 0);
+                        }
+                        size_t var_offset = c->data_section.length;
+                        bool has_initializer = false;
+
+                        /* Write one scalar (int bits or IEEE float bits) of the
+                         * given width into the data section. */
+                        #define CV_WRITE_SCALAR(width, is_f, fval, ival) do { \
+                            uint64_t _bits; \
+                            if (is_f) { double _d = (fval); memcpy(&_bits, &_d, sizeof(_bits)); } \
+                            else { _bits = (uint64_t)(ival); } \
+                            zero_cc_emit_scalar_bytes(&c->data_section, (width), _bits); \
+                        } while (0)
+
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                            c->token_pos++; /* skip = */
+                            has_initializer = true;
+                            ZeroCCTokType it = c->tokens[c->token_pos].type;
+                            if (it == TK_STRING && !is_char_array) {
+                                /* Pointer to string: store rodata address via data reloc */
+                                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                size_t ro_off = c->rodata_section.length;
+                                zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                                c->token_pos++;
+                                zero_cc_emit_u64(&c->data_section, 0);
+                                if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                    dr->data_patch_offset = var_offset;
+                                    dr->target_kind = 0; /* .rodata target */
+                                    dr->rodata_offset = ro_off;
+                                    dr->target_data_offset = 0;
+                                    dr->target_global_idx = -1;
+                                }
+                                size = 8;
+                            } else if (it == TK_LBRACE) {
+                                /* Aggregate initializer { ... } (arrays & structs,
+                                 * positional and designated). Write into a
+                                 * zero-cleared scratch buffer so struct member
+                                 * offsets/padding are correct, then append. */
+                                c->token_pos++; /* { */
+                                bool is_struct = (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION);
+                                uint8_t *vbuf = calloc(size > 0 ? size : 1, 1);
+                                if (vbuf) {
+                                    size_t pos_off = 0;      /* positional array byte offset */
+                                    size_t next_member = 0;  /* positional struct member idx */
+                                    while (c->token_pos < c->token_count &&
+                                           c->tokens[c->token_pos].type != TK_RBRACE) {
+                                        const char *field_name = NULL;
+                                        size_t iter_start_pos = c->token_pos;
+                                        size_t m_off = 0, m_sz = 0;
+                                        bool m_float = false;
+                                        if (c->tokens[c->token_pos].type == TK_DOT) {
+                                            /* Designated initializer: .field = */
+                                            c->token_pos++;
+                                            if (c->token_pos < c->token_count &&
+                                                c->tokens[c->token_pos].type == TK_IDENT) {
+                                                field_name = c->tokens[c->token_pos].str_val;
+                                                c->token_pos++;
+                                            }
+                                            if (field_name && is_struct) {
+                                                bool found = false;
+                                                for (size_t m = 0; m < gtype.member_count; m++) {
+                                                    if (strcmp(gtype.members[m].name, field_name) == 0) {
+                                                        m_off = gtype.members[m].offset;
+                                                        m_sz = gtype.members[m].size ? gtype.members[m].size : 8;
+                                                        m_float = (gtype.members[m].tag == TYPE_FLOAT ||
+                                                                   gtype.members[m].tag == TYPE_DOUBLE);
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (!found) break;
+                                            } else {
+                                                /* Array designator [N] = : skip it */
+                                                while (c->token_pos < c->token_count &&
+                                                       c->tokens[c->token_pos].type != TK_ASSIGN) c->token_pos++;
+                                                if (c->token_pos < c->token_count) c->token_pos++; /* = */
+                                                break;
+                                            }
+                                            if (c->token_pos < c->token_count &&
+                                                c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
+                                        }
+                                        if (c->token_pos >= c->token_count ||
+                                            c->tokens[c->token_pos].type == TK_RBRACE) break;
+
+                                        size_t e_off, e_sz;
+                                        bool e_float;
+                                        if (is_struct) {
+                                            if (field_name) {
+                                                e_off = m_off; e_sz = m_sz; e_float = m_float;
+                                            } else {
+                                                if (next_member >= gtype.member_count) break;
+                                                e_off = gtype.members[next_member].offset;
+                                                e_sz = gtype.members[next_member].size ? gtype.members[next_member].size : 8;
+                                                e_float = (gtype.members[next_member].tag == TYPE_FLOAT ||
+                                                           gtype.members[next_member].tag == TYPE_DOUBLE);
+                                                next_member++;
+                                            }
+                                        } else {
+                                            e_off = pos_off;
+                                            e_sz = elem_size;
+                                            e_float = (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE);
+                                        }
+                                        if (e_off >= size) break;
+
+                                        ZeroCCTokType vt = c->tokens[c->token_pos].type;
+                                        if (vt == TK_STRING && is_char_array && e_off == 0) {
+                                            /* char array from string literal (truncated to fit) */
+                                            const char *sv = c->tokens[c->token_pos].allocated_str ?
+                                                c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                            size_t sl = strlen(sv);
+                                            size_t maxc = (sl + 1 <= size) ? (sl + 1) : size;
+                                            memcpy(vbuf + e_off, sv, maxc);
+                                            c->token_pos++;
+                                        } else if (vt == TK_FLOAT || (e_float && vt == TK_NUM)) {
+                                            double dv = zero_cc_eval_const_expr_float(c);
+                                            uint64_t bits;
+                                            /* Float members (4 bytes) must store the
+                                             * float pattern, not the low 32 bits
+                                             * of the double. */
+                                            if (e_sz <= 4) {
+                                                float fv = (float)dv;
+                                                memcpy(&bits, &fv, sizeof(bits));
+                                            } else {
+                                                memcpy(&bits, &dv, sizeof(bits));
+                                            }
+                                            size_t w = (e_sz < 8) ? e_sz : 8;
+                                            if (e_off + w > size) w = size - e_off;
+                                            for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)(bits >> (8 * i));
+                                        } else {
+                                            int64_t iv = zero_cc_eval_const_expr(c);
+                                            size_t w = (e_sz < 8) ? e_sz : 8;
+                                            if (e_off + w > size) w = size - e_off;
+                                            for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                                        }
+                                        if (!is_struct) pos_off += elem_size;
+                                        if (c->token_pos == iter_start_pos) break; /* safety: no progress */
+                                        if (c->token_pos < c->token_count &&
+                                            c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                                    }
+                                    if (c->token_pos < c->token_count &&
+                                        c->tokens[c->token_pos].type == TK_RBRACE) {
+                                        c->token_pos++; /* } */
+                                    }
+                                    zero_cc_buf_put_bytes(&c->data_section, vbuf, size);
+                                } else {
+                                    /* Allocation failed: zero-fill and skip to } */
+                                    for (size_t i = 0; i < size; i++) zero_cc_emit_u8(&c->data_section, 0);
+                                    while (c->token_pos < c->token_count &&
+                                           c->tokens[c->token_pos].type != TK_RBRACE) c->token_pos++;
+                                    if (c->token_pos < c->token_count) c->token_pos++;
+                                }
+                                free(vbuf);
+                            } else if (it == TK_STRING && is_char_array) {
+                                /* char array directly initialized from a string literal
+                                 * (truncated to fit, NUL-terminated when there is room).
+                                 * Also handles size inference for `char g[] = "..."`. */
+                                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                c->token_pos++;
+                                size_t sl = strlen(sv);
+                                size_t total = size;
+                                if (array_len == 1 && sl + 1 > size) total = sl + 1;
+                                size_t copy = sl < total ? sl : total;
+                                zero_cc_buf_put_bytes(&c->data_section, sv, copy);
+                                for (size_t i = copy; i < total; i++) {
+                                    zero_cc_emit_u8(&c->data_section, 0);
+                                }
+                                size = total;
+                                if (total != (size_t)array_len) array_len = (int64_t)total; /* char g[] = "..." */
+                            } else if (it == TK_AMP) {
+                                /* Address-of a previously declared global:
+                                 * `int *p = &x;` -> 8-byte pointer patched
+                                 * at link/patch time to x's data address. */
+                                c->token_pos++; /* & */
+                                if (c->token_pos < c->token_count &&
+                                    c->tokens[c->token_pos].type == TK_IDENT) {
+                                    char ref_name[128];
+                                    snprintf(ref_name, sizeof(ref_name), "%s", c->tokens[c->token_pos].str_val);
+                                    c->token_pos++;
+                                    ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
+                                    int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                    zero_cc_emit_u64(&c->data_section, 0);
+                                    if (ref_idx >= 0 && c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                        dr->data_patch_offset = var_offset;
+                                        dr->target_kind = 1; /* .data global target */
+                                        dr->rodata_offset = 0;
+                                        dr->target_data_offset = ref_gv->data_offset;
+                                        dr->target_global_idx = ref_idx;
+                                    }
+                                    size = 8;
+                                } else {
+                                while (c->token_pos < c->token_count &&
+                                       c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                for (size_t i = 0; i < size; i++) zero_cc_emit_u8(&c->data_section, 0);
+                                }
+                            } else if (it == TK_FLOAT ||
+                                       (elem_size == 4 && gtype.tag == TYPE_FLOAT) ||
+                                       (elem_size == 8 && gtype.tag == TYPE_DOUBLE)) {
+                                /* Float/double scalar initializer: emit IEEE-754 bits.
+                                 * For a 4-byte float, convert to float first so the
+                                 * stored bits are the float pattern (not the low
+                                 * 32 bits of the double, which are often zero). */
+                                double dv = zero_cc_eval_const_expr_float(c);
+                                uint64_t bits;
+                                if (elem_size <= 4) {
+                                    float fv = (float)dv;
+                                    memcpy(&bits, &fv, sizeof(bits));
+                                } else {
+                                    memcpy(&bits, &dv, sizeof(bits));
+                                }
+                                zero_cc_emit_scalar_bytes(&c->data_section, elem_size > 8 ? 8 : elem_size, bits);
+                                for (size_t i = elem_size; i < size; i++) {
+                                    zero_cc_emit_u8(&c->data_section, 0);
+                                }
+                            } else {
+                                /* Integer scalar initializer */
+                                int64_t init_val = zero_cc_eval_const_expr(c);
+                                zero_cc_emit_scalar_bytes(&c->data_section, elem_size > 8 ? 8 : elem_size, (uint64_t)init_val);
+                                for (size_t i = elem_size; i < size; i++) {
+                                    zero_cc_emit_u8(&c->data_section, 0);
+                                }
+                            }
                         } else {
-                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
-                            for (size_t i = 8; i < size; i++) {
+                            /* Zero-initialized data */
+                            for (size_t i = 0; i < size; i++) {
                                 zero_cc_emit_u8(&c->data_section, 0);
                             }
                         }
-                    } else {
-                        /* Allocate uninitialized / zero-initialized data */
-                        for (size_t i = 0; i < size; i++) {
-                            zero_cc_emit_u8(&c->data_section, 0);
+                        #undef CV_WRITE_SCALAR
+
+                        /* Consume trailing comma (multi-declarator) or semicolon */
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                            /* Register this declarator before parsing the next */
+                            ZeroCCType reg_type = gtype;
+                            if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
+                            add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer);
+                            c->token_pos++;
+                            if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+                                /* malformed: skip to end of declaration */
+                                while (c->token_pos < c->token_count &&
+                                       c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                                break;
+                            }
+                            continue; /* next declarator with same base type */
                         }
-                    }
-                    /* Consume trailing semicolon */
-                    if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                    add_global_var(var_name, gtype, var_offset, size, is_static, has_initializer);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                        {
+                            ZeroCCType reg_type = gtype;
+                            if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
+                            add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer);
+                        }
+                        break; /* done with this declaration statement */
+                    } while (1);
                     continue; /* Skip function parser for variables */
                 }
             } else {

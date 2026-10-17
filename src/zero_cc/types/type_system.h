@@ -133,5 +133,19 @@ typedef struct {
     int dst_reg;  /* Destination register for FP immediate loads */
 } ZeroCCStringReloc;
 
+/* Relocation for a pointer in .data that must be patched to address either
+ * a byte range in .rodata (e.g. `const char *g = "abc";`) or another global
+ * variable's storage (e.g. `int *p = &x;`). The 8 bytes at data_patch_offset
+ * (within .data) receive the final absolute address.
+ *   target_kind 0: .rodata + rodata_offset
+ *   target_kind 1: .data + target_data_offset (global_vars[target_global_idx]) */
+typedef struct {
+    size_t data_patch_offset;
+    int    target_kind;
+    size_t rodata_offset;
+    size_t target_data_offset;
+    int    target_global_idx;
+} ZeroCCDataReloc;
+
 
 #endif /* ZERO_CC_TYPES_TYPE_SYSTEM_H */

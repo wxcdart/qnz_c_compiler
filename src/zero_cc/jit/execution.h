@@ -70,15 +70,24 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             }
         } else {
-            /* Address patch for internal or external function pointers */
-            ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
-            if (target_fn && !target_fn->is_prototype) {
-                uintptr_t fn_addr = (uintptr_t)mem + target_fn->text_offset;
-                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &fn_addr, 8);
+            /* Address patch for global variables, internal or external
+             * function pointers. OP_MOV_GLOBAL emits mov rdst, imm64(0) and
+             * records the 8-byte immediate here; patch it with the variable's
+             * absolute address in the JIT data page. */
+            ZeroCCGlobalVar *gv = find_global_var(c->relocs[i].target_symbol);
+            if (gv) {
+                uintptr_t gv_addr = (uintptr_t)((char *)mem + data_offset + gv->data_offset);
+                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &gv_addr, 8);
             } else {
-                void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
-                if (host_fn) {
-                    memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+                ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
+                if (target_fn && !target_fn->is_prototype) {
+                    uintptr_t fn_addr = (uintptr_t)mem + target_fn->text_offset;
+                    memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &fn_addr, 8);
+                } else {
+                    void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+                    if (host_fn) {
+                        memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+                    }
                 }
             }
         }
@@ -97,6 +106,20 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     /* Copy data section (global variables) */
     if (c->data_section.length > 0) {
         memcpy((char*)mem + data_offset, c->data_section.data, c->data_section.length);
+    }
+
+    /* Patch .data pointer initializers (string literals -> .rodata,
+     * &global -> other global's address). The data page stays RW. */
+    for (size_t i = 0; i < c->data_reloc_count; i++) {
+        ZeroCCDataReloc *dr = &c->data_relocs[i];
+        if (dr->data_patch_offset + 8 > data_len) continue;
+        uintptr_t target;
+        if (dr->target_kind == 1) {
+            target = (uintptr_t)((char *)mem + data_offset + dr->target_data_offset);
+        } else {
+            target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset);
+        }
+        memcpy((char *)mem + data_offset + dr->data_patch_offset, &target, 8);
     }
 
     /* Strict W^X Transition:

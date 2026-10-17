@@ -409,8 +409,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_atomic = member_is_atomic;
                     if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                     else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                    else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                    else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                    else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                    else if (mt == TK_INT) m->tag = TYPE_INT32;
+                    else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                    else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                     else if (mt == TK_IDENT) {
                         ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                         if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -480,8 +482,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_atomic = member_is_atomic;
                                 if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                                else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                                else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                                else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                                else if (mt == TK_INT) m->tag = TYPE_INT32;
+                                else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                                else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                                 else m->tag = TYPE_INT32;
                             }
                         } else {
@@ -510,8 +514,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_atomic = member_is_atomic;
                                 if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                                else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                                else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                                else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                                else if (mt == TK_INT) m->tag = TYPE_INT32;
+                                else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                                else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                                 else m->tag = TYPE_INT32;
                             }
                         }
@@ -539,8 +545,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_atomic = member_is_atomic;
                         if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                        else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                        else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                        else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                        else if (mt == TK_INT) m->tag = TYPE_INT32;
+                        else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                        else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -652,8 +660,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_atomic = member_is_atomic;
                         if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                        else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                        else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                        else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                        else if (mt == TK_INT) m->tag = TYPE_INT32;
+                        else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                        else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -713,8 +723,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_atomic = member_is_atomic;
                         if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = TYPE_INT16;
-                        else if (mt == TK_INT || mt == TK_FLOAT_KW) m->tag = TYPE_INT32;
-                        else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) m->tag = TYPE_INT64;
+                        else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
+                        else if (mt == TK_INT) m->tag = TYPE_INT32;
+                        else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
+                        else if (mt == TK_LONG || mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);

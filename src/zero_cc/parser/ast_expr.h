@@ -36,6 +36,7 @@ static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_ternary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count) {
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
@@ -423,8 +424,11 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     TypeInfo *ti = zero_cc_type_to_typeinfo(c->sem_ctx->perm_arena, lit_type);
                     ast_node_set_typeinfo(c, cast_node, ti);
                 }
-                /* Parse the expression to be cast */
-                cast_node->left = parse_assignment_ast(c, arena);
+                /* Parse the expression to be cast. C11 6.5.4: the cast operand is
+                 * another cast-expression (a unary-expression), NOT a full
+                 * assignment-expression. Using parse_unary_ast keeps `(int)x == 1`
+                 * grouped as `((int)x) == 1` instead of `(int)(x == 1)`. */
+                cast_node->left = parse_unary_ast(c, arena);
                 return cast_ref;
             }
             c->token_pos = cast_start;

@@ -17,6 +17,7 @@
 #define ZERO_CC_MAX_ENUM_DEFS      8192
 #define ZERO_CC_MAX_RELOCS         32768
 #define ZERO_CC_MAX_STR_RELOCS     16384
+#define ZERO_CC_MAX_DATA_RELOCS    16384
 #define ONCE_FILES_MAX 64
 
 

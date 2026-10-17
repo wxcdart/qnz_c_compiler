@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-17T14:30:32Z
+timestamp: 2026-10-17T20:23:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -37,6 +37,8 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
 ## Struct & Union Layout, Nested Initializers & Declarator Rules
 
 - Structs and unions store field metadata in `type.members[i]` (`name`, `offset`, `size`, `bit_width`, `bit_offset`, `is_flexible`).
+- **Floating-Point Member Tags**: `zero_cc_parse_struct_body` (`src/zero_cc/parser/definitions.h`) assigns `TYPE_FLOAT` for `TK_FLOAT_KW` and `TYPE_DOUBLE` for `TK_DOUBLE_KW` members (all six tag-assignment sites — union, bitfield, regular, and comma-continuation declarators). Do **not** collapse them to `TYPE_INT32`/`TYPE_INT64`: member floatness detection (global/local struct member loads/stores in `ast_lowering_expr.c`, file-scope aggregate init in `compile_unit.h`) relies on these tags. Sizes/alignment still come from the token-based `base_size`/`base_align` tables, so layout is unaffected.
+- **`NODE_MEMBER` Payload Gotcha**: `ZeroCCASTNode` is a 32-byte node whose 8-byte payload union aliases `s.{str,len}` and `aux.{op,alt,step,extra}`. The parser stores the member name in `s.str`, but semantic analysis later writes `aux.alt` (member offset) into the **same bytes** on `NODE_MEMBER`/`NODE_ARROW` nodes. Therefore lowering code must read member identity from `aux.alt` (offset) or the semantic `TypeInfo` — never from `s.str` on member nodes after semantic analysis (garbage pointer → SIGSEGV).
 - **Fixed-Size Array Members & Nested Brace Initializers**:
   - Struct members with `[N]` array dimensions (`elem_count > 1`) set `m->tag = TYPE_ARRAY` with `m->base` pointing to the element `ZeroCCType` (`src/zero_cc/parser/definitions.h`), which `zero_cc_type_to_typeinfo` converts into `TYPE_KIND_ARRAY` (`src/zero_cc/jit/type_info.h`).
   - `NODE_MEMBER` in `src/zero_cc/ir/ast_lowering_expr.c` emits `ir_emit_lea` (address decay) when accessing an array member (`b.arr[i]`).
@@ -57,6 +59,12 @@ Multi-dimensional fixed arrays (e.g. `int a[2][3]`, `b[2][2][2]`) and matrix-sha
 - **`NODE_INDEX` lowering & pointer decay** (`src/zero_cc/ir/ast_lowering_expr.c`): when an indexing expression indexes an array whose element type is itself an array (e.g. `a[i]` in `a[i][j]`) or a struct/union (`p[i][j]` in `p[i][j].x`), `NODE_INDEX` decays to the element's base address (`addr_temp`) without emitting intermediate load instructions (`LOAD_32`, `VLOADSS`, etc.). Chained indexing multiplies outer dimensions by the full row stride (`dim1 * ... * dimK * sizeof(elem)`).
 - **Member assignment on index lvalues** (`src/zero_cc/ir/ast_lowering_expr.c`): `NODE_ASSIGN` with `NODE_MEMBER` LHS supports non-identifier base expressions (`p[i][j].x = val`), storing directly through the evaluated address pointer rather than assuming a stack-relative offset.
 - **Auto-Vectorization Invariant** (`src/zero_cc/opt/opt_vectorize.c`): the loop vectorizer restricts analysis to innermost loops (loops with no inner backedges) to avoid misclassifying reduction sums or multi-loop matrix kernels as parallel SIMD loops without horizontal reduction.
+
+## Goto, User Labels & Switch (Implemented)
+
+- **`goto label;` and `label: stmt`** (`src/zero_cc/parser/ast_stmt.h`): the statement parser handles `TK_GOTO` (`NODE_GOTO`, name in `s.str`) and a statement-leading `IDENT` immediately followed by `TK_COLON` (`NODE_LABEL`, name in `s.str`, `left` = the labeled statement). Lowering (`lower_stmt_goto`/`lower_stmt_label` in `src/zero_cc/ir/ast_lowering_stmt.c`) maps user names to IR labels through `label_patcher_find_or_create_user_label` + `get_or_create_user_ir_label` (names persist in `c->label_patcher.user_labels`; labels are created lazily on first goto/label, supporting forward references).
+- **`switch` dispatch** (`lower_stmt_switch`, `src/zero_cc/ir/ast_lowering_stmt.c`): evaluates the controlling expression, pre-scans the body block's top-level statement chain for `NODE_CASE`/`NODE_DEFAULT`, emits a `CMP`/`COND_SET`/`JNE` dispatch chain per case (jump-if-**nonzero** — see the conditional-branch note in [isa-backends.md](./isa-backends.md)), stores each case's IR label in `node->aux.alt`, and registers the switch exit as the current break target via `label_patcher_enter_loop(..., switch_exit, 0)` so `break` works. A non-matching value skips the body entirely (unconditional jump past the body, per C semantics); fallthrough between case labels is natural code order. `NODE_CASE`/`NODE_DEFAULT` lowering emits their stored label (when set by a switch) and lowers the attached statement.
+- **Known limitation**: `case` constants are lowered as runtime expressions (no compile-time deduplication); deeply nested `continue` inside a bare switch (no loop) is a no-op, matching prior behavior.
 
 ## C11 Core Keywords, Alignment, Atomics & Threading
 

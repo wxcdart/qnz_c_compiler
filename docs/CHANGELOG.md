@@ -1,5 +1,56 @@
 # ZeroCC Changelog
 
+## [Sprint 21] - 2026-10-18 - Scalar Float Pipeline (x86-64), Cast Grammar, Global-Struct Width Narrowing, WSL2 128-Bit RX-Read Workaround
+
+### Added
+- **Scalar float load/store emitters** (`isa/isa_backend.h`, `isa/x86_64.c`, `ir/ast_lowering_mc.c`): new vtable entries `emit_vloadss/emit_vloadsd/emit_vstoress/emit_vstoredsd`. `OP_VLOADSS` = `movss` + in-register `cvtss2sd` widen (the double-width scalar FP model forbids stale upper 32 bits); `OP_VLOADSD` = `movsd`; `OP_VSTORESS` narrows double→single through the xmm7 scratch (`cvttsd2ss` + `movss`) without clobbering the source temp; `OP_VSTORESD` = `movsd`. `OP_VLOAD/OP_VSTORE` (128-bit `movups`) are now used only for true vector ops.
+- **Global float/double compound assignment** (`ir/ast_lowering_expr.c` `NODE_ASSIGN`): `g += 0.5f` on a float/double global now uses `VLOADSS/SD` + `FADD/FSUB/FMUL/FDIV` + `VSTORESS/SD`; int RHS is converted with `CVTSI2SD` before storing (previously: integer `LOAD_32`/`ADD`/`STORE_32` on the raw IEEE-754 bits).
+
+### Fixed
+- **Cast operand grammar** (`parser/ast_expr.h`): a cast's operand is now parsed with `parse_unary_ast` (C11 `cast-expression`) instead of `parse_assignment_ast`. `(int)x == 1` grouped as `(int)(x == 1)` and the cast silently vanished on float operands (float comparison instead of int cast) — now `((int)x) == 1`.
+- **`VLOADSS/VLOADSD` register class** (`ir/ir.h`): moved from `ir_opcode_is_simd` to `ir_opcode_is_float` — their destinations are float temps in the XMM pool, not VEC-pool temps. The XMM and VEC pools alias the same physical xmm registers; the VEC classing let an allocator assign the same physical register to the load and a later `CVTSI2SD` (silent value corruption).
+- **Global struct member width narrowing** (`ir/ast_lowering_expr.c` `NODE_MEMBER`): the global-base path no longer early-returns after the 64-bit `DEREF`; it falls through to the 1/2/4-byte sign/zero-extension narrowing. Packed layouts (`struct {int a; float f;}`) leave the upper bytes of the load non-zero, so `gs.a` leaked the float member's bytes and `gs.a == 5` failed.
+- **Mixed float/int binary ops** (`ir/ast_lowering_expr.c` `NODE_BINOP`): exactly-one-float `+ - * /` converts the integer side with `CVTSI2SD` and takes the float path (previously integer `MUL` on an XMM temp / raw bit pattern).
+- **Float negation** (`ir/ast_lowering_expr.c` `NODE_UNOP` `TK_MINUS`): float operands use `(0.0 - x)` (`FMOV_IMM` + `FSUB`) instead of integer `NEG` on the bit pattern. A sign-mask `xorpd [m128]` is not usable: on WSL2 kernel `6.18.54.1-microsoft-standard-WSL2` every 16-byte SIMD memory read from a `PROT_READ|PROT_EXEC` page raises a GPF (reproduced standalone; 32/64-bit reads from RX pages are fine). The now-unused `x86_emit_fp_neg` was also fixed (opcode `0F 57` not `0F 54`, REX.R + ModRM reg = dst for the destination).
+- **Float global/aggregate initializer bytes** (`jit/compile_unit.h`): 4-byte float initializers now store the `float` pattern (`(float)dv`), not the low 32 bits of the double (often zero) — `float g = 1.5f;` previously stored `0.0f`.
+
+### Documented (OKF)
+- New page `docs/okf/scalar-float-x86.md`: double-width scalar FP model, scalar V-load/store sequences, XMM-vs-VEC classing rule, the WSL2 128-bit RX-read GPF limitation, and related lowering rules (cast grammar, mixed promotion, member narrowing, global float compound assign).
+
+### Verification
+- `make test`: 140/140. 29/29 global/float/cast/switch/goto probes pass in both `--run` (JIT) and `-o` (AOT), including `float g = 1.5f; g += 0.5f; (int)g == 2`, `(int)(gs.f * 2.0f)` on packed global structs, `(int)gf == 1`, negative float constants (`-2.5`) in JIT and AOT, and the full `t10_float` suite (JIT = AOT = 0). Standalone WSL2 reproduction (`/tmp/reproc3.c`) characterizes the GPF: `andpd/orpd/movdqa/movapd/xorpd` with 128-bit memory operands from RX pages fault; `addsd/movss/movsd` reads are fine.
+
+## [Sprint 20] - 2026-10-18 - C99 Correctness Sweep: Global Variables, Float Members, Switch/Goto, Data Relocations
+
+### Added
+- **File-Scope Global Variable Initializers (JIT + AOT) (`src/zero_cc/jit/compile_unit.h`)**: full mini-parser rewrite supporting pointer declarators, arrays, IEEE-754 float/double scalar bits, aggregate init (positional + designated, padding-correct scratch buffer), char arrays from string literals (incl. `char g[] = "..."` size inference and truncation), multi-declarator lists, and `const`/`volatile`/`static` qualifiers. All 17 global-variable probes pass in both `--run` and `-o`.
+- **`ZeroCCDataReloc` Pointer-Initializer Relocations** (`type_system.h`, `symbols.h`, `compile_unit.h`, `execution.h`, `main.c`, `elf_writer.{h,c}`):
+  - `const char *g = "...";` (rodata target) and `int *p = &x;` (data target) emit 8-byte placeholders plus a data reloc.
+  - **JIT**: absolute 8-byte addresses patched into the still-writable data page after the data copy (`execution.h`).
+  - **AOT**: `R_X86_64_64` relocs against the `.rodata` section symbol / target global symbol; the ELF writer now supports **multiple relocation sections** (one `.rela.<sec>` per distinct target section, per-entry section indices, grouped write-out).
+- **`goto`, User Labels & `switch`** (`ast_stmt.h`, `ast_lowering_stmt.c`):
+  - Parser: `TK_GOTO` → `NODE_GOTO`; statement-leading `IDENT :` → `NODE_LABEL`.
+  - `lower_stmt_switch` implemented: `CMP`/`COND_SET`/`JNE` dispatch chain (jump-if-nonzero), case labels stored in `NODE_CASE.aux.alt`, `break` via `label_patcher_enter_loop(switch_exit)`, C-conformant non-match skip and fallthrough. Verified against gcc on consecutive labels, mid/default-first `default`, switch-in-loop, and char case values.
+  - Fixed baseline hangs: `goto label;` and `label:` now parse instead of desyncing the statement loop.
+
+### Fixed
+- **Struct Member Float Tags** (`parser/definitions.h`): `float`/`double` struct members now get `TYPE_FLOAT`/`TYPE_DOUBLE` (were `TYPE_INT32`/`TYPE_INT64`), enabling correct float-member loads/stores for local and global structs (JIT + AOT).
+- **`ir_emit_fstore` Base Register** (`ast_lowering_expr.c`): member float store passed `BE(c)->fp_reg` (a phys reg) as a temp ID; now passes the `0xFF` frame-pointer marker (pre-existing bug exposed by float members).
+- **Char Literals in Constant Expressions** (`parser/const_eval.h`): `parse_primary` handles `TK_CHAR_LIT` (value in `num_val`); previously returned 0 without consuming the token, corrupting aggregate initializers (`.c = 'z'`).
+- **Signed/Unsigned Type Names** (`parser/const_eval.h`): `(unsigned int)x` casts, `offsetof`, `sizeof(long long)` no longer misparse.
+- **Compound-Assignment Constant Clobbering** (`ast_lowering_expr.c`): `NODE_ASSIGN` compound ops now use a fresh `op_res` temp (fixes `for (i += 2)`-style loops).
+- **`->` Arrow Member Access** (`ast_lowering_expr.c`): `NODE_MEMBER_IS_ARROW` honored on rvalue and assignment paths.
+- **Float Function Returns** (`ast_lowering_stmt.c`): `ir_emit_fmov(VREG_F0, ...)` for float-typed returns.
+- **x86 Shift Aliasing** (`isa/x86_64.c`): `x <<= 2` / `x >>= 1` shared an aliasing-safe shift emitter (dest aliasing zeroed the shift count).
+- **Block-Scope `typedef`** (`parser/ast_stmt.h`); **stringize `#`** and **`#endif`/`#else` line-swallowing** (`core/preprocessor.h`); **JIT global address relocs** (`jit/execution.h` — `find_global_var` patch branch, was dead `__data_` code → SIGSEGV on any initialized global).
+
+### Documented (OKF)
+- New page `docs/okf/global-data-relocs.md` (globals, `ZeroCCDataReloc`, JIT/AOT patching); updated `frontend-and-types.md` (float member tags, `NODE_MEMBER` `s.str`/`aux` union-aliasing gotcha, goto/label/switch) and `isa-backends.md` (`OP_JE`/`OP_JNE` jump-if-zero/nonzero semantics, JIT data-reloc patching).
+
+### Verification
+- `make test`: 140/140; `tools/sret_verifier.py --verify-all`: 6/6; `tools/okf.py lint` + `index`: pass. 17/17 global-variable probes + switch/goto/float-member batteries pass in both `--run` (JIT) and `-o` (AOT).
+- Known pre-existing limitations (unchanged): mixed int/`double` arithmetic on FPU temps (e.g. `5 + 1.5`, `(int)(h*100)`), flexible-array `offsetof` crash, GCC-extended nested function definitions, `-S` path does not emit `.data`.
+
 ## [Sprint 19] - 2026-10-17 - Unified Register Spill/Reload, Prologue Callee-Save & Standalone C99/C11 Direct-Compiler Verification
 
 ### Added & Fixed

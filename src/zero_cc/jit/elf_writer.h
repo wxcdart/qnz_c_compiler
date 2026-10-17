@@ -225,6 +225,7 @@ typedef struct {
     uint16_t reloc_symbol_indices[ELF_MAX_RELOCATIONS];
     uint32_t reloc_types[ELF_MAX_RELOCATIONS];
     int64_t reloc_addends[ELF_MAX_RELOCATIONS];
+    uint16_t reloc_section_indices[ELF_MAX_RELOCATIONS];
     int relocation_count;
 
     // String tables

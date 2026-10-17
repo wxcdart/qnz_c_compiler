@@ -359,8 +359,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
              * ========================================================================= */
 
             case OP_VLOAD:
-            case OP_VLOADSS:
-            case OP_VLOADSD:
                 if (c->emit_asm && BE(c)->emit_vload_asm) {
                     /* Assembly mode: emit textual assembly */
                     BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
@@ -370,15 +368,49 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VLOADSS:
+                if (c->emit_asm && BE(c)->emit_vload_asm) {
+                    BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vloadss) {
+                    /* Scalar 4-byte float load (movss) */
+                    BE(c)->emit_vloadss(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_VLOADSD:
+                if (c->emit_asm && BE(c)->emit_vload_asm) {
+                    BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vloadsd) {
+                    /* Scalar 8-byte float load (movsd) */
+                    BE(c)->emit_vloadsd(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
             case OP_VSTORE:
-            case OP_VSTORESS:
-            case OP_VSTORESD:
                 if (c->emit_asm && BE(c)->emit_vstore_asm) {
                     /* Assembly mode: emit textual assembly: emit_vstore_asm(c, src_val, base, offset, out) */
                     BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
                 } else if (!c->emit_asm && BE(c)->emit_vstore) {
                     /* JIT binary mode: emit machine code directly: emit_vstore(c, src_val, base, offset) */
                     BE(c)->emit_vstore(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_VSTORESS:
+                if (c->emit_asm && BE(c)->emit_vstore_asm) {
+                    BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vstoress) {
+                    /* Scalar 4-byte float store (movss) */
+                    BE(c)->emit_vstoress(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_VSTORESD:
+                if (c->emit_asm && BE(c)->emit_vstore_asm) {
+                    BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vstoredsd) {
+                    /* Scalar 8-byte float store (movsd) */
+                    BE(c)->emit_vstoredsd(c, phys_src2, phys_src1, instr->imm);
                 }
                 break;
 

@@ -681,6 +681,34 @@ static int compile_object(CompileOptions *opts) {
                                   (int64_t)sr->rodata_offset + addend_rodata);
     }
     
+    /* Relocations for .data pointer initializers (string literals -> .rodata,
+     * &global -> another global's address). The 8 bytes at data_patch_offset
+     * inside .data become an absolute 64-bit address (R_X86_64_64). */
+    if (comp->data_section.length > 0) {
+        for (size_t i = 0; i < comp->data_reloc_count; i++) {
+            ZeroCCDataReloc *dr = &comp->data_relocs[i];
+            if (dr->target_kind == 0) {
+                /* .rodata + rodata_offset: target the .rodata section symbol (idx 1) */
+                if (comp->rodata_section.length > 0) {
+                    elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                              1, 1 /* R_X86_64_64 */, (int64_t)dr->rodata_offset);
+                }
+            } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
+                       dr->target_global_idx < (int)global_var_count) {
+                /* &global: target the global variable's own symbol (value = data_offset) */
+                const char *tname = global_vars[dr->target_global_idx].name;
+                int sym_idx = 0;
+                for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                    if (strcmp(elf_ctx.symbols[j].name, tname) == 0) { sym_idx = j + 1; break; }
+                }
+                if (sym_idx > 0) {
+                    elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                              sym_idx, 1 /* R_X86_64_64 */, 0);
+                }
+            }
+        }
+    }
+    
     /* Write ELF file or emit assembly */
     if (opts->emit_asm) {
         /* Assembly emission is handled in ast_lowering.c; emit .rodata if present */

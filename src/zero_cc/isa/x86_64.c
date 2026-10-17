@@ -215,6 +215,95 @@ static void x86_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset
     else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
 }
 
+/* Scalar 4-byte float load: movss xmm, [base + offset] - F3 0F 10 /r,
+ * followed by in-register cvtss2sd (F3 0F 5A /r) to widen the float to the
+ * 64-bit double form used by the rest of the scalar FP pipeline. */
+static void x86_emit_vloadss(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);  /* movss */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+    /* cvtss2sd xmm, xmm (same register) */
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (dst >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5A);
+    x86_modrm(c, 3, dst & 7, dst & 7);
+}
+
+/* Scalar 8-byte float load: movsd xmm, [base + offset] - F2 0F 10 /r */
+static void x86_emit_vloadsd(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);  /* movsd */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+/* Scalar 4-byte float store: the register holds a 64-bit double (ZeroCC's
+ * scalar FP model), so narrow via the xmm7 scratch (in-register cvttsd2ss,
+ * F2 0F 5A /r) without clobbering the source, then movss [base + offset],
+ * xmm - F3 0F 11 /r. */
+static void x86_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    const int scratch = 7;
+    if (scratch != src) {
+        /* movdqa xmm7, xmm_src */
+        x86_rex(c, 0, 1, 0, (src >> 3) & 1);
+        me_emit_u8(c, 0x66);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x6F);  /* movdqa */
+        x86_modrm(c, 3, 7 & 7, src & 7);
+    }
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (scratch >> 3) & 1, 0, (scratch >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5A);  /* cvttsd2ss xmm, xmm */
+    x86_modrm(c, 3, scratch & 7, scratch & 7);
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (scratch >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);  /* movss */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, scratch & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+/* Scalar 8-byte float store: movsd [base + offset], xmm - F2 0F 11 /r */
+static void x86_emit_vstoredsd(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (src >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);  /* movsd */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
 static void x86_emit_vmovaps(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -461,42 +550,85 @@ static void x86_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_alu3_comm(c, 0x31, dst, src1, src2);
 }
 
-/* shl dst_reg, cl (dst = src1 << src2) */
-static void x86_emit_shl(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    /* SHL instruction: shl dst_reg, cl (shift count must be in CL) */
-    /* We need to ensure: (1) value to shift is in dst_reg, (2) shift amount is in RCX */
-    
-    int use_temp = 0;
-    int temp_reg;
-    
-    /* If dst_reg is RCX, we need a temp register because we need RCX for shift count */
-    if (dst_reg == 1) {  /* RCX */
-        use_temp = 1;
-        temp_reg = (src1 == 10) ? 11 : 10;  /* Use r10 or r11 as temp */
-    }
-    
-    /* Move value to shift into the destination (or temp if needed) */
-    int dest_for_value = use_temp ? temp_reg : dst_reg;
-    if (dest_for_value != src1) {
-        x86_mov_rr(c, dest_for_value, src1);
-    }
-    
-    /* Move shift amount into RCX */
-    if (src2 != 1) {  /* RCX */
-        x86_mov_rr(c, 1, src2);
-    }
-    
-    /* If we used a temp, do the shift on temp, then move result to final dst */
-    if (use_temp) {
-        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
+/* Register-register shift shared by shl/shr/sar: <op> dst_reg, cl.
+ * The x86 shift count must live in RCX (physical register 1).
+ * Aliasing-safe: src1 (value) and src2 (count) may alias dst_reg or each
+ * other (e.g. compound assignment `x <<= y` lowers to SHL rX, rVal, rX).
+ * Strategy: materialize the count into RCX before clobbering anything that
+ * may hold it, then place the value at the shift destination, then shift.
+ * reg_field: 4 = shl, 5 = shr, 7 = sar. */
+static void x86_emit_shift(ZeroCCCompiler *c, int dst_reg, int src1, int src2, int reg_field) {
+    if (dst_reg == 1) {
+        /* Result lands in RCX, which must hold the count at shift time. */
+        if (src1 == 1) {
+            if (src2 == 1) {
+                /* RCX holds both value and count: shift in place. */
+                x86_rex(c, 1, 0, 0, 0);
+                me_emit_u8(c, 0xd3);
+                x86_modrm(c, 3, reg_field, 1); /* shl rcx, cl */
+                return;
+            }
+            /* Value in RCX, count elsewhere: copy value to scratch, move
+             * count to RCX, shift scratch, move result back to RCX. */
+            int temp_reg = (src2 == 10) ? 11 : 10;  /* r10/r11 scratch, avoid src2 */
+            x86_mov_rr(c, temp_reg, 1);
+            x86_mov_rr(c, 1, src2);
+            x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
+            me_emit_u8(c, 0xd3);
+            x86_modrm(c, 3, reg_field, temp_reg & 7);
+            x86_mov_rr(c, 1, temp_reg);
+            return;
+        }
+        /* Value not in RCX: shift src1 in place (safe, result goes to RCX
+         * anyway), then move the result into RCX. */
+        if (src2 != 1) {
+            x86_mov_rr(c, 1, src2);
+        }
+        x86_rex(c, 1, 0, 0, (src1 >> 3) & 1);
         me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 4, temp_reg & 7); /* shl temp_reg, cl */
+        x86_modrm(c, 3, reg_field, src1 & 7); /* <op> src1, cl */
+        x86_mov_rr(c, 1, src1);
+        return;
+    }
+
+    /* dst_reg != RCX. */
+    if (src1 == 1) {
+        if (src2 == 1) {
+            /* Self-shift: value == count == RCX. */
+            x86_mov_rr(c, dst_reg, 1);
+            x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+            me_emit_u8(c, 0xd3);
+            x86_modrm(c, 3, reg_field, dst_reg & 7);
+            return;
+        }
+        /* Value in RCX, count elsewhere (src2 may alias dst): copy value out
+         * first, then move the count in. */
+        int temp_reg = (src2 == 10) ? 11 : 10;  /* r10/r11 scratch, avoid src2 */
+        x86_mov_rr(c, temp_reg, 1);
+        x86_mov_rr(c, 1, src2);
         x86_mov_rr(c, dst_reg, temp_reg);
-    } else {
         x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
         me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 4, dst_reg & 7); /* shl dst_reg, cl */
+        x86_modrm(c, 3, reg_field, dst_reg & 7);
+        return;
     }
+
+    /* src1 != RCX: move count first (dst != RCX, so this cannot destroy the
+     * count's source even when src2 == dst_reg), then the value. */
+    if (src2 != 1) {
+        x86_mov_rr(c, 1, src2);
+    }
+    if (dst_reg != src1) {
+        x86_mov_rr(c, dst_reg, src1);
+    }
+    x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
+    me_emit_u8(c, 0xd3);
+    x86_modrm(c, 3, reg_field, dst_reg & 7); /* <op> dst_reg, cl */
+}
+
+/* shl dst_reg, cl (dst = src1 << src2) */
+static void x86_emit_shl(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
+    x86_emit_shift(c, dst_reg, src1, src2, 4);
 }
 
 static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -822,21 +954,21 @@ static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
     /* xorps with sign bit mask: xorpd dst, [mask] */
     /* First move src to dst if different */
     if (dst != src) {
-        x86_rex(c, 0, 0, 0, src >> 3);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
         me_emit_u8(c, 0xF2);
         me_emit_u8(c, 0x0F);
         me_emit_u8(c, 0x10);  /* movsd */
         x86_modrm(c, 3, dst & 7, src & 7);
     }
-    /* Use xorpd with sign bit: xorpd xmm_dst, [neg_mask] */
+    /* Use xorpd with sign bit: xorpd xmm_dst, [neg_mask] (RIP-relative) */
     static const double neg_mask = -0.0;
     size_t off = c->rodata_section.length;
     zero_cc_buf_put_bytes(&c->rodata_section, (const uint8_t*)&neg_mask, sizeof(neg_mask));
     me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, 0);
     me_emit_u8(c, 0x0F);
-    me_emit_u8(c, 0x54);  /* xorpd xmm, m128 */
-    x86_rex(c, 0, 0, 0, dst >> 3);
-    me_emit_u8(c, 0x05);  /* RIP-relative */
+    me_emit_u8(c, 0x57);  /* xorpd xmm, m128 */
+    me_emit_u8(c, 0x05);  /* ModRM: mod=00, reg=dst[0:2], rm=101 (RIP-relative) */
     size_t p = me_get_offset(c);
     me_emit_u32(c, 0);
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
@@ -948,33 +1080,7 @@ static void x86_emit_dec(ZeroCCCompiler *c, int dst_reg) {
 
 /* sar dst_reg, cl (arithmetic shift right) */
 static void x86_emit_sar(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    int use_temp = 0;
-    int temp_reg;
-    
-    if (dst_reg == 1) {  /* RCX */
-        use_temp = 1;
-        temp_reg = (src1 == 10) ? 11 : 10;
-    }
-    
-    int dest_for_value = use_temp ? temp_reg : dst_reg;
-    if (dest_for_value != src1) {
-        x86_mov_rr(c, dest_for_value, src1);
-    }
-    
-    if (src2 != 1) {  /* RCX */
-        x86_mov_rr(c, 1, src2);
-    }
-    
-    if (use_temp) {
-        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
-        me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 7, temp_reg & 7); /* sar temp_reg, cl */
-        x86_mov_rr(c, dst_reg, temp_reg);
-    } else {
-        x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
-        me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 7, dst_reg & 7); /* sar dst_reg, cl */
-    }
+    x86_emit_shift(c, dst_reg, src1, src2, 7);
 }
 
 /* call [reg] - call through register */
@@ -994,33 +1100,7 @@ static void x86_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
 
 /* shr dst_reg, cl (dst = src1 >> src2) */
 static void x86_emit_shr(ZeroCCCompiler *c, int dst_reg, int src1, int src2) {
-    int use_temp = 0;
-    int temp_reg;
-    
-    if (dst_reg == 1) {  /* RCX */
-        use_temp = 1;
-        temp_reg = (src1 == 10) ? 11 : 10;
-    }
-    
-    int dest_for_value = use_temp ? temp_reg : dst_reg;
-    if (dest_for_value != src1) {
-        x86_mov_rr(c, dest_for_value, src1);
-    }
-    
-    if (src2 != 1) {  /* RCX */
-        x86_mov_rr(c, 1, src2);
-    }
-    
-    if (use_temp) {
-        x86_rex(c, 1, 0, 0, (temp_reg >> 3) & 1);
-        me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 5, temp_reg & 7); /* shr temp_reg, cl */
-        x86_mov_rr(c, dst_reg, temp_reg);
-    } else {
-        x86_rex(c, 1, 0, 0, (dst_reg >> 3) & 1);
-        me_emit_u8(c, 0xd3);
-        x86_modrm(c, 3, 5, dst_reg & 7); /* shr dst_reg, cl */
-    }
+    x86_emit_shift(c, dst_reg, src1, src2, 5);
 }
 
 /* Generic condition code setting into dst_reg (zero-extended to 64-bit) */
@@ -1464,6 +1544,10 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     /* Vector operations for JIT binary emission */
     .emit_vload = x86_emit_vload,
     .emit_vstore = x86_emit_vstore,
+    .emit_vloadss = x86_emit_vloadss,
+    .emit_vloadsd = x86_emit_vloadsd,
+    .emit_vstoress = x86_emit_vstoress,
+    .emit_vstoredsd = x86_emit_vstoredsd,
     .emit_vaddps = x86_emit_vaddps,
     .emit_vsubps = x86_emit_vsubps,
     .emit_vmulps = x86_emit_vmulps,

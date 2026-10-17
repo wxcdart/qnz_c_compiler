@@ -351,6 +351,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             return;
         }
         /* Ensure result is in rax (VREG_0) for return */
+        int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {
             /* Move result to rax if not already there - emit IR */
             if (result_temp != VREG_0) {
@@ -359,12 +360,18 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             /* If function returns float/double, convert int to float */
             ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
             if (fn_ret_type.tag == TYPE_FLOAT || fn_ret_type.tag == TYPE_DOUBLE) {
-                int xmm0_temp = c->next_temp_id++;
-                ir_emit_cvtsi2sd((uint8_t)xmm0_temp, (uint8_t)result_temp);
+                final_float_temp = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint8_t)final_float_temp, (uint8_t)result_temp);
                 c->last_expr_is_float = 1;
             }
         }
-        /* Float result is already in xmm0, no move needed */
+        /* Float result must be in the FP return register (xmm0/d0/fa0).
+         * VREG_F0 (temp 0) always maps to physical register 0, which the FP
+         * emitters treat as the FP return register, so move the result there
+         * when the computed value lives in another FP temp. */
+        if (c->last_expr_is_float && final_float_temp != VREG_F0) {
+            ir_emit_fmov((uint8_t)VREG_F0, (uint8_t)final_float_temp);
+        }
     }
     ir_emit_jmp(c->lowering.epilogue_label);
 }
@@ -460,10 +467,64 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 }
 
 void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
-    if (node) {
-        lower_expr(c, arena, node->left);
+    if (!node) return;
+
+    uint16_t switch_exit = c->ir_next_label++;
+
+    /* break inside a switch jumps to the switch exit */
+    label_patcher_enter_loop(&c->label_patcher, switch_exit, 0);
+
+    int cond_temp = lower_expr(c, arena, node->left);
+
+    /* Body is normally a NODE_BLOCK; its top-level statement chain may
+     * contain NODE_CASE / NODE_DEFAULT entries. */
+    ZeroCCASTNode *body = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+    ASTRef first = AST_NULL;
+    if (body) {
+        first = (body->tag == NODE_BLOCK) ? body->left : node->right;
     }
-    /* TODO: Implement switch statement */
+
+    /* Dispatch: for each case, compare the switch value against the case
+     * constant and jump to the case's label (emitted when the case node
+     * itself is lowered below). The labels are stored in aux.alt. */
+    uint16_t default_label = 0;
+    ASTRef s = first;
+    int n_cases = 0;
+    while (s != AST_NULL && n_cases < 128) {
+        ZeroCCASTNode *sn = zero_cc_ast_get(arena, s);
+        if (!sn) break;
+        if (sn->tag == NODE_CASE) {
+            int val_temp = lower_expr(c, arena, sn->left);
+            int flag_temp = c->next_temp_id++;
+            ir_emit_cmp(cond_temp, val_temp);
+            ir_emit_cond_set(flag_temp, CC_EQ);
+            sn->aux.alt = c->ir_next_label++;
+            /* JE = jump-if-zero, so take the case when the flag is non-zero */
+            ir_emit_jne((uint8_t)flag_temp, (uint16_t)sn->aux.alt);
+            n_cases++;
+        } else if (sn->tag == NODE_DEFAULT) {
+            sn->aux.alt = c->ir_next_label++;
+            default_label = (uint16_t)sn->aux.alt;
+        }
+        s = sn->next;
+    }
+
+    /* No matching case: jump to default, or skip the whole body.
+     * The unconditional jump makes the body's start unreachable from the
+     * dispatch path, so a non-matching value executes no body statement
+     * (per C semantics). */
+    if (default_label) {
+        ir_emit_jmp(default_label);
+    } else {
+        ir_emit_jmp(switch_exit);
+    }
+    /* Fallthrough between case labels is automatic: each case's body
+     * continues into the next statement until break/return. */
+
+    lower_node(c, arena, node->right);
+
+    ir_emit_label(switch_exit);
+    label_patcher_exit_loop(&c->label_patcher);
 }
 
 void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused))) {
@@ -555,7 +616,12 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             lower_stmt_switch(c, arena, node);
             break;
         case NODE_CASE:
+            if (node->aux.alt) ir_emit_label((uint16_t)node->aux.alt);
+            if (node->right != AST_NULL) lower_node(c, arena, node->right);
+            break;
         case NODE_DEFAULT:
+            if (node->aux.alt) ir_emit_label((uint16_t)node->aux.alt);
+            if (node->left != AST_NULL) lower_node(c, arena, node->left);
             break;
         case NODE_BREAK:
             lower_stmt_break(c, arena);

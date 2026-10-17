@@ -56,6 +56,56 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         return AST_NULL;
     }
 
+    /* Goto statement: goto label; */
+    if (t == TK_GOTO) {
+        c->token_pos++;
+        ASTRef g_ref = zero_cc_ast_alloc_node(arena, NODE_GOTO);
+        ZeroCCASTNode *gn = zero_cc_ast_get(arena, g_ref);
+        gn->line = line;
+        gn->col = col;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+            gn->s.str = c->tokens[c->token_pos].str_val;
+            gn->s.len = strlen(gn->s.str);
+            c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        return g_ref;
+    }
+
+    /* Labeled statement: label: stmt (a statement-leading IDENT immediately
+       followed by ':' is a user label, not an expression) */
+    if (t == TK_IDENT && c->token_pos + 1 < c->token_count &&
+        c->tokens[c->token_pos + 1].type == TK_COLON) {
+        ASTRef l_ref = zero_cc_ast_alloc_node(arena, NODE_LABEL);
+        ZeroCCASTNode *ln = zero_cc_ast_get(arena, l_ref);
+        ln->line = line;
+        ln->col = col;
+        ln->s.str = c->tokens[c->token_pos].str_val;
+        ln->s.len = strlen(ln->s.str);
+        c->token_pos += 2; /* ident ':' */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+            ln->left = zero_cc_parse_stmt_ast(c, arena, ctx);
+        }
+        return l_ref;
+    }
+
+    /* Block-scoped typedef: typedef X Alias; - register into the TU-wide
+       typedef table (same handlers as file scope); emits no IR. */
+    if (t == TK_TYPEDEF) {
+        if (c->token_pos + 1 < c->token_count &&
+            (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
+             c->tokens[c->token_pos + 1].type == TK_UNION)) {
+            zero_cc_stmt_typedef_struct(c);
+        } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_ENUM) {
+            zero_cc_stmt_typedef_enum(c);
+        } else {
+            zero_cc_stmt_typedef_scalar(c);
+        }
+        return AST_NULL;
+    }
+
     /* Compound Block: { stmt* } */
     if (t == TK_LBRACE) {
         c->token_pos++;

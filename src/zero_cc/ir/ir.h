@@ -326,6 +326,8 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_FMOV:
         case OP_CVTSI2SD:  /* int -> float conversion */
         case OP_CVTTSD2SI: /* float -> int conversion (truncate) */
+        case OP_VLOADSS:   /* scalar 4-byte load: result is a float temp (XMM pool) */
+        case OP_VLOADSD:   /* scalar 8-byte load: result is a float temp (XMM pool) */
             return true;
         default:
             return false;
@@ -339,7 +341,6 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_VADDSD: case OP_VSUBSD: case OP_VMULSD: case OP_VDIVSD:
         case OP_VMOV: case OP_VMOVSS: case OP_VMOVSD:
         case OP_VLOAD: case OP_VSTORE:
-        case OP_VLOADSS: case OP_VLOADSD:
         case OP_VSTORESS: case OP_VSTORESD:
         case OP_VCVT_SI2SS: case OP_VCVT_SS2SI:
         case OP_VCVT_SI2SD: case OP_VCVT_SD2SI:

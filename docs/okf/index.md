@@ -43,6 +43,10 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - Integer (`%rdi`..`%r9`) and FP (`%xmm0`..`%xmm7`) register passing, stack arguments, variadic `va_start` spilling, struct by-value (`<=8B`, `9-16B`, `>16B`), and hidden pointer (`sret`) returns for `>16B` structs (direct & indirect calls).
 - **[Multi-ISA Backends (x86-64, AArch64, RISC-V)](./isa-backends.md)**
   - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
+- **[Global Variables, Data Section & Pointer Relocations](./global-data-relocs.md)**
+  - File-scope initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from strings), `ZeroCCDataReloc`, JIT data-page patching, and AOT `.rela.<sec>` emission.
+- **[Scalar Float Pipeline (x86-64) & WSL2 RX-Page 128-Byte Read Limitation](./scalar-float-x86.md)**
+  - Double-width scalar FP model, `VLOADSS/SD`/`VSTORESS/SD` emitters (movss/movsd + widen/narrow), XMM-vs-VEC classing of scalar V-loads, and the WSL2 GPF on 16-byte reads from RX pages (why float negation is `0.0 - x`).
 
 ---
 

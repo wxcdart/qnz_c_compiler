@@ -750,7 +750,9 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                 char directive[32]; size_t dl = 0;
                 while (*p && isalpha((unsigned char)*p) && dl < 31) directive[dl++] = *p++;
                 directive[dl] = '\0';
-                while (*p && isspace((unsigned char)*p)) p++;
+                /* Do not cross the line end: a bare directive (e.g. #endif,
+                 * #else) must leave p at this line's newline. */
+                while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
 
                 bool active = (cpp->cond_depth == 0 || cpp->cond_true[cpp->cond_depth]);
 
@@ -1241,14 +1243,24 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                     paste_buf[0] = '\0';
                                     pending_paste = false;
                                 } else {
+                                    /* Stringification: emit a string literal */
+                                    zero_cc_buf_putc(&temp_buf, '"');
                                     zero_cc_buf_puts(&temp_buf, args[match]);
+                                    zero_cc_buf_putc(&temp_buf, '"');
                                 }
                             } else {
                                 if (pending_paste) {
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", param_id);
+                                    zero_cc_buf_putc(&temp_buf, '"');
+                                    zero_cc_buf_puts(&temp_buf, paste_buf);
+                                    zero_cc_buf_putc(&temp_buf, '"');
+                                    paste_len = 0;
+                                    paste_buf[0] = '\0';
                                     pending_paste = false;
                                 } else {
+                                    zero_cc_buf_putc(&temp_buf, '"');
                                     zero_cc_buf_puts(&temp_buf, param_id);
+                                    zero_cc_buf_putc(&temp_buf, '"');
                                 }
                             }
                         } else if (isalpha((unsigned char)*b) || *b == '_') {

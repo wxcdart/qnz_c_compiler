@@ -205,10 +205,34 @@ bool elf_writer_add_relocation(ElfWriterCtx* ctx, uint16_t section_idx,
     ctx->reloc_symbol_indices[ctx->relocation_count] = symbol_idx;
     ctx->reloc_types[ctx->relocation_count] = rel_type;
     ctx->reloc_addends[ctx->relocation_count] = addend;
+    ctx->reloc_section_indices[ctx->relocation_count] = section_idx;
     ctx->relocation_count++;
     
     return true;
 }
+
+/* Distinct target sections that have relocations (order of first appearance) */
+static int elf_reloc_distinct_sections(const ElfWriterCtx* ctx, uint16_t* out, int max) {
+    int n = 0;
+    for (int i = 0; i < ctx->relocation_count; i++) {
+        uint16_t s = ctx->reloc_section_indices[i];
+        int found = 0;
+        for (int j = 0; j < n; j++) {
+            if (out[j] == s) { found = 1; break; }
+        }
+        if (!found && n < max) out[n++] = s;
+    }
+    return n;
+}
+
+static int elf_reloc_count_for_section(const ElfWriterCtx* ctx, uint16_t section_idx) {
+    int n = 0;
+    for (int i = 0; i < ctx->relocation_count; i++) {
+        if (ctx->reloc_section_indices[i] == section_idx) n++;
+    }
+    return n;
+}
+
 
 size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     if (!ctx) {
@@ -237,29 +261,41 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
-    // Relocation section (.rela.text) - only if we have relocations
+    // Relocation sections (.rela.<sec>) - one per distinct target section
     if (ctx->relocation_count > 0) {
         offset = (offset + 7) & ~7;  // Align to 8 bytes
         offset += ctx->relocation_count * sizeof(Elf64Rela);
     }
 
     // Section name string table (.shstrtab)
-    // Add space for .strtab, .symtab, .shstrtab, .rela.text, .note.GNU-stack section names that will be added during write
+    // Add space for .strtab, .symtab, .shstrtab, .rela.<sec>, .note.GNU-stack section names that will be added during write
     size_t shstrtab_size = ctx->shstrtab_size;
     shstrtab_size += strlen(".strtab") + 1;
     shstrtab_size += strlen(".symtab") + 1;
     shstrtab_size += strlen(".shstrtab") + 1;
     if (ctx->relocation_count > 0) {
-        shstrtab_size += strlen(".rela.text") + 1;
+        uint16_t ds[ELF_MAX_SECTIONS];
+        int nd = elf_reloc_distinct_sections(ctx, ds, ELF_MAX_SECTIONS);
+        for (int i = 0; i < nd; i++) {
+            /* ds[i] is an ELF section index (1-based over ctx->sections) */
+            if (ds[i] >= 1 && ds[i] <= (uint16_t)ctx->section_count) {
+                shstrtab_size += strlen(".rela.") + strlen(ctx->sections[ds[i] - 1].name) + 1;
+            }
+        }
     }
     shstrtab_size += strlen(".note.GNU-stack") + 1;
     
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += shstrtab_size;
 
-    // Section headers: (section_count + 5 + has_reloc) * 64 bytes
-    // (+5 for null, .strtab, .symtab, .note.GNU-stack, .shstrtab, +1 for .rela.text if present)
-    int extra_sections = 5 + (ctx->relocation_count > 0 ? 1 : 0);
+    // Section headers: (section_count + 5 + n_rela_groups) * 64 bytes
+    // (+5 for null, .strtab, .symtab, .note.GNU-stack, .shstrtab, +1 per .rela.<sec>)
+    int n_rela_groups = 0;
+    if (ctx->relocation_count > 0) {
+        uint16_t ds[ELF_MAX_SECTIONS];
+        n_rela_groups = elf_reloc_distinct_sections(ctx, ds, ELF_MAX_SECTIONS);
+    }
+    int extra_sections = 5 + n_rela_groups;
     offset += (ctx->section_count + extra_sections) * sizeof(Elf64SectionHeader);
 
     return offset;
@@ -422,25 +458,36 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     }
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
 
-    // Relocation section (.rela.text) - write relocations if we have any
+    // Relocation sections (.rela.<sec>) - one per distinct target section
+    uint16_t rela_groups[ELF_MAX_SECTIONS] = {0};
+    size_t rela_group_offsets[ELF_MAX_SECTIONS] = {0};
+    size_t rela_group_sizes[ELF_MAX_SECTIONS] = {0};
+    size_t rela_name_idx[ELF_MAX_SECTIONS] = {0};
+    int n_rela_groups = 0;
     size_t rela_text_offset = 0;
     if (ctx->relocation_count > 0) {
         offset = (offset + 7) & ~7;  // Align to 8 bytes
         rela_text_offset = offset;
-        Elf64Rela* rela = (Elf64Rela*)(buffer + offset);
-        
-        for (int i = 0; i < ctx->relocation_count; i++) {
-            rela->r_offset = ctx->reloc_offsets[i];
-            uint16_t raw_sym_idx = ctx->reloc_symbol_indices[i];
-            uint16_t mapped_sym_idx = (raw_sym_idx <= ELF_MAX_SYMBOLS && sym_remap[raw_sym_idx] != 0)
-                                          ? sym_remap[raw_sym_idx]
-                                          : raw_sym_idx;
-            // r_info = (symbol_index << 32) | relocation_type
-            rela->r_info = ((uint64_t)mapped_sym_idx << 32) | ctx->reloc_types[i];
-            rela->r_addend = ctx->reloc_addends[i];
-            rela++;
+        n_rela_groups = elf_reloc_distinct_sections(ctx, rela_groups, ELF_MAX_SECTIONS);
+        for (int g = 0; g < n_rela_groups; g++) {
+            rela_group_offsets[g] = offset;
+            int cnt = elf_reloc_count_for_section(ctx, rela_groups[g]);
+            rela_group_sizes[g] = (size_t)cnt * sizeof(Elf64Rela);
+            Elf64Rela* rela = (Elf64Rela*)(buffer + offset);
+            for (int i = 0; i < ctx->relocation_count; i++) {
+                if (ctx->reloc_section_indices[i] != rela_groups[g]) continue;
+                rela->r_offset = ctx->reloc_offsets[i];
+                uint16_t raw_sym_idx = ctx->reloc_symbol_indices[i];
+                uint16_t mapped_sym_idx = (raw_sym_idx <= ELF_MAX_SYMBOLS && sym_remap[raw_sym_idx] != 0)
+                                              ? sym_remap[raw_sym_idx]
+                                              : raw_sym_idx;
+                // r_info = (symbol_index << 32) | relocation_type
+                rela->r_info = ((uint64_t)mapped_sym_idx << 32) | ctx->reloc_types[i];
+                rela->r_addend = ctx->reloc_addends[i];
+                rela++;
+            }
+            offset += rela_group_sizes[g];
         }
-        offset += ctx->relocation_count * sizeof(Elf64Rela);
     }
 
     // Section name string table (.shstrtab)
@@ -452,11 +499,18 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     size_t shstrtab_name_idx = ctx->shstrtab_size;
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".shstrtab");
     
-    // Add .rela.text section name if we have relocations
-    size_t rela_text_name_idx = 0;
+    // Add .rela.<sec> section names if we have relocations
     if (ctx->relocation_count > 0) {
-        rela_text_name_idx = ctx->shstrtab_size;
-        add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".rela.text");
+        for (int g = 0; g < n_rela_groups; g++) {
+            char rela_nm[48];
+            if (rela_groups[g] >= 1 && rela_groups[g] <= (uint16_t)ctx->section_count) {
+                snprintf(rela_nm, sizeof(rela_nm), ".rela.%s", ctx->sections[rela_groups[g] - 1].name);
+            } else {
+                snprintf(rela_nm, sizeof(rela_nm), ".rela.%u", rela_groups[g]);
+            }
+            rela_name_idx[g] = ctx->shstrtab_size;
+            add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), rela_nm);
+        }
     }
     
     // Add .note.GNU-stack section name
@@ -543,20 +597,16 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr->sh_entsize = sizeof(Elf64Sym);
     shdr++;
 
-    // .rela.text section header (if we have relocations)
-    if (ctx->relocation_count > 0) {
-        // Calculate .rela.text offset (after .symtab)
-        size_t rela_text_offset = symtab_offset + (ctx->symbol_count + 1) * sizeof(Elf64Sym);
-        rela_text_offset = (rela_text_offset + 7) & ~7;  // Align to 8 bytes
-        
-        shdr->sh_name = (uint32_t)rela_text_name_idx;
+    // .rela.<sec> section headers (one per distinct relocated section)
+    for (int g = 0; g < n_rela_groups; g++) {
+        shdr->sh_name = (uint32_t)rela_name_idx[g];
         shdr->sh_type = ELF_SHT_RELA;
         shdr->sh_flags = 0;  /* Relocation sections are not loaded into memory */
         shdr->sh_addr = 0;
-        shdr->sh_offset = rela_text_offset;
-        shdr->sh_size = ctx->relocation_count * sizeof(Elf64Rela);
+        shdr->sh_offset = rela_group_offsets[g];
+        shdr->sh_size = rela_group_sizes[g];
         shdr->sh_link = ctx->section_count + 2;  // Index of .symtab (null + data + .strtab + .symtab)
-        shdr->sh_info = 1;  // Relocations for .text section (index 1)
+        shdr->sh_info = rela_groups[g];  // Index of the section these relocations apply to
         shdr->sh_addralign = 8;
         shdr->sh_entsize = sizeof(Elf64Rela);
         shdr++;
@@ -599,8 +649,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     shdr++;  // Advance past .shstrtab section header
 
     // Update offset to point after section headers
-    // Total: null + data sections + .strtab + .symtab + (.rela.text) + .note.GNU-stack + .shstrtab
-    int extra_sections = 4 + (ctx->relocation_count > 0 ? 1 : 0);  // .strtab, .symtab, (.rela.text), .note.GNU-stack, .shstrtab
+    // Total: null + data sections + .strtab + .symtab + (.rela.<sec> x n) + .note.GNU-stack + .shstrtab
+    int extra_sections = 4 + n_rela_groups;  // .strtab, .symtab, .rela.<sec> groups, .note.GNU-stack, .shstrtab
     offset = section_headers_offset + (ctx->section_count + extra_sections + 1) * sizeof(Elf64SectionHeader);
 
     // ========================================================================

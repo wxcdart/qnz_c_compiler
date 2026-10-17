@@ -48,6 +48,9 @@ typedef struct ZeroCCCompiler {
     ZeroCCStringReloc str_relocs[ZERO_CC_MAX_STR_RELOCS];
     size_t str_reloc_count;
 
+    ZeroCCDataReloc data_relocs[ZERO_CC_MAX_DATA_RELOCS];
+    size_t data_reloc_count;
+
     /* Register allocator state */
     RegAllocator regalloc;                /* Linear-scan register allocator */
     int next_temp_id;                     /* Next temporary variable ID */

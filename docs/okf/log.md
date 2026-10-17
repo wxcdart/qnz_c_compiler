@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-17T14:30:32Z
+timestamp: 2026-10-17T20:53:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -86,3 +86,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-17 — Updated `frontend-and-types.md`
 - Verified standalone C99/C11 compilation across 29/29 test files: multi-level pointers, opaque struct typedefs, struct array members, nested brace initializers, multi-declarator extern, and arbitrary va_arg types
+
+## 2026-10-17 — Updated `global-data-relocs.md`
+- Add global variables & data reloc concept page: file-scope initializers, ZeroCCDataReloc (JIT patch + AOT .rela.<sec>), ELF writer multi-section reloc support
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Document float/double struct member tags, NODE_MEMBER s.str/aux union aliasing gotcha, goto/label/switch implementation (CMP/COND_SET/JNE dispatch, break via label_patcher)
+
+## 2026-10-17 — Updated `isa-backends.md`
+- Document OP_JE/OP_JNE jump-if-zero/nonzero semantics and JIT global data reloc patching
+
+## 2026-10-17 — Updated `scalar-float-x86.md`
+- Added scalar-float-x86 page: double-width FP model, VLOADSS/SD emitters, XMM/VEC classing, WSL2 128-bit RX-read GPF workaround

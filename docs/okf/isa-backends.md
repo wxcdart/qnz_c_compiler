@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-17T14:30:32Z
+timestamp: 2026-10-17T20:23:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -58,6 +58,16 @@ When taking the address of a function (`fn` or `&fn` assigned to a function poin
   - When `elf_writer_write()` partitions `ELF_STB_LOCAL` symbols ahead of `ELF_STB_GLOBAL` symbols in `.symtab`, it builds `sym_remap[]` and updates every `.rela.text` relocation's `ELF64_R_INFO(new_sym, r_type)` so symbol indices remain synchronized.
 - **JIT Execution (`src/zero_cc/jit/execution.h`, `src/zero_cc/types/symbol_mgmt.h`)**:
   - Resolves `c->relocs[i]` by checking `c->globals`, then `zero_cc_find_function(c, sym_name)` (computing `(void*)(c->code_buf.data + fn->code_offset)`), and finally `zero_cc_resolve_symbol(sym_name)` (`&stdin`, `&stdout`, `&stderr`, or `dlsym`).
+
+## Conditional Branch Semantics (`OP_JE`/`OP_JNE`)
+
+`OP_JE`/`OP_JNE` carry a **condition temp** (the result of `OP_COND_SET` or a 0/1 value), not raw flags. The x86-64 emitter lowers them as `test reg, reg` + `je`/`jne` — i.e. **jump when the temp is zero / non-zero**. Consequences:
+- "jump if condition TRUE" requires `ir_emit_jne(cond_temp, label)`; "jump if FALSE" uses `ir_emit_je` (as in `lower_stmt_if`, where the JE target is the *else* branch and the then-branch is the fallthrough).
+- Dispatch chains (e.g. `switch` in `lower_stmt_switch`) must use `ir_emit_jne(flag, case_label)`.
+
+## Global Data Reloc Patching (JIT)
+
+`ZeroCCDataReloc` entries (pointer initializers `const char *g = "...";`, `int *p = &x;` — see [global-data-relocs.md](./global-data-relocs.md)) are patched in `execution.h` **after** the data `memcpy`: 8-byte absolute addresses written into the still-writable data page (`(char*)mem + data_offset + patch_offset`), targeting the data page (kind 1) or `(char*)mem + text_section.length + rodata_offset` (kind 0). The RX transition happens afterwards, so the patched pointers are valid at run time.
 
 ## Multi-ISA SIMD / Vector Emission (SSE, NEON, RVV 1.0)
 

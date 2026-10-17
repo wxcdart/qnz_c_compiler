@@ -166,6 +166,13 @@ typedef struct ZeroCCISABackend {
     /* Vector operations for binary JIT emission */
     void (*emit_vload)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     void (*emit_vstore)(ZeroCCCompiler *c, int src, int base, int32_t offset);
+    /* Scalar float load/store variants (movss/movsd) for OP_VLOADSS/SD,
+     * OP_VSTORESS/SD - 4-byte and 8-byte float accesses through an address.
+     * (The 128-bit emit_vload/emit_vstore are for OP_VLOAD/OP_VSTORE only.) */
+    void (*emit_vloadss)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    void (*emit_vloadsd)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    void (*emit_vstoress)(ZeroCCCompiler *c, int src, int base, int32_t offset);
+    void (*emit_vstoredsd)(ZeroCCCompiler *c, int src, int base, int32_t offset);
     void (*emit_vaddps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vsubps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmulps)(ZeroCCCompiler *c, int dst, int src1, int src2);
