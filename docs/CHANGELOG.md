@@ -1,5 +1,44 @@
 # ZeroCC Changelog
 
+## [Sprint 18] - 2026-10-17 - C11 Core Features, `<threads.h>`, Multi-Dimensional Arrays/VLAs & Tooling Cleanup
+
+### Added - C11 Core Keywords, Alignment, Atomics & Threading (`tools/c11/test_c11.py` 11/11)
+- **C11 `<threads.h>` & Linker Library Forwarding**:
+  - Created `include/threads.h` mapping C11 thread (`thrd_t`, `thrd_create`, `thrd_join`) and mutex (`mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, `mtx_destroy`) primitives to POSIX threads (`-lpthread`).
+  - Added `-l<lib>` flag forwarding in `src/main.c` for AOT linking.
+- **C11 Alignment, Anonymous Structs/Unions, `_Generic` & `_Static_assert`**:
+  - Verified `_Alignof` and `_Alignas` on fundamental types, struct members, and stack-allocated local variables.
+  - Verified anonymous nested `struct` and `union` field flattening, `_Generic` type-based association selection, and `_Static_assert`.
+  - Added support for multi-token signed/unsigned scalar `typedef` declarations (`typedef unsigned long thrd_t;`) in `src/zero_cc/parser/definitions.h` and comma-separated local variable declarators (`thrd_t t1, t2;`) in `src/zero_cc/parser/ast_stmt.h`.
+- **Global Variables (AOT & JIT)**:
+  - Unified `global_vars` across translation units (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/parser/ir.c`).
+  - Added `ELF_STT_OBJECT` symbol emission for `.data` globals in `src/main.c` and zero-allocated uninitialized `.data` storage in `src/zero_cc/jit/compile_unit.h`.
+  - Added support in `src/zero_cc/parser/ast_lowering_expr.c` for `&global`, scalar value loads in `NODE_IDENT`, assignments in `NODE_ASSIGN`, and post/pre-increment (`counter++`).
+- **LICM Call-Spanning Safety Invariant (`src/zero_cc/parser/opt_loop.c`)**:
+  - Prevented `opt_licm` from hoisting loop-invariant constants out of loops containing `OP_CALL` / `OP_CALL_INDIRECT` instructions, avoiding exhaustion of the 5 callee-saved GPRs on x86-64 and preventing caller-saved register clobbering across function calls.
+- **Multi-Dimensional Arrays & Matrix VLAs (`tools/vla/test_vla.py`)**:
+  - Implemented Phase 0 (multi-dimensional fixed arrays `a[M][N][K]`, pointer decay on `NODE_INDEX`, struct array indexing `p[i][j].x`) and Phase 1 (matrix VLAs `a[n][M]`) across parser, semantic analysis, and IR lowering, bringing `make test` to **140/140 (100%)**.
+- **Tooling Directory Organization (`tools/`)**:
+  - Archived 136 historical one-off debugging scripts into `tools/archive/`, keeping active verification suites (`okf.py`, `test_runner.py`, `c11/test_c11.py`, `vla/test_vla.py`, `sret_verifier.py`, `struct_abi_verifier.py`, etc.) at the top level of `tools/` with updated `tools/README.md`.
+
+## [Plan] - 2026-10-16 - Multi-Dimensional VLA Plan & 2-D Array Defect
+
+### Added
+- **`docs/MULTIDIM_VLA_PLAN.md`** — revised plan for pragmatic multi-dim VLA
+  (single runtime outer dimension + constant inner dimensions, matrix-math focus).
+- **OKF** `docs/okf/frontend-and-types.md` — new "Known Defect: Multi-Dimensional
+  Arrays" section and `docs/okf/log.md` entry.
+
+### Fixed (documented, not yet implemented) — 2-D/3-D array root cause
+- Minimal 2-D fixed array (`int a[2][3]`) segfaults in JIT and AOT.
+- Parser (`ast_stmt.h`) consumes only the first `[ ... ]`; remaining dimensions are
+  silently swallowed (no diagnostic), truncating the type to 1-D.
+- `NODE_INDEX` lowering (`ast_lowering_expr.c`) always loads the element and has no
+  pointer-decay case, so the inner index of a nested array loads a value that is
+  misused as the outer index's base pointer.
+- Plan splits into Phase 0 (multi-dim arrays in general: parser + nested types +
+  decay lowering) and Phase 1 (pragmatic multi-dim VLA). Est. ~6 working days.
+
 ## [Sprint 17] - 2026 - System V AMD64 & Multi-ISA Hidden Pointer (sret) Large Struct Returns
 
 ### Added - Multi-ISA sret & Backend Codegen

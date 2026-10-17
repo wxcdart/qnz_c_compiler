@@ -375,12 +375,18 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_LPAREN) {
         (*pos)++;
         /* Could be cast or parenthesized expression */
-        /* Look ahead: if next token is a type keyword, treat as cast */
         ZeroCCTokType next = c->tokens[*pos].type;
-        if (next == TK_IDENT || next == TK_INT || next == TK_CHAR || next == TK_VOID ||
-            next == TK_STRUCT || next == TK_UNION ||
-            next == TK_FLOAT_KW || next == TK_DOUBLE_KW || next == TK_BOOL_KW ||
-            next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC) {
+        bool is_type = (next == TK_INT || next == TK_CHAR || next == TK_VOID ||
+                        next == TK_STRUCT || next == TK_UNION || next == TK_ENUM ||
+                        next == TK_FLOAT_KW || next == TK_DOUBLE_KW || next == TK_BOOL_KW ||
+                        next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC);
+        if (!is_type && next == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            if (zero_cc_find_typedef(c, name) || zero_cc_find_struct(c, name) || zero_cc_find_enum(c, name)) {
+                is_type = true;
+            }
+        }
+        if (is_type) {
             /* Cast: (type) expr */
             ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
             if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;

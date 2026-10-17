@@ -35,6 +35,7 @@ typedef struct {
     int body_end_idx;          /* End of loop body */
     int iter_count_temp;       /* Temporary for iteration count */
     bool is_double;            /* 64-bit double precision floating point */
+    bool is_int32;             /* 32-bit packed integer */
     int elem_size;             /* Element size in bytes (4 or 8) */
 } VectorizationInfo;
 

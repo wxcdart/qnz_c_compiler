@@ -7,6 +7,7 @@
 
 #include "zero_cc/core/core.h"
 #include "zero_cc/types/types.h"
+#include "zero_cc/types/global_vars.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
@@ -317,6 +318,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
             TypeInfo *fn_t = type_function(perm, ret_t, params, f->param_count, f->is_variadic);
             scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
+        }
+        for (size_t i = 0; i < global_var_count; i++) {
+            TypeInfo *gv_ti = zero_cc_type_to_typeinfo(perm, global_vars[i].type);
+            scope_put_symbol(global_scope_root, global_vars[i].name, SYMBOL_VAR, gv_ti);
         }
 
         // Set the AST arena for this function body

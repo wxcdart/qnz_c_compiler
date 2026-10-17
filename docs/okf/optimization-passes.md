@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-16T05:23:53Z
+timestamp: 2026-10-17T05:18:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -33,11 +33,13 @@ Optimization passes are registered in `src/zero_cc/parser/opt_pass.c` (`g_opt_pa
 6. **Loop-Invariant Code Motion (`opt_loop.c`)**
    - Identifies natural loops by mapping synthetic `label_idx` targets to instruction indices (`label_to_idx`).
    - Uses a **Two-Pass Rebuild** into a new `IRArena`: hoists pure loop-invariant instructions immediately before the loop header label, turns their in-loop originals into `OP_NOP`, and updates `c->ir_call_args` instruction indices.
+   - **Call-Spanning Safety Invariant**: Does not hoist loop-invariant constants/expressions out of loops that contain `OP_CALL` or `OP_CALL_INDIRECT`, preventing hoisted temporaries from exceeding the 5 callee-saved GPRs on x86-64 and spilling into caller-saved registers across calls.
 7. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
    - Detects countable array arithmetic loops:
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
      - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).
-     - Supports multi-ISA backend lowering across x86-64 SSE2, AArch64 NEON (`fadd.2d`, `fadd.4s`, `ldr/str q`), and RISC-V RVV 1.0 (`vsetivli`, `vfadd.vv`, `vle32.v`/`vse32.v`).
+     - **32-Bit Packed Integers (`int[N]`)**: maps `OP_LOAD_32`, `OP_STORE_32`, `OP_ADD`/`OP_SUB`/`OP_MUL` &rarr; 128-bit packed integer vector instructions (`OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
+     - Supports multi-ISA backend lowering across x86-64 SSE2/SSE4.1 (`paddd`, `psubd`, `pmulld`), AArch64 NEON (`add.4s`, `sub.4s`, `mul.4s`, `fadd.2d`, `fadd.4s`, `ldr/str q`), and RISC-V RVV 1.0 (`vsetivli zero, 4, e32, m1`, `vadd.vv`, `vsub.vv`, `vmul.vv`, `vfadd.vv`, `vle32.v`/`vse32.v`).
 8. **Dead Code Elimination (`opt_dce.c`)**
    - Marks unused temporaries and dead instructions as `OP_DEAD` / `OP_NOP` while preserving instructions with side effects (stores, calls, volatile loads, flag setters consumed by branches).
 

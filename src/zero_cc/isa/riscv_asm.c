@@ -28,13 +28,16 @@ static const char *riscv_get_hw_reg_name(int phys_reg) {
 
 /* Get vector register name by index */
 static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
-    static char buf[16];
+    static const char *const riscv_vec_names[] = {
+        "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+        "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+        "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+        "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+    };
     if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
-        snprintf(buf, sizeof(buf), "v0");  /* Default to v0 for invalid */
-    } else {
-        snprintf(buf, sizeof(buf), "v%d", vec_reg_idx);
+        return "v0";  /* Default to v0 for invalid */
     }
-    return buf;
+    return riscv_vec_names[vec_reg_idx];
 }
 
 /* Prologue: allocate frame with s0 (fp) at top of local frame so negative offsets -off(s0) lie above sp */
@@ -581,6 +584,33 @@ static void riscv_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2
     fprintf(out, "\tvfdiv.vv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
 }
 
+/* Vector packed 32-bit int add - vadd.vv */
+static void riscv_emit_vpaddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
+    fprintf(out, "\tvadd.vv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 32-bit int sub - vsub.vv */
+static void riscv_emit_vpsubd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
+    fprintf(out, "\tvsub.vv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 32-bit int mul - vmul.vv */
+static void riscv_emit_vpmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
+    fprintf(out, "\tvmul.vv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+}
+
 /* Vector move - fmv.s */
 static void riscv_emit_vmovss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = (dst >= 0 && dst < 32) ? BE(c)->regs->fp_regs[dst] : "fa0";
@@ -739,6 +769,9 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vsubpd_asm = riscv_emit_vsubpd_asm;
     be->emit_vmulpd_asm = riscv_emit_vmulpd_asm;
     be->emit_vdivpd_asm = riscv_emit_vdivpd_asm;
+    be->emit_vpaddd_asm = riscv_emit_vpaddd_asm;
+    be->emit_vpsubd_asm = riscv_emit_vpsubd_asm;
+    be->emit_vpmulld_asm = riscv_emit_vpmulld_asm;
     be->emit_vmovss_asm = riscv_emit_vmovss_asm;
     be->emit_vmovsd_asm = riscv_emit_vmovsd_asm;
     be->emit_vmovaps_asm = riscv_emit_vmovaps_asm;

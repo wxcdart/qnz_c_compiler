@@ -1,10 +1,10 @@
 ---
 type: Guide
 title: Build, Test & Verification Guide for Agents
-description: Practical commands and rules for building ZeroCC, running the 136-test suite, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
+description: Practical commands and rules for building ZeroCC, running the 140-test suite, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
-tags: [build, testing, verification, makefile, sret, okf]
-timestamp: 2026-10-16T04:58:49Z
+tags: [build, testing, verification, makefile, sret, c11, vla, okf]
+timestamp: 2026-10-17T11:51:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -32,7 +32,7 @@ make rebuild
 ## 2. Running the Test Suite
 
 ```bash
-# Run all 136 tests (unit, semantic, abi, jit)
+# Run all 140 tests (unit, semantic, abi, jit)
 make test
 
 # Run specific category
@@ -53,13 +53,21 @@ Note that `build/test/abi/*` binaries built by `make all` are compiled by the ho
 # 2. JIT Execution mode (--run)
 ./build/bin/zerocc --run test/abi/struct_return_funcptr.c
 
-# 3. Inspect generated assembly (-S) or IR (--dump-ir)
+# 3. Inspect generated assembly (-S) or IR (-dump-ir)
 ./build/bin/zerocc -S test/abi/struct_return_funcptr.c -o /tmp/test.s
 ```
 
-## 4. Automated ABI & OKF Verification Tools
+## 4. Automated C99/C11, ABI & OKF Verification Tools (`tools/`)
+
+Active verification suites live at the top level of `tools/` (historical one-off debugging scripts are archived in `tools/archive/`):
 
 ```bash
+# Run C11 feature & concurrency verification suite (11/11 tests: _Alignas, _Alignof, anonymous structs/unions, _Generic, _Static_assert, atomics, <threads.h>)
+python3 tools/c11/test_c11.py --verbose
+
+# Run C99 VLA & multi-dimensional matrix VLA verification suite
+python3 tools/vla/test_vla.py
+
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
 python3 tools/sret_verifier.py --verify-all
 
@@ -79,3 +87,4 @@ python3 tools/okf.py index
 - See [Bundle Log](./log.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)
+

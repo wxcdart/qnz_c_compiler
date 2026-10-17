@@ -1,3 +1,6 @@
+#include "../types/types.h"
+#define ZERO_CC_GLOBAL_VARS_IMPL
+#include "../types/global_vars.h"
 #include "ir.h"
 #include "ir_arena.h"
 #include "../types/symbols.h"
@@ -345,6 +348,12 @@ void ir_dump(FILE *f) {
             case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_VADDPD: fprintf(f, "VADDPD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPADDD: fprintf(f, "VPADDD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPSUBD: fprintf(f, "VPSUBD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPMULLD: fprintf(f, "VPMULLD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_LABEL: fprintf(f, "L%u:", instr->label_idx);
                            break;

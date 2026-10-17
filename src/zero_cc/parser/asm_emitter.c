@@ -249,6 +249,12 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             }
             return;
             
+        case OP_MOD:
+            if (BE(c)->emit_mod_asm) {
+                BE(c)->emit_mod_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
         case OP_AND:
             if (BE(c)->emit_and_asm) {
                 BE(c)->emit_and_asm(c, phys_dst, phys_src1, phys_src2, out);
@@ -647,6 +653,25 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         case OP_VDIVPD:
             if (BE(c)->emit_vdivpd_asm) {
                 BE(c)->emit_vdivpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+            
+        /* SIMD/Vector Operations - Packed 32-bit Integer */
+        case OP_VPADDD:
+            if (BE(c)->emit_vpaddd_asm) {
+                BE(c)->emit_vpaddd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPSUBD:
+            if (BE(c)->emit_vpsubd_asm) {
+                BE(c)->emit_vpsubd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPMULLD:
+            if (BE(c)->emit_vpmulld_asm) {
+                BE(c)->emit_vpmulld_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
             

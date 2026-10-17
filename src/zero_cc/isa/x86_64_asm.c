@@ -26,13 +26,14 @@ static const char *x86_get_hw_reg_name(int phys_reg) {
 
 /* Get vector register name by index */
 static const char *x86_get_vec_reg_name(int vec_reg_idx) {
-    static char buf[16];
+    static const char *const x86_vec_names[] = {
+        "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+        "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"
+    };
     if (vec_reg_idx < 0 || vec_reg_idx >= 16) {
-        snprintf(buf, sizeof(buf), "xmm0");  /* Default to xmm0 for invalid */
-    } else {
-        snprintf(buf, sizeof(buf), "xmm%d", vec_reg_idx);
+        return "xmm0";  /* Default to xmm0 for invalid */
     }
-    return buf;
+    return x86_vec_names[vec_reg_idx];
 }
 
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
@@ -161,6 +162,22 @@ static void x86_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     fprintf(out, "\tidivq\t%%%s\n", src2_name);
     if (dst != 0) {
         fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    }
+}
+
+/* MOD: x86-64 uses rax:rdx for division, remainder is in rdx */
+static void x86_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src1_name = BE(c)->get_hw_reg_name(src1);
+    const char *src2_name = BE(c)->get_hw_reg_name(src2);
+    
+    if (src1 != 0) {  /* RAX */
+        fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
+    }
+    fprintf(out, "\tcqo\n");
+    fprintf(out, "\tidivq\t%%%s\n", src2_name);
+    if (dst != 2) {  /* RDX */
+        fprintf(out, "\tmovq\t%%rdx,%%%s\n", dst_name);
     }
 }
 
@@ -656,6 +673,42 @@ static void x86_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tmovapd\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* Vector packed 32-bit int add - paddd */
+static void x86_emit_vpaddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpaddd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 32-bit int sub - psubd */
+static void x86_emit_vpsubd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpsubd\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 32-bit int mul - pmulld */
+static void x86_emit_vpmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpmulld\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
 /* Vector bitwise and - andps */
 static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -727,6 +780,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_sub_asm = x86_emit_sub_asm;
     be->emit_mul_asm = x86_emit_mul_asm;
     be->emit_div_asm = x86_emit_div_asm;
+    be->emit_mod_asm = x86_emit_mod_asm;
     be->emit_and_asm = x86_emit_and_asm;
     be->emit_or_asm = x86_emit_or_asm;
     be->emit_xor_asm = x86_emit_xor_asm;
@@ -789,4 +843,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm;
     be->emit_vcmpss_asm = x86_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = x86_emit_vcmpsd_asm;
+    be->emit_vpaddd_asm = x86_emit_vpaddd_asm;
+    be->emit_vpsubd_asm = x86_emit_vpsubd_asm;
+    be->emit_vpmulld_asm = x86_emit_vpmulld_asm;
 }

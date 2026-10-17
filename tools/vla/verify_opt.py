@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +31,7 @@ class CFGNode:
     successors: List[str] = field(default_factory=list)
     predecessors: List[str] = field(default_factory=list)
     has_return: bool = False
+    has_leave: bool = False
     vla_alloc: Optional[int] = None  # Line number of VLA alloc
     vla_cleanup: Optional[int] = None  # Line number of VLA cleanup
 
@@ -103,6 +105,11 @@ def parse_asm_to_cfg(filepath: str) -> Dict[str, FunctionCFG]:
                     if re.match(r'movq?\s*%rsp,\s*\[?%rbp-\d+\]?', line):
                         current_cfg.vla_cleanups.append((current_node.label, line_num))
                         current_node.vla_cleanup = line_num
+                    
+                    # 'leave' resets rsp to rbp, releasing the VLA region at the
+                    # bottom of the frame (ZeroCC hybrid VLA design)
+                    if re.match(r'leave', line):
+                        current_node.has_leave = True
     
     # Save last function
     if current_cfg:
@@ -171,11 +178,19 @@ def verify_vla_cleanup(cfg: FunctionCFG) -> List[str]:
         
         # Check if each return path has cleanup
         for ret_node in return_nodes:
-            # Simple check: is there a cleanup between alloc and return?
-            # This is a simplified check - real implementation needs full path analysis
+            # Explicit cleanup node (mov rsp, [rbp-x])
             has_cleanup = any(cleanup_node == ret_node.label or 
                             cleanup_node in ret_node.predecessors
                             for cleanup_node, _ in cfg.vla_cleanups)
+            
+            # 'leave' epilogue: the VLA region is at the bottom of the frame and is
+            # released by the standard 'leave' reset. Accept if the return node (or
+            # a direct predecessor) contains 'leave'.
+            if not has_cleanup:
+                has_cleanup = ret_node.has_leave or any(
+                    cfg.nodes[p].has_leave for p in ret_node.predecessors
+                    if p in cfg.nodes
+                )
             
             if not has_cleanup:
                 errors.append(
@@ -190,14 +205,17 @@ def verify_stack_balance(cfg: FunctionCFG) -> List[str]:
     errors = []
     
     # Calculate stack delta for each node
+    # A 'reset' node contains 'leave' (rsp := rbp; pop rbp), which restores the
+    # frame: from that point the running delta restarts at 0.
     node_deltas = {}
     for node_label, node in cfg.nodes.items():
         delta = 0
+        has_leave = False
         for instr in node.instructions:
             # sub rsp, imm
             sub_match = re.match(r'subq?\s+\$?(-?\d+),?\s*%rsp', instr)
             if sub_match:
-                delta += int(sub_match.group(1))
+                delta -= int(sub_match.group(1))
             
             # add rsp, imm
             add_match = re.match(r'addq?\s+\$?(\d+),?\s*%rsp', instr)
@@ -211,8 +229,12 @@ def verify_stack_balance(cfg: FunctionCFG) -> List[str]:
             # pop
             if re.match(r'popq?\s*', instr):
                 delta += 8
+            
+            # leave: resets rsp to rbp, then pops rbp (cancels the prologue push)
+            if re.match(r'leave', instr):
+                has_leave = True
         
-        node_deltas[node_label] = delta
+        node_deltas[node_label] = 'reset' if has_leave else delta
     
     # Check returns
     for ret_label in cfg.returns:
@@ -232,10 +254,12 @@ def verify_stack_balance(cfg: FunctionCFG) -> List[str]:
             visited.add(current)
             
             if current == ret_label:
-                total_delta += node_deltas.get(current, 0)
+                d = node_deltas.get(current, 0)
+                total_delta = 0 if d == 'reset' else total_delta + d
                 break
             
-            total_delta += node_deltas.get(current, 0)
+            d = node_deltas.get(current, 0)
+            total_delta = 0 if d == 'reset' else total_delta + d
             queue.extend(cfg.nodes[current].successors)
         
         if total_delta != 0:
@@ -392,7 +416,6 @@ def main():
     asm_file = args.asm
     if args.test and args.compile:
         import tempfile
-        import os
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.s', delete=False) as f:
             asm_file = f.name

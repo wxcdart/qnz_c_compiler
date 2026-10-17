@@ -35,9 +35,8 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
         if ((size_t)decl_align_spec > alignment) alignment = (size_t)decl_align_spec;
     }
     size_t alloc_sz = type.size ? type.size : alignment;
-    if (alloc_sz < 8) alloc_sz = 8;
-    c->current_stack_frame = (c->current_stack_frame + alignment - 1) & ~(alignment - 1);
     c->current_stack_frame += (int32_t)alloc_sz;
+    c->current_stack_frame = (c->current_stack_frame + (int32_t)alignment - 1) & ~((int32_t)alignment - 1);
     sym->stack_offset = c->current_stack_frame;
     sym->is_param = false;
     sym->param_reg_idx = -1;

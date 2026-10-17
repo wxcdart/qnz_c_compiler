@@ -227,7 +227,15 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
                     c->token_pos++;
                     /* Optional initializer */
-                    size_t init_offset = c->data_section.length;
+                    size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
+                    size_t align = gtype.align > 0 ? gtype.align : 8;
+                    if (align < 8) align = 8;
+                    /* Align to alignment boundary */
+                    size_t padding = (align - (c->data_section.length % align)) % align;
+                    for (size_t i = 0; i < padding; i++) {
+                        zero_cc_emit_u8(&c->data_section, 0);
+                    }
+                    size_t var_offset = c->data_section.length;
                     bool has_initializer = false;
                     if (c->tokens[c->token_pos].type == TK_ASSIGN) {
                         c->token_pos++; /* skip = */
@@ -235,29 +243,23 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         /* Evaluate constant expression */
                         int64_t init_val = zero_cc_eval_const_expr(c);
                         /* Emit to data_section */
-                        if (gtype.tag == TYPE_INT8 || gtype.tag == TYPE_UINT8 ||
-                            gtype.tag == TYPE_INT16 || gtype.tag == TYPE_UINT16 ||
-                            gtype.tag == TYPE_INT32 || gtype.tag == TYPE_UINT32 ||
-                            gtype.tag == TYPE_INT64 || gtype.tag == TYPE_UINT64) {
-                            zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
-                        } else if (gtype.tag == TYPE_PTR) {
-                            /* String literal or pointer - emit as 64-bit value */
+                        if (size <= 8) {
                             zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
                         } else {
-                            /* Default to 64-bit for now */
                             zero_cc_emit_u64(&c->data_section, (uint64_t)init_val);
+                            for (size_t i = 8; i < size; i++) {
+                                zero_cc_emit_u8(&c->data_section, 0);
+                            }
+                        }
+                    } else {
+                        /* Allocate uninitialized / zero-initialized data */
+                        for (size_t i = 0; i < size; i++) {
+                            zero_cc_emit_u8(&c->data_section, 0);
                         }
                     }
                     /* Consume trailing semicolon */
                     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                    /* Register global variable */
-                    size_t size = gtype.size > 0 ? gtype.size : 8; /* Default to 8 bytes */
-                    /* Align to 8 bytes */
-                    size_t padding = (8 - (init_offset % 8)) % 8;
-                    for (size_t i = 0; i < padding; i++) {
-                        zero_cc_emit_u8(&c->data_section, 0);
-                    }
-                    add_global_var(var_name, gtype, init_offset + padding, size, is_static, has_initializer);
+                    add_global_var(var_name, gtype, var_offset, size, is_static, has_initializer);
                     continue; /* Skip function parser for variables */
                 }
             } else {

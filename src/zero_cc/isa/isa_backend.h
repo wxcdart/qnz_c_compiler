@@ -77,6 +77,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_sub_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_mul_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_mod_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_and_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_or_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_xor_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
@@ -127,6 +128,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_vsubpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vmulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vdivpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpaddd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpsubd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpmulld_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vmovss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vmovsd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vmovaps_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -170,6 +174,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_vsubpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmulpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vdivpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpaddd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpsubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
     
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);

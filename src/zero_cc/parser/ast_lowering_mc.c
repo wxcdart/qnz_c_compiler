@@ -504,6 +504,30 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VPADDD:
+                if (c->emit_asm && BE(c)->emit_vpaddd_asm) {
+                    BE(c)->emit_vpaddd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpaddd) {
+                    BE(c)->emit_vpaddd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPSUBD:
+                if (c->emit_asm && BE(c)->emit_vpsubd_asm) {
+                    BE(c)->emit_vpsubd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpsubd) {
+                    BE(c)->emit_vpsubd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPMULLD:
+                if (c->emit_asm && BE(c)->emit_vpmulld_asm) {
+                    BE(c)->emit_vpmulld_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpmulld) {
+                    BE(c)->emit_vpmulld(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
             case OP_VMOVSS:
                 if (BE(c)->emit_vmovss_asm) {
                     BE(c)->emit_vmovss_asm(c, phys_dst, phys_src1, c->asm_out);

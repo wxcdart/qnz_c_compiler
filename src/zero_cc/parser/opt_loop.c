@@ -277,6 +277,23 @@ void opt_licm(ZeroCCCompiler *c) {
     for (int l = 0; l < state.loop_count; l++) {
         LoopInfo *loop = &state.loops[l];
         
+        /* If the loop contains function calls, hoisting loop-invariant constants/computations
+         * out of the loop into the preheader extends their live ranges across all calls inside
+         * the loop. If there are insufficient callee-saved registers (only 5 on x86-64),
+         * caller-saved registers will be assigned and clobbered by the calls!
+         * Therefore, do not hoist out of loops containing calls. */
+        bool loop_has_call = false;
+        for (int i = 0; i < loop->body_count; i++) {
+            Instr *ins = ir_get(loop->body_indices[i]);
+            if (ins && (ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT)) {
+                loop_has_call = true;
+                break;
+            }
+        }
+        if (loop_has_call) {
+            continue;
+        }
+
         /* Compute invariants for this loop */
         bool *invariant = loop->is_invariant;
         memset(invariant, 0, sizeof(bool) * loop->capacity);

@@ -172,6 +172,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     int base_temp = -1;
     int loop_var = -1;
     bool has_double = false;
+    bool has_fp = false;
     
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
@@ -186,13 +187,22 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             }
             if (instr->op == OP_VLOADSD) {
                 has_double = true;
+                has_fp = true;
+            } else if (instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
+                has_fp = true;
             }
         }
         if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
             store_count++;
             if (instr->op == OP_VSTORESD) {
                 has_double = true;
+                has_fp = true;
+            } else if (instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
+                has_fp = true;
             }
+        }
+        if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
+            has_fp = true;
         }
         if (is_vec_arith(instr)) {
             arith_count++;
@@ -210,13 +220,14 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     
     /* Vectorization criteria:
      * - At least 2 array loads (read operands)
-     * - At least 1 store (write result)
+     * - At least 1 array store (write result inside the loop body)
      * - At least 1 arithmetic operation
      * - No function calls or complex side effects
      */
     if (load_count >= 2 && store_count >= 1 && arith_count >= 1) {
         vinfo->is_vectorizable = true;
         vinfo->is_double = has_double;
+        vinfo->is_int32 = !has_fp && !has_double;
         vinfo->loop_var_temp = loop_var;
         vinfo->array_base_temp = base_temp;
         if (has_double) {
@@ -224,7 +235,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             vinfo->elem_size = 8;
             vinfo->array_stride = 8;
         } else {
-            vinfo->vector_width = state->vector_width;  /* 4x 32-bit floats */
+            vinfo->vector_width = state->vector_width;  /* 4x 32-bit floats or ints */
             vinfo->elem_size = 4;
             vinfo->array_stride = 4;
         }
@@ -250,48 +261,76 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
         }
     }
     
-    /* Loop detection: find backedges (jumps to earlier labels) */
-    for (int i = 0; i < count && state->loop_count < state->capacity; i++) {
+    /* Collect all backedges first so we can identify innermost loops */
+    typedef struct {
+        int target;
+        int backedge_idx;
+    } Backedge;
+    Backedge backedges[MAX_VECTOR_LOOPS * 4];
+    int num_backedges = 0;
+
+    for (int i = 0; i < count && num_backedges < (int)(sizeof(backedges) / sizeof(backedges[0])); i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
-        /* Check for jump instructions that could be loop backedges */
         int is_jump = (instr->op == OP_JMP || instr->op == OP_JE || 
             instr->op == OP_JNE || instr->op == OP_JL ||
             instr->op == OP_JLE || instr->op == OP_JG);
-        
         if (is_jump) {
             int label = instr->label_idx;
             int target = (label >= 0 && label < 256) ? label_to_idx[label] : -1;
-            
             if (target >= 0 && target < i) {
-                /* Found potential loop */
-                LoopInfo loop = {0};
-                loop.header_idx = target;
-                loop.exit_idx = i;
-                loop.body_count = 0;
-                loop.capacity = MAX_VEC_BODY;
-                loop.body_indices = malloc(sizeof(int) * MAX_VEC_BODY);
-                
-                for (int j = target; j <= i; j++) {
-                    if (loop.body_count < MAX_VEC_BODY) {
-                        loop.body_indices[loop.body_count++] = j;
-                    }
-                }
-                
-                /* Analyze for vectorization */
-                analyze_loop_for_vectorization_full(state, &loop);
-                
-                free(loop.body_indices);
+                backedges[num_backedges].target = target;
+                backedges[num_backedges].backedge_idx = i;
+                num_backedges++;
             }
         }
+    }
+
+    /* Only analyze innermost loops (loops that do not contain another loop/backedge inside them) */
+    for (int b = 0; b < num_backedges && state->loop_count < state->capacity; b++) {
+        int target = backedges[b].target;
+        int i = backedges[b].backedge_idx;
+
+        bool has_inner_backedge = false;
+        for (int ob = 0; ob < num_backedges; ob++) {
+            if (ob == b) continue;
+            int t2 = backedges[ob].target;
+            int i2 = backedges[ob].backedge_idx;
+            /* If another loop (t2..i2) is strictly or partially inside target..i */
+            if ((t2 > target && i2 <= i) || (t2 >= target && i2 < i)) {
+                has_inner_backedge = true;
+                break;
+            }
+        }
+        if (has_inner_backedge) {
+            continue;
+        }
+
+        /* Found potential innermost loop */
+        LoopInfo loop = {0};
+        loop.header_idx = target;
+        loop.exit_idx = i;
+        loop.body_count = 0;
+        loop.capacity = MAX_VEC_BODY;
+        loop.body_indices = malloc(sizeof(int) * MAX_VEC_BODY);
+
+        for (int j = target; j <= i; j++) {
+            if (loop.body_count < MAX_VEC_BODY) {
+                loop.body_indices[loop.body_count++] = j;
+            }
+        }
+
+        /* Analyze for vectorization */
+        analyze_loop_for_vectorization_full(state, &loop);
+
+        free(loop.body_indices);
     }
 }
 
 /**
  * Get vector operation for scalar operation
  */
-static int get_vec_op(int scalar_op, bool is_double) {
+static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
     if (is_double) {
         switch (scalar_op) {
             case OP_ADD:
@@ -302,6 +341,13 @@ static int get_vec_op(int scalar_op, bool is_double) {
             case OP_FMUL: return OP_VMULPD;
             case OP_DIV:
             case OP_FDIV: return OP_VDIVPD;
+            default:      return scalar_op;
+        }
+    } else if (is_int32) {
+        switch (scalar_op) {
+            case OP_ADD:  return OP_VPADDD;
+            case OP_SUB:  return OP_VPSUBD;
+            case OP_MUL:  return OP_VPMULLD;
             default:      return scalar_op;
         }
     } else {
@@ -377,14 +423,8 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             if (instr->imm == 1) {
                 instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
             } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
-                /* Replace constant temp definition or instruction */
-                int step_temp = c->next_temp_id++;
-                /* Insert before or change the constant definition if local, or convert to OP_ADD_IMM if available */
-                /* Easiest and clean: change OP_MOV_IMM of temp_src2 to vec_width if unique, or emit new imm */
-                instr->temp_src2 = (uint8_t)step_temp;
-                /* Insert OP_MOV_IMM step_temp, vec_width right before this ADD */
-                /* In our IR arena, we can change instr->imm = vec_width and make it OP_ADD_IMM, or update the MOV_IMM */
-                for (int j = start_idx; j < i; j++) {
+                /* Update the constant definition to vec_width */
+                for (int j = 0; j < i; j++) {
                     Instr *prev = ir_get(j);
                     if (prev && prev->op == OP_MOV_IMM && prev->temp_dest == instr->temp_src2) {
                         prev->imm = (int16_t)vec_width;
@@ -407,8 +447,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         
         /* Handle scalar loads -> VLOAD */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
-            /* Allocate vector temp using compiler's temp allocator */
-            int vec_temp = c->next_temp_id++;
+            int vec_temp = instr->temp_dest;
             
             /* Map scalar dest to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_temp;
@@ -429,7 +468,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
             /* Get vector operation */
-            int vec_op = get_vec_op(instr->op, vinfo->is_double);
+            int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32);
             
             /* Get source vector temps from map */
             int vec_src1 = scalar_to_vec_map[instr->temp_src1];
@@ -440,8 +479,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                 continue;
             }
             
-            /* Allocate vector temp for result */
-            int vec_dest = c->next_temp_id++;
+            int vec_dest = instr->temp_dest;
             
             /* Map result to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_dest;

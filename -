@@ -1,92 +1,67 @@
-	.globl make_big20
-make_big20:
-	pushq	%rbp
-	movq	%rsp, %rbp
-	subq	$112, %rsp
-	movq	%rbx, -8(%rbp)
-	movq	%r12, -16(%rbp)
-	movq	%r13, -24(%rbp)
-	movq	%r14, -32(%rbp)
-	movq	%r15, -40(%rbp)
-	movq	%rdi,-56(%rbp)
-	movq	%rsi,-64(%rbp)
-	movq	%rdx,-72(%rbp)
-	movq	%rcx,-80(%rbp)
-	movq	%r8,-88(%rbp)
-	movq	$0,%rax
-	movq	%rax,-108(%rbp)
-	movq	%rax,-100(%rbp)
-	leaq	-92(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	movq	-56(%rbp),%rax
-	leaq	-108(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	movq	-64(%rbp),%rax
-	leaq	-104(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	movq	-72(%rbp),%rax
-	leaq	-100(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	movq	-80(%rbp),%rax
-	leaq	-96(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	movq	-88(%rbp),%rax
-	leaq	-92(%rbp),%rbx
-	# UNKNOWN: STORE_32
-	leaq	-108(%rbp),%rax
-	movq	%rax,-108(%rbp)
-	movq	-108(%rbp),%rax
-	movq	%rax,%rax
-	movq	-8(%rbp), %rbx
-	movq	-16(%rbp), %r12
-	movq	-24(%rbp), %r13
-	movq	-32(%rbp), %r14
-	movq	-40(%rbp), %r15
-	leave
-	ret
 	.globl main
 main:
 	pushq	%rbp
 	movq	%rsp, %rbp
-	subq	$112, %rsp
+	subq	$96, %rsp
 	movq	%rbx, -8(%rbp)
 	movq	%r12, -16(%rbp)
 	movq	%r13, -24(%rbp)
 	movq	%r14, -32(%rbp)
 	movq	%r15, -40(%rbp)
-	movq	$1,%rax
+	movq	$42,%rax
+	movq	%rax,-56(%rbp)
+	leaq	-56(%rbp),%rax
 	movq	%rax,-80(%rbp)
-	movq	$2,%rbx
-	movq	%rbx,-88(%rbp)
-	movq	$3,%rdx
-	movq	%rdx,-96(%rbp)
-	movq	$4,%rsi
-	movq	%rsi,-104(%rbp)
-	movq	$5,%rdi
-	movq	%rdi,-112(%rbp)
-	movq	%rax,%rax
-	movq	%rbx,%rbx
-	movq	%rdx,%rdx
-	movq	%rsi,%rsi
-	movq	%rdi,%rdi
-	movq	%rax, %rdi
-	movq	%rbx, %rsi
-	movq	%rdx, %rdx
-	movq	%rsi, %rcx
-	movq	%rdi, %r8
-	call	make_big20
-	movq	%rax,%rax
-	movq	%rax,-68(%rbp)
-	movq	-68(%rbp),%rax
-	movq	$4294967295,%rbx
-	movq	%rax,%rax
-	andq	%rbx,%rax
-	movq	$2147483648,%rbx
-	movq	%rax,%rax
-	xorq	%rbx,%rax
-	movq	%rax,%rax
-	subq	%rbx,%rax
-	movq	%rax,%rax
+	leaq	-66(%rbp),%rax
+	movq	$0,%rbx
+	movq	%rax,%rdx
+	addq	%rbx,%rdx
+	movq	%rdx,-88(%rbp)
+	movq	-80(%rbp),%rax
+	movq	$8,%rbx
+	cqo
+	idivq	%rbx
+	movq	$0,%rax
+	cmpq	%rax,%rdx
+	setne	%al
+	movzbq	%al,%rax
+	testq	%rax, %rax
+	je	.L0_1
+	movq	$1,%rax
+	jmp	.L0_0
+	jmp	.L0_2
+.L0_1:
+.L0_2:
+	movq	-88(%rbp),%rax
+	movq	$16,%rbx
+	cqo
+	idivq	%rbx
+	movq	$0,%rax
+	cmpq	%rax,%rdx
+	setne	%al
+	movzbq	%al,%rax
+	testq	%rax, %rax
+	je	.L0_3
+	movq	$2,%rax
+	jmp	.L0_0
+	jmp	.L0_4
+.L0_3:
+.L0_4:
+	movq	-56(%rbp),%rax
+	movq	$42,%rbx
+	cmpq	%rbx,%rax
+	setne	%al
+	movzbq	%al,%rax
+	testq	%rax, %rax
+	je	.L0_5
+	movq	$3,%rax
+	jmp	.L0_0
+	jmp	.L0_6
+.L0_5:
+.L0_6:
+	movq	$0,%rax
+	jmp	.L0_0
+.L0_0:
 	movq	-8(%rbp), %rbx
 	movq	-16(%rbp), %r12
 	movq	-24(%rbp), %r13

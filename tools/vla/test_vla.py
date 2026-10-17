@@ -32,8 +32,9 @@ class TestCase:
     source: str
     expected_result: int = 0
     should_compile: bool = True
-    vla_type: str = "runtime"  # runtime, comptime, hybrid
+    vla_type: str = "runtime"  # runtime, comptime, hybrid, fixed
     expect_error: Optional[str] = None
+    run_jit: bool = True  # Also verify via 'zerocc --run' (JIT path)
 
 
 # Test cases for VLA
@@ -55,12 +56,21 @@ int main(void) { return 0; }
     TestCase(
         name="single_vla_2d",
         source="""
-void test(int n, int m) {
-    int arr[n][m];
-    arr[0][0] = 42;
+int sum_flat(int *p, int n) {
+    int s = 0;
+    for (int i = 0; i < n; i++) s += p[i];
+    return s;
 }
-int main(void) { return 0; }
+int test2d(int n) {
+    int arr[n][3];
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < 3; j++)
+            arr[i][j] = i * 3 + j;
+    return sum_flat(arr, n * 3);  /* n=4: 0+1+...+11 = 66 */
+}
+int main(void) { return test2d(4); }
 """,
+        expected_result=66,
         should_compile=True,
         vla_type="runtime"
     ),
@@ -127,6 +137,89 @@ int main(void) { return 0; }
         should_compile=True,
         vla_type="comptime"
     ),
+
+    # Phase 0 gates: multi-dimensional FIXED arrays (no VLA involved).
+    # NOTE: the array MUST be consumed through a pointer (decay) in another
+    # function. A same-function fill+read round-trips even under the current
+    # miscompile (values go through garbage row pointers consistently) and
+    # would falsely pass.
+    TestCase(
+        name="fixed_2d_array",
+        source="""
+int sum_row_major(int *p, int rows, int cols) {
+    int s = 0;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            s += p[i * cols + j];
+    return s;
+}
+int test2d(void) {
+    int a[2][3];
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 3; j++)
+            a[i][j] = i * 3 + j;
+    return sum_row_major(a, 2, 3);  /* 0+1+...+5 = 15 */
+}
+int main(void) { return test2d(); }
+""",
+        expected_result=15,
+        should_compile=True,
+        vla_type="fixed"
+    ),
+
+    TestCase(
+        name="fixed_3d_array",
+        source="""
+int sum3(int *p) {
+    int s = 0;
+    for (int i = 0; i < 8; i++) s += p[i];
+    return s;
+}
+int test3d(void) {
+    int b[2][2][2];
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+            for (int k = 0; k < 2; k++)
+                b[i][j][k] = i * 4 + j * 2 + k;
+    return sum3(b);  /* 0+1+...+7 = 28 */
+}
+int main(void) { return test3d(); }
+""",
+        expected_result=28,
+        should_compile=True,
+        vla_type="fixed"
+    ),
+
+    # Phase 1: pragmatic multi-dim VLA - one runtime outer dimension,
+    # constant inner dimensions (matrix-math shape)
+    TestCase(
+        name="vla_2d_matmul",
+        source="""
+int matmul(void) {
+    int n = 3;
+    int A[n][3];   /* runtime VLA (the only runtime VLA in the function) */
+    int B[3][3];
+    int C[3][3];
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {
+            A[i][j] = i + 1;
+            B[i][j] = j + 1;
+        }
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {
+            int s = 0;
+            for (int k = 0; k < 3; k++) s += A[i][k] * B[k][j];
+            C[i][j] = s;
+        }
+    /* C[0][0] = 3, C[1][2] = 18, C[2][1] = 18 */
+    return C[0][0] + C[1][2] + C[2][1];  /* 3 + 18 + 18 = 39 */
+}
+int main(void) { return matmul(); }
+""",
+        expected_result=39,
+        should_compile=True,
+        vla_type="runtime"
+    ),
     
     # VLA in loop (should fail in hybrid mode)
     TestCase(
@@ -163,14 +256,10 @@ int main(void) { return 0; }
 
 
 def compile_test(compiler: str, source: str, output: str) -> Tuple[bool, str, str]:
-    """Compile test source code"""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.c', delete=False) as f:
-        f.write(source)
-        source_file = f.name
-    
+    """Compile test source code (source is an existing file path)"""
     try:
         result = subprocess.run(
-            [compiler, '-c', source_file, '-o', output],
+            [compiler, '-c', source, '-o', output],
             capture_output=True,
             text=True,
             timeout=30
@@ -178,27 +267,28 @@ def compile_test(compiler: str, source: str, output: str) -> Tuple[bool, str, st
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
         return False, "", "Compilation timeout"
-    finally:
-        os.unlink(source_file)
 
 
 def run_test(compiler: str, test: TestCase) -> Dict:
-    """Run a single test case"""
+    """Run a single test case (AOT via gcc link, and JIT via --run)"""
     result = {
         'name': test.name,
         'passed': False,
         'compile_ok': False,
         'runtime_ok': False,
+        'jit_ok': None,  # None = not checked
         'error': None,
         'vla_type': test.vla_type
     }
     
-    # Compile
-    with tempfile.NamedTemporaryFile(suffix='.o', delete=False) as f:
-        output_file = f.name
+    # Write source to a temp file (kept for both AOT and JIT runs)
+    source_file = tempfile.mktemp(suffix='.c')
+    with open(source_file, 'w') as f:
+        f.write(test.source)
     
+    output_file = tempfile.mktemp(suffix='.o')
     try:
-        compile_ok, stdout, stderr = compile_test(compiler, test.source, output_file)
+        compile_ok, stdout, stderr = compile_test(compiler, source_file, output_file)
         result['compile_ok'] = compile_ok
         
         # Check compilation expectation
@@ -206,13 +296,10 @@ def run_test(compiler: str, test: TestCase) -> Dict:
             result['error'] = f"Compilation mismatch: expected {'success' if test.should_compile else 'failure'}"
             return result
         
-        # If compilation succeeded, try to run
         if compile_ok:
-            with tempfile.NamedTemporaryFile(suffix='', delete=False) as f:
-                exe_file = f.name
-            
+            # AOT path: link with host gcc and run
+            exe_file = tempfile.mktemp(suffix='')
             try:
-                # Link
                 link_result = subprocess.run(
                     ['gcc', output_file, '-o', exe_file],
                     capture_output=True,
@@ -220,7 +307,6 @@ def run_test(compiler: str, test: TestCase) -> Dict:
                 )
                 
                 if link_result.returncode == 0:
-                    # Run
                     run_result = subprocess.run(
                         [exe_file],
                         capture_output=True,
@@ -229,19 +315,32 @@ def run_test(compiler: str, test: TestCase) -> Dict:
                     )
                     
                     result['runtime_ok'] = (run_result.returncode == test.expected_result)
-                    
                     if not result['runtime_ok']:
-                        result['error'] = f"Runtime mismatch: expected {test.expected_result}, got {run_result.returncode}"
-                
-                os.unlink(exe_file)
+                        result['error'] = f"AOT runtime mismatch: expected {test.expected_result}, got {run_result.returncode}"
             finally:
-                pass
+                if os.path.exists(exe_file):
+                    os.unlink(exe_file)
+            
+            # JIT path: zerocc --run (compiler executes the program itself)
+            if test.run_jit:
+                jit_result = subprocess.run(
+                    [compiler, '--run', source_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                result['jit_ok'] = (jit_result.returncode == test.expected_result)
+                if not result['jit_ok'] and not result['error']:
+                    result['error'] = f"JIT runtime mismatch: expected {test.expected_result}, got {jit_result.returncode}"
         
-        result['passed'] = (compile_ok == test.should_compile) and (not compile_ok or result['runtime_ok'])
-        
+        result['passed'] = (compile_ok == test.should_compile) and (
+            (not compile_ok) or (result['runtime_ok'] and result['jit_ok'] in (True, None))
+        )
     finally:
         if os.path.exists(output_file):
             os.unlink(output_file)
+        if os.path.exists(source_file):
+            os.unlink(source_file)
     
     return result
 
@@ -298,6 +397,12 @@ def generate_report(summary: Dict) -> str:
     lines.append("By VLA Type:")
     for vla_type, stats in by_type.items():
         lines.append(f"  {vla_type}: {stats['passed']}/{stats['total']}")
+    lines.append("")
+    
+    # JIT path coverage
+    jit_checked = [r for r in summary['results'] if r.get('jit_ok') is not None]
+    jit_passed = [r for r in jit_checked if r['jit_ok']]
+    lines.append(f"JIT (--run) coverage: {len(jit_passed)}/{len(jit_checked)} passed")
     lines.append("")
     
     # Failed tests

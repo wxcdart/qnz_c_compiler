@@ -8,3 +8,6 @@
 
 # Temporary/editor files
 text.ext
+__pycache__/
+*.pyc
+

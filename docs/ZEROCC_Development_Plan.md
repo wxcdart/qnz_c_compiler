@@ -2,293 +2,135 @@
 
 ## Project Overview
 
-ZeroCC is a multi-ISA C compiler targeting x86-64, AArch64, and RISC-V. The project focuses on correct compilation of C code with proper code generation and optimization.
+ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V with both an in-memory `W^X` JIT (`--run`) and AOT assembly/ELF backends (`-S`, `-c`, `-o`).
+
+- **Knowledge Graph Navigator**: [`docs/okf/index.md`](./okf/index.md)
+- **Full Changelog**: [`docs/CHANGELOG.md`](./CHANGELOG.md)
+
+---
 
 ## Completed Sprints
 
-### Sprint 17: System V AMD64 ABI Hidden Pointer (sret) Struct Returns ✅
+### Sprint 18: C11 Core Features, `<threads.h>`, Multi-Dimensional Arrays/VLAs & Tooling Cleanup ✅
 - **Status**: COMPLETE
-- **Achievement**: Implemented System V AMD64 ABI hidden return pointer (`sret`) for structs >16 bytes across JIT and AOT code paths with full bidirectional GCC interoperability.
+- **Achievement**: Implemented and verified C11 core language features (`_Alignas`, `_Alignof`, anonymous structs/unions, `_Generic`, `_Static_assert`), C11 concurrency (`<threads.h>` & atomics), multi-dimensional fixed arrays & matrix VLAs (`a[n][M]`), global variable value loads/assignments/ELF object symbols, and LICM call-spanning safety invariants.
 - **Key Deliverables**:
-  - Callee saves hidden pointer passed in `%rdi`, shifts user integer args to `%rsi`+, writes struct chunks to `[hidden_ptr + i*8]`, and returns `hidden_ptr` in `%rax`.
-  - Caller allocates 16-byte aligned buffer, passes address in `%rdi`, shifts arguments, and copies chunks or references returned pointer.
-  - Safe parallel argument moves in x86-64 backend via push/pop sequence to avoid register overwriting.
-  - Handled edge cases: direct member access on call return (`make().c`), struct assignment to existing local (`r = make()`), and tail returns (`return other()`).
-  - Automated verification: `sret_verifier.py --verify-all` passes 6/6 checks. Bidirectional GCC linking passes.
-- **Result**: All 135/135 tests passing (100% pass rate)
+  - **C11 Verification Suite (`tools/c11/test_c11.py`)**: 11/11 tests passing across both AOT and JIT modes.
+  - **C11 `<threads.h>` (`include/threads.h`) & `-l` Linker Flag (`src/main.c`)**: Mapped `thrd_t`, `thrd_create`, `thrd_join`, `mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, and `mtx_destroy` to POSIX threads (`-lpthread`).
+  - **Multi-Dimensional Arrays & Matrix VLAs (`tools/vla/test_vla.py`)**: Supported up to 16 array dimensions (`a[M][N][K]`), pointer decay in `NODE_INDEX`, struct array member indexing (`p[i][j].x`), and matrix VLAs (`a[n][M]` with runtime outer dimension and compile-time inner stride).
+  - **Global Variables & ELF Symbols**: Unified `global_vars` across translation units (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/parser/ir.c`), emitted `ELF_STT_OBJECT` `.data` symbols, and supported `&global`, scalar loads, assignments, and `global++`.
+  - **LICM Call-Spanning Safety Invariant (`opt_loop.c`)**: Prevented LICM from hoisting constants out of loops containing `OP_CALL` / `OP_CALL_INDIRECT`, protecting caller-saved registers when callee-saved registers are exhausted.
+  - **Repository Organization**: Curated `tools/` (archiving 136 legacy scripts into `tools/archive/`) and `docs/` (archiving 95 legacy notes into `docs/archive/`).
+- **Result**: All **140/140** main tests + **11/11** C11 tests + **6/6** `sret` checks passing (100% pass rate).
 
-### Sprint 9.5: VLA Array Access Bug Fix ✅
+### Sprint 17: System V AMD64 & Multi-ISA Hidden Pointer (`sret`) Struct Returns ✅
 - **Status**: COMPLETE
-- **Achievement**: Fixed critical x86-64 shift instruction bug affecting VLA array indexing
-- **Root Cause**: RCX register clobbering in SHL/SHR/SAR when destination is RCX
-- **Solution**: Use temporary registers (r10/r11) when destination is RCX
-- **Result**: All 118/118 tests passing (was 117/118)
-- **Commits**: Multiple, detailed in CHANGELOG.md
+- **Achievement**: Implemented hidden return pointer (`sret`) for structs >16 bytes across x86-64 (`%rdi`), AArch64 (`x8` indirect result register), and RISC-V (`a0` hidden first argument) across JIT and AOT code paths with full bidirectional GCC interoperability.
+- **Key Deliverables**:
+  - Callee saves hidden pointer (`%rdi` / `x8` / `a0`), shifts user integer args where required, writes struct chunks to `[hidden_ptr + i*8]`, and returns `hidden_ptr` in `%rax` / `x0` / `a0`.
+  - Caller allocates 16-byte aligned buffer, passes address in hidden register, shifts arguments, and copies chunks or references returned pointer.
+  - Handled edge cases: direct member access on call return (`make().c`), struct assignment to existing local (`r = make()`), tail returns (`return other()`), and indirect calls via function pointers (`is_func_ptr`).
+  - Automated verification: `python3 tools/sret_verifier.py --verify-all` (6/6 checks) and `--target-all` (QEMU AArch64 & RISC-V).
+- **Result**: All 136/136 tests passing (100% pass rate).
 
-### Sprint 10.5.7: Option A - Full Backend-Driven Architecture ✅
+### Sprint 16: SIMD Auto-Vectorization & AOT Assembly Emission Fixes ✅
 - **Status**: COMPLETE
-- **Achievement**: Implemented backend-driven assembly emission for all three ISAs
-- **Files Created**:
-  - `src/zero_cc/isa/x86_64_asm.c` - x86-64 assembly emitter (400+ lines)
-  - `src/zero_cc/isa/aarch64_asm.c` - AArch64 assembly emitter (400+ lines)
-  - `src/zero_cc/isa/riscv_asm.c` - RISC-V assembly emitter (400+ lines)
-- **Key Features**:
-  - ISA-specific function pointers in backend interface
-  - Non-hardcoded register names from backend tables
-  - Prologue/epilogue using backend functions
-  - Callee-save register handling
-  - All 32+ IR opcodes supported per ISA
-- **Result**: All 118/118 tests passing
-- **Commits**: 
-  - `908e516` - x86-64 assembly emitter
-  - `0916c28` - AArch64 and RISC-V assembly emitters
-  - `242ee6c` - Multi-ISA documentation
-
-### Sprint 11: CALL Argument Passing - Full ABI Compliance ✅
-- **Status**: COMPLETE
-- **Achievement**: ABI-compliant function call argument passing for all three ISAs
-- **Critical Bug Fixed**: uint8_t pointer type mismatch in CALL argument arrays
-  - IRCallArgs.temps: uint8_t array
-  - emit_call_asm() signature: int *arg_temps
-  - Multi-byte aliasing caused all arguments to resolve to same register
-  - **Fix**: Explicit unpacking in asm_emitter.c
-- **ABI Compliance**:
-  - **x86-64**: Integer args in rdi/rsi/rdx/rcx/r8/r9, FP in xmm0-xmm7
-  - **AArch64**: Integer args in x0-x7, FP in v0-v7
-  - **RISC-V**: Integer args in a0-a7, FP in fa0-fa7
-- **Features**:
-  - Mixed integer/FP argument handling
-  - Type-safe array conversion
-  - Proper register assignment
-- **Result**: All 118/118 tests passing
-- **Commits**:
-  - `9ef819f` - Fix uint8_t pointer type mismatch
-  - `a8d2944` - CALL argument passing documentation
-  - `b453e55` - Sprint 11 summary
-  - `beb8ebd` - Verification report
-
-### Sprint 13: Mem2Reg Stabilization & Register Allocator Spill Safety ✅
-- **Status**: COMPLETE
-- **Achievement**: Local mem2reg pass safely enabled; register allocator fixed to protect reserved stack/frame pointers and scratch registers during spilling.
-- **Key Fixes**:
-  - `opt_mem2reg.c`: 8-byte alignment constraint for slots, comprehensive invalidation across control flow/calls/indirect stores/address-taken slots, flag register safety.
-  - `regalloc.h`: Removed `%rsp` (4), `%rbp` (5), and scratch registers `%r10` (10) and `%r11` (11) from allocatable GPR pool; reserved in `regalloc_init()`.
-- **Result**: All 119/119 tests passing (100% pass rate)
+- **Achievement**: Enabled multi-ISA SIMD auto-vectorization (`opt_vectorize.c`) for `float[N]`, `double[N]`, and `int[N]` loops across x86-64 SSE2/SSE4.1, AArch64 NEON, and RISC-V RVV 1.0; fixed AOT assembly parameter save placement.
+- **Result**: All 128/128 tests passing.
 
 ### Sprint 14: LICM Two-Pass Rebuild & Loop Lifetime Safety ✅
 - **Status**: COMPLETE
-- **Achievement**: Loop-Invariant Code Motion (LICM) safely implemented and active using a Two-Pass Rebuild architecture; loop lifetime register allocator extensions and `%rcx` reservation resolved.
-- **Key Fixes**:
-  - `opt_loop.c`: Corrected loop detection by mapping synthetic `label_idx` values to IR instruction indices (`label_to_idx`). Rebuilt optimized IR into a fresh `IRArena`, hoisting pure invariants before loop headers and replacing loop definitions with `OP_NOP`.
-  - `ir.h` / `opt_loop.c`: Remapped `ir_call_args` indices for call sites shifting during the rebuild.
-  - `live_range.h`: Extended live intervals for loop-carried and loop-used temporaries across backedges to the loop exit.
-  - `regalloc.h`: Reserved physical register `1` (`%rcx`) on x86-64 so dynamic shifts (`shl`, `shr`, `sar`) do not clobber temporaries or constants assigned to `%rcx`.
-- **Result**: All 119/119 tests passing (100% pass rate)
+- **Achievement**: Loop-Invariant Code Motion (LICM) implemented using a Two-Pass Rebuild architecture into a fresh `IRArena`; extended loop live ranges across backedges and reserved `%rcx` on x86-64 for dynamic shifts.
 
-### Sprint 16: AOT Assembly Emission Fixes & Cleanup ✅
+### Sprint 13: Mem2Reg Stabilization & Register Allocator Spill Safety ✅
 - **Status**: COMPLETE
-- **Achievement**: Fixed AOT assembly emission initialization and parameter save placement; removed debug output from production code.
-- **Key Fixes**:
-  - `x86_64.c`, `aarch64.c`, `riscv.c`: Made backend tables writable (removed `const`) to allow runtime initialization of ASM emission function pointers.
-  - `isa_backend.h`: Added `zero_cc_init_backends_once()` for lazy initialization of ASM emission pointers.
-  - `ast_lowering.c`, `asm_emitter.c`: Moved parameter saves to occur after the prologue, using `rbp` as base register instead of red-zone writes to `rsp`.
-  - `main.c`, `ast_lowering.c`: Removed 5 DEBUG fprintf statements from production code.
-- **Result**: All 128/128 tests passing (100% pass rate)
+- **Achievement**: Local `mem2reg` pass enabled with sub-8-byte overlapping slot invalidation; reserved `%rsp`, `%rbp`, `%r10`, and `%r11` in `regalloc_init()`.
+
+### Sprint 11 & 10.5.7: Multi-ISA Backend-Driven Assembly & Call ABI Compliance ✅
+- **Status**: COMPLETE
+- **Achievement**: Implemented `ZeroCCISABackend` vtable and assembly emitters (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) with ABI-compliant integer/FP register argument passing.
+
+---
 
 ## Current Status
 
 ### ✅ Completed Features
-- Lexical analysis (lexer)
-- Parsing (parser)
-- Semantic analysis
-- Type checking and promotion
-- IR generation
-- Optimization passes: Constant folding, DCE, Copy propagation, Mem2Reg, LICM (Two-Pass Rebuild)
-- Register allocation (linear scan with spill handling)
-- Machine code generation (JIT)
-- Assembly generation (AOT with -S flag)
-- ISA-specific backends (x86-64, AArch64, RISC-V)
-- Function call argument passing (ABI-compliant)
-- VLA (Variable Length Array) support
-- Callee-save register handling
-- Prologue/epilogue generation
-- SIMD IR opcodes (32 opcodes defined)
+- **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, arena-allocated AST (`ZeroCCASTArena`), and `TypeInfo` semantic checker.
+- **C99 Support**:
+  - 1D and multi-dimensional fixed arrays (`a[M][N][K]`) and matrix VLAs (`a[n][M]`) with scope-exit stack restoration
+  - Designated initializers (`.field = val`, `[idx] = val`) & compound literals
+  - `inline`, `restrict` alias-group tracking, flexible array members, variadic functions (`<stdarg.h>`)
+- **C11 Support**:
+  - `_Alignas` & `_Alignof` on types, struct fields, and local variables
+  - Anonymous `struct` and `union` field flattening
+  - `_Generic` type-based selection & `_Static_assert`
+  - `_Atomic` qualifiers, `__sync_*` / `__atomic_*` builtins, and hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`)
+  - `<threads.h>` (`thrd_t`, `mtx_t`) mapped to pthreads & `_Thread_local` (`__thread`) storage
+- **IR & Optimization Pipeline (`opt_pass.c`)**:
+  - 51-opcode `Instr` IR with `IRCallArgsArena` side table
+  - Active passes: Constant Folding, Copy Propagation, CSE, GVN, Local Mem2Reg, LICM (Two-Pass Rebuild with call-spanning guard), SIMD Auto-Vectorization, and Dead Code Elimination
+- **Multi-ISA Codegen & ABI**:
+  - **x86-64**, **AArch64**, and **RISC-V (RV64GC)** backends
+  - Full struct by-value parameter passing and struct returns (`<=8B`, `9-16B`, and `>16B` `sret` hidden pointer across direct and indirect function pointer calls)
+  - Direct ELF64 relocatable object writer (`elf_writer.c`) and `W^X` in-memory JIT (`execution.h`)
 
-### 📊 Test Coverage
-- **Total Tests**: 136/136 passing (100%)
-- **Test Categories**:
-  - JIT compilation tests (100%)
-  - AOT assembly generation tests (100%)
-  - Register allocation tests under extreme pressure (18+ live variables)
-  - System V AMD64 ABI compliance tests (stack args, variadic, struct by-value, struct return sret >16B, indirect funcptr calls)
-  - Semantic analysis tests
-  - Unit tests (IR, hash tables, etc.)
-- **No Regressions**: All changes maintain backward compatibility
+### 📊 Test & Verification Coverage
+- **Main Regression Suite (`make test`)**: **140/140 passing (100%)** in ~0.6s
+- **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
+- **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
+- **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)**
+- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **9/9 pages valid, 44 verified graph edges**
 
-## Architecture
+---
 
-### Multi-ISA Backend Design
+## Architecture Overview
 
-```
-Source Code
+```text
+C99/C11 Source Code
     ↓
-Lexer → Parser
+Lexer & Preprocessor (src/zero_cc/lexer/, src/zero_cc/core/preprocessor.h)
     ↓
-Semantic Analyzer
+Arena AST Parser (src/zero_cc/parser/definitions.h, ast_stmt.h, ast_expr.h)
     ↓
-IR Generator (Intermediate Representation)
+Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
-Register Allocator
+AST-to-IR Lowering (src/zero_cc/parser/ast_lowering*.c -> 51-opcode Instr)
     ↓
-    ├─→ [JIT Path] Machine Code Emitter → Binary ELF
-    └─→ [AOT Path] Assembly Emitter → GAS (.s) → as → ELF
-            ↓
-        asm_emitter.c (ISA-agnostic)
-            ↓
-        BE(c)->emit_*_asm() (ISA-specific function pointers)
-            ↓
-        x86_64_asm.c, aarch64_asm.c, riscv_asm.c
-            ↓
-        Text assembly output
+Optimization Pipeline (ConstantFold, CopyProp, CSE, GVN, Mem2Reg, LICM, Vectorize, DCE)
+    ↓
+Live Range Analysis & Linear Scan RegAlloc (live_range.h, regalloc.h)
+    ↓
+    ├─→ [JIT Path] ast_lowering_mc.c → W^X CodeBuffer (execution.h)
+    └─→ [AOT Path] asm_emitter.c / elf_writer.c → .s / .o / Executable
 ```
 
-### Backend Interface
-- **Location**: `src/zero_cc/isa/isa_backend.h`
-- **Purpose**: Define ISA-agnostic interface for all backends
-- **Key Pointers**:
-  - `emit_*_asm()` - Assembly emission for each IR opcode
-  - `emit_prologue_asm()` - Function prologue
-  - `emit_epilogue_asm()` - Function epilogue
-  - `get_hw_reg_name()` - Hardware register name lookup
+For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs/okf/index.md`](./okf/index.md):
+- [`docs/okf/architecture-pipeline.md`](./okf/architecture-pipeline.md)
+- [`docs/okf/frontend-and-types.md`](./okf/frontend-and-types.md)
+- [`docs/okf/ir-and-regalloc.md`](./okf/ir-and-regalloc.md)
+- [`docs/okf/optimization-passes.md`](./okf/optimization-passes.md)
+- [`docs/okf/abi-sysv-x86_64.md`](./okf/abi-sysv-x86_64.md)
+- [`docs/okf/isa-backends.md`](./okf/isa-backends.md)
+- [`docs/okf/build-and-verification.md`](./okf/build-and-verification.md)
 
-## Next Steps (Future Sprints)
+---
 
-### Phase 3b & 3c: Multi-ISA Large Struct Returns >16 bytes (`sret` for AArch64 & RISC-V)
-- **Objective**: Extend `>16`-byte struct `sret` support to AArch64 (`x8` indirect result register) and RISC-V (`a0` hidden first argument)
-- **x86-64 Status**: ✅ COMPLETE (direct calls, member access, struct reassignment, tail returns, and indirect function pointer calls)
+## Next Steps (Future Roadmap)
 
-### Multi-ISA SIMD Emission (AArch64 NEON & RISC-V RVV)
-- **Objective**: Implement SIMD instruction emission for AArch64 and RISC-V
-- **Status**: x86-64 SSE2 emission and `auto_vectorize` pass are enabled and passing (`test/jit/simd_loop_test.c`)
-- **Key Tasks**:
-  - Implement AArch64 NEON emission
-  - Implement RISC-V RVV emission
+### 1. Codebase Modularity & Build Structure Refactoring
+- **Split `src/zero_cc/parser/`**: Separate the 37 files currently in `src/zero_cc/parser/` into dedicated directories:
+  - `src/zero_cc/parser/` (AST parsing & constant evaluation)
+  - `src/zero_cc/ir/` (IR definitions, AST-to-IR lowering, live ranges, register allocation, and codegen dispatch)
+  - `src/zero_cc/opt/` (IR optimization passes)
+- **Eliminate Unity `#include "*.c"` in `parser.c`**: Compile `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` as standalone `.o` translation units (or rename included fragments to `.inc`).
 
-### Assembly Optimization
-- **Objective**: Optimize generated assembly for size and speed
-- **Estimated Duration**: 1 week
-- **Key Tasks**:
-  - Instruction selection optimization
-  - Register pressure reduction
-  - Dead code elimination
-  - Common subexpression elimination
+### 2. Unified Type Representation
+- Consolidate `ZeroCCType` (`src/zero_cc/types/type_system.h`) and semantic `TypeInfo` (`src/zero_cc/semantic/type.h`) into a single canonical type representation shared across parsing, semantic analysis, and IR lowering.
 
-## Key Technical Decisions
+### 3. Register Allocator Spill/Reload in AOT Assembly (`asm_emitter.c`)
+- Mirror `ast_lowering_mc.c`'s scratch-register (`%r10`/`%r11`) spill reload/store handling in `asm_emitter.c` and enforce strict callee-saved-only allocation (or stack spill) for `spans_call` intervals in `regalloc.h`.
 
-### VLA Handling
-- Dynamic stack allocation with frame pointer relative addressing
-- Proper register allocation for VLA pointers and indices
-- Support for nested VLAs
-
-### Register Allocation
-- Live range analysis for all variables
-- Spilling to stack for register pressure
-- Special handling for frame pointer (0xFF marker)
-- Separate register classes: integer (GPR) and floating-point (FP/XMM)
-
-### Assembly Emission
-- Backend-driven design using function pointers
-- Non-hardcoded register names from backend tables
-- Type-safe array handling for arguments
-- ISA-specific prologue/epilogue functions
-
-### Calling Conventions
-- Spill/reload pattern for argument preservation
-- Separate integer and FP argument tracks
-- Stack alignment before calls
-- Proper register assignment per ABI
-
-## Testing Strategy
-
-### Unit Tests
-- IR opcode validation
-- Register allocation correctness
-- Hash table functionality
-
-### Integration Tests
-- Semantic analysis correctness
-- Code generation verification
-- Assembly output validation
-
-### Regression Tests
-- VLA functionality
-- Function calls with multiple arguments (>6 integer args)
-- Variadic function support
-- **Struct by-value passing** (all sizes: 1-64 bytes)
-- **Struct by-value returning** (up to 16 bytes)
-- Mixed integer/FP operations
-- Callee-save register handling
-- AOT assembly generation
-
-## Documentation
-
-### Available Documentation
-- `docs/CHANGELOG.md` - Complete changelog of all changes
-- `docs/SIMD_IR_SPECIFICATION.md` - SIMD IR opcode specification
-- `docs/ASM_EMITTER_IMPLEMENTATION_PLAN.md` - Assembly emitter design
-- `OPTION_A_IMPLEMENTATION_SUMMARY.md` - x86-64 assembly emitter details
-- `OPTION_A_MULTI_ISA_SUMMARY.md` - Multi-ISA assembly emitter summary
-- `CALL_ARGUMENT_PASSING.md` - Function call argument passing details
-- `VERIFICATION_REPORT.md` - Sprint 11 verification and test results
-
-### Debugging Tools
-- Location: `tools/`
-- 119 total Python tools for validation and testing
-- Multi-ISA support for AArch64, RISC-V, x86-64
-- Specialized tools for:
-  - Assembly instruction validation
-  - Prologue/epilogue analysis
-  - Stack alignment checking
-  - ABI verification
-  - SIMD coverage tracking
-
-## Performance Metrics
-
-### Build Time
-- Clean build: ~2-3 seconds
-- Incremental build: <1 second
-
-### Test Execution
-- Full test suite: ~0.37 seconds
-- All 118 tests: Sequential execution
-
-### Code Generation
-- Assembly emission: Negligible overhead
-- Register allocation: Linear in function size
-
-## Known Limitations
-
-### Current Limitations
-1. **Multi-ISA `sret` (>16B struct returns)**: Completed on x86-64; AArch64 (`x8`) and RISC-V (`a0`) `sret` in progress
-2. **Multi-ISA SIMD**: x86-64 SSE2 and `auto_vectorize` enabled; AArch64 NEON and RISC-V RVV emission remaining
-3. **Multi-dim VLA**: Only 1D VLAs supported
-4. **`__int128`**: Not yet implemented
-
-### Completed Features (Previously Planned)
-- ✅ Stack Arguments (>6 integer args on x86-64)
-- ✅ Variadic function support (va_start, va_arg)
-- ✅ 8-byte struct return values (in RAX)
-- ✅ 9-16 byte struct by-value parameters (in registers)
-- ✅ **9-16 byte struct returns** (in RAX:RDX)
-- ✅ **>16 byte struct returns (`sret`) on x86-64** (direct calls, member access, reassignment, tail returns, indirect function pointer calls)
-- ✅ **Struct by-value passing** (all sizes, System V AMD64 ABI compliant)
-- ✅ **SIMD Auto-Vectorizer (`opt_vectorize.c`)** on x86-64
-- ✅ **Open Knowledge Format (OKF v0.2) Knowledge Graph (`docs/okf/` & `tools/okf.py`)**
-
-## Conclusion
-
-ZeroCC has achieved complete VLA support, multi-ISA backend architecture, ABI-compliant function call argument passing, full System V AMD64 struct by-value and `sret` (`>16` byte) return handling, SIMD auto-vectorization, and an OKF v0.2 knowledge graph. All 136/136 tests pass with no regressions.
-
-**Current Status**: ✅ Production-ready for x86-64 with full System V AMD64 ABI compliance (136/136 tests passing)
-**Next Priority**: Multi-ISA `sret` (>16 byte struct returns) for AArch64 (`x8`) and RISC-V (`a0`)
-**Long-term Vision**: Full Multi-ISA SIMD support and language extensions (`__int128`)
+### 4. Extended Language & Backend Features
+- Full `switch`/`case` jump-table / branch-chain lowering in `lower_stmt_switch`
+- 128-bit integer (`__int128`) and `long double` support
+- Full SSA-form φ-node construction for cross-block `mem2reg` and GVN

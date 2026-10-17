@@ -269,7 +269,7 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
     
     for (size_t i = 0; i < ra->active_count; ) {
         LiveInterval *active = ra->active[i];
-        if (active->end <= current_pos) {
+        if (active->end < current_pos) {
             /* Free the register */
             if (active->assigned_reg >= 0) {
                 if (active->reg_class == REG_CLASS_GPR) {

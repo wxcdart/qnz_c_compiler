@@ -28,6 +28,8 @@ class StackOp(Enum):
     POP = "pop"
     LEAVE = "leave"
     MOV_RSP = "mov rsp"
+    MOV_RBP = "mov rbp"
+    RET = "ret"
 
 
 @dataclass
@@ -134,21 +136,38 @@ def parse_asm_instruction(line: str, line_num: int, trace: StackTrace):
         trace.stack_ops.append((line_num, StackOp.POP, 8))
         return
     
-    # Leave (equivalent to pop rbp; mov rsp, rbp)
+    # Leave (mov rsp, rbp; pop rbp) - handled as a reset in analyze_stack_balance
     if re.match(r'leave', line):
         trace.stack_ops.append((line_num, StackOp.LEAVE, 0))
         return
     
-    # Early return detection
+    # mov %rsp, %rbp - establishes the frame baseline for leave/ret balance
+    if re.match(r'movq?\s+%rsp,\s*%rbp', line):
+        trace.stack_ops.append((line_num, StackOp.MOV_RBP, 0))
+        return
+    
+    # Early return detection - also a balance checkpoint (checked in analyze_stack_balance)
     if re.match(r'ret', line):
+        trace.stack_ops.append((line_num, StackOp.RET, 0))
         trace.early_returns.append(line_num)
 
 
 def analyze_stack_balance(trace: StackTrace) -> bool:
-    """Analyze if stack is balanced at function exit"""
+    """Analyze if stack is balanced at function exit
+    
+    Models rsp relative to the caller's rsp:
+    - push/pop/sub/add contribute their byte deltas
+    - 'mov %rsp,%rbp' records the frame baseline
+    - 'leave' resets rsp to that baseline, then pops rbp (+8)
+    - 'mov %rsp, [rbp-N]' (VLA restore) resets rsp to baseline - N
+    - at every 'ret' the accumulated delta must be exactly 0
+    """
     total_delta = 0
+    rbp_base = 0
+    baseline_set = False
     vla_allocs = []
     vla_restores = []
+    saw_ret = False
     
     for line_num, op, delta in trace.stack_ops:
         if op == StackOp.SUB:
@@ -163,21 +182,41 @@ def analyze_stack_balance(trace: StackTrace) -> bool:
             total_delta += delta
         elif op == StackOp.POP:
             total_delta += delta
+        elif op == StackOp.MOV_RBP:
+            rbp_base = total_delta
+            baseline_set = True
         elif op == StackOp.MOV_RSP:
-            # VLA restore - save the offset
+            # VLA restore - rsp := rbp - N
             vla_restores.append((line_num, delta))
+            base = rbp_base if baseline_set else 0
+            total_delta = base - delta
+        elif op == StackOp.LEAVE:
+            # leave := mov %rsp, %rbp; pop %rbp
+            base = rbp_base if baseline_set else 0
+            total_delta = base + 8
+        elif op == StackOp.RET:
+            saw_ret = True
+            if total_delta != 0:
+                trace.errors.append(
+                    f"Stack unbalanced at ret (line {line_num}) in {trace.function}: delta={total_delta}"
+                )
     
     # Check for VLA cleanup
     if vla_allocs and not vla_restores:
-        trace.errors.append(f"VLA allocated but not restored in {trace.function}")
-        return False
+        # ZeroCC hybrid VLA: the VLA region lives at the bottom of the frame and
+        # is released by the standard 'leave' epilogue, so an explicit
+        # 'mov %rsp, [rbp-N]' restore is not required.
+        has_leave = any(op == StackOp.LEAVE for _, op, _ in trace.stack_ops)
+        if not has_leave:
+            trace.errors.append(f"VLA allocated but not cleaned up in {trace.function}")
+            return False
     
-    # Check stack balance
-    if isinstance(total_delta, int) and total_delta != 0:
+    # Functions without a ret (e.g. truncated asm) fall back to final-delta check
+    if not saw_ret and isinstance(total_delta, int) and total_delta != 0:
         trace.errors.append(f"Stack unbalanced in {trace.function}: delta={total_delta}")
         return False
     
-    return True
+    return len(trace.errors) == 0
 
 
 def detect_nested_vla(trace: StackTrace) -> bool:

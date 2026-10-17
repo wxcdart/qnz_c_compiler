@@ -36,12 +36,13 @@ class IRInstruction:
     @property
     def uses_vla(self) -> bool:
         """Check if instruction uses VLA-related opcodes"""
-        return self.opcode in ['OP_VLA_ALLOC', 'OP_VLA_BEGIN', 'OP_VLA_END']
+        # Compiler IR dump prints 'VLA_ALLOC'; accept 'OP_'-prefixed forms too
+        return self.opcode in ['VLA_ALLOC', 'OP_VLA_ALLOC', 'OP_VLA_BEGIN', 'OP_VLA_END']
     
     @property
     def uses_stack(self) -> bool:
         """Check if instruction manipulates stack pointer"""
-        return self.opcode in ['OP_VLA_ALLOC', 'OP_SUB', 'OP_ADD'] and 'rsp' in self.raw.lower()
+        return self.opcode in ['VLA_ALLOC', 'OP_VLA_ALLOC', 'OP_SUB', 'OP_ADD'] and 'rsp' in self.raw.lower()
 
 
 @dataclass
@@ -77,7 +78,15 @@ def parse_ir_file(filepath: str) -> Dict[str, IRFunction]:
             if not line or line.startswith('#'):
                 continue
             
-            # Function declaration
+            # Function header: zerocc '-dump-ir' format
+            if line.startswith("=== IR for function"):
+                m = re.match(r"=== IR for function '([^']+)' ===", line)
+                if m:
+                    current_func = IRFunction(name=m.group(1))
+                    functions[current_func.name] = current_func
+                continue
+            
+            # Function declaration (legacy 'func name' format)
             if line.startswith('func '):
                 match = re.match(r'func\s+(\w+)', line)
                 if match:
@@ -105,9 +114,15 @@ def parse_ir_file(filepath: str) -> Dict[str, IRFunction]:
 
 
 def parse_instruction(line: str, line_num: int) -> Optional[IRInstruction]:
-    """Parse a single IR instruction"""
+    """Parse a single IR instruction
+    
+    ZeroCC '-dump-ir' format (leading index, trailing flag metadata):
+        '   8: VLA_ALLOC r23, r22 [flags_out=r0] [flags_in=r0]'
+    """
+    # Strip trailing '[flags_out=...] [flags_in=...] [alias=...]' metadata
+    clean = re.sub(r'(\s*\[(?:flags_out|flags_in|alias\w*)=[^\]]*\])+$', '', line.strip())
     # Pattern: idx: OPCODE dst, src1, src2, imm
-    match = re.match(r'(\d+):\s+(\w+)(?:\s+(.*))?', line)
+    match = re.match(r'(\d+):\s+(\w+)(?:\s+(.*))?$', clean)
     if not match:
         return None
     
@@ -297,27 +312,30 @@ def generate_report(analysis: Dict, comparison: Optional[Dict] = None) -> str:
 
 
 def dump_ir_from_compiler(compiler_path: str, source_file: str, output_file: str):
-    """Dump IR using compiler's debug mode"""
+    """Dump IR using the compiler's -dump-ir flag (IR goes to stderr)
+    
+    Note: without -o the compiler runs the program (JIT), so the exit code is
+    the *program's* return value, not a compiler status. Success is detected
+    by the presence of IR headers in stderr.
+    """
     import subprocess
     
-    # Try different debug flags
-    debug_flags = ['-dump-ir', '-S', '-emit-ir', '-debug']
+    result = subprocess.run(
+        [compiler_path, '-dump-ir', source_file],
+        capture_output=True,
+        text=True,
+        timeout=30
+    )
     
-    for flag in debug_flags:
-        try:
-            result = subprocess.run(
-                [compiler_path, flag, source_file, '-o', output_file],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                print(f"IR dumped successfully with flag: {flag}")
-                return True
-        except:
-            continue
+    # -dump-ir writes the IR instruction stream to stderr
+    if "=== IR for function" not in result.stderr:
+        print(f"Error: compiler did not emit an IR dump: {result.stderr}")
+        return False
     
-    print("Error: Could not dump IR. Compiler may not support IR dump.")
-    return False
+    with open(output_file, 'w') as f:
+        f.write(result.stderr)
+    print(f"IR dumped successfully: {output_file}")
+    return True
 
 
 def main():

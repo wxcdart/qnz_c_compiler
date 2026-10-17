@@ -83,6 +83,14 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
                     tail = s;
                 }
+                while (tail != AST_NULL) {
+                    ZeroCCASTNode *cur_node = zero_cc_ast_get(arena, tail);
+                    if (cur_node && cur_node->next != AST_NULL) {
+                        tail = cur_node->next;
+                    } else {
+                        break;
+                    }
+                }
             } else {
                 /* If statement failed to parse or did not advance token position, synchronize */
                 if (c->token_pos == entry_pos) {
@@ -416,7 +424,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 c->token_pos++;
-                (void)parse_expr_ast_internal(c, arena);
+                int64_t align_val = 0;
+                if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                    ZeroCCType atype = zero_cc_parse_type_name(c);
+                    align_val = atype.align > 0 ? (int64_t)atype.align : 1;
+                } else {
+                    align_val = zero_cc_eval_const_expr(c);
+                }
+                if (align_val > 0) {
+                    decl_align_spec = align_val;
+                }
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
                     c->token_pos++;
                 }
@@ -931,10 +948,89 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (dn) dn->left = init_val;
                 }
 
+                ASTRef head_decl = decl_ref;
+                ASTRef tail_decl = decl_ref;
+
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                    c->token_pos++; /* consume ',' */
+                    bool next_is_ptr = false;
+                    bool next_ptr_is_const = false;
+                    bool next_ptr_is_volatile = false;
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                        next_is_ptr = true;
+                        c->token_pos++;
+                        while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_CONST ||
+                                                                 c->tokens[c->token_pos].type == TK_VOLATILE ||
+                                                                 c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                            if (c->tokens[c->token_pos].type == TK_CONST) next_ptr_is_const = true;
+                            if (c->tokens[c->token_pos].type == TK_VOLATILE) next_ptr_is_volatile = true;
+                            c->token_pos++;
+                        }
+                    }
+                    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+                        break;
+                    }
+                    ZeroCCToken *next_var_tok = &c->tokens[c->token_pos];
+                    const char *next_vname = next_var_tok->allocated_str ? next_var_tok->allocated_str : next_var_tok->str_val;
+                    c->token_pos++;
+
+                    ZeroCCType next_type;
+                    if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) next_type = zero_cc_type_char();
+                    else if (type_tok == TK_SHORT) next_type = zero_cc_type_int16();
+                    else if (type_tok == TK_INT) next_type = zero_cc_type_int();
+                    else if (type_tok == TK_FLOAT_KW) next_type = zero_cc_type_float();
+                    else if (type_tok == TK_DOUBLE_KW) next_type = zero_cc_type_double();
+                    else if (type_tok == TK_VOID) next_type = zero_cc_type_void();
+                    else {
+                        const char *tname = c->tokens[type_start_pos].str_val;
+                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
+                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
+                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
+                        if (tdef) next_type = *tdef;
+                        else if (type_tok == TK_ENUM) next_type = zero_cc_type_enum(tname);
+                        else next_type = zero_cc_type_int64();
+                    }
+                    next_type.is_const = is_const;
+                    next_type.is_volatile = is_volatile;
+                    next_type.is_atomic = is_atomic;
+                    if (next_is_ptr) {
+                        next_type = zero_cc_type_ptr(&next_type);
+                        next_type.is_const = next_ptr_is_const;
+                        next_type.is_volatile = next_ptr_is_volatile;
+                    }
+
+                    TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
+                    ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);
+                    if (next_sym) {
+                        if (is_atomic) next_sym->is_atomic = true;
+                        if (next_type.is_const) next_sym->is_const = true;
+                        if (next_type.is_volatile) next_sym->is_volatile = true;
+                    }
+
+                    ASTRef next_decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                    ZeroCCASTNode *next_dn = zero_cc_ast_get(arena, next_decl_ref);
+                    next_dn->line = line;
+                    next_dn->col = col;
+                    next_dn->s.str = next_vname;
+                    next_dn->s.len = strlen(next_vname);
+                    decl_node_set_type(ctx, next_dn, next_ti);
+
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                        c->token_pos++;
+                        ASTRef next_init = parse_assignment_ast(c, arena);
+                        next_dn = zero_cc_ast_get(arena, next_decl_ref);
+                        if (next_dn) next_dn->left = next_init;
+                    }
+
+                    ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, tail_decl);
+                    if (tail_node) tail_node->next = next_decl_ref;
+                    tail_decl = next_decl_ref;
+                }
+
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
                     c->token_pos++;
                 }
-                return decl_ref;
+                return head_decl;
             }
         }
 

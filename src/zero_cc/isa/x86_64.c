@@ -336,6 +336,49 @@ static void x86_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
+static void x86_emit_vpaddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* paddd xmm_dest, xmm_src - packed 32-bit int add (66 0F FE /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xFE);  /* paddd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpsubd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* psubd xmm_dest, xmm_src - packed 32-bit int subtract (66 0F FA /r) */
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xFA);  /* psubd */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpmulld(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* pmulld xmm_dest, xmm_src - packed 32-bit int multiply (66 0F 38 40 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x38);
+    me_emit_u8(c, 0x40);  /* pmulld */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1429,6 +1472,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vsubpd = x86_emit_vsubpd,
     .emit_vmulpd = x86_emit_vmulpd,
     .emit_vdivpd = x86_emit_vdivpd,
+    .emit_vpaddd = x86_emit_vpaddd,
+    .emit_vpsubd = x86_emit_vpsubd,
+    .emit_vpmulld = x86_emit_vpmulld,
     .emit_vmovaps = x86_emit_vmovaps,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
@@ -1519,6 +1565,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_sub_asm = x86_emit_sub_asm,
     .emit_mul_asm = x86_emit_mul_asm,
     .emit_div_asm = x86_emit_div_asm,
+    .emit_mod_asm = x86_emit_mod_asm,
     .emit_and_asm = x86_emit_and_asm,
     .emit_or_asm = x86_emit_or_asm,
     .emit_xor_asm = x86_emit_xor_asm,
@@ -1547,6 +1594,40 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_fp_mov_asm = x86_emit_fp_mov_asm,
     .emit_vla_alloc_asm = x86_emit_vla_alloc_asm,
     
+    /* Vector operations for ASM emission */
+    .emit_vload_asm = x86_emit_vload_asm,
+    .emit_vstore_asm = x86_emit_vstore_asm,
+    .emit_vaddss_asm = x86_emit_vaddss_asm,
+    .emit_vsubss_asm = x86_emit_vsubss_asm,
+    .emit_vmulss_asm = x86_emit_vmulss_asm,
+    .emit_vdivss_asm = x86_emit_vdivss_asm,
+    .emit_vaddps_asm = x86_emit_vaddps_asm,
+    .emit_vsubps_asm = x86_emit_vsubps_asm,
+    .emit_vmulps_asm = x86_emit_vmulps_asm,
+    .emit_vdivps_asm = x86_emit_vdivps_asm,
+    .emit_vaddsd_asm = x86_emit_vaddsd_asm,
+    .emit_vsubsd_asm = x86_emit_vsubsd_asm,
+    .emit_vmulsd_asm = x86_emit_vmulsd_asm,
+    .emit_vdivsd_asm = x86_emit_vdivsd_asm,
+    .emit_vaddpd_asm = x86_emit_vaddpd_asm,
+    .emit_vsubpd_asm = x86_emit_vsubpd_asm,
+    .emit_vmulpd_asm = x86_emit_vmulpd_asm,
+    .emit_vdivpd_asm = x86_emit_vdivpd_asm,
+    .emit_vpaddd_asm = x86_emit_vpaddd_asm,
+    .emit_vpsubd_asm = x86_emit_vpsubd_asm,
+    .emit_vpmulld_asm = x86_emit_vpmulld_asm,
+    .emit_vmovss_asm = x86_emit_vmovss_asm,
+    .emit_vmovsd_asm = x86_emit_vmovsd_asm,
+    .emit_vmovaps_asm = x86_emit_vmovaps_asm,
+    .emit_vmovapd_asm = x86_emit_vmovapd_asm,
+    .emit_vandps_asm = x86_emit_vandps_asm,
+    .emit_vorps_asm = x86_emit_vorps_asm,
+    .emit_vxorps_asm = x86_emit_vxorps_asm,
+    .emit_vshufps_asm = x86_emit_vshufps_asm,
+    .emit_vcvt_si2ss_asm = x86_emit_vcvt_si2ss_asm,
+    .emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm,
+    .emit_vcmpss_asm = x86_emit_vcmpss_asm,
+    .emit_vcmpsd_asm = x86_emit_vcmpsd_asm,
     };
 
 /* Fill in ASM-emission function pointers once. The backend tables are

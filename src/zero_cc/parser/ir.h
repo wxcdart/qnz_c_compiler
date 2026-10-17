@@ -165,6 +165,9 @@ typedef enum {
     OP_VANDPS,     /* andps (packed single) */
     OP_VXORPS,     /* xorps (packed single) */
     OP_VSHUFPS,    /* shufps (shuffle packed single) */
+    OP_VPADDD,     /* paddd (packed 32-bit integer add) */
+    OP_VPSUBD,     /* psubd (packed 32-bit integer subtract) */
+    OP_VPMULLD,    /* pmulld (packed 32-bit integer multiply) */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -348,6 +351,7 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_VSUBPD: case OP_VMULPD: case OP_VADDPD: case OP_VDIVPD:
         case OP_VMOVAPS: case OP_VMOVAPD:
         case OP_VANDPS: case OP_VXORPS: case OP_VSHUFPS:
+        case OP_VPADDD: case OP_VPSUBD: case OP_VPMULLD:
             return true;
         default:
             return false;
@@ -696,6 +700,15 @@ static inline void ir_emit_vmulps(uint8_t temp_dest, uint8_t temp_src1, uint8_t 
 }
 static inline void ir_emit_vaddpd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
     ir_emit((Instr){.op = OP_VADDPD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpaddd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VPADDD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpsubd(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VPSUBD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpmulld(uint8_t temp_dest, uint8_t temp_src1, uint8_t temp_src2) {
+    ir_emit((Instr){.op = OP_VPMULLD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* LEA RIP-relative (imm64 holds rodata offset) */

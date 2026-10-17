@@ -17,6 +17,8 @@
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
 
+#include "zero_cc/types/global_vars.h"
+
 #define VERSION "0.1.0-dev"
 
 /* Forward declarations */
@@ -39,6 +41,8 @@ typedef struct {
     int dump_ir;          /* -dump-ir */
     int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
+    const char *libs[32]; /* -l<lib> */
+    int lib_count;
     const char *target_arch; /* --target */
 } CompileOptions;
 
@@ -121,6 +125,11 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strncmp(arg, "-D", 2) == 0) {
             if (opts->define_count < 10) {
                 opts->define_macros[opts->define_count++] = 1; /* Placeholder */
+            }
+        }
+        else if (strncmp(arg, "-l", 2) == 0) {
+            if (opts->lib_count < 32) {
+                opts->libs[opts->lib_count++] = arg;
             }
         }
         else if (strcmp(arg, "-dump-ir") == 0) {
@@ -580,6 +589,20 @@ static int compile_object(CompileOptions *opts) {
         }
     }
     
+    /* Add symbols for global variables (.data section) */
+    int data_section_idx = (comp->rodata_section.length > 0) ? 3 : 2;
+    for (size_t i = 0; i < global_var_count; i++) {
+        ZeroCCGlobalVar *gv = &global_vars[i];
+        if (gv->name[0]) {
+            int binding = gv->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            elf_writer_add_symbol(&elf_ctx, gv->name,
+                                  binding, ELF_STT_OBJECT,
+                                  data_section_idx,
+                                  gv->data_offset,
+                                  gv->size);
+        }
+    }
+    
     /* Architecture-specific relocation types */
     int reloc_type_call, reloc_type_rodata;
     int addend_call, addend_rodata;
@@ -744,9 +767,15 @@ static int compile_and_link(CompileOptions *opts) {
         abi_flags = "-mabi=ilp32d -march=rv32gc";
     }
     
+    char lib_args[1024] = "";
+    for (int i = 0; i < opts->lib_count; i++) {
+        strncat(lib_args, " ", sizeof(lib_args) - strlen(lib_args) - 1);
+        strncat(lib_args, opts->libs[i], sizeof(lib_args) - strlen(lib_args) - 1);
+    }
+
     snprintf(cmd, sizeof(cmd),
-             "%s %s -o %s %s -lc 2>&1",
-             linker, abi_flags, output, obj_path);
+             "%s %s -o %s %s -lc%s 2>&1",
+             linker, abi_flags, output, obj_path, lib_args);
     
     if (opts->verbose) {
         printf("  %s\n", cmd);

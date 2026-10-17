@@ -1,158 +1,39 @@
-# ZeroCC Debugging Tools
+# ZeroCC Verification & Tooling Suite
 
-This directory contains Python tools for debugging and verifying the ZeroCC compiler,
-especially for cross-ISA backend development (x86-64, AArch64, RISC-V64).
+This directory contains the active verification suites, test runners, and knowledge-graph tools for ZeroCC. Historical one-off debugging scripts and migration helpers are preserved in [`tools/archive/`](./archive/).
 
-## Tool Summary
+## Active Tools & Verifiers
 
-| Tool | Purpose | Dependencies |
-|------|---------|--------------|
-| `aarch64_backend_debugger.py` | Detects x86 callee-save patterns in AArch64 objects | Standard library |
-| `find_callee_save_calls.py` | Finds all calls to `emit_callee_save_stores` in source | Standard library |
-| `verify_prologue_bytes.py` | Verifies prologue bytes match expected patterns | pyelftools (optional) |
-| `backend_call_tracker.py` | Tracks which backend functions are called | Standard library |
-| `prologue_verifier.py` | Verifies prologue/epilogue patterns per ISA | Standard library |
-| `cross_isa_comparator.py` | Compiles same source for multiple ISAs | Standard library |
-| `qemu_test_runner.py` | Runs tests under QEMU with timeout | QEMU binaries |
-| `stack_offset_analyzer.py` | Analyzes stack frame offsets | Standard library |
-| `backend_coverage.py` | Tracks implemented vs missing backend functions | Standard library |
-| `backend_stub_generator.py` | Generates stub implementations for missing functions | Standard library |
-| `backend_impl_tracker.py` | Implementation checklist & progress tracker | Standard library |
-| `backend_test_harness.py` | Generates minimal test cases per function | Standard library |
-| `cross_isa_test_gen.py` | Generates ISA-specific test cases | Standard library |
-| `abi_verify.py` | Validates ABI compliance across architectures | Standard library |
-| `segfault_debugger.py` | Debug compiler segfaults with gdb/valgrind | gdb/valgrind |
-| `backend_function_validator.py` | Validates backend function registration | Standard library |
-| `backend_init_checker.py` | Checks backend initialization patterns | Standard library |
-| `compiler_crash_analyzer.py` | Systematic crash pattern analysis | Standard library |
+| Tool | Purpose | Example Usage |
+| :--- | :--- | :--- |
+| [`okf.py`](./okf.py) | Open Knowledge Format (OKF v0.2) linter, search, index, and updater | `python3 tools/okf.py lint && python3 tools/okf.py index` |
+| [`test_runner.py`](./test_runner.py) | Main test suite runner invoked by `make test` (140 unit, semantic, ABI, JIT, AOT, LICM tests) | `python3 tools/test_runner.py` |
+| [`test_wrapper.py`](./test_wrapper.py) | Single-test execution wrapper used by `make test-single` | `python3 tools/test_wrapper.py jit/basic` |
+| [`c11/test_c11.py`](./c11/test_c11.py) | C11 verification suite (`_Alignas`, `_Alignof`, anonymous structs/unions, `_Generic`, `_Static_assert`, atomics, `<threads.h>`) | `python3 tools/c11/test_c11.py --verbose` |
+| [`vla/test_vla.py`](./vla/test_vla.py) | C99 Variable-Length Array (1D & multi-dimensional matrix VLA) verification suite | `python3 tools/vla/test_vla.py` |
+| [`sret_verifier.py`](./sret_verifier.py) | System V AMD64 ABI hidden-pointer (`>16B` struct return `sret`) assembly & execution verifier | `python3 tools/sret_verifier.py --verify-all` |
+| [`struct_abi_verifier.py`](./struct_abi_verifier.py) | System V AMD64 struct parameter & return classification verifier (`<=8B`, `9-16B`, `>16B`) | `python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c` |
+| [`struct_return_verifier.py`](./struct_return_verifier.py) | Struct return register (`RAX`, `RAX:RDX`, `sret`) codegen checker | `python3 tools/struct_return_verifier.py` |
+| [`struct_asm_analyzer.py`](./struct_asm_analyzer.py) | Disassembly analyzer for struct copies and stack frame offsets | `python3 tools/struct_asm_analyzer.py` |
+| [`struct_test_generator.py`](./struct_test_generator.py) | Automated test generator for struct by-value and return ABI edge cases | `python3 tools/struct_test_generator.py` |
+| [`licm_verifier.py`](./licm_verifier.py) / [`licm_test_suite.py`](./licm_test_suite.py) | Loop-Invariant Code Motion (LICM) hoisting and safety verifier | `python3 tools/licm_test_suite.py` |
+| [`simd_regression_suite.py`](./simd_regression_suite.py) | Auto-vectorization (SSE2/SSE4.1, NEON, RVV) regression suite | `python3 tools/simd_regression_suite.py` |
+| [`cross_isa_comparator.py`](./cross_isa_comparator.py) | Multi-ISA assembly comparison tool (`x86-64`, `aarch64`, `riscv64`) | `python3 tools/cross_isa_comparator.py test/aot/hello_world.c` |
+| [`qemu_test_runner.py`](./qemu_test_runner.py) | Cross-ISA execution runner using QEMU user-mode emulation | `python3 tools/qemu_test_runner.py --isa aarch64 test/aot/` |
+| [`elf_verify.py`](./elf_verify.py) | ELF64 relocatable object (`.o`) section, symbol, and relocation verifier | `python3 tools/elf_verify.py` |
 
-## Quick Start
-
-### 1. Check for Stray x86 Callee-Save Calls
+## Quick Verification Commands
 
 ```bash
-python3 tools/find_callee_save_calls.py
+# 1. Run full compiler regression suite (140 tests)
+make test
+
+# 2. Run C11 feature & concurrency verification suite (11 tests)
+python3 tools/c11/test_c11.py --verbose
+
+# 3. Verify System V AMD64 >16B struct return (sret) ABI
+python3 tools/sret_verifier.py --verify-all
+
+# 4. Validate OKF v0.2 Knowledge Graph
+python3 tools/okf.py lint && python3 tools/okf.py index
 ```
-
-This should only show calls in x86-specific code paths.
-
-### 2. Verify AArch64 Objects Don't Contain x86 Patterns
-
-```bash
-python3 tools/aarch64_backend_debugger.py --target aarch64 -c test/aot/hello_world.c -o /tmp/test.o
-```
-
-Exit code 0 = clean, exit code 1 = x86 pattern detected.
-
-### 3. Compare Compilation Across ISAs
-
-```bash
-python3 tools/cross_isa_comparator.py test/aot/hello_world.c --isas x86_64 aarch64
-```
-
-### 4. Run Tests Under QEMU
-
-```bash
-python3 tools/qemu_test_runner.py --isa aarch64 test/aot/
-```
-
-### 5. Analyze Stack Offsets
-
-```bash
-python3 tools/stack_offset_analyzer.py /tmp/test.o --detect-overlap
-```
-
-### 6. Debug Segfaults
-
-```bash
-python3 tools/segfault_debugger.py --target aarch64 test/aot/hello_world.c
-```
-
-Runs the compiler under gdb and extracts the backtrace.
-
-### 7. Validate Backend Function Registration
-
-```bash
-python3 tools/backend_function_validator.py --isa aarch64
-```
-
-### 8. Check Backend Initialization
-
-```bash
-python3 tools/backend_init_checker.py
-```
-
-### 9. Analyze Crash Patterns
-
-```bash
-python3 tools/compiler_crash_analyzer.py --isa aarch64 test/aot/
-```
-
-### 10. Track Backend Implementation Coverage
-
-```bash
-python3 tools/backend_coverage.py
-```
-
-## CI Integration
-
-Add these checks to your CI pipeline:
-
-```yaml
-# Example GitHub Actions step
-- name: Check for stray callee-save calls
-  run: python3 tools/find_callee_save_calls.py | grep -v "ISA_X86_64" && exit 1 || exit 0
-
-- name: Verify AArch64 backend
-  run: |
-    for test in test/aot/*.c; do
-      python3 tools/aarch64_backend_debugger.py --target aarch64 -c "$test" -o /tmp/test.o || exit 1
-    done
-
-- name: Verify prologue bytes
-  run: python3 tools/prologue_verifier.py --isa aarch64 /tmp/test.o
-```
-
-## Troubleshooting
-
-### "ModuleNotFoundError: No module named 'elftools'"
-
-Some tools use `pyelftools` for ELF parsing. Install it if needed:
-
-```bash
-pip install pyelftools
-```
-
-Most tools fall back to `objdump` if pyelftools is not available.
-
-### QEMU Tests Timeout
-
-Increase the timeout or check for infinite loops in generated code:
-
-```bash
-python3 tools/qemu_test_runner.py --isa aarch64 --timeout 60 test/aot/
-```
-
-### Object File Architecture Detection
-
-If `objdump` fails to detect architecture, use the cross-compiler version:
-
-```bash
-aarch64-linux-gnu-objdump -d /tmp/test.o
-```
-
-## Adding New Tools
-
-When adding new tools:
-1. Add shebang: `#!/usr/bin/env python3`
-2. Make executable: `chmod +x tools/your_tool.py`
-3. Add to this README
-4. Prefer standard library over external dependencies
-5. Use `objdump`/`readelf` instead of Python libraries when possible
-
-## Related Files
-
-- Backend implementation: `src/zero_cc/isa/*.c`
-- ISA backend interface: `src/zero_cc/isa/isa_backend.h`
-- IR lowering: `src/zero_cc/parser/ast_lowering*.c`
-- Coverage tracking: `tools/backend_coverage.py`

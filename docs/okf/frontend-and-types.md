@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-15T22:55:00Z
+timestamp: 2026-10-17T05:18:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -36,7 +36,32 @@ ZeroCC uses two complementary type representations bridged during compilation:
 - Local variables allocated via `zero_cc_add_local()` (`src/zero_cc/types/symbol_mgmt.h`) align `c->current_stack_frame` to `max(type.align, 8)` and increment by `alloc_sz = max(type.size, 8)`.
   - **Important Rule**: Do **not** round `alloc_sz` up to a multiple of 8 for all structs in `zero_cc_add_local`, as compound literal and designated initializer offset math in `test/jit/designated_init_test.c` relies on exact `sym->stack_offset` placement. Instead, use size-aware tail chunk loads/stores (`32`/`16`/`8`-bit) when copying structs whose size is not a multiple of 8.
 
+## Multi-Dimensional Arrays & Matrix VLAs (Phase 0 & Phase 1 Supported)
+
+Multi-dimensional fixed arrays (e.g. `int a[2][3]`, `b[2][2][2]`) and matrix-shaped VLAs (e.g. `int a[n][M]` where dimension 0 is runtime-sized and inner dimensions are compile-time constants) are fully supported across AOT and JIT:
+- **Parser** (`src/zero_cc/parser/ast_stmt.h`): variable declarations parse all consecutive `[ ... ]` dimensions (up to `MAX_ARRAY_DIMS = 16`), constructing a nested chain of `ZeroCCType` and `TypeInfo` (`array[d0] of array[d1] of … of T`). For multi-dimensional VLAs, dimension 0 may be runtime-evaluated while inner dimensions must be compile-time constants. A mandatory `;` check diagnoses any trailing syntax tokens.
+- **`NODE_INDEX` lowering & pointer decay** (`src/zero_cc/parser/ast_lowering_expr.c`): when an indexing expression indexes an array whose element type is itself an array (e.g. `a[i]` in `a[i][j]`) or a struct/union (`p[i][j]` in `p[i][j].x`), `NODE_INDEX` decays to the element's base address (`addr_temp`) without emitting intermediate load instructions (`LOAD_32`, `VLOADSS`, etc.). Chained indexing multiplies outer dimensions by the full row stride (`dim1 * ... * dimK * sizeof(elem)`).
+- **Member assignment on index lvalues** (`src/zero_cc/parser/ast_lowering_expr.c`): `NODE_ASSIGN` with `NODE_MEMBER` LHS supports non-identifier base expressions (`p[i][j].x = val`), storing directly through the evaluated address pointer rather than assuming a stack-relative offset.
+- **Auto-Vectorization Invariant** (`src/zero_cc/parser/opt_vectorize.c`): the loop vectorizer restricts analysis to innermost loops (loops with no inner backedges) to avoid misclassifying reduction sums or multi-loop matrix kernels as parallel SIMD loops without horizontal reduction.
+
+## C11 Core Keywords, Alignment, Atomics & Threading
+
+ZeroCC supports C11 core language features and standard concurrency primitives verified by `tools/c11/test_c11.py`:
+- **Alignment (`_Alignas`, `_Alignof`)**:
+  - `_Alignof(type)` evaluates compile-time natural alignment in `src/zero_cc/parser/expressions.h`.
+  - `_Alignas(N)` and `_Alignas(type)` apply explicit alignment overrides to struct fields (`src/zero_cc/parser/definitions.h`) and local stack variables (`src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/types/symbol_mgmt.h`).
+- **Anonymous Structs & Unions**:
+  - Unnamed nested `struct { ... };` and `union { ... };` members inside enclosing structs/unions flatten their inner fields into the parent's member table with accumulated byte offsets (`src/zero_cc/parser/definitions.h`).
+- **Generic Selection (`_Generic`) & Static Assertions (`_Static_assert`)**:
+  - `_Generic(controlling-expr, type: expr, default: expr)` resolves the matching association branch at compile time based on the controlling expression's static type (`src/zero_cc/parser/expressions.h`).
+  - `_Static_assert(const-expr, "msg")` validates compile-time constant invariants at both file and block scope.
+- **C11 Atomics & `<threads.h>`**:
+  - `_Atomic` qualifiers and `__sync_*` / `__atomic_*` builtins lower to hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`).
+  - `include/threads.h` maps C11 thread (`thrd_t`, `thrd_create`, `thrd_join`) and mutex (`mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, `mtx_destroy`) primitives to POSIX threads (`-lpthread`).
+  - Global variables (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/parser/ir.c`) emit `ELF_STT_OBJECT` symbols in `.data` and support address-of (`&g`), scalar value loads, assignments, and increments (`g++`).
+
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
+

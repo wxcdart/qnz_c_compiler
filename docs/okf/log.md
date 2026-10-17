@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-16T05:23:53Z
+timestamp: 2026-10-17T11:51:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -47,3 +47,24 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-16 — Updated `optimization-passes.md`
 - Add backend peephole optimization: eliminate redundant register self-moves in AOT assembly and JIT machine code, and suppress synthetic OP_NOP assembly comments.
+
+## 2026-10-16 — Updated `frontend-and-types.md`
+- Recorded Known Defect: 2-D/3-D array declarations silently miscompiled (parser single-bracket + NODE_INDEX missing pointer decay); plan in docs/MULTIDIM_VLA_PLAN.md
+
+## 2026-10-16 — Updated `optimization-passes.md`
+- Implement 32-bit packed integer SIMD auto-vectorization across x86-64 SSE2/SSE4.1, AArch64 NEON, and RISC-V RVV 1.0
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Multi-dimensional arrays and matrix VLAs (Phase 0 and Phase 1) fully supported
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Implement C11 core keywords (_Alignas, _Alignof, anonymous structs/unions, _Generic), C11 <threads.h> & atomics, and global variable value load/assignment/ELF object linkage
+
+## 2026-10-17 — Updated `optimization-passes.md`
+- Add LICM call-spanning safety invariant to prevent hoisting constants across loops with function calls
+
+## 2026-10-17 — Updated `build-and-verification.md`
+- Update build-and-verification guide with 140-test suite, C11/VLA verifiers, and curated tools/ vs tools/archive/ layout
+
+## 2026-10-17 — Updated `index.md`
+- List C11 and VLA verifier suites in root OKF index

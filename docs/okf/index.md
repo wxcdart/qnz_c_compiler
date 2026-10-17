@@ -4,7 +4,7 @@ title: ZeroCC Knowledge Graph (OKF Bundle)
 description: Root navigator and knowledge graph entry point for AI coding agents working on ZeroCC, a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V.
 resource: okf/index
 tags: [zerocc, compiler, index, navigation, okf]
-timestamp: 2026-10-15T22:55:00Z
+timestamp: 2026-10-17T11:51:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -49,4 +49,5 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 ## 4. Build, Testing & Verification Workflows
 
 - **[Build, Test & Verification Guide](./build-and-verification.md)**
-  - Makefile targets (`make all`, `make test`, `make rebuild`), running single tests, verifying AOT (`-o`) vs JIT (`--run`), and automated ABI verifiers (`tools/sret_verifier.py`, `tools/struct_abi_verifier.py`).
+  - Makefile targets (`make all`, `make test`, `make rebuild`), running single tests, verifying AOT (`-o`) vs JIT (`--run`), and automated C99/C11 & ABI verifiers (`tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/sret_verifier.py`, `tools/struct_abi_verifier.py`).
+

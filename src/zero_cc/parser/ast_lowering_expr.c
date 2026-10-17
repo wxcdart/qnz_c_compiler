@@ -103,10 +103,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             } else {
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
-                    int temp = c->next_temp_id++;
-                    ir_emit_mov_global(temp, gv->name);
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_mov_global(addr_temp, gv->name);
+                    /* Arrays and structs decay/return address, scalars load value */
+                    if (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) {
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                    int val_temp = c->next_temp_id++;
+                    size_t gv_sz = gv->size > 0 ? gv->size : 4;
+                    if (gv_sz == 1) ir_emit_load_byte(val_temp, addr_temp);
+                    else if (gv_sz == 2) ir_emit_load_16(val_temp, addr_temp);
+                    else if (gv_sz == 4) ir_emit_load_32(val_temp, addr_temp);
+                    else ir_emit_deref(val_temp, addr_temp);
                     c->last_expr_is_float = 0;
-                    return temp;
+                    return val_temp;
                 }
                 ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, name);
                 if (ec) {
@@ -310,6 +321,35 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return res_temp;
                     }
+                    ZeroCCGlobalVar *gv = find_global_var(var);
+                    if (gv) {
+                        int gaddr_temp = c->next_temp_id++;
+                        ir_emit_mov_global(gaddr_temp, gv->name);
+                        int val_temp = c->next_temp_id++;
+                        int one_temp = c->next_temp_id++;
+                        int res_temp = c->next_temp_id++;
+
+                        size_t gv_sz = gv->size > 0 ? gv->size : 4;
+                        if (gv_sz == 1) ir_emit_load_byte(val_temp, gaddr_temp);
+                        else if (gv_sz == 2) ir_emit_load_16(val_temp, gaddr_temp);
+                        else if (gv_sz == 4) ir_emit_load_32(val_temp, gaddr_temp);
+                        else ir_emit_deref(val_temp, gaddr_temp);
+
+                        ir_emit_mov_imm(one_temp, 1);
+                        if (node->aux.op == TK_INC) {
+                            ir_emit_add(res_temp, val_temp, one_temp);
+                        } else {
+                            ir_emit_sub(res_temp, val_temp, one_temp);
+                        }
+
+                        if (gv_sz == 1) ir_emit_store_byte(res_temp, gaddr_temp);
+                        else if (gv_sz == 2) ir_emit_store_16(res_temp, gaddr_temp);
+                        else if (gv_sz == 4) ir_emit_store_32(res_temp, gaddr_temp);
+                        else ir_emit_store_64(res_temp, gaddr_temp);
+
+                        c->last_expr_is_float = 0;
+                        return (node->flags == 1) ? val_temp : res_temp;
+                    }
                 }
                 return 0xFF;
             }
@@ -325,6 +365,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         } else {
                             ir_emit_lea(addr_temp, 0xFF, -sym->stack_offset);
                         }
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                    ZeroCCGlobalVar *gv = find_global_var(operand->s.str);
+                    if (gv) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_mov_global(addr_temp, gv->name);
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -344,6 +391,95 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
+                } else if (operand && operand->tag == NODE_MEMBER) {
+                    /* Address-of struct/union member (&s.m or &ptr->m) */
+                    int32_t member_offset = 0;
+                    ZeroCCASTNode *curr = operand;
+                    ASTRef base_ref = node->left;
+                    while (curr && curr->tag == NODE_MEMBER) {
+                        member_offset += (int32_t)curr->aux.alt;
+                        base_ref = curr->left;
+                        curr = zero_cc_ast_get(arena, curr->left);
+                    }
+                    ZeroCCASTNode *base_node = curr;
+                    int addr_temp = c->next_temp_id++;
+                    if (base_node && base_node->tag == NODE_IDENT) {
+                        ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+                        if (sym) {
+                            int32_t total_offset = -sym->stack_offset + member_offset;
+                            ir_emit_lea(addr_temp, 0xFF, total_offset);
+                            c->last_expr_is_float = 0;
+                            return addr_temp;
+                        }
+                    } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
+                        (void)lower_expr(c, arena, base_ref);
+                        ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+                        if (sym) {
+                            int32_t total_offset = -sym->stack_offset + member_offset;
+                            ir_emit_lea(addr_temp, 0xFF, total_offset);
+                            c->last_expr_is_float = 0;
+                            return addr_temp;
+                        }
+                    }
+                    /* General base expression (pointer or expression) */
+                    int base_ptr = lower_expr(c, arena, base_ref);
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(off_temp, member_offset);
+                        ir_emit_add(addr_temp, base_ptr, off_temp);
+                    } else {
+                        ir_emit_mov_reg(addr_temp, base_ptr);
+                    }
+                    c->last_expr_is_float = 0;
+                    return addr_temp;
+                } else if (operand && operand->tag == NODE_INDEX) {
+                    /* Address-of array index (&arr[idx]) */
+                    int array_temp = lower_expr(c, arena, operand->left);
+                    int index_temp = lower_expr(c, arena, operand->right);
+
+                    size_t elem_size = 4;
+                    TypeInfo *elem_ti = NULL;
+                    if (c->sem_ctx && operand->aux.extra > 0) {
+                        elem_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(operand->aux.extra - 1));
+                    }
+                    if (elem_ti) {
+                        elem_size = type_size(elem_ti);
+                    } else {
+                        ZeroCCASTNode *ln = zero_cc_ast_get(arena, operand->left);
+                        if (ln && ln->tag == NODE_IDENT) {
+                            ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                            if (sym && sym->type.base && sym->type.base->size > 0) {
+                                elem_size = sym->type.base->size;
+                            }
+                        } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
+                            ZeroCCSym *sym = (ln->s.str && ln->s.str[0]) ? zero_cc_find_local(c, ln->s.str) : NULL;
+                            if (sym && sym->type.base && sym->type.base->size > 0) {
+                                elem_size = sym->type.base->size;
+                            }
+                        }
+                    }
+                    if (elem_size == 0) elem_size = 4;
+
+                    int scaled_index;
+                    if (elem_size == 1) {
+                        scaled_index = index_temp;
+                    } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
+                        int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : 3);
+                        int sh_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(sh_temp, shift);
+                        scaled_index = c->next_temp_id++;
+                        ir_emit_shl(scaled_index, index_temp, sh_temp);
+                    } else {
+                        int sz_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(sz_temp, (int32_t)elem_size);
+                        scaled_index = c->next_temp_id++;
+                        ir_emit_mul(scaled_index, index_temp, sz_temp);
+                    }
+
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_add(addr_temp, array_temp, scaled_index);
+                    c->last_expr_is_float = 0;
+                    return addr_temp;
                 }
             }
 
@@ -501,8 +637,40 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         base_stack_offset = -sym->stack_offset;
                     }
                 } else {
-                    diag_report_error_at_token(c, "unsupported base expression in struct member assignment");
-                    return 0xFF;
+                    /* General base expression evaluating to struct pointer/address (e.g. p[i][j]) */
+                    int base_ptr = lower_expr(c, arena, base_ref);
+                    int addr_temp = base_ptr;
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(off_temp, member_offset);
+                        addr_temp = c->next_temp_id++;
+                        ir_emit_add(addr_temp, base_ptr, off_temp);
+                    }
+                    size_t m_size = 4;
+                    if (c->sem_ctx && left_node->aux.extra > 0) {
+                        TypeInfo *ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(left_node->aux.extra - 1));
+                        if (ti) m_size = type_size(ti);
+                    }
+                    if (c->last_expr_is_float) {
+                        if (m_size == 4) {
+                            ir_emit_vstoress(addr_temp, (uint8_t)right_temp);
+                        } else {
+                            ir_emit_vstoresd(addr_temp, (uint8_t)right_temp);
+                        }
+                        c->last_expr_is_float = 1;
+                    } else {
+                        if (m_size == 1) {
+                            ir_emit_store_byte(right_temp, addr_temp);
+                        } else if (m_size == 2) {
+                            ir_emit_store_16(right_temp, addr_temp);
+                        } else if (m_size == 4) {
+                            ir_emit_store_32(right_temp, addr_temp);
+                        } else {
+                            ir_emit_store_64(right_temp, addr_temp);
+                        }
+                        c->last_expr_is_float = 0;
+                    }
+                    return right_temp;
                 }
                 
                 int32_t total_offset = base_stack_offset + member_offset;
@@ -723,9 +891,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
                 int ptr_temp = lower_expr(c, arena, left_node->left);
-                ir_emit_store_64(right_temp, ptr_temp);
+                int final_val = right_temp;
+                if (is_compound) {
+                    int curr_val = c->next_temp_id++;
+                    ir_emit_deref(curr_val, ptr_temp);
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
+                        case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
+                        case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, right_temp); break;
+                        case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
+                        case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
+                        case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
+                        case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
+                        case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
+                        default: op_res = right_temp; break;
+                    }
+                    final_val = op_res;
+                }
+                ir_emit_store_64(final_val, ptr_temp);
                 c->last_expr_is_float = 0;
-                return right_temp;
+                return final_val;
             }
 
             const char *var = left_node ? left_node->s.str : "";
@@ -889,6 +1077,44 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return right_temp;
                     }
+                }
+            } else {
+                ZeroCCGlobalVar *gv = find_global_var(var);
+                if (gv) {
+                    int gaddr_temp = c->next_temp_id++;
+                    ir_emit_mov_global(gaddr_temp, gv->name);
+                    int final_val = right_temp;
+                    size_t gv_sz = gv->size > 0 ? gv->size : 4;
+                    if (is_compound) {
+                        int curr_val = c->next_temp_id++;
+                        if (gv_sz == 1) ir_emit_load_byte(curr_val, gaddr_temp);
+                        else if (gv_sz == 2) ir_emit_load_16(curr_val, gaddr_temp);
+                        else if (gv_sz == 4) ir_emit_load_32(curr_val, gaddr_temp);
+                        else ir_emit_deref(curr_val, gaddr_temp);
+
+                        int op_res = c->next_temp_id++;
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
+                            case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
+                            case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, right_temp); break;
+                            case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
+                            case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
+                            case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
+                            case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
+                            case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
+                            default: op_res = right_temp; break;
+                        }
+                        final_val = op_res;
+                    }
+                    if (gv_sz == 1) ir_emit_store_byte(final_val, gaddr_temp);
+                    else if (gv_sz == 2) ir_emit_store_16(final_val, gaddr_temp);
+                    else if (gv_sz == 4) ir_emit_store_32(final_val, gaddr_temp);
+                    else ir_emit_store_64(final_val, gaddr_temp);
+
+                    c->last_expr_is_float = 0;
+                    return final_val;
                 }
             }
             c->last_expr_is_float = 0;
@@ -1100,6 +1326,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             int addr_temp = c->next_temp_id++;
             ir_emit_add(addr_temp, array_temp, scaled_index);  /* addr = base + scaled_index */
+
+            if (elem_ti && (type_is_array(elem_ti) || elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION)) {
+                /* Array element is an array (e.g. a[i] in a[i][j]) or a struct/union (e.g. p[i][j] in p[i][j].x).
+                 * In C, array expressions decay to pointers to their elements, and composite elements
+                 * in lvalue/member contexts need the address directly without loading. */
+                c->last_expr_is_float = 0;
+                return addr_temp;
+            }
 
             bool is_elem_float = false;
             if (elem_ti && type_is_floating(elem_ti)) {

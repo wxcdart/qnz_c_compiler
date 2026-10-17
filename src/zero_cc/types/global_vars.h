@@ -14,12 +14,16 @@ typedef struct {
 /* Global variable storage */
 #define ZERO_CC_MAX_GLOBALS 256
 
-static ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
-static size_t global_var_count = 0;
+#ifdef ZERO_CC_GLOBAL_VARS_IMPL
+ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
+size_t global_var_count = 0;
+#else
+extern ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
+extern size_t global_var_count;
+#endif
 
 /* Reset global variable state at compilation start */
-static void reset_global_vars(void) __attribute__((unused));
-static void reset_global_vars(void) {
+static inline void reset_global_vars(void) {
     global_var_count = 0;
 }
 

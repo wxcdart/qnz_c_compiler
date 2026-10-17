@@ -312,6 +312,9 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
         }
 
         /* Integer 0 or null constant assignment to pointer */
+        if (type_is_integer(effective_src)) {
+            return true;
+        }
         return false;
     }
 

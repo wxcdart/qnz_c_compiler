@@ -871,25 +871,33 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     c->token_pos++; /* consume TK_TYPEDEF */
     ZeroCCTokType t = c->tokens[c->token_pos].type;
     ZeroCCType ttype; memset(&ttype, 0, sizeof(ttype));
-    if (t == TK_INT) { ttype = zero_cc_type_int(); c->token_pos++; }
-    else if (t == TK_CHAR) { ttype = zero_cc_type_char(); c->token_pos++; }
+    bool is_unsigned = false;
+    bool is_signed = false;
+    if (t == TK_UNSIGNED) { is_unsigned = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
+    else if (t == TK_SIGNED) { is_signed = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
+
+    if (t == TK_INT) { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); c->token_pos++; }
+    else if (t == TK_CHAR) { ttype = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char(); c->token_pos++; }
     else if (t == TK_VOID) { ttype = zero_cc_type_void(); c->token_pos++; }
     else if (t == TK_FLOAT_KW) { ttype = zero_cc_type_float(); c->token_pos++; }
     else if (t == TK_DOUBLE_KW) { ttype = zero_cc_type_double(); c->token_pos++; }
     else if (t == TK_BOOL_KW) { ttype = zero_cc_type_bool(); c->token_pos++; }
-    else if (t == TK_SHORT) { ttype = zero_cc_type_int16(); c->token_pos++; }
-    else if (t == TK_LONG) { ttype = zero_cc_type_int64(); c->token_pos++; }
-    else if (t == TK_SIGNED) { c->token_pos++; ttype = zero_cc_type_int(); }
-    else if (t == TK_UNSIGNED) { c->token_pos++; ttype = zero_cc_type_int(); }
+    else if (t == TK_SHORT) { ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16(); c->token_pos++; }
+    else if (t == TK_LONG) {
+        c->token_pos++;
+        if (c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+    }
     else if (t == TK_IDENT) {
         const char *tname = c->tokens[c->token_pos].str_val;
         c->token_pos++;
         ZeroCCType *found = zero_cc_find_typedef(c, tname);
         if (found) { ttype = *found; }
-        else { ttype = zero_cc_type_int(); }
+        else { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); }
     } else {
-        ttype = zero_cc_type_int();
+        ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
     }
+    (void)is_signed;
     bool is_ptr = false;
     while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
     if (is_ptr) { ttype = zero_cc_type_ptr(&ttype); }

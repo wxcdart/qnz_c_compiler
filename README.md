@@ -180,36 +180,43 @@ make test
 ./test/visitor_test    # Visitor pattern tests
 ```
 
-## Documentation
+## Documentation & Knowledge Graph (`docs/okf/`)
+
+ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in [`docs/okf/`](docs/okf/index.md), while historical design notes are preserved in [`docs/archive/`](docs/archive/):
 
 | Document | Description |
 |----------|-------------|
-| [`VREG.md`](VREG.md) | Virtual register system and ISA mapping |
-| [`TLS_IMPLEMENTATION_PLAN.md`](TLS_IMPLEMENTATION_PLAN.md) | TLS and cross-platform backend plan |
-| [`TWO_PASS_ARCHITECTURE.md`](TWO_PASS_ARCHITECTURE.md) | Two-pass code generation details |
-| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Release notes and changelog |
-| [`docs/MULTI_ISA_SUPPORT_PLAN.md`](docs/MULTI_ISA_SUPPORT_PLAN.md) | Multi-ISA backend implementation status |
-| [`tools/README.md`](tools/README.md) | Debugging tools documentation |
+| [`docs/okf/index.md`](docs/okf/index.md) | Root Knowledge Graph Navigator |
+| [`docs/okf/architecture-pipeline.md`](docs/okf/architecture-pipeline.md) | Two-pass compilation pipeline & source file map |
+| [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) | Type system, structs, VLAs, and C11 features (`_Generic`, `_Alignas`, `<threads.h>`) |
+| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 51-opcode `Instr` IR and linear-scan register allocation |
+| [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes (`mem2reg`, `licm`, `auto_vectorize`, etc.) |
+| [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI & `>16B` struct return (`sret`) rules |
+| [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) | Multi-ISA backends (x86-64, AArch64, RISC-V) |
+| [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) | Build targets, testing, and verification workflows |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Full release notes and changelog |
+| [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md) | Project development roadmap |
+| [`tools/README.md`](tools/README.md) | Verification & tooling suite documentation |
 
-## Debugging Tools
+## Verification & Tooling Suite
 
-ZeroCC includes 16 Python debugging tools for cross-ISA backend development:
+ZeroCC includes automated verification suites in [`tools/`](tools/) (historical debugging scripts are archived in [`tools/archive/`](tools/archive/)):
 
 ```bash
-# Debug compiler crashes
-python3 tools/segfault_debugger.py --target aarch64 test.c
+# Run C11 feature & concurrency verification suite (11 tests)
+python3 tools/c11/test_c11.py --verbose
 
-# Validate backend functions
-python3 tools/backend_function_validator.py --isa aarch64
+# Run C99 VLA & multi-dimensional matrix VLA verification suite
+python3 tools/vla/test_vla.py
 
-# Compare ISA compilation
-python3 tools/cross_isa_comparator.py test.c --isas x86_64 aarch64
+# Verify System V AMD64 >16B struct return (sret) ABI
+python3 tools/sret_verifier.py --verify-all
 
-# Track implementation coverage
-python3 tools/backend_coverage.py
+# Compare ISA compilation across x86-64, AArch64, and RISC-V
+python3 tools/cross_isa_comparator.py test/aot/hello_world.c
 
-# Run tests under QEMU
-python3 tools/qemu_test_runner.py --isa aarch64 test/aot/
+# Validate the OKF v0.2 Knowledge Graph
+python3 tools/okf.py lint && python3 tools/okf.py index
 ```
 
 See [`tools/README.md`](tools/README.md) for full documentation.
