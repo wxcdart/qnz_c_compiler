@@ -21,7 +21,7 @@ def extract_includes(filepath):
                     includes.append(match.group(1))
     except:
         pass
-    return list(set(includes))
+    return sorted(set(includes))
 
 def extract_globals_defined(filepath):
     """Extract static/global variable definitions."""
@@ -51,7 +51,7 @@ def extract_globals_used(filepath):
                 globals_used.add('g_' + match.group(1))
     except:
         pass
-    return list(globals_used)
+    return sorted(globals_used)
 
 def extract_functions_defined(filepath):
     """Extract function definitions."""
@@ -65,7 +65,7 @@ def extract_functions_defined(filepath):
                 functions.add(match.group(1))
     except:
         pass
-    return list(functions)
+    return sorted(functions)
 
 def extract_function_calls(filepath):
     """Extract function calls (simple pattern)."""
@@ -82,7 +82,7 @@ def extract_function_calls(filepath):
                     calls.add(name)
     except:
         pass
-    return list(calls)
+    return sorted(calls)
 
 def analyze_source_dir(src_dir):
     """Analyze all .h and .c files in source directory."""
@@ -93,7 +93,8 @@ def analyze_source_dir(src_dir):
     }
     
     for root, dirs, files in os.walk(src_dir):
-        for filename in files:
+        dirs.sort()  # deterministic traversal (stable JSON key order, defined_in)
+        for filename in sorted(files):
             if filename.endswith(('.h', '.c')):
                 filepath = os.path.join(root, filename)
                 rel_path = os.path.relpath(filepath, os.path.dirname(src_dir))
@@ -131,6 +132,11 @@ def analyze_source_dir(src_dir):
     # Convert defaultdicts to regular dicts for JSON serialization
     deps["globals"] = dict(deps["globals"])
     deps["functions"] = dict(deps["functions"])
+    # Deterministic order for the accumulation lists
+    for g in deps["globals"].values():
+        g["used_in"] = sorted(g["used_in"])
+    for f in deps["functions"].values():
+        f["called_in"] = sorted(f["called_in"])
     
     return deps
 
@@ -142,7 +148,7 @@ def main():
     src_dir = sys.argv[1]
     deps = analyze_source_dir(src_dir)
     
-    print(json.dumps(deps, indent=2, default=str))
+    print(json.dumps(deps, indent=2, sort_keys=True, default=str))
 
 if __name__ == "__main__":
     main()
