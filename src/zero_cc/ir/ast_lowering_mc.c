@@ -8,6 +8,20 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
     if (BE(c)->emit_prologue) {
         BE(c)->emit_prologue(c, frame_size, 0);
     }
+    /* Save used callee-saved GPRs in the prologue before function body executes */
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->emit_store) {
+        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        for (int i = 0; i < count; i++) {
+            int reg = callee_regs[i];
+            if ((mask >> reg) & 1u) {
+                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot);
+            }
+        }
+    }
 }
 
 /* Emit machine code from IR with allocated registers */
@@ -233,22 +247,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_CALLEE_SAVE_STORES:
-                /* Emit callee-saved register stores using mask from IR instruction */
-                /* Generic implementation using backend's callee_saved_gpr array and slot offsets */
-                if (BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->emit_store) {
-                    uint32_t mask = (uint32_t)instr->imm64;
-                    const int *callee_regs = BE(c)->conv->callee_saved_gpr;
-                    const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
-                    int count = BE(c)->conv->callee_saved_gpr_count;
-                    for (int i = 0; i < count; i++) {
-                        int reg = callee_regs[i];
-                        if ((mask >> reg) & 1u) {
-                            /* slot_offsets is indexed by array position (i), not physical reg number */
-                            int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-                            BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot);
-                        }
-                    }
-                }
+                /* Handled in emit_prologue_mc at function entry */
                 break;
 
             case OP_CALLEE_SAVE_LOADS:
@@ -874,27 +873,26 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_CALL_INDIRECT:
                 /* Call through register pointer */
                 if (BE(c)->emit_call_reg) {
-                    BE(c)->emit_call_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                    BE(c)->emit_call_reg(c, phys_src1);
                 }
                 break;
             
             case OP_PUSH:
                 /* Push register to stack */
                 if (BE(c)->emit_push_reg) {
-                    BE(c)->emit_push_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                    BE(c)->emit_push_reg(c, phys_src1);
                 }
                 break;
             
             case OP_POP:
                 /* Pop register from stack */
                 if (BE(c)->emit_pop_reg) {
-                    BE(c)->emit_pop_reg(c, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest));
+                    BE(c)->emit_pop_reg(c, phys_dst);
                 }
                 break;
             
             case OP_ADD_IMM:
                 /* Add immediate to register */
-                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
                 if (BE(c)->emit_add_imm) {
                     BE(c)->emit_add_imm(c, phys_dst, (int16_t)instr->imm);
                 }
@@ -902,7 +900,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             
             case OP_SUB_IMM:
                 /* Subtract immediate from register */
-                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
                 if (BE(c)->emit_sub_imm) {
                     BE(c)->emit_sub_imm(c, phys_dst, (int16_t)instr->imm);
                 }
@@ -910,7 +907,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             
             case OP_INC:
                 /* Increment register */
-                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
                 if (BE(c)->emit_inc) {
                     BE(c)->emit_inc(c, phys_dst);
                 }
@@ -918,7 +914,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             
             case OP_DEC:
                 /* Decrement register */
-                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
                 if (BE(c)->emit_dec) {
                     BE(c)->emit_dec(c, phys_dst);
                 }
@@ -926,7 +921,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             
             case OP_SAR:
                 /* Arithmetic shift right */
-                phys_dst = regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
                 if (BE(c)->emit_sar) {
                     BE(c)->emit_sar(c, phys_dst, phys_src1, phys_src2);
                 }
@@ -955,7 +949,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         if (spill_dst >= 0) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (BE(c)->emit_store) {
-                BE(c)->emit_store(c, 10 /* r10 */, BE(c)->fp_reg, -slot_off);
+                BE(c)->emit_store(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off);
             }
         }
     }

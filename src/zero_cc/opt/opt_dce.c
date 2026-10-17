@@ -1,7 +1,7 @@
 #include "opt_dce.h"
-#include "ir.h"
-#include "ir_arena.h"
-#include "regalloc.h"
+#include "../ir/ir.h"
+#include "../ir/ir_arena.h"
+#include "../ir/regalloc.h"
 #include "../types/symbols.h"
 #include <stdlib.h>
 #include <string.h>

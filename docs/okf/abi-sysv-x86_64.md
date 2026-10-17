@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-15T22:55:00Z
+timestamp: 2026-10-17T14:30:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -19,10 +19,10 @@ ZeroCC implements the System V AMD64 ABI for x86-64 across both JIT and AOT mode
 - **Integer / Pointer Arguments (up to 6)**: `%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9` (indices `0..5`).
 - **Floating-Point Arguments (up to 8)**: `%xmm0` .. `%xmm7` (indices `0..7`).
 - **Stack Arguments**: Arguments exceeding the 6 GPR or 8 XMM registers are pushed right-to-left on the caller stack (`16(%rbp)`, `24(%rbp)`, ... in the callee).
-- **Struct Arguments Passed by Value**:
+- **Struct Arguments Passed by Value (`ast_lowering.c`, `ast_lowering_expr.c`)**:
   - `<= 8` bytes: Passed in 1 integer register (or stack if no GPR remains).
-  - `9 .. 16` bytes: Passed in 2 integer registers (or stack if `< 2` GPRs remain).
-  - `> 16` bytes (`MEMORY` class): Copied onto the caller's stack frame before the call; callee reads from its caller stack frame offset (`16(%rbp) + ...`).
+  - `9 .. 16` bytes: Passed across 2 consecutive integer argument registers (`num_chunks = (size + 7) / 8`) in both caller argument setup (`NODE_CALL`) and callee prologue parameter saving (`OP_PARAM_SAVE_INT`).
+  - Multi-eightbyte structs passed by value iterate over all `num_chunks` 8-byte chunks at `-(stack_offset - c * 8)`.
 - **Struct Return Values (`<= 16` bytes)**:
   - `<= 8` bytes: Returned in `%rax` (`VREG_0`).
   - `9 .. 16` bytes: Lower 8 bytes in `%rax` (`VREG_0`), upper 8 bytes in `%rdx` (`VREG_2`).

@@ -1,8 +1,8 @@
 /* IR Infrastructure Test */
 #include <stdio.h>
 #include <assert.h>
-#include "zero_cc/parser/ir.h"
-#include "zero_cc/parser/ir_arena.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_arena.h"
 
 int main(void) {
     printf("Testing IR infrastructure...\n");

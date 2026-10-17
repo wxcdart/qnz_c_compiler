@@ -1,8 +1,0 @@
---- a/src/zero_cc/parser/ast_lowering_internal.h
-+++ b/src/zero_cc/parser/ast_lowering_internal.h
-@@ -42,5 +42,3 @@ void label_patcher_queue(label_patcher_ctx *ctx, uint16_t label_idx, int32_t off
- void label_patcher_apply(label_patcher_ctx *ctx);
- 
--void emit_callee_save_stores(ZeroCCCompiler *c);
--void emit_callee_save_loads(ZeroCCCompiler *c);
- #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

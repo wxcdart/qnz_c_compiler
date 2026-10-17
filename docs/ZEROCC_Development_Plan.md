@@ -94,14 +94,14 @@ Arena AST Parser (src/zero_cc/parser/definitions.h, ast_stmt.h, ast_expr.h)
     ↓
 Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
-AST-to-IR Lowering (src/zero_cc/parser/ast_lowering*.c -> 51-opcode Instr)
+AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 51-opcode Instr)
     ↓
-Optimization Pipeline (ConstantFold, CopyProp, CSE, GVN, Mem2Reg, LICM, Vectorize, DCE)
+Optimization Pipeline (src/zero_cc/opt/opt_*.c: ConstantFold, CopyProp, CSE, GVN, Mem2Reg, LICM, Vectorize, DCE)
     ↓
-Live Range Analysis & Linear Scan RegAlloc (live_range.h, regalloc.h)
+Live Range Analysis & Linear Scan RegAlloc (src/zero_cc/ir/live_range.h, regalloc.h)
     ↓
-    ├─→ [JIT Path] ast_lowering_mc.c → W^X CodeBuffer (execution.h)
-    └─→ [AOT Path] asm_emitter.c / elf_writer.c → .s / .o / Executable
+    ├─→ [JIT Path] src/zero_cc/ir/ast_lowering_mc.c → W^X CodeBuffer (execution.h)
+    └─→ [AOT Path] src/zero_cc/ir/asm_emitter.c / elf_writer.c → .s / .o / Executable
 ```
 
 For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs/okf/index.md`](./okf/index.md):
@@ -117,18 +117,18 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ## Next Steps (Future Roadmap)
 
-### 1. Codebase Modularity & Build Structure Refactoring
-- **Split `src/zero_cc/parser/`**: Separate the 37 files currently in `src/zero_cc/parser/` into dedicated directories:
-  - `src/zero_cc/parser/` (AST parsing & constant evaluation)
+### 1. Codebase Modularity & Build Structure Refactoring ✅
+- **Eliminate Unity `#include "*.c"` in `parser.c` ✅**: Converted `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` into standalone `.o` translation units in `Makefile`.
+- **Split `src/zero_cc/parser/` ✅**: Separated into three dedicated subsystem directories:
+  - `src/zero_cc/parser/` (AST parsing, constant evaluation, AST dump)
   - `src/zero_cc/ir/` (IR definitions, AST-to-IR lowering, live ranges, register allocation, and codegen dispatch)
-  - `src/zero_cc/opt/` (IR optimization passes)
-- **Eliminate Unity `#include "*.c"` in `parser.c`**: Compile `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` as standalone `.o` translation units (or rename included fragments to `.inc`).
+  - `src/zero_cc/opt/` (IR optimization passes & profiling)
 
-### 2. Unified Type Representation
-- Consolidate `ZeroCCType` (`src/zero_cc/types/type_system.h`) and semantic `TypeInfo` (`src/zero_cc/semantic/type.h`) into a single canonical type representation shared across parsing, semantic analysis, and IR lowering.
+### 2. Unified Type System Bridge (`ZeroCCType` ↔ `TypeInfo`) ✅
+- **Completed**: Unified base-type resolution (`zero_cc_resolve_base_type`), bidirectional type conversion (`zero_cc_type_to_typeinfo`, `typeinfo_to_zero_cc_type`), single-source array/pointer declarator construction in `ast_stmt.h`, and canonical AST node type accessors (`ast_node_get_typeinfo`, `ast_node_set_typeinfo`) in `src/zero_cc/jit/type_info.h`.
 
-### 3. Register Allocator Spill/Reload in AOT Assembly (`asm_emitter.c`)
-- Mirror `ast_lowering_mc.c`'s scratch-register (`%r10`/`%r11`) spill reload/store handling in `asm_emitter.c` and enforce strict callee-saved-only allocation (or stack spill) for `spans_call` intervals in `regalloc.h`.
+### 3. Register Allocator Spill/Reload in AOT Assembly (`asm_emitter.c`) ✅
+- **Completed**: Mirrored `ast_lowering_mc.c`'s scratch-register (`%r10`/`%r11`, `x9`/`x10`, `t0`/`t1`) spill reload/store handling in `asm_emitter.c` and `isa/*_asm.c`, and enforced strict callee-saved-only allocation (or stack spill) for `spans_call` intervals in `regalloc.h`.
 
 ### 4. Extended Language & Backend Features
 - Full `switch`/`case` jump-table / branch-chain lowering in `lower_stmt_switch`

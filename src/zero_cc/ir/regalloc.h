@@ -10,7 +10,7 @@
 #include "../isa/isa_backend.h"
 
 #include "../types/vregs.h"
-#include "opt_profile.h"
+#include "../opt/opt_profile.h"
 
 /* Forward declaration to avoid circular includes */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
@@ -116,6 +116,7 @@ typedef struct RegAllocator {
     /* Spill slot allocation */
     int next_spill_slot;
     int next_vec_spill_slot;  /* Vector spill slots (16-byte aligned) */
+    int32_t spill_base_offset; /* Base frame offset for spill slots */
     
     /* Instruction count for interval tracking */
     size_t instruction_count;
@@ -289,6 +290,18 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
     }
 }
 
+/* Check if a physical GPR is callee-saved for the target ISA */
+static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys_reg) {
+    if (!ra || phys_reg < 0) return false;
+    if (ra->target_isa == ISA_AARCH64) {
+        return phys_reg >= 19 && phys_reg <= 28;
+    } else if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) {
+        return phys_reg == 9 || (phys_reg >= 18 && phys_reg <= 27);
+    } else {
+        return phys_reg == 3 || (phys_reg >= 12 && phys_reg <= 15);
+    }
+}
+
 /* Allocate a register for the given interval */
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) __attribute__((unused));
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
@@ -302,7 +315,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     if (interval->reg_class == REG_CLASS_GPR) {
         if (interval->spans_call) {
             if (is_aarch64) {
-                /* AArch64: prefer callee-saved registers (x19-x28) */
+                /* AArch64: strictly allocate callee-saved registers (x19-x28) */
                 for (int i = 19; i <= 28; i++) {
                     if (i < GPR_COUNT && ra->gpr_free[i]) {
                         ra->gpr_free[i] = false;
@@ -311,7 +324,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                     }
                 }
             } else if (is_riscv) {
-                /* RISC-V: prefer callee-saved registers s1 (9), s2-s11 (18-27) */
+                /* RISC-V: strictly allocate callee-saved registers s1 (9), s2-s11 (18-27) */
                 static const int rv_callee_saved[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
                 for (size_t k = 0; k < sizeof(rv_callee_saved)/sizeof(rv_callee_saved[0]); k++) {
                     int phys_reg = rv_callee_saved[k];
@@ -322,7 +335,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                     }
                 }
             } else {
-                /* x86-64: prefer callee-saved registers (rbx, r12-r15) */
+                /* x86-64: strictly allocate callee-saved registers (rbx, r12-r15) */
                 static const int callee_saved_pool_to_phys[] = {3, 12, 13, 14, 15};
                 for (size_t k = 0; k < sizeof(callee_saved_pool_to_phys)/sizeof(callee_saved_pool_to_phys[0]); k++) {
                     int phys_reg = callee_saved_pool_to_phys[k];
@@ -333,6 +346,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                     }
                 }
             }
+            /* Never assign a caller-saved GPR to an interval that spans a call; spill instead */
+            return -1;
         }
 
         if (is_aarch64) {
@@ -502,6 +517,10 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
+                        !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
+                        continue;
+                    }
                     
                     /* Spill if active has lower cost than current spill candidate */
                     if (active->spill_cost < spill->spill_cost) {
@@ -519,6 +538,10 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
+                        !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
+                        continue;
+                    }
                     if (active->end > spill->end) {
                         spill = active;
                     }
@@ -534,6 +557,10 @@ static void regalloc_allocate(RegAllocator *ra) {
                 opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, spill);
                 current->assigned_reg = spill->assigned_reg;
+                if (current->reg_class == REG_CLASS_GPR &&
+                    regalloc_is_callee_saved_gpr(ra, current->assigned_reg)) {
+                    ra->used_callee_saved_gpr_mask |= (1u << current->assigned_reg);
+                }
                 spill->assigned_reg = -1;
                 
                 /* Remove spilled interval from active list */

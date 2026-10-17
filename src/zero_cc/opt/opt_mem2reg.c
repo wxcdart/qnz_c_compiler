@@ -1,6 +1,6 @@
 #include "opt_mem2reg.h"
-#include "ir.h"
-#include "ir_arena.h"
+#include "../ir/ir.h"
+#include "../ir/ir_arena.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -194,9 +194,13 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             int slot = slot_from_offset(offset);
             
             if (slot >= 0 && slot < MAX_STACK_SLOTS) {
-                /* Track that this slot now holds the source temp */
-                state.slot_to_temp[slot] = instr->temp_src1;
-                state.slot_valid[slot] = true;
+                if (instr->temp_src1 >= 16) {
+                    /* Track that this slot now holds the virtual source temp */
+                    state.slot_to_temp[slot] = instr->temp_src1;
+                    state.slot_valid[slot] = true;
+                } else {
+                    state.slot_valid[slot] = false;
+                }
             } else if (offset < 0) {
                 /* Non-8-byte store to stack (e.g. struct member at unaligned offset):
                  * Invalidate any overlapping 8-byte slots so stale 64-bit values aren't forwarded! */

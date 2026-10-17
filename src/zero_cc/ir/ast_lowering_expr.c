@@ -3,6 +3,44 @@
 #include "ast_lowering_internal.h"
 #include "../isa/isa_backend.h"
 
+static bool struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, size_t *cur_idx,
+                                       size_t base_off, size_t *out_off, size_t *out_sz,
+                                       const char **out_flex_name) {
+    for (size_t i = 0; i < st->member_count; i++) {
+        const ZeroCCStructMember *m = &st->members[i];
+        if (m->is_flexible) {
+            if (*cur_idx == target_idx) {
+                if (out_flex_name) *out_flex_name = m->name;
+                return false;
+            }
+            continue;
+        }
+        if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+            size_t count = m->size / m->base->size;
+            if (target_idx < *cur_idx + count) {
+                size_t a_idx = target_idx - *cur_idx;
+                *out_off = base_off + m->offset + a_idx * m->base->size;
+                *out_sz = m->base->size;
+                return true;
+            }
+            *cur_idx += count;
+        } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
+            if (struct_resolve_scalar_leaf(m->base, target_idx, cur_idx, base_off + m->offset, out_off, out_sz, out_flex_name)) {
+                return true;
+            }
+            if (out_flex_name && *out_flex_name) return false;
+        } else {
+            if (*cur_idx == target_idx) {
+                *out_off = base_off + m->offset;
+                *out_sz = m->size;
+                return true;
+            }
+            (*cur_idx)++;
+        }
+    }
+    return false;
+}
+
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return 0xFF;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
@@ -130,6 +168,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (fn) {
                     int temp = c->next_temp_id++;
                     ir_emit_mov_global(temp, fn->name);
+                    if (fn->is_external) {
+                        int val_temp = c->next_temp_id++;
+                        size_t ext_sz = fn->return_type.size > 0 ? fn->return_type.size : 8;
+                        if (ext_sz == 1) ir_emit_load_byte(val_temp, temp);
+                        else if (ext_sz == 2) ir_emit_load_16(val_temp, temp);
+                        else if (ext_sz == 4) ir_emit_load_32(val_temp, temp);
+                        else ir_emit_deref(val_temp, temp);
+                        c->last_expr_is_float = 0;
+                        return val_temp;
+                    }
                     c->last_expr_is_float = 0;
                     return temp;
                 }
@@ -438,10 +486,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int index_temp = lower_expr(c, arena, operand->right);
 
                     size_t elem_size = 4;
-                    TypeInfo *elem_ti = NULL;
-                    if (c->sem_ctx && operand->aux.extra > 0) {
-                        elem_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(operand->aux.extra - 1));
-                    }
+                    TypeInfo *elem_ti = ast_node_get_typeinfo(c, operand);
                     if (elem_ti) {
                         elem_size = type_size(elem_ti);
                     } else {
@@ -613,12 +658,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         diag_report_error_at_token(c, "cannot assign to member of const-qualified struct '%s'", base_node->s.str);
                         return 0xFF;
                     }
-                    if (c->sem_ctx && left_node->aux.extra > 0) {
-                        TypeInfo *ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(left_node->aux.extra - 1));
-                        if (ti && (ti->modifiers & TYPE_MOD_CONST)) {
-                            diag_report_error_at_token(c, "cannot assign to const-qualified member");
-                            return 0xFF;
-                        }
+                    TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
+                    if (member_ti && (member_ti->modifiers & TYPE_MOD_CONST)) {
+                        diag_report_error_at_token(c, "cannot assign to const-qualified member");
+                        return 0xFF;
                     }
                     for (size_t m_i = 0; m_i < sym->type.member_count; m_i++) {
                         if (sym->type.members[m_i].offset == (size_t)member_offset) {
@@ -647,10 +690,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_add(addr_temp, base_ptr, off_temp);
                     }
                     size_t m_size = 4;
-                    if (c->sem_ctx && left_node->aux.extra > 0) {
-                        TypeInfo *ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(left_node->aux.extra - 1));
-                        if (ti) m_size = type_size(ti);
-                    }
+                    TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
+                    if (member_ti) m_size = type_size(member_ti);
                     if (c->last_expr_is_float) {
                         if (m_size == 4) {
                             ir_emit_vstoress(addr_temp, (uint8_t)right_temp);
@@ -777,10 +818,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int index_temp = lower_expr(c, arena, left_node->right);
 
                 size_t elem_size = 4;
-                TypeInfo *elem_ti = NULL;
-                if (c->sem_ctx && left_node->aux.extra > 0) {
-                    elem_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(left_node->aux.extra - 1));
-                }
+                TypeInfo *elem_ti = ast_node_get_typeinfo(c, left_node);
                 if (elem_ti) {
                     elem_size = type_size(elem_ti);
                 } else {
@@ -1189,18 +1227,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 size_t elem_offset = 0;
                 size_t elem_size = 4;
                 if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
-                    size_t m_idx = idx;
-                    if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) m_idx = (size_t)elem_node->aux.alt;
-                    if (m_idx < sym->type.member_count) {
-                        /* C99: flexible array members cannot be initialized */
-                        if (sym->type.members[m_idx].is_flexible) {
-                            diag_report_error_at_token(c,
-                                "initialization of flexible array member '%s'",
-                                sym->type.members[m_idx].name);
-                            return 0xFF;
+                    if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) {
+                        size_t m_idx = (size_t)elem_node->aux.alt;
+                        if (m_idx < sym->type.member_count) {
+                            if (sym->type.members[m_idx].is_flexible) {
+                                diag_report_error_at_token(c,
+                                    "initialization of flexible array member '%s'",
+                                    sym->type.members[m_idx].name);
+                                return 0xFF;
+                            }
+                            elem_offset = sym->type.members[m_idx].offset;
+                            elem_size = sym->type.members[m_idx].size;
                         }
-                        elem_offset = sym->type.members[m_idx].offset;
-                        elem_size = sym->type.members[m_idx].size;
+                    } else {
+                        size_t cur_leaf = 0;
+                        const char *flex_name = NULL;
+                        if (!struct_resolve_scalar_leaf(&sym->type, idx, &cur_leaf, 0, &elem_offset, &elem_size, &flex_name)) {
+                            if (flex_name) {
+                                diag_report_error_at_token(c,
+                                    "initialization of flexible array member '%s'",
+                                    flex_name);
+                                return 0xFF;
+                            }
+                        }
                     }
                 } else if (sym->type.tag == TYPE_ARRAY) {
                     size_t a_idx = idx;
@@ -1286,10 +1335,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             /* Determine element size */
             size_t elem_size = 4;
-            TypeInfo *elem_ti = NULL;
-            if (c->sem_ctx && node->aux.extra > 0) {
-                elem_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
-            }
+            TypeInfo *elem_ti = ast_node_get_typeinfo(c, node);
             if (elem_ti) {
                 elem_size = type_size(elem_ti);
             } else {
@@ -1382,6 +1428,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 curr = zero_cc_ast_get(arena, curr->left);
             }
             ZeroCCASTNode *base_node = curr;
+            TypeInfo *member_ti = ast_node_get_typeinfo(c, node);
+            bool member_is_array = (member_ti && member_ti->kind == TYPE_KIND_ARRAY);
             int32_t base_stack_offset = 0;
             int val_temp = c->next_temp_id++;
             if (base_node && base_node->tag == NODE_IDENT) {
@@ -1390,7 +1438,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     base_stack_offset = -sym->stack_offset;
                 }
                 int32_t total_offset = base_stack_offset + member_offset;
-                ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+                if (member_is_array) {
+                    ir_emit_lea(val_temp, BE(c)->fp_reg, total_offset);
+                } else {
+                    ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+                }
             } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
                 (void)lower_expr(c, arena, base_ref);
                 ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
@@ -1398,7 +1450,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     base_stack_offset = -sym->stack_offset;
                 }
                 int32_t total_offset = base_stack_offset + member_offset;
-                ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+                if (member_is_array) {
+                    ir_emit_lea(val_temp, BE(c)->fp_reg, total_offset);
+                } else {
+                    ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+                }
             } else {
                 /* General expression returning struct (e.g. NODE_CALL returning buffer pointer) */
                 int base_ptr = lower_expr(c, arena, base_ref);
@@ -1416,7 +1472,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     addr_temp = c->next_temp_id++;
                     ir_emit_add(addr_temp, b_temp, off_temp);
                 }
-                ir_emit_deref(val_temp, addr_temp);
+                if (member_is_array) {
+                    ir_emit_mov_reg(val_temp, addr_temp);
+                } else {
+                    ir_emit_deref(val_temp, addr_temp);
+                }
+            }
+
+            if (member_is_array) {
+                c->last_expr_is_float = 0;
+                return val_temp;
             }
 
             if (node->flags & NODE_MEMBER_IS_BITFIELD) {
@@ -1450,10 +1515,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     val_temp = ext_temp;
                 }
             } else {
-                TypeInfo *ti = NULL;
-                if (c->sem_ctx && node->aux.extra > 0) {
-                    ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
-                }
+                TypeInfo *ti = ast_node_get_typeinfo(c, node);
                 size_t sz = ti ? type_size(ti) : 4;
                 bool is_u = ti && (ti->modifiers & TYPE_MOD_UNSIGNED);
                 if (sz == 1) {
@@ -1675,14 +1737,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     call_ret_type = callee_fn->return_type;
                 } else if (callee_sym && callee_sym->type.tag == TYPE_PTR && callee_sym->type.base) {
                     call_ret_type = *callee_sym->type.base;
-                } else if (c->sem_ctx && node->aux.extra > 0) {
-                    TypeInfo *ret_ti = (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
+                } else {
+                    TypeInfo *ret_ti = ast_node_get_typeinfo(c, node);
                     if (ret_ti) {
-                        if (ret_ti->kind == TYPE_KIND_STRUCT) call_ret_type.tag = TYPE_STRUCT;
-                        else if (ret_ti->kind == TYPE_KIND_UNION) call_ret_type.tag = TYPE_UNION;
-                        else if (ret_ti->kind == TYPE_KIND_FLOAT) call_ret_type.tag = TYPE_FLOAT;
-                        else if (ret_ti->kind == TYPE_KIND_DOUBLE) call_ret_type.tag = TYPE_DOUBLE;
-                        call_ret_type.size = type_size(ret_ti);
+                        call_ret_type = typeinfo_to_zero_cc_type(ret_ti);
                     }
                 }
 
@@ -1697,6 +1755,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 while (arg != AST_NULL) {
+                    ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     int temp = lower_expr(c, arena, arg);
                     if (c->last_expr_is_float) {
                         /* Float argument: spill it to a stack slot via IR */
@@ -1708,8 +1767,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             fp_arg_idx++;
                         }
                     } else {
-                        /* Integer argument: spill to a stack slot so subsequent argument
-                         * evaluations containing function calls do not clobber caller-saved registers. */
+                        /* Integer or struct argument: spill to stack slot(s) */
                         if (int_arg_idx < IR_CALL_MAX_ARGS) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
@@ -1717,8 +1775,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_store(temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
                             int_arg_idx++;
                         }
+                        if (arg_node && arg_node->tag == NODE_IDENT) {
+                            ZeroCCSym *arg_sym = zero_cc_find_local(c, arg_node->s.str);
+                            if (arg_sym && (arg_sym->type.tag == TYPE_STRUCT || arg_sym->type.tag == TYPE_UNION) && arg_sym->type.size > 8) {
+                                int num_chunks = (int)((arg_sym->type.size + 7) / 8);
+                                for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
+                                    int ch_temp = c->next_temp_id++;
+                                    ir_emit_load(ch_temp, BE(c)->fp_reg, -(arg_sym->stack_offset - ch * 8));
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                    ir_emit_store(ch_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                    int_arg_idx++;
+                                }
+                            }
+                        }
                     }
-                    ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
+                    arg_node = zero_cc_ast_get(arena, arg);
                     arg = arg_node ? arg_node->next : AST_NULL;
                 }
                 

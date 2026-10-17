@@ -458,14 +458,19 @@ TypeInfo *expr_handle_va_arg(SemContext *ctx, ZeroCCASTNode *node) {
     /* For now, accept any type since va_list can be typedef'd */
     /* A proper implementation would check if it's typedef'd to a pointer */
 
-    /* Get the target type from aux.extra (type tag) */
+    /* Get the target type from aux.step (parsed TypeInfo*) or aux.extra (type tag) */
     TypeInfo *target_t = NULL;
-    switch (node->aux.extra) {
-        case 1: target_t = type_int(ctx->perm_arena); break;    /* int */
-        case 2: target_t = type_char(ctx->perm_arena); break;   /* char */
-        case 3: target_t = type_double(ctx->perm_arena); break; /* double */
-        case 4: target_t = type_float(ctx->perm_arena); break;  /* float */
-        default: target_t = type_int(ctx->perm_arena); break;   /* default to int */
+    if (node->aux.extra == 0 && node->aux.step > 0) {
+        target_t = (TypeInfo *)arena_index_to_ptr(ctx->perm_arena, (size_t)(node->aux.step - 1));
+    }
+    if (!target_t) {
+        switch (node->aux.extra) {
+            case 1: target_t = type_int(ctx->perm_arena); break;    /* int */
+            case 2: target_t = type_char(ctx->perm_arena); break;   /* char */
+            case 3: target_t = type_double(ctx->perm_arena); break; /* double */
+            case 4: target_t = type_float(ctx->perm_arena); break;  /* float */
+            default: target_t = type_int(ctx->perm_arena); break;   /* default to int */
+        }
     }
 
     /* The result type is the target type */

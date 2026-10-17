@@ -11,10 +11,10 @@
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/semantic/expr.h"
 #include "zero_cc/semantic/diagnostics.h"
-#include "../parser/regalloc.h"
-#include "../parser/lowering_state.h"
-#include "../parser/label_patcher.h"
-#include "../parser/ir_arena.h"
+#include "../ir/regalloc.h"
+#include "../ir/lowering_state.h"
+#include "../ir/label_patcher.h"
+#include "../ir/ir_arena.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {

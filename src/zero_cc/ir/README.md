@@ -33,37 +33,23 @@ AST → Semantic Analysis → IR → ──┬──► asm_emitter.c → GAS te
 
 ### File Organization
 
-| File | Purpose | Lines |
-|------|---------|-------|
-| `ast_lowering.c` | Coordinator (includes modules below) | 150 |
-| `ast_lowering_internal.h` | Internal declarations | 50 |
-| `ast_lowering_stmt.c` | Statement lowering (if, while, for, etc.) | 350 |
-| `ast_lowering_expr.c` | Expression lowering (arithmetic, calls, etc.) | 1350 |
-| `asm_emitter.c` | IR → GAS assembly emission | 430 |
-| `asm_emitter.h` | Assembly emitter interface | 80 |
-| `ast_lowering_mc.c` | IR → Machine code emission | 1100 |
-| `ir.h` | IR instruction definitions | 700 |
-| `regalloc.h` | Register allocation | 200 |
-| `live_range.h` | Live range analysis | 150 |
+| File | Purpose |
+|------|---------|
+| `ast_lowering.c` | Coordinator (`zero_cc_lower_ast`) |
+| `ast_lowering_internal.h` | Shared lowering declarations and helpers |
+| `ast_lowering_stmt.c` | Statement lowering (if, while, for, etc.) |
+| `ast_lowering_expr.c` | Expression lowering (arithmetic, calls, etc.) |
+| `asm_emitter.c` | IR → GAS assembly emission |
+| `asm_emitter.h` | Assembly emitter interface |
+| `ast_lowering_mc.c` | IR → Machine code emission |
+| `opt_pass.c` | Optimization pass driver (`opt_run_passes`) |
+| `ir.h` / `ir.c` | IR instruction definitions and buffers |
+| `regalloc.h` | Linear-scan register allocation |
+| `live_range.h` | Live range analysis |
 
 ### Build Pattern
 
-Files use `#include` pattern instead of separate compilation:
-
-```c
-// In ast_lowering.c
-#include "ast_lowering_internal.h"
-#include "asm_emitter.c"        // Assembly emission
-#include "ast_lowering_stmt.c"  // Statement lowering
-#include "ast_lowering_expr.c"  // Expression lowering
-#include "ast_lowering_mc.c"    // Machine code emission
-#include "opt_pass.c"           // Optimization passes
-```
-
-**Why?** Keeps all lowering code in one compilation unit:
-- Simpler dependency management
-- No multiple definition errors
-- Faster incremental builds
+Each `.c` module (`parser.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, `opt_pass.c`, and individual `opt_*.c` passes) is compiled as a standalone `.o` translation unit in `Makefile` (with `-MMD -MP` dependency tracking), sharing declarations through `ast_lowering_internal.h`, `asm_emitter.h`, and `opt_pass.h`.
 
 ## Assembly Emitter (`asm_emitter.c`)
 

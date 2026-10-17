@@ -1,7 +1,7 @@
 #include "opt_loop.h"
 #include "opt_profile.h"
-#include "ir.h"
-#include "ir_emitter.h"
+#include "../ir/ir.h"
+#include "../ir/ir_emitter.h"
 #include <stdlib.h>
 #include <string.h>
 

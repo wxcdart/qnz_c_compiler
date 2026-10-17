@@ -1,5 +1,22 @@
 # ZeroCC Changelog
 
+## [Sprint 19] - 2026-10-17 - Unified Register Spill/Reload, Prologue Callee-Save & Standalone C99/C11 Direct-Compiler Verification
+
+### Added & Fixed
+- **Unified Register Allocator Spill/Reload & Prologue Callee-Save (`src/zero_cc/ir/regalloc.h`, `ast_lowering.c`, `ast_lowering_mc.c`, `asm_emitter.c`, `isa/*_asm.c`)**:
+  - Enforced strict callee-saved-only allocation (or stack spill via `spill_base_offset`) for `spans_call` intervals in `regalloc.h`.
+  - Mirrored scratch-register (`%r10`/`%r11`, `x9`/`x10`, `t5`/`t6`) spill reload/store handling across `ast_lowering_mc.c` and `asm_emitter.c`, including spilled `OP_CALL` arguments and indirect callee function pointers.
+  - Enabled `OP_CALLEE_SAVE_STORES` in `ast_lowering.c` and implemented `emit_callee_save_stores_asm` across x86-64, AArch64, and RISC-V assembly backends so callee-saved registers (`%rbx`, `%r12`–`%r15`) are symmetrically saved in the prologue and restored in the epilogue.
+- **ELF `.symtab` Local/Global Relocation Index Remapping (`src/zero_cc/jit/elf_writer.c`)**:
+  - Added `sym_remap[]` in `elf_writer_write()` so reordering `ELF_STB_LOCAL` symbols ahead of `ELF_STB_GLOBAL` symbols in `.symtab` updates `.rela.text` relocation symbol indices (`ELF64_R_INFO`).
+- **Standalone C99/C11 Direct-Compiler Support (29/29 Standalone AOT+JIT Tests Passing)**:
+  - **Multi-Level Pointer Declarators (`int **mat`)**: Replaced boolean `is_ptr` with `ptr_depth` across parameters, local variables, comma-separated declarators, and return types (`src/zero_cc/jit/compile.h`, `src/zero_cc/parser/ast_stmt.h`).
+  - **Opaque/Anonymous Struct Typedefs & Multi-Declarator `extern`**: Added support for forward struct typedefs (`typedef struct FILE FILE;`), anonymous struct typedef naming, and comma-separated `extern` variables (`extern FILE *stdin, *stdout, *stderr;`) in `definitions.h`, `compile_unit.h`, `compile.h`, `ast_lowering_expr.c`, `symbol_mgmt.h`, and `src/main.c`.
+  - **Struct Array Members & Nested Brace Initializers**: Added `TYPE_ARRAY` struct member support (`int arr[3]`), array member decay in `NODE_MEMBER`, recursive nested `{ ... }` flattening in `parse_brace_init_list_ast`, and leaf-field resolution (`struct_resolve_scalar_leaf`) in `ast_lowering_expr.c`.
+  - **Multi-Eightbyte (`>8` byte) By-Value Struct Arguments & Parameters**: Updated `ast_lowering.c` and `NODE_CALL` in `ast_lowering_expr.c` to pass and save all `num_chunks = (size + 7) / 8` 8-byte chunks of by-value struct arguments/parameters.
+  - **`va_arg(ap, Type)` Arbitrary Type Parsing**: Updated `__builtin_va_arg` in `ast_expr.h` and `semantic/expr.c` to parse arbitrary type names via `zero_cc_parse_type_name(c)`.
+  - **Physical Register (`< 16`) Guard in Optimization Passes**: Prevented `opt_mem2reg.c`, `opt_copy_prop.c`, `opt_cse.c`, and `opt_gvn.c` from propagating reserved physical registers (`VREG_0`..`VREG_15`) across instructions.
+
 ## [Sprint 18] - 2026-10-17 - C11 Core Features, `<threads.h>`, Multi-Dimensional Arrays/VLAs & Tooling Cleanup
 
 ### Added - C11 Core Keywords, Alignment, Atomics & Threading (`tools/c11/test_c11.py` 11/11)

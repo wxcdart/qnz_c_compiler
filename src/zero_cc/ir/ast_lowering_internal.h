@@ -12,7 +12,7 @@
 #include <stdbool.h>
 
 #include "../types/types.h"
-#include "parser.h"
+#include "../parser/parser.h"
 #include "ir.h"
 #include "ir_emitter.h"
 #include "ir_emit_ops.h"
@@ -21,6 +21,7 @@
 #include "../types/global_vars.h"
 #include "../semantic/type.h"
 #include "../common/arena.h"
+#include "../jit/type_info.h"
 #include "abi_classify.h"
 #include "regalloc.h"
 #include "live_range.h"

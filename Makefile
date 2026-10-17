@@ -36,16 +36,22 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/semantic/decl.o \
 	src/zero_cc/semantic/semantic.o \
 	src/zero_cc/common/arena.o \
-	src/zero_cc/parser/ir.o \
-	src/zero_cc/parser/opt_constant_fold.o \
-	src/zero_cc/parser/opt_dce.o \
-	src/zero_cc/parser/opt_mem2reg.o \
-	src/zero_cc/parser/opt_cse.o \
-	src/zero_cc/parser/opt_gvn.o \
-	src/zero_cc/parser/opt_copy_prop.o \
-	src/zero_cc/parser/opt_profile.o \
-	src/zero_cc/parser/opt_loop.o \
-	src/zero_cc/parser/opt_vectorize.o \
+	src/zero_cc/ir/ir.o \
+	src/zero_cc/ir/ast_lowering.o \
+	src/zero_cc/ir/ast_lowering_stmt.o \
+	src/zero_cc/ir/ast_lowering_expr.o \
+	src/zero_cc/ir/ast_lowering_mc.o \
+	src/zero_cc/ir/asm_emitter.o \
+	src/zero_cc/opt/opt_pass.o \
+	src/zero_cc/opt/opt_constant_fold.o \
+	src/zero_cc/opt/opt_dce.o \
+	src/zero_cc/opt/opt_mem2reg.o \
+	src/zero_cc/opt/opt_cse.o \
+	src/zero_cc/opt/opt_gvn.o \
+	src/zero_cc/opt/opt_copy_prop.o \
+	src/zero_cc/opt/opt_profile.o \
+	src/zero_cc/opt/opt_loop.o \
+	src/zero_cc/opt/opt_vectorize.o \
 	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/aarch64.o \
@@ -61,6 +67,8 @@ all: $(TESTS) build/bin/zerocc
 
 PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/parser/*.h) \
+	$(wildcard src/zero_cc/ir/*.h) \
+	$(wildcard src/zero_cc/opt/*.h) \
 	$(wildcard src/zero_cc/types/*.h) \
 	$(wildcard src/zero_cc/jit/*.h) \
 	$(wildcard src/zero_cc/common/*.h)

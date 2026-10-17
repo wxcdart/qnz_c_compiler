@@ -498,11 +498,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
 
         /* Pointer asterisks and pointer qualifiers */
-        bool is_ptr = false;
+        int ptr_depth = 0;
         bool ptr_is_const = false;
         bool ptr_is_volatile = false;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
-            is_ptr = true;
+            ptr_depth++;
             c->token_pos++;
             while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_CONST ||
                                                      c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -612,12 +612,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         if (c->tokens[c->token_pos].type == TK_VOLATILE) param_is_volatile = true;
                         c->token_pos++;
                     }
-                    bool param_is_ptr = false;
+                    int param_ptr_depth = 0;
                     bool param_ptr_is_const = false;
                     bool param_ptr_is_volatile = false;
                     bool param_ptr_is_restrict = false;
                     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
-                        param_is_ptr = true;
+                        param_ptr_depth++;
                         c->token_pos++;
                         while (c->token_pos < c->token_count &&
                                (c->tokens[c->token_pos].type == TK_CONST ||
@@ -640,7 +640,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                 else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
                                 c->token_pos++;
                             }
-                            param_is_ptr = true;
+                            param_ptr_depth++;
                         }
                         /* Create parameter node */
                         ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
@@ -649,38 +649,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         p_node->col = c->tokens[c->token_pos].col;
                         p_node->s.str = pname;
                         p_node->s.len = strlen(pname);
-                        /* Store parameter type info */
-                        ZeroCCType ptype;
-                        if (param_type_tok == TK_CHAR || param_type_tok == TK_BOOL_KW) ptype = zero_cc_type_char();
-                        else if (param_type_tok == TK_SHORT) ptype = zero_cc_type_int16();
-                        else if (param_type_tok == TK_INT) ptype = zero_cc_type_int();
-                        else if (param_type_tok == TK_FLOAT_KW) ptype = zero_cc_type_float();
-                        else if (param_type_tok == TK_DOUBLE_KW) ptype = zero_cc_type_double();
-                        else if (param_type_tok == TK_VOID) ptype = zero_cc_type_void();
-                        else if (param_type_tok == TK_STRUCT || param_type_tok == TK_UNION) {
-                            ZeroCCType *st = param_tag_name ? zero_cc_find_struct(c, param_tag_name) : NULL;
-                            if (!st && param_tag_name) st = zero_cc_find_typedef(c, param_tag_name);
-                            ptype = st ? *st : zero_cc_type_int64();
-                        }
-                        else if (param_type_tok == TK_ENUM) {
-                            ZeroCCType *et = param_tag_name ? zero_cc_find_enum(c, param_tag_name) : NULL;
-                            if (!et && param_tag_name) et = zero_cc_find_typedef(c, param_tag_name);
-                            ptype = et ? *et : zero_cc_type_enum(param_tag_name);
-                        }
-                        else {
-                            const char *tname = c->tokens[ptype_pos].str_val;
-                            ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
-                            if (!tdef) tdef = zero_cc_find_struct(c, tname);
-                            if (!tdef) tdef = zero_cc_find_enum(c, tname);
-                            ptype = tdef ? *tdef : zero_cc_type_int64();
-                        }
+                        /* Store parameter type info via canonical resolver and bridge */
+                        const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
+                        ZeroCCType ptype = zero_cc_resolve_base_type(c, param_type_tok, ptname);
                         ptype.is_const = param_is_const;
                         ptype.is_volatile = param_is_volatile;
-                        if (param_is_ptr) {
+                        for (int pd = 0; pd < param_ptr_depth; pd++) {
                             ptype = zero_cc_type_ptr(&ptype);
-                            ptype.is_const = param_ptr_is_const;
-                            ptype.is_volatile = param_ptr_is_volatile;
-                            ptype.is_restrict = param_ptr_is_restrict;
+                            if (pd == param_ptr_depth - 1) {
+                                ptype.is_const = param_ptr_is_const;
+                                ptype.is_volatile = param_ptr_is_volatile;
+                                ptype.is_restrict = param_ptr_is_restrict;
+                            }
                         }
                         TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
                         decl_node_set_type(ctx, p_node, ptype_ti);
@@ -701,6 +681,22 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             }
 
             if (is_function) {
+                /* Build canonical return type and function TypeInfo */
+                ZeroCCType ret_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                for (int pd = 0; pd < ptr_depth; pd++) ret_type = zero_cc_type_ptr(&ret_type);
+                TypeInfo *ret_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ret_type);
+                TypeInfo *param_tis[16];
+                size_t param_cnt = 0;
+                ASTRef cur_p = param_list;
+                while (cur_p != AST_NULL && param_cnt < 16) {
+                    ZeroCCASTNode *pn = zero_cc_ast_get(arena, cur_p);
+                    if (!pn) break;
+                    TypeInfo *pti = decl_node_type(ctx, pn);
+                    param_tis[param_cnt++] = pti ? pti : type_int(ctx->perm_arena);
+                    cur_p = pn->next;
+                }
+                TypeInfo *fn_ti = type_function(ctx->perm_arena, ret_ti, param_cnt > 0 ? param_tis : NULL, param_cnt, false);
+
                 /* Function definition or prototype */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                     /* Function definition with body */
@@ -736,28 +732,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     func_node->s.len = strlen(vname);
                     func_node->left = param_list;   // parameter list
                     func_node->right = body_ref;    // body
-                    /* Store return type in aux.extra for later semantic analysis */
-                    ZeroCCType ret_type;
-                    if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) ret_type = zero_cc_type_char();
-                    else if (type_tok == TK_SHORT) ret_type = zero_cc_type_int16();
-                    else if (type_tok == TK_INT) ret_type = zero_cc_type_int();
-                    else if (type_tok == TK_FLOAT_KW) ret_type = zero_cc_type_float();
-                    else if (type_tok == TK_DOUBLE_KW) ret_type = zero_cc_type_double();
-                    else if (type_tok == TK_VOID) ret_type = zero_cc_type_void();
-                    else {
-                        const char *tname = c->tokens[type_start_pos].str_val;
-                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
-                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
-                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
-                        if (tdef) ret_type = *tdef;
-                        else if (type_tok == TK_ENUM) ret_type = zero_cc_type_enum(tname);
-                        else ret_type = zero_cc_type_int64();
-                    }
-                    if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
-                    /* Store return type in arena and save arena offset */
-                    ZeroCCType *ret_type_ptr = arena_alloc(ctx->perm_arena, sizeof(ZeroCCType));
-                    *ret_type_ptr = ret_type;
-                    func_node->aux.extra = (uint32_t)(arena_index_of(ctx->perm_arena, ret_type_ptr) + 1);
+                    decl_node_set_type(ctx, func_node, fn_ti);
                     return func_ref;
                 } else {
                     /* Function prototype */
@@ -773,27 +748,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     func_node->flags |= NODE_FLAG_FUNC_PROTO;
                     func_node->left = param_list;
                     func_node->right = AST_NULL;
-                    ZeroCCType ret_type;
-                    if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) ret_type = zero_cc_type_char();
-                    else if (type_tok == TK_SHORT) ret_type = zero_cc_type_int16();
-                    else if (type_tok == TK_INT) ret_type = zero_cc_type_int();
-                    else if (type_tok == TK_FLOAT_KW) ret_type = zero_cc_type_float();
-                    else if (type_tok == TK_DOUBLE_KW) ret_type = zero_cc_type_double();
-                    else if (type_tok == TK_VOID) ret_type = zero_cc_type_void();
-                    else {
-                        const char *tname = c->tokens[type_start_pos].str_val;
-                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
-                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
-                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
-                        if (tdef) ret_type = *tdef;
-                        else if (type_tok == TK_ENUM) ret_type = zero_cc_type_enum(tname);
-                        else ret_type = zero_cc_type_int64();
-                    }
-                    if (is_ptr) ret_type = zero_cc_type_ptr(&ret_type);
-                    /* Store return type in arena and save arena offset */
-                    ZeroCCType *ret_type_ptr = arena_alloc(ctx->perm_arena, sizeof(ZeroCCType));
-                    *ret_type_ptr = ret_type;
-                    func_node->aux.extra = (uint32_t)(arena_index_of(ctx->perm_arena, ret_type_ptr) + 1);
+                    decl_node_set_type(ctx, func_node, fn_ti);
 
                     /* Register in c->functions if not already registered */
                     if (!zero_cc_find_function(c, vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
@@ -809,94 +764,96 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
             } else {
                 /* Not a function: treat as variable declaration */
+                #define MAX_ARRAY_DIMS 16
+                size_t dim_counts[MAX_ARRAY_DIMS];
+                ASTRef dim_exprs[MAX_ARRAY_DIMS];
+                bool dim_is_vla[MAX_ARRAY_DIMS];
+                size_t num_dims = 0;
                 bool is_array = false;
-                bool is_vla = false;
-                ASTRef dim_expr = AST_NULL;
-                size_t fixed_count = 0;
+                bool has_any_vla = false;
 
-                if (!is_inline_func_ptr && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
-                    c->token_pos++; // consume '['
-                    is_array = true;
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
-                        c->token_pos++;
-                        fixed_count = 0;
-                    } else {
-                        dim_expr = parse_expr_ast_internal(c, arena);
+                if (!is_inline_func_ptr) {
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        c->token_pos++; // consume '['
+                        is_array = true;
+                        size_t fixed_count = 0;
+                        ASTRef dim_expr = AST_NULL;
+                        bool is_dim_vla = false;
+
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
                             c->token_pos++;
-                        }
-                        ZeroCCASTNode *dim_node = zero_cc_ast_get(arena, dim_expr);
-                        if (dim_node && dim_node->tag == NODE_INT && dim_node->int_val >= 0) {
-                            fixed_count = (size_t)dim_node->int_val;
+                            fixed_count = 0;
                         } else {
-                            is_vla = true;
+                            dim_expr = parse_expr_ast_internal(c, arena);
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                c->token_pos++;
+                            }
+                            ZeroCCASTNode *dim_node = zero_cc_ast_get(arena, dim_expr);
+                            if (dim_node && dim_node->tag == NODE_INT && dim_node->int_val >= 0) {
+                                fixed_count = (size_t)dim_node->int_val;
+                            } else {
+                                is_dim_vla = true;
+                                has_any_vla = true;
+                            }
+                        }
+
+                        if (num_dims < MAX_ARRAY_DIMS) {
+                            dim_counts[num_dims] = fixed_count;
+                            dim_exprs[num_dims] = dim_expr;
+                            dim_is_vla[num_dims] = is_dim_vla;
+                            num_dims++;
+                        }
+                    }
+
+                    if (has_any_vla) {
+                        /* In multi-dim VLA, only the outermost dimension may be runtime-sized */
+                        for (size_t d = 1; d < num_dims; d++) {
+                            if (dim_is_vla[d]) {
+                                diag_report_error_at_token(c, "multi-dim VLA with runtime inner dimensions is not supported");
+                                return AST_NULL;
+                            }
                         }
                     }
                 }
 
-                ZeroCCType decl_type;
-                if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) decl_type = zero_cc_type_char();
-                else if (type_tok == TK_SHORT) decl_type = zero_cc_type_int16();
-                else if (type_tok == TK_INT) decl_type = zero_cc_type_int();
-                else if (type_tok == TK_FLOAT_KW) decl_type = zero_cc_type_float();
-                else if (type_tok == TK_DOUBLE_KW) decl_type = zero_cc_type_double();
-                else if (type_tok == TK_VOID) decl_type = zero_cc_type_void();
-                else {
-                    const char *tname = c->tokens[type_start_pos].str_val;
-                    ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
-                    if (!tdef) tdef = zero_cc_find_struct(c, tname);
-                    if (!tdef) tdef = zero_cc_find_enum(c, tname);
-                    if (tdef) decl_type = *tdef;
-                    else if (type_tok == TK_ENUM) decl_type = zero_cc_type_enum(tname);
-                    else decl_type = zero_cc_type_int64();
-                }
+                ZeroCCType decl_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
                 decl_type.is_const = is_const;
                 decl_type.is_volatile = is_volatile;
                 decl_type.is_atomic = is_atomic;
-                if (is_ptr) {
+                for (int pd = 0; pd < ptr_depth; pd++) {
                     decl_type = zero_cc_type_ptr(&decl_type);
-                    decl_type.is_const = ptr_is_const;
-                    decl_type.is_volatile = ptr_is_volatile;
+                    if (pd == ptr_depth - 1) {
+                        decl_type.is_const = ptr_is_const;
+                        decl_type.is_volatile = ptr_is_volatile;
+                    }
                 }
                 if (is_inline_func_ptr) {
                     decl_type = zero_cc_type_ptr(&decl_type);
                     decl_type.is_func_ptr = true;
                 }
 
-                TypeInfo *decl_ti = NULL;
-                if (is_vla) {
-                    ZeroCCType elem_type = decl_type;
-                    decl_type = zero_cc_type_array(&elem_type, 0);
-                    decl_type.is_vla = true;
-                    decl_type.size = 8;
-                    decl_type.align = 8;
-                    TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
-                    decl_ti = type_array_of(ctx->perm_arena, elem_ti, 0);
-                    if (decl_ti) {
-                        decl_ti->details.array.is_vla = true;
-                        if (elem_type.is_const) decl_ti->modifiers |= TYPE_MOD_CONST;
-                        if (elem_type.is_volatile) decl_ti->modifiers |= TYPE_MOD_VOLATILE;
+                if (is_array) {
+                    /* Build nested array ZeroCCType from innermost to outermost dimension */
+                    ZeroCCType cur_type = decl_type;
+                    for (size_t d = num_dims; d > 0; d--) {
+                        size_t idx = d - 1;
+                        if (dim_is_vla[idx]) {
+                            cur_type = zero_cc_type_array(&cur_type, 0);
+                            cur_type.is_vla = true;
+                            cur_type.size = 8;
+                            cur_type.align = 8;
+                        } else {
+                            cur_type = zero_cc_type_array(&cur_type, dim_counts[idx]);
+                        }
+                        cur_type.is_const = is_const;
+                        cur_type.is_volatile = is_volatile;
                     }
-                } else if (is_array) {
-                    ZeroCCType elem_type = decl_type;
-                    decl_type = zero_cc_type_array(&elem_type, fixed_count);
-                    TypeInfo *elem_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, elem_type);
-                    decl_ti = type_array_of(ctx->perm_arena, elem_ti, fixed_count);
-                    if (decl_ti) {
-                        if (elem_type.is_const) decl_ti->modifiers |= TYPE_MOD_CONST;
-                        if (elem_type.is_volatile) decl_ti->modifiers |= TYPE_MOD_VOLATILE;
-                    }
-                } else {
-                    decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                    decl_type = cur_type;
                 }
 
+                /* Derive canonical TypeInfo* directly from decl_type */
+                TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
                 ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
-                if (sym) {
-                    if (is_vla) sym->is_vla = true;
-                    if (is_atomic) sym->is_atomic = true;
-                    if (decl_type.is_const) sym->is_const = true;
-                    if (decl_type.is_volatile) sym->is_volatile = true;
-                }
 
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                 ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
@@ -904,9 +861,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 dn->col = col;
                 dn->s.str = vname;
                 dn->s.len = strlen(vname);
-                if (is_vla) {
+                if (has_any_vla) {
                     dn->flags |= NODE_DECL_IS_VLA;
-                    dn->right = dim_expr;
+                    dn->right = dim_exprs[0]; /* outermost runtime dimension expr */
                 }
 
                 /* Attach type to AST node for semantic analysis */
@@ -932,6 +889,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         if (decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 && elem_count > 0) {
                             decl_type.array_len = elem_count;
                             if (sym) sym->type.array_len = elem_count;
+                            if (decl_ti && decl_ti->kind == TYPE_KIND_ARRAY) {
+                                decl_ti->details.array.count = elem_count;
+                            }
                         }
                         ASTRef comp_ref = zero_cc_ast_alloc_node(arena, NODE_COMPOUND_LIT);
                         ZeroCCASTNode *cn = zero_cc_ast_get(arena, comp_ref);
@@ -953,11 +913,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
                     c->token_pos++; /* consume ',' */
-                    bool next_is_ptr = false;
+                    int next_ptr_depth = 0;
                     bool next_ptr_is_const = false;
                     bool next_ptr_is_volatile = false;
                     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
-                        next_is_ptr = true;
+                        next_ptr_depth++;
                         c->token_pos++;
                         while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_CONST ||
                                                                  c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -974,38 +934,20 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     const char *next_vname = next_var_tok->allocated_str ? next_var_tok->allocated_str : next_var_tok->str_val;
                     c->token_pos++;
 
-                    ZeroCCType next_type;
-                    if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) next_type = zero_cc_type_char();
-                    else if (type_tok == TK_SHORT) next_type = zero_cc_type_int16();
-                    else if (type_tok == TK_INT) next_type = zero_cc_type_int();
-                    else if (type_tok == TK_FLOAT_KW) next_type = zero_cc_type_float();
-                    else if (type_tok == TK_DOUBLE_KW) next_type = zero_cc_type_double();
-                    else if (type_tok == TK_VOID) next_type = zero_cc_type_void();
-                    else {
-                        const char *tname = c->tokens[type_start_pos].str_val;
-                        ZeroCCType *tdef = zero_cc_find_typedef(c, tname);
-                        if (!tdef) tdef = zero_cc_find_struct(c, tname);
-                        if (!tdef) tdef = zero_cc_find_enum(c, tname);
-                        if (tdef) next_type = *tdef;
-                        else if (type_tok == TK_ENUM) next_type = zero_cc_type_enum(tname);
-                        else next_type = zero_cc_type_int64();
-                    }
+                    ZeroCCType next_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
                     next_type.is_const = is_const;
                     next_type.is_volatile = is_volatile;
                     next_type.is_atomic = is_atomic;
-                    if (next_is_ptr) {
+                    for (int pd = 0; pd < next_ptr_depth; pd++) {
                         next_type = zero_cc_type_ptr(&next_type);
-                        next_type.is_const = next_ptr_is_const;
-                        next_type.is_volatile = next_ptr_is_volatile;
+                        if (pd == next_ptr_depth - 1) {
+                            next_type.is_const = next_ptr_is_const;
+                            next_type.is_volatile = next_ptr_is_volatile;
+                        }
                     }
 
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
-                    ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);
-                    if (next_sym) {
-                        if (is_atomic) next_sym->is_atomic = true;
-                        if (next_type.is_const) next_sym->is_const = true;
-                        if (next_type.is_volatile) next_sym->is_volatile = true;
-                    }
+                    (void)zero_cc_add_local(c, next_vname, next_type);
 
                     ASTRef next_decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                     ZeroCCASTNode *next_dn = zero_cc_ast_get(arena, next_decl_ref);
@@ -1029,6 +971,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
                     c->token_pos++;
+                } else {
+                    diag_report_error_at_token(c, "expected ';' after declaration of '%s'", vname);
+                    return AST_NULL;
                 }
                 return head_decl;
             }

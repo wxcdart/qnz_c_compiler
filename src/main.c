@@ -11,9 +11,9 @@
 #include <unistd.h>
 
 #include "zero_cc.h"
-#include "zero_cc/parser/opt_pass.h"
-#include "zero_cc/parser/opt_profile.h"
-#include "zero_cc/parser/ir_arena.h"
+#include "zero_cc/opt/opt_pass.h"
+#include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
 
@@ -571,18 +571,27 @@ static int compile_object(CompileOptions *opts) {
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
         if (fn->name[0]) {
-            /* Skip stdin - it's a variable, not a function */
-            if (strcmp(fn->name, "stdin") == 0) continue;
+            if (fn->is_external) {
+                bool referenced = false;
+                for (size_t r = 0; r < comp->reloc_count; r++) {
+                    if (strcmp(comp->relocs[r].target_symbol, fn->name) == 0) {
+                        referenced = true;
+                        break;
+                    }
+                }
+                if (!referenced) continue;
+            }
             
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
             int section_idx = SHN_UNDEF;  // Default to undefined
-            if (!fn->is_prototype) {
+            if (!fn->is_prototype && !fn->is_external) {
                 section_idx = 1;  // Compiled functions go in .text section
             }
             int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
             elf_writer_add_symbol(&elf_ctx, fn->name,
-                                  binding, ELF_STT_FUNC,
+                                  binding, sym_type,
                                   section_idx,
                                   fn->text_offset,
                                   fn_size);

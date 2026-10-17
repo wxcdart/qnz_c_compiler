@@ -1,6 +1,6 @@
 #include "opt_gvn.h"
 #include "opt_profile.h"
-#include "ir.h"
+#include "../ir/ir.h"
 #include "zero_cc/common/hash_table.h"
 #include <stdlib.h>
 #include <string.h>
@@ -338,8 +338,10 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
             continue;
         }
         
-        /* Skip if destination is 0xFF or 0 */
-        if (instr->temp_dest == 0xFF || instr->temp_dest == 0) {
+        /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
+        if (instr->temp_dest == 0xFF || instr->temp_dest < 16 ||
+            (instr->temp_src1 != 0xFF && instr->temp_src1 < 16) ||
+            (instr->temp_src2 != 0xFF && instr->temp_src2 < 16)) {
             continue;
         }
         

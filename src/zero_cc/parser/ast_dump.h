@@ -263,14 +263,6 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
     }
 }
 
-/* ======================================================================
- *  AST Lowering to AMD64 Machine Code
- * ======================================================================
- */
-
-static int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
-
 #define MAX_EPILOGUE_PATCHES 256
-
 
 #endif /* ZERO_CC_PARSER_AST_DUMP_H */

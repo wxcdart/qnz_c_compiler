@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-10-15T22:55:00Z
+timestamp: 2026-10-17T12:46:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,16 +24,16 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 3. **Semantic Analysis (`src/zero_cc/semantic/`)**
    - Validates types, scopes, and promotions (`visitor.c`, `expr.c`, `stmt.c`, `promote.c`) and annotates AST nodes with `TypeInfo *`.
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
-4. **AST-to-IR Lowering (`src/zero_cc/parser/ast_lowering*.c`)**
+4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**
    - Lowers each function's AST into a linear buffer of 51-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
-   - Entry points: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions & calls).
+   - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions & calls), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`.
    - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md).
-5. **IR Optimization Passes (`src/zero_cc/parser/opt_*.c`)**
-   - Runs modular optimization passes over `IRArena` before register allocation.
+5. **IR Optimization Passes (`src/zero_cc/opt/opt_*.c`)**
+   - Runs modular optimization passes over `IRArena` via standalone `opt_pass.c` before register allocation.
    - See [Optimization Passes & Safety Invariants](./optimization-passes.md).
-6. **Live Interval Analysis & Linear Scan Register Allocation (`live_range.h`, `regalloc.h`)**
+6. **Live Interval Analysis & Linear Scan Register Allocation (`src/zero_cc/ir/live_range.h`, `src/zero_cc/ir/regalloc.h`)**
    - Computes live ranges (extending across loop backedges) and assigns virtual temporaries to ISA physical registers or spill slots.
-7. **Backend Emission (`ast_lowering_mc.c`, `asm_emitter.c`, `src/zero_cc/isa/`)**
+7. **Backend Emission (`src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/isa/`)**
    - **JIT Path (`ast_lowering_mc.c` + `execution.h`)**: Emits native machine code bytes into a `CodeBuffer`, patches relocations/calls, maps pages `PROT_READ | PROT_EXEC` (W^X), and executes `main`.
    - **AOT Path (`asm_emitter.c` / `elf_writer.c` / `src/main.c`)**: Emits `.s` assembly via backend `*_asm.c` hooks or writes `.o` ELF relocatable objects and links executables.
    - See [Multi-ISA Backends](./isa-backends.md).
@@ -44,10 +44,11 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 | :--- | :--- |
 | CLI & Driver | `src/main.c`, `src/zero_cc/jit/compile.h`, `src/zero_cc/jit/execution.h` |
 | Type System & Symbols | `src/zero_cc/types/type_system.h`, `src/zero_cc/types/symbol_mgmt.h`, `src/zero_cc/jit/type_info.h` |
-| Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/expressions.h` |
+| Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/ast_expr.h` |
 | Semantic Checker | `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/semantic/promote.c` |
-| IR & Lowering | `src/zero_cc/parser/ir.h`, `src/zero_cc/parser/ast_lowering.c`, `src/zero_cc/parser/ast_lowering_stmt.c`, `src/zero_cc/parser/ast_lowering_expr.c` |
-| Codegen & Backends | `src/zero_cc/parser/ast_lowering_mc.c`, `src/zero_cc/parser/asm_emitter.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c` |
+| IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/regalloc.h` |
+| Optimizations | `src/zero_cc/opt/opt_pass.c`, `src/zero_cc/opt/opt_mem2reg.c`, `src/zero_cc/opt/opt_loop.c`, `src/zero_cc/opt/opt_vectorize.c` |
+| Codegen & Backends | `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c` |
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

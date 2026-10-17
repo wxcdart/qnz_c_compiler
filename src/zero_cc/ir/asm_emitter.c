@@ -47,30 +47,8 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
  * Core Emission Functions - Delegate to Backend
  * ========================================================================= */
 
-/* Emit a single IR instruction as assembly */
-void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx) {
-    FILE *out = c->asm_out ? c->asm_out : stdout;
-    
-    /* Skip DEAD and NOP instructions */
-    if (instr->op == OP_DEAD || instr->op == OP_NOP) {
-        return;
-    }
-    
-    /* Skip EPILOGUE - handled separately */
-    if (instr->op == OP_EPILOGUE) {
-        return;
-    }
-    
-    /* Skip CALLEE_SAVE_STORES/LOADS - handled in prologue/epilogue */
-    if (instr->op == OP_CALLEE_SAVE_STORES || instr->op == OP_CALLEE_SAVE_LOADS) {
-        return;
-    }
-    
-    /* Get physical registers */
-    int phys_dst = instr->temp_dest == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-    int phys_src1 = instr->temp_src1 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-    int phys_src2 = instr->temp_src2 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src2);
-    
+static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx,
+                                      int phys_dst, int phys_src1, int phys_src2, FILE *out) {
     switch (instr->op) {
         /* Data Movement */
         case OP_MOV_IMM:
@@ -805,9 +783,69 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     }
 }
 
+/* Emit a single IR instruction as assembly */
+void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
+
+    /* Skip DEAD and NOP instructions */
+    if (instr->op == OP_DEAD || instr->op == OP_NOP) {
+        return;
+    }
+
+    /* Skip EPILOGUE - handled separately */
+    if (instr->op == OP_EPILOGUE) {
+        return;
+    }
+
+    /* Skip CALLEE_SAVE_STORES/LOADS - handled in prologue/epilogue */
+    if (instr->op == OP_CALLEE_SAVE_STORES || instr->op == OP_CALLEE_SAVE_LOADS) {
+        return;
+    }
+
+    /* Get physical registers */
+    int phys_dst = instr->temp_dest == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_dest);
+    int phys_src1 = instr->temp_src1 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src1);
+    int phys_src2 = instr->temp_src2 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src2);
+
+    /* Check for spilled temps that need reloading / storing */
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int spill_src1 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
+    int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
+    int spill_dst  = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+
+    /* Reload spilled sources into scratch registers (scratch_reg1 for src1, scratch_reg2 for src2) */
+    if (spill_src1 >= 0) {
+        int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+        }
+        phys_src1 = BE(c)->scratch_reg1;
+    }
+    if (spill_src2 >= 0) {
+        int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+        }
+        phys_src2 = BE(c)->scratch_reg2;
+    }
+    if (spill_dst >= 0) {
+        phys_dst = BE(c)->scratch_reg1;
+    }
+
+    asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2, out);
+
+    /* If destination temp was spilled, store scratch register back to frame spill slot */
+    if (spill_dst >= 0) {
+        int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
+        if (BE(c)->emit_store_asm) {
+            BE(c)->emit_store_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+        }
+    }
+}
+
 /* Emit all IR instructions as assembly */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
-    (void)spill_base_offset;
+    c->regalloc.spill_base_offset = spill_base_offset;
     
     /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer();

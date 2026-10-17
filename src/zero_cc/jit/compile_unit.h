@@ -13,9 +13,9 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
-#include "zero_cc/parser/ir_arena.h"
+#include "zero_cc/ir/ir_arena.h"
 #include "../isa/isa_backend.h"
-#include "zero_cc/parser/ir_emitter.h"
+#include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
 #include "zero_cc/parser/definitions.h"
 
@@ -165,28 +165,51 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         /* Extern symbol declarations */
         if (c->tokens[c->token_pos].type == TK_EXTERN) {
             c->token_pos++; /* skip extern */
+            size_t after_extern = c->token_pos;
             /* Parse type and identifier */
             ZeroCCType ext_type = zero_cc_parse_type_name(c);
-            (void)ext_type; /* unused for now */
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
-                char ext_name[128];
-                snprintf(ext_name, sizeof(ext_name), "%s", c->tokens[c->token_pos].str_val);
-                c->token_pos++;
-                /* Consume trailing semicolon */
-                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                /* Register as external symbol (no code generation, just declaration) */
-                if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
-                    ZeroCCFunction *fn = &c->functions[c->function_count++];
-                    fn->text_offset = 0; /* External, no code */
-                    snprintf(fn->name, sizeof(fn->name), "%s", ext_name);
-                    fn->is_external = true;
+            ZeroCCType base_ext_type = (ext_type.tag == TYPE_PTR && ext_type.base) ? *ext_type.base : ext_type;
+            if (c->tokens[c->token_pos].type == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+                /* Extern function declaration/prototype: let function parser handle it */
+                c->token_pos = after_extern;
+            } else if (c->tokens[c->token_pos].type == TK_IDENT) {
+                ZeroCCType cur_ext_type = ext_type;
+                while (c->tokens[c->token_pos].type == TK_IDENT) {
+                    char ext_name[128];
+                    snprintf(ext_name, sizeof(ext_name), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                    /* Register as external symbol (no code generation, just declaration) */
+                    if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *fn = &c->functions[c->function_count++];
+                        fn->text_offset = 0; /* External, no code */
+                        snprintf(fn->name, sizeof(fn->name), "%s", ext_name);
+                        fn->return_type = cur_ext_type;
+                        fn->is_external = true;
+                        fn->is_prototype = true;
+                    }
+                    if (c->tokens[c->token_pos].type == TK_COMMA) {
+                        c->token_pos++;
+                        int ptr_d = 0;
+                        while (c->tokens[c->token_pos].type == TK_STAR) {
+                            ptr_d++;
+                            c->token_pos++;
+                        }
+                        cur_ext_type = base_ext_type;
+                        for (int pd = 0; pd < ptr_d; pd++) {
+                            cur_ext_type = zero_cc_type_ptr(&cur_ext_type);
+                        }
+                    } else {
+                        break;
+                    }
                 }
+                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                continue;
             } else {
                 /* Syntax error: skip until semicolon */
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                continue;
             }
-            continue;
         }
 
         /* Global variable declarations */

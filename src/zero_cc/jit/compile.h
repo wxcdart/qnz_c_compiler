@@ -14,8 +14,8 @@
 #include "zero_cc/semantic/semantic.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
-#include "zero_cc/parser/ir_emitter.h"
-#include "zero_cc/parser/regalloc.h"
+#include "zero_cc/ir/ir_emitter.h"
+#include "zero_cc/ir/regalloc.h"
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
@@ -152,12 +152,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
                     c->token_pos++;
                 }
-                bool is_ptr = false;
+                int ptr_depth = 0;
                 bool p_ptr_is_const = false;
                 bool p_ptr_is_volatile = false;
                 bool p_ptr_is_restrict = false;
                 while (c->tokens[c->token_pos].type == TK_STAR) {
-                    is_ptr = true;
+                    ptr_depth++;
                     c->token_pos++;
                     while (c->tokens[c->token_pos].type == TK_CONST ||
                            c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -192,11 +192,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         }
                         pt.is_const = p_is_const;
                         pt.is_volatile = p_is_volatile;
-                        if (is_ptr) {
+                        for (int pd = 0; pd < ptr_depth; pd++) {
                             pt = zero_cc_type_ptr(&pt);
-                            pt.is_const = p_ptr_is_const;
-                            pt.is_volatile = p_ptr_is_volatile;
-                            pt.is_restrict = p_ptr_is_restrict;
+                            if (pd == ptr_depth - 1) {
+                                pt.is_const = p_ptr_is_const;
+                                pt.is_volatile = p_ptr_is_volatile;
+                                pt.is_restrict = p_ptr_is_restrict;
+                            }
                         }
                         param_types[param_count] = pt;
                         param_count++;
@@ -309,6 +311,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         for (size_t i = 0; i < c->function_count; i++) {
             ZeroCCFunction *f = &c->functions[i];
             TypeInfo *ret_t = zero_cc_type_to_typeinfo(perm, f->return_type);
+            if (f->is_external) {
+                scope_put_symbol(global_scope_root, f->name, SYMBOL_VAR, ret_t);
+                continue;
+            }
             TypeInfo **params = NULL;
             if (f->param_count > 0) {
                 params = (TypeInfo **)arena_alloc(perm, f->param_count * sizeof(TypeInfo *));

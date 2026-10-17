@@ -422,7 +422,7 @@ def generate_report(summary: Dict) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description='VLA Test Suite')
-    parser.add_argument('--compiler', '-c', default='../build/bin/zerocc',
+    parser.add_argument('--compiler', '-c', default='./build/bin/zerocc',
                        help='Compiler path')
     parser.add_argument('--test', '-t', help='Run specific test')
     parser.add_argument('--all', '-a', action='store_true', help='Run all tests')
@@ -433,13 +433,15 @@ def main():
     # Resolve compiler path
     compiler = os.path.abspath(args.compiler)
     if not os.path.exists(compiler):
-        print(f"Error: Compiler not found at {compiler}")
-        sys.exit(1)
+        alt = Path(__file__).resolve().parents[2] / 'build' / 'bin' / 'zerocc'
+        if alt.exists():
+            compiler = str(alt)
+        else:
+            print(f"Error: Compiler not found at {compiler}")
+            sys.exit(1)
     
     # Run tests
-    if args.all:
-        summary = run_all_tests(compiler)
-    elif args.test:
+    if args.test:
         # Find specific test
         test_case = next((t for t in TEST_CASES if t.name == args.test), None)
         if not test_case:
@@ -453,8 +455,7 @@ def main():
         
         summary = {'results': [result], 'passed': 1 if result['passed'] else 0, 'total': 1}
     else:
-        parser.print_help()
-        sys.exit(1)
+        summary = run_all_tests(compiler)
     
     # Generate report
     report = generate_report(summary)

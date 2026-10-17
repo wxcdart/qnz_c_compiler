@@ -4,8 +4,8 @@
  */
 
 #include "isa_backend.h"
-#include "../parser/ir.h"
-#include "../parser/regalloc.h"
+#include "../ir/ir.h"
+#include "../ir/regalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,18 +134,19 @@ static void x86_emit_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     }
 }
 
-/* MUL: x86-64 uses rax for multiplication */
+/* MUL: two-operand imulq src, dst (avoids clobbering rax/rdx) */
 static void x86_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     
-    if (src1 != 0) {  /* RAX */
-        fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
-    }
-    fprintf(out, "\timulq\t%%%s\n", src2_name);
-    if (dst != 0) {
-        fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
+    if (dst == src2) {
+        fprintf(out, "\timulq\t%%%s,%%%s\n", src1_name, dst_name);
+    } else {
+        if (dst != src1) {
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
+        }
+        fprintf(out, "\timulq\t%%%s,%%%s\n", src2_name, dst_name);
     }
 }
 
@@ -324,16 +325,24 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
     
     /* Check if this is an indirect call (func_name == NULL) */
     const char *indirect_reg_name = NULL;
     for (int i = 0; i < arg_count; i++) {
         if (is_fp && is_fp[i] == 2) {
             int temp = arg_temps[i];
-            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
-            indirect_reg_name = BE(c)->get_hw_reg_name(phys_reg);
-            /* Save to r11 so argument register moves don't clobber the callee pointer */
-            fprintf(out, "\tmovq\t%%%s,%%r11\n", indirect_reg_name);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                fprintf(out, "\tmovq\t%d(%%rbp),%%r11\n", -off);
+                indirect_reg_name = "r11";
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+                indirect_reg_name = BE(c)->get_hw_reg_name(phys_reg);
+                /* Save to r11 so argument register moves don't clobber the callee pointer */
+                fprintf(out, "\tmovq\t%%%s,%%r11\n", indirect_reg_name);
+            }
         }
     }
 
@@ -349,11 +358,11 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Collect integer argument register names and emit safe parallel move via push/pop */
-    const char *int_src_regs[6];
+    /* Collect integer argument temps and emit safe parallel move via push/pop */
     int n_int_args = 0;
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
+    (void)int_arg_idx;
 
     for (int i = 0; i < arg_count; i++) {
         int arg_is_fp = is_fp ? is_fp[i] : 0;
@@ -361,8 +370,7 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             int temp = arg_temps[i];
             int_arg_temps[total_int_count++] = temp;
             if (n_int_args < 6) {
-                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
-                int_src_regs[n_int_args++] = BE(c)->get_hw_reg_name(phys_reg);
+                n_int_args++;
             }
         }
     }
@@ -373,14 +381,29 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     if (n_stack > 0) {
         if (stack_pad) fprintf(out, "\tsubq\t$8, %%rsp\n");
         for (int a = total_int_count - 1; a >= 6; a--) {
-            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
-            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                fprintf(out, "\tmovq\t%d(%%rbp),%%r10\n", -off);
+                fprintf(out, "\tpushq\t%%r10\n");
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+                fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+            }
         }
     }
 
-    /* Push all src integer registers to stack */
+    /* Push all src integer registers to stack (reloading spilled temps via %r10) */
     for (int i = 0; i < n_int_args; i++) {
-        fprintf(out, "\tpushq\t%%%s\n", int_src_regs[i]);
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            fprintf(out, "\tmovq\t%d(%%rbp),%%r10\n", -off);
+            fprintf(out, "\tpushq\t%%r10\n");
+        } else {
+            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
+            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+        }
     }
     /* Pop in reverse into destination ABI registers */
     for (int i = n_int_args - 1; i >= 0; i--) {

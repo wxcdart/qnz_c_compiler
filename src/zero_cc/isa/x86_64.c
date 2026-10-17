@@ -1,5 +1,5 @@
 #include "isa_backend.h"
-#include "zero_cc/parser/machine_emitter.h"
+#include "zero_cc/ir/machine_emitter.h"
 #include "x86_64_asm.c"  /* Include assembly emission functions */
 #include <string.h>
 

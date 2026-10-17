@@ -24,7 +24,7 @@
 #include "ir.h"
 #include "ir_emit_ops.h"
 #include "../types/types.h"
-#include "parser.h"
+#include "../parser/parser.h"
 #include "../isa/isa_backend.h"
 #include "../types/vregs.h"
 

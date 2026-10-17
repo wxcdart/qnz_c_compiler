@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-17T05:18:30Z
+timestamp: 2026-10-17T14:30:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Optimization Passes & Safety Invariants
 
-Optimization passes are registered in `src/zero_cc/parser/opt_pass.c` (`g_opt_passes`) and execute sequentially over `ZeroCCCompiler`'s `IRArena`.
+Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passes`) and execute sequentially over `ZeroCCCompiler`'s `IRArena`.
 
 ## Active Optimization Pipeline
 
@@ -27,7 +27,7 @@ Optimization passes are registered in `src/zero_cc/parser/opt_pass.c` (`g_opt_pa
 5. **Local Mem2Reg (`opt_mem2reg.c`)**
    - Forwards stack stores (`OP_MOV_MEM`) to subsequent stack loads (`OP_MOV`) within basic blocks to eliminate redundant stack traffic.
    - **Critical Safety Invariants**:
-     - Only tracks 8-byte aligned stack slots (`offset % 8 == 0`).
+     - Only tracks 8-byte aligned stack slots (`offset % 8 == 0`) whose stored source is a virtual register (`temp_src1 >= 16`). Reserved physical registers (`VREG_0`..`VREG_15`, `< 16`) are never forwarded across instructions by `opt_mem2reg.c`, `opt_copy_prop.c`, `opt_cse.c`, or `opt_gvn.c` because their live ranges are not tracked by the general register allocator.
      - When a sub-8-byte or unaligned store occurs (e.g., writing a 4-byte struct field at `-68(%rbp)` via `OP_LEA` + `OP_STORE_32`), **both** overlapping 8-byte boundary slots (`(-offset)/8` and `(-offset + 7)/8`) must be invalidated so stale 64-bit values are never forwarded to subsequent 8-byte struct loads.
      - Invalidates all tracked slots at labels, calls, indirect stores, and for address-taken variables (`OP_LEA`).
 6. **Loop-Invariant Code Motion (`opt_loop.c`)**

@@ -4,8 +4,8 @@
  */
 
 #include "isa_backend.h"
-#include "../parser/ir.h"
-#include "../parser/regalloc.h"
+#include "../ir/ir.h"
+#include "../ir/regalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -296,9 +296,16 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     }
     
     /* Save indirect callee into t1 before clobbering argument registers */
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
     if (!func_name && indirect_temp >= 0) {
-        int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_temp);
-        fprintf(out, "\tmv\tt1, %s\n", BE(c)->get_hw_reg_name(r_callee));
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            BE(c)->emit_load_asm(c, 6 /* t1 */, BE(c)->fp_reg, -off, out);
+        } else {
+            int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_temp);
+            fprintf(out, "\tmv\tt1, %s\n", BE(c)->get_hw_reg_name(r_callee));
+        }
     }
     
     /* Arguments beyond a0-a7 (8 args) go on the stack: 16-byte aligned */
@@ -307,8 +314,15 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     if (n_stack > 0) {
         fprintf(out, "\taddi\tsp, sp, -%d\n", stack_alloc);
         for (int a = 8; a < total_int_count; a++) {
-            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
-            fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(phys_reg), (a - 8) * 8);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 5 /* t0 */, BE(c)->fp_reg, -off, out);
+                fprintf(out, "\tsd\tt0, %d(sp)\n", (a - 8) * 8);
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+                fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(phys_reg), (a - 8) * 8);
+            }
         }
     }
 
@@ -317,7 +331,14 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
         int alloc_bytes = ((int_arg_idx * 8) + 15) & ~15;
         fprintf(out, "\taddi\tsp, sp, -%d\n", alloc_bytes);
         for (int a = 0; a < int_arg_idx; a++) {
-            fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 5 /* t0 */, BE(c)->fp_reg, -off, out);
+                fprintf(out, "\tsd\tt0, %d(sp)\n", a * 8);
+            } else {
+                fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);
+            }
         }
         for (int a = 0; a < int_arg_idx; a++) {
             fprintf(out, "\tld\t%s, %d(sp)\n", int_arg_regs[a], a * 8);

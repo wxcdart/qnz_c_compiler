@@ -383,6 +383,9 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
 
     // Add symbols - local symbols first, then global symbols
     ElfWriterSymbol* symtab_start = symtab;
+    uint16_t sym_remap[ELF_MAX_SYMBOLS + 1];
+    memset(sym_remap, 0, sizeof(sym_remap));
+    uint16_t cur_symtab_idx = 1;
     
     // First pass: add local symbols
     for (int i = 0; i < ctx->symbol_count; i++) {
@@ -396,6 +399,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
             symtab->st_value = sym->value;
             symtab->st_size = sym->size;
             symtab++;
+            if (i + 1 <= ELF_MAX_SYMBOLS) sym_remap[i + 1] = cur_symtab_idx;
+            cur_symtab_idx++;
         }
     }
     
@@ -411,6 +416,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
             symtab->st_value = sym->value;
             symtab->st_size = sym->size;
             symtab++;
+            if (i + 1 <= ELF_MAX_SYMBOLS) sym_remap[i + 1] = cur_symtab_idx;
+            cur_symtab_idx++;
         }
     }
     offset += (ctx->symbol_count + 1) * sizeof(Elf64Sym);
@@ -424,8 +431,12 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         
         for (int i = 0; i < ctx->relocation_count; i++) {
             rela->r_offset = ctx->reloc_offsets[i];
+            uint16_t raw_sym_idx = ctx->reloc_symbol_indices[i];
+            uint16_t mapped_sym_idx = (raw_sym_idx <= ELF_MAX_SYMBOLS && sym_remap[raw_sym_idx] != 0)
+                                          ? sym_remap[raw_sym_idx]
+                                          : raw_sym_idx;
             // r_info = (symbol_index << 32) | relocation_type
-            rela->r_info = ((uint64_t)ctx->reloc_symbol_indices[i] << 32) | ctx->reloc_types[i];
+            rela->r_info = ((uint64_t)mapped_sym_idx << 32) | ctx->reloc_types[i];
             rela->r_addend = ctx->reloc_addends[i];
             rela++;
         }

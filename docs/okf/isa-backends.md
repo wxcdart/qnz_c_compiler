@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-16T04:32:18Z
+timestamp: 2026-10-17T14:30:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -53,10 +53,11 @@ When setting up arguments for `OP_CALL`, source virtual registers may reside in 
 When taking the address of a function (`fn` or `&fn` assigned to a function pointer), `ast_lowering_expr.c` emits `ir_emit_mov_global(temp, fn_name)`:
 - **AOT Assembly (`asm_emitter.c`)**:
   - Checks `zero_cc_find_function(c, sym_name)`. If it is a function symbol, emits `leaq sym(%rip), %reg` to load the function's code address (whereas global data variables emit `movq var(%rip), %reg` to load the variable's value).
-- **AOT ELF Object / Executable (`src/main.c`)**:
-  - Resolves `c->global_relocs[i]` against both `c->globals` (`.data`) and `c->functions` (`.text`) so internal function pointers relocate to their `.text` offset.
-- **JIT Execution (`src/zero_cc/jit/execution.h`)**:
-  - Resolves `c->global_relocs[i]` by checking `c->globals`, then `zero_cc_find_function(c, sym_name)` (computing `(void*)(c->code_buf.data + fn->code_offset)`), and finally `zero_cc_resolve_symbol(sym_name)` (`dlsym`).
+- **AOT ELF Object / Executable (`src/main.c`, `src/zero_cc/jit/elf_writer.c`)**:
+  - Resolves `c->relocs[i]` against `c->globals` (`.data`), `c->functions` (`.text`), and referenced external variables (`extern FILE *stderr;` emitted with `ELF_STT_NOTYPE`).
+  - When `elf_writer_write()` partitions `ELF_STB_LOCAL` symbols ahead of `ELF_STB_GLOBAL` symbols in `.symtab`, it builds `sym_remap[]` and updates every `.rela.text` relocation's `ELF64_R_INFO(new_sym, r_type)` so symbol indices remain synchronized.
+- **JIT Execution (`src/zero_cc/jit/execution.h`, `src/zero_cc/types/symbol_mgmt.h`)**:
+  - Resolves `c->relocs[i]` by checking `c->globals`, then `zero_cc_find_function(c, sym_name)` (computing `(void*)(c->code_buf.data + fn->code_offset)`), and finally `zero_cc_resolve_symbol(sym_name)` (`&stdin`, `&stdout`, `&stderr`, or `dlsym`).
 
 ## Multi-ISA SIMD / Vector Emission (SSE, NEON, RVV 1.0)
 

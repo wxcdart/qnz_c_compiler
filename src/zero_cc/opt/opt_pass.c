@@ -8,7 +8,7 @@
 #include "opt_gvn.h"
 #include "opt_copy_prop.h"
 #include "opt_profile.h"
-#include "ir.h"
+#include "../ir/ir.h"
 
 static OptLevel g_opt_level = OPT_LEVEL_NONE;
 
@@ -58,7 +58,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
         /* Profile: count optimization iterations */
         opt_profile_count_iteration();
 
-        for (int i = 0; i < OPT_PASS_COUNT; i++) {
+        for (size_t i = 0; i < OPT_PASS_COUNT; i++) {
             const OptPass *pass = &g_opt_passes[i];
             int enabled = pass->enabled_by_default;
             if (!enabled) continue;

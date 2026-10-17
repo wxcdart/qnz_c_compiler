@@ -61,9 +61,9 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
 /* Dynamic Symbol Lookup for JIT Mode */
 static inline void* zero_cc_resolve_symbol(const char *name) {
 #ifdef __linux__
-    if (strcmp(name, "stderr") == 0) return (void*)stderr;
-    if (strcmp(name, "stdout") == 0) return (void*)stdout;
-    if (strcmp(name, "stdin") == 0) return (void*)stdin;
+    if (strcmp(name, "stderr") == 0) return (void*)&stderr;
+    if (strcmp(name, "stdout") == 0) return (void*)&stdout;
+    if (strcmp(name, "stdin") == 0) return (void*)&stdin;
     void *sym = dlsym(RTLD_DEFAULT, name);
     return sym;
 #else

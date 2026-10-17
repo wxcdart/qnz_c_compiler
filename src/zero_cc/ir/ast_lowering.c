@@ -12,21 +12,10 @@
  */
 
 #include "ast_lowering_internal.h"
-
-/* Assembly emission from IR */
-#include "asm_emitter.c"
-
-/* Statement lowering (block, if, while, for, switch, return, decl, etc.) */
-#include "ast_lowering_stmt.c"
-
-/* Expression lowering (arithmetic, calls, member access, casts, ternary, etc.) */
-#include "ast_lowering_expr.c"
-
-/* Machine code emission from IR */
-#include "ast_lowering_mc.c"
-
-/* Optimization passes */
-#include "opt_pass.c"
+#include "asm_emitter.h"
+#include "../opt/opt_pass.h"
+#include <stdio.h>
+#include <string.h>
 
 /* =========================================================================
  * Main Entry Point
@@ -85,8 +74,23 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             ZeroCCSym *sym = &c->locals[p];
             if (!sym->is_param) continue;
             bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+            bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8;
 
-            if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
+            if (is_multi_chunk_struct) {
+                int num_chunks = (int)((sym->type.size + 7) / 8);
+                for (int ch = 0; ch < num_chunks; ch++) {
+                    int32_t chunk_off = sym->stack_offset - ch * 8;
+                    if (int_idx < BE(c)->conv->int_arg_reg_count) {
+                        ir_emit_param_save_int(int_idx, chunk_off);
+                        int_idx++;
+                    } else {
+                        int32_t caller_off = 16 + 8 * stack_idx;
+                        ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(VREG_0, BE(c)->fp_reg, -chunk_off);
+                        stack_idx++;
+                    }
+                }
+            } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                 ir_emit_param_save_fp(xmm_idx, sym->stack_offset);
                 xmm_idx++;
             } else if (!is_fp && int_idx < BE(c)->conv->int_arg_reg_count) {
@@ -150,6 +154,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->current_stack_frame = BE(c)->callee_save_frame_reserve;
     }
     int32_t spill_base_offset = c->current_stack_frame;
+    c->regalloc.spill_base_offset = spill_base_offset;
     if (c->regalloc.next_spill_slot > 0) {
         c->current_stack_frame += c->regalloc.next_spill_slot * 8;
     }

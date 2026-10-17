@@ -1,6 +1,6 @@
 #include "opt_copy_prop.h"
 #include "opt_profile.h"
-#include "ir.h"
+#include "../ir/ir.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,10 +36,10 @@ static void copy_prop_reset_block(void) {
 }
 
 /**
- * Check if temp is the return register (temp 0)
+ * Check if temp is a reserved physical register (temps 0..15)
  */
 static int copy_prop_is_return_reg(uint8_t temp) {
-    return temp == 0;
+    return temp < 16;
 }
 
 /**
@@ -47,7 +47,7 @@ static int copy_prop_is_return_reg(uint8_t temp) {
  * Returns the original source temp
  */
 static uint8_t copy_prop_get_source(uint8_t temp) {
-    if (temp == 0xFF || temp == 0) {
+    if (temp == 0xFF || temp < 16) {
         return temp;
     }
     
@@ -64,7 +64,7 @@ static uint8_t copy_prop_get_source(uint8_t temp) {
  * Invalidate copy for a temp and anything that copies it
  */
 static void copy_prop_invalidate(uint8_t temp) {
-    if (temp == 0xFF || temp == 0) {
+    if (temp == 0xFF || temp < 16) {
         return;
     }
     
@@ -157,18 +157,18 @@ static int copy_prop_replace(Instr *instr) {
     int changed = 0;
     
     /* Replace first source */
-    if (instr->temp_src1 != 0xFF && instr->temp_src1 != 0) {
+    if (instr->temp_src1 != 0xFF && instr->temp_src1 >= 16) {
         uint8_t new_src1 = copy_prop_get_source(instr->temp_src1);
-        if (new_src1 != instr->temp_src1 && new_src1 != 0xFF && new_src1 != 0) {
+        if (new_src1 != instr->temp_src1 && new_src1 != 0xFF && new_src1 >= 16) {
             instr->temp_src1 = new_src1;
             changed = 1;
         }
     }
     
     /* Replace second source */
-    if (instr->temp_src2 != 0xFF && instr->temp_src2 != 0) {
+    if (instr->temp_src2 != 0xFF && instr->temp_src2 >= 16) {
         uint8_t new_src2 = copy_prop_get_source(instr->temp_src2);
-        if (new_src2 != instr->temp_src2 && new_src2 != 0xFF && new_src2 != 0) {
+        if (new_src2 != instr->temp_src2 && new_src2 != 0xFF && new_src2 >= 16) {
             instr->temp_src2 = new_src2;
             changed = 1;
         }
@@ -217,7 +217,7 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
         
         /* Then, handle the definition */
         if (instr_defines_temp(instr)) {
-            /* Don't track copies for return register */
+            /* Don't track copies for physical registers */
             if (copy_prop_is_return_reg(instr->temp_dest)) {
                 continue;
             }
@@ -228,8 +228,8 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
             /* If this is a MOV between temps, record the copy */
             if (instr->op == OP_MOV_REG) {
                 uint8_t src = copy_prop_get_source(instr->temp_src1);
-                /* Only record if source is valid and not return reg */
-                if (src != instr->temp_dest && src != 0xFF && src != 0) {
+                /* Only record if source is a valid virtual temp */
+                if (src != instr->temp_dest && src != 0xFF && src >= 16) {
                     g_copy_map[instr->temp_dest] = src;
                 }
             }

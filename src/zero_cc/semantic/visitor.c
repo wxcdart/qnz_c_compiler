@@ -209,8 +209,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_CAST: {
             (void)sem_analyze_ref(ctx, node->left);
-            /* Cast target type will be set by full semantic passes */
-            res = type_int(ctx->perm_arena);
+            /* Preserve cast target type annotated by parser or default to int */
+            TypeInfo *dst_t = expr_node_type(ctx, node);
+            res = dst_t ? dst_t : type_int(ctx->perm_arena);
             break;
         }
         case NODE_INDEX: {

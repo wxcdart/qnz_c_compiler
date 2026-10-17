@@ -422,12 +422,29 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     }
                     else m->tag = TYPE_INT32;
                     if (is_ptr) {
-                        m->tag = TYPE_PTR;
                         ZeroCCType dummy;
                         memset(&dummy, 0, sizeof(dummy));
+                        dummy.tag = m->tag;
+                        dummy.size = base_size;
+                        dummy.align = base_align;
                         dummy.is_const = member_is_const;
                         dummy.is_volatile = member_is_volatile;
+                        m->tag = TYPE_PTR;
                         m->base = zero_cc_type_alloc_base(&dummy);
+                    } else if (!is_bitfield && (elem_count > 1 || is_flexible)) {
+                        ZeroCCType elem_t;
+                        if (m->base) {
+                            elem_t = *m->base;
+                        } else {
+                            memset(&elem_t, 0, sizeof(elem_t));
+                            elem_t.tag = m->tag;
+                            elem_t.size = base_size;
+                            elem_t.align = base_align;
+                        }
+                        elem_t.is_const = member_is_const;
+                        elem_t.is_volatile = member_is_volatile;
+                        m->tag = TYPE_ARRAY;
+                        m->base = zero_cc_type_alloc_base(&elem_t);
                     }
                     if (m->size > max_size) max_size = m->size;
                 }
@@ -535,12 +552,29 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                         else m->tag = TYPE_INT32;
                         if (is_ptr) {
-                            m->tag = TYPE_PTR;
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
+                            dummy.tag = m->tag;
+                            dummy.size = base_size;
+                            dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
+                            m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
+                        } else if (elem_count > 1 || is_flexible) {
+                            ZeroCCType elem_t;
+                            if (m->base) {
+                                elem_t = *m->base;
+                            } else {
+                                memset(&elem_t, 0, sizeof(elem_t));
+                                elem_t.tag = m->tag;
+                                elem_t.size = base_size;
+                                elem_t.align = base_align;
+                            }
+                            elem_t.is_const = member_is_const;
+                            elem_t.is_volatile = member_is_volatile;
+                            m->tag = TYPE_ARRAY;
+                            m->base = zero_cc_type_alloc_base(&elem_t);
                         }
                         if (!is_flexible) {
                             current_offset += m->size;
@@ -631,12 +665,29 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                         else m->tag = TYPE_INT32;
                         if (c_is_ptr) {
-                            m->tag = TYPE_PTR;
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
+                            dummy.tag = m->tag;
+                            dummy.size = base_size;
+                            dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
+                            m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
+                        } else if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) {
+                            ZeroCCType elem_t;
+                            if (m->base) {
+                                elem_t = *m->base;
+                            } else {
+                                memset(&elem_t, 0, sizeof(elem_t));
+                                elem_t.tag = m->tag;
+                                elem_t.size = base_size;
+                                elem_t.align = base_align;
+                            }
+                            elem_t.is_const = member_is_const;
+                            elem_t.is_volatile = member_is_volatile;
+                            m->tag = TYPE_ARRAY;
+                            m->base = zero_cc_type_alloc_base(&elem_t);
                         }
                         if (m->size > max_size) max_size = m->size;
                     }
@@ -675,12 +726,29 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                         else m->tag = TYPE_INT32;
                         if (c_is_ptr) {
-                            m->tag = TYPE_PTR;
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
+                            dummy.tag = m->tag;
+                            dummy.size = base_size;
+                            dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
+                            m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
+                        } else if (c_elem_count > 1 || c_is_flexible) {
+                            ZeroCCType elem_t;
+                            if (m->base) {
+                                elem_t = *m->base;
+                            } else {
+                                memset(&elem_t, 0, sizeof(elem_t));
+                                elem_t.tag = m->tag;
+                                elem_t.size = base_size;
+                                elem_t.align = base_align;
+                            }
+                            elem_t.is_const = member_is_const;
+                            elem_t.is_volatile = member_is_volatile;
+                            m->tag = TYPE_ARRAY;
+                            m->base = zero_cc_type_alloc_base(&elem_t);
                         }
                         if (!c_is_flexible) {
                             current_offset += m->size;
@@ -735,8 +803,51 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
+                if (st.struct_name[0] == '\0') {
+                    snprintf(st.struct_name, sizeof(st.struct_name), "%s", alias);
+                }
                 zero_cc_register_struct(c, alias, st);
                 if (is_typedef) {
+                    zero_cc_register_typedef(c, alias, st);
+                }
+            }
+            if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            return;
+        } else if (st_name[0] != '\0') {
+            /* Opaque / forward struct typedef or declaration: e.g. typedef struct FILE FILE; */
+            ZeroCCType *existing = zero_cc_find_struct(c, st_name);
+            ZeroCCType st;
+            if (existing) {
+                st = *existing;
+            } else {
+                memset(&st, 0, sizeof(st));
+                st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
+                st.size = 8;
+                st.align = 8;
+                snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
+                zero_cc_register_struct(c, st_name, st);
+            }
+            int ptr_depth = 0;
+            while (c->tokens[c->token_pos].type == TK_STAR) {
+                ptr_depth++;
+                c->token_pos++;
+            }
+            for (int pd = 0; pd < ptr_depth; pd++) {
+                st = zero_cc_type_ptr(&st);
+            }
+            if (is_typedef) {
+                char alias[128] = "";
+                if (c->tokens[c->token_pos].type == TK_IDENT) {
+                    snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                } else if (ptr_depth == 0) {
+                    /* Handle case where st_name itself was the alias */
+                    snprintf(alias, sizeof(alias), "%s", st_name);
+                }
+                if (alias[0] != '\0') {
+                    if (st.tag == TYPE_STRUCT || st.tag == TYPE_UNION) {
+                        zero_cc_register_struct(c, alias, st);
+                    }
                     zero_cc_register_typedef(c, alias, st);
                 }
             }

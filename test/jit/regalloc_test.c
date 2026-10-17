@@ -179,6 +179,49 @@ int main(void) {
         assert(run_snippet(src) == 52);
     }
 
+    /* Test 11: Spilled intervals spanning calls in both JIT and AOT assembly emission */
+    {
+        const char *src =
+            "int clobber(int x, int y, int z, int w, int u, int v) {\n"
+            "    return x + y + z + w + u + v;\n"
+            "}\n"
+            "int main(void) {\n"
+            "    int x = 1;\n"
+            "    int a = x + 1; int b = x + 2; int c = x + 3; int d = x + 4;\n"
+            "    int e = x + 5; int f = x + 6; int g = x + 7;\n"
+            "    int res = (a * 2) + (b * 3) + (c * 4) + (d * 5) + (e * 6) + (f * 7) + (g * 8)\n"
+            "              + clobber(a, b, c, d, e, f);\n"
+            "    return res - 100;\n"
+            "}\n";
+        /* a=2,b=3,c=4,d=5,e=6,f=7,g=8
+         * 4 + 9 + 16 + 25 + 36 + 49 + 64 = 203
+         * clobber(2,3,4,5,6,7) = 27
+         * res - 100 = 230 - 100 = 130 */
+        assert(run_snippet(src) == 130);
+
+        ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+        assert(comp != NULL);
+        char *asm_text = NULL;
+        size_t asm_len = 0;
+        comp->emit_asm = 1;
+        comp->asm_out = open_memstream(&asm_text, &asm_len);
+        assert(comp->asm_out != NULL);
+        char *prep = zero_cc_preprocess(src, NULL);
+        assert(prep != NULL);
+        zero_cc_tokenize_c99(prep, comp);
+        free(prep);
+        zero_cc_compile_c99(comp);
+        fclose(comp->asm_out);
+        comp->asm_out = NULL;
+        assert(asm_text != NULL && asm_len > 0 && !comp->had_error);
+        free(asm_text);
+        zero_cc_buf_free(&comp->text_section);
+        zero_cc_buf_free(&comp->rodata_section);
+        zero_cc_buf_free(&comp->data_section);
+        free(comp->tokens);
+        free(comp);
+    }
+
     printf("All register allocation tests passed.\n");
     return 0;
 }

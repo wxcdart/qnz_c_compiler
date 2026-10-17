@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #include "../types/types.h"
-#include "parser.h"
+#include "../parser/parser.h"
 #include "ir_emitter.h"
 #include "ir_emit_ops.h"
 #include "machine_emitter.h"
@@ -135,11 +135,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     c->last_expr_is_float = 0;
                     return;
                 } else {
-                    /* If initializer was a compound literal storing directly to an array variable, don't overwrite */
+                    /* If initializer was a brace initializer storing directly to sym in-place, don't overwrite */
                     ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
+                    bool is_inplace_brace_init = (init_node && init_node->tag == NODE_COMPOUND_LIT &&
+                                                  init_node->s.str && strcmp(init_node->s.str, sym->name) == 0);
                     if (!(sym->type.tag == TYPE_ARRAY && init_node && init_node->tag == NODE_COMPOUND_LIT)) {
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
-                            if (!(init_node && init_node->tag == NODE_COMPOUND_LIT)) {
+                            if (!is_inplace_brace_init) {
                                 /* System V AMD64 ABI: sret buffer pointer in result_temp.
                                  * Spill result_temp to a stack slot so offset additions don't clobber it.
                                  * Copy chunks from [result_temp + i*8] to local stack -(sym->stack_offset - i*8) */
@@ -186,6 +188,9 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     }
                                 }
                             }
+                        } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                                   is_inplace_brace_init) {
+                            /* Struct/union already initialized in-place by brace initializer */
                         } else {
                             /* Integer or small struct assignment: use IR store */
                             ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);

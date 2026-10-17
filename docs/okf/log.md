@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-17T11:51:07Z
+timestamp: 2026-10-17T14:30:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -68,3 +68,21 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-17 — Updated `index.md`
 - List C11 and VLA verifier suites in root OKF index
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Unify ZeroCCType and TypeInfo construction and AST type queries via canonical type_info.h bridge
+
+## 2026-10-17 — Updated `architecture-pipeline.md`
+- Convert ast_lowering.c, ast_lowering_stmt.c, ast_lowering_expr.c, ast_lowering_mc.c, asm_emitter.c, and opt_pass.c from unity-included .c files into standalone .o translation units
+
+## 2026-10-17 — Updated `architecture-pipeline.md`
+- Split src/zero_cc/parser/ into parser/ (AST construction), ir/ (IR, lowering, regalloc, codegen), and opt/ (optimization passes)
+
+## 2026-10-17 — Updated `ir-and-regalloc.md`
+- Mirror scratch-register spill reload/store in asm_emitter.c, enforce callee-saved-only allocation for spans_call intervals, and emit callee-save stores in emit_prologue_mc
+
+## 2026-10-17 — Updated `ir-and-regalloc.md`
+- Unified register allocator spill/reload across JIT/AOT and enabled prologue callee-saved register stores (OP_CALLEE_SAVE_STORES)
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Verified standalone C99/C11 compilation across 29/29 test files: multi-level pointers, opaque struct typedefs, struct array members, nested brace initializers, multi-declarator extern, and arbitrary va_arg types
