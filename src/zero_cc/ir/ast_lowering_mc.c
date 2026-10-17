@@ -126,6 +126,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_neg(c, phys_dst, phys_src1);
                 }
                 break;
+
+            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+                if (BE(c)->emit_extend) {
+                    int ext_width = (instr->op == OP_SEXT16 || instr->op == OP_ZEXT16) ? 2
+                                     : (instr->op == OP_SEXT32 || instr->op == OP_ZEXT32) ? 4 : 1;
+                    int ext_sign  = (instr->op >= OP_SEXT8 && instr->op <= OP_SEXT32) ? 1 : 0;
+                    BE(c)->emit_extend(c, phys_dst, phys_src1, ext_width, ext_sign);
+                }
+                break;
             
             case OP_MUL:
                 BE(c)->emit_mul(c, phys_dst, phys_src1, phys_src2);
@@ -975,6 +985,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             
             default:
                 break;
+        }
+
+        /* C99 width semantics: if the op produced a narrow-int result,
+         * extend it to full 64-bit width now (sign or zero per the mark),
+         * before any spill-back so the stored value is the extended one. */
+        if (instr->width != 0 && instr->temp_dest != 0xFF && BE(c)->emit_extend) {
+            BE(c)->emit_extend(c, phys_dst, phys_dst,
+                               (int)(instr->width & 7), (instr->width < 8) ? 1 : 0);
         }
 
         /* If destination temp was spilled, store scratch register (r10) back to frame spill slot */

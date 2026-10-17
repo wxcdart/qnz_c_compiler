@@ -236,6 +236,10 @@ void ir_dump(FILE *f) {
                          break;
             case OP_NEG: fprintf(f, "NEG r%u, r%u", instr->temp_dest, instr->temp_src1);
                          break;
+            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+                fprintf(f, "%s r%u", ir_opcode_name(instr->op), instr->temp_src1);
+                break;
             case OP_NOT: fprintf(f, "NOT r%u, r%u", instr->temp_dest, instr->temp_src1);
                          break;
             case OP_CMP: fprintf(f, "CMP r%u, ", instr->temp_src1);

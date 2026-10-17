@@ -194,6 +194,24 @@ static void riscv_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift, F
     fprintf(out, "\tsra\t%s, %s, %s\n", dst_name, src_name, shift_name);
 }
 
+/* SEXT/ZEXT: in-place, via slli+srai (sext) or andi / slli+srli (zext). */
+static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src_name = BE(c)->get_hw_reg_name(src);
+    int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
+    if (sign) {
+        fprintf(out, "\tslli\t%s, %s, %d\n", dst_name, src_name, shamt);
+        fprintf(out, "\tsrai\t%s, %s, %d\n", dst_name, dst_name, shamt);
+    } else if (width == 1) {
+        fprintf(out, "\tandi\t%s, %s, 0xff\n", dst_name, src_name);
+    } else if (width == 2) {
+        fprintf(out, "\tandi\t%s, %s, 0xffff\n", dst_name, src_name);
+    } else {
+        fprintf(out, "\tslli\t%s, %s, 32\n", dst_name, src_name);
+        fprintf(out, "\tsrli\t%s, %s, 32\n", dst_name, dst_name);
+    }
+}
+
 /* CMP: sub t0, src1, src2 */
 static void riscv_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
@@ -747,6 +765,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_shl_asm = riscv_emit_shl_asm;
     be->emit_shr_asm = riscv_emit_shr_asm;
     be->emit_sar_asm = riscv_emit_sar_asm;
+    be->emit_extend_asm = riscv_emit_extend_asm;
     be->emit_cmp_asm = riscv_emit_cmp_asm;
     be->emit_cond_set_asm = riscv_emit_cond_set_asm;
     be->emit_neg_asm = riscv_emit_neg_asm;

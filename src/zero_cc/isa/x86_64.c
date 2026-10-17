@@ -653,6 +653,79 @@ static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     x86_modrm(c, 3, 3, dst);
 }
 
+/* In-place width extension (dst == src expected). Verified encodings:
+ * zext32: mov r32, r32 (0x89) - any 32-bit write clears the upper 32 bits
+ *         (x86-64 has no MOVZX r64, r/m32!)
+ * zext16: movzx r64, r/m16 (REX.W 0F B7)
+ * zext8:  movzx r64, r/m8  (REX.W 0F B6)
+ * sext32: movsxd r64, r/m32 (REX.W 63)
+ * sext16: movsx r32, r/m16 (0F BF) then movsxd r64, r32 (REX.W 63)
+ * sext8:  movsx r32, r/m8  (0F BE) then movsxd r64, r32 (REX.W 63) */
+static void x86_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
+    if (width == 4) {
+        if (sign) {
+            x86_rex(c, 1, (dst >> 3) & 1, 0, (src >> 3) & 1);
+            me_emit_u8(c, 0x63);
+            x86_modrm(c, 3, dst, dst);
+        } else {
+            /* mov r32, r32 (in-place: clears upper 32 bits) */
+            x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+            me_emit_u8(c, 0x89);
+            x86_modrm(c, 3, dst, src);
+        }
+        return;
+    }
+    if (width == 1) {
+        /* Byte register r/m8 encoding (verified against the GNU assembler:
+         * movzbl %bl -> 0F B6 C3, %dh -> 0F B6 C6, %sil -> 40 0F B6 C6,
+         * %dil -> 40 0F B6 C7, %bpl -> 40 0F B6 C5, %spl -> 40 0F B6 C4).
+         * The modrm 0-7 field is NOT 1:1 with the register index:
+         * phys 4-7 (rsp/rbp/rsi/rdi) need the REX X-bit, 8-15 the B-bit. */
+        static const int byte_rex_x[] = {0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+        static const int byte_rex_b[] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1};
+        int rm = src & 7;
+        int rex_x = byte_rex_x[src];
+        int rex_b = byte_rex_b[src];
+        int rex_r = (dst >> 3) & 1;
+        if (sign) {
+            /* movsx r32, r/m8 (byte-mapped rm), then movsxd r64, r32
+             * (32-bit register operand: normal modrm index). */
+            x86_rex(c, 0, rex_r, rex_x, rex_b);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0xBE);
+            x86_modrm(c, 3, dst, rm);
+            x86_rex(c, 1, rex_r, 0, (src >> 3) & 1);
+            me_emit_u8(c, 0x63);
+            x86_modrm(c, 3, dst, src);
+        } else {
+            /* movzx r64, r/m8 */
+            x86_rex(c, 1, rex_r, rex_x, rex_b);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0xB6);
+            x86_modrm(c, 3, dst, rm);
+        }
+        return;
+    }
+    /* width 2 */
+    if (!sign) {
+        /* movzx r64, r/m16 - single instruction */
+        x86_rex(c, 1, (dst >> 3) & 1, 0, (src >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB7);
+        x86_modrm(c, 3, dst, dst);
+        return;
+    }
+    /* sext8/16: movsx r32, src then movsxd r64, r32.
+     * 0F BE = MOVSX r32,r/m8 (byte); 0F BF = MOVSX r32,r/m16 (word). */
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xBF);
+    x86_modrm(c, 3, dst, src);
+    x86_rex(c, 1, (dst >> 3) & 1, 0, (dst >> 3) & 1);
+    me_emit_u8(c, 0x63);
+    x86_modrm(c, 3, dst, dst);
+}
+
 static void x86_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* mov dst, [base + offset] */
     x86_rm(c, 0x8B, dst_reg, base_reg, offset);
@@ -1536,6 +1609,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_cmp = x86_emit_cmp,
     .emit_cond_set = x86_emit_cond_set,
     .emit_neg = x86_emit_neg,
+    .emit_extend = x86_emit_extend,
     .emit_test = x86_emit_test,
     .emit_cqo = x86_emit_cqo,
     .emit_idiv = x86_emit_idiv,
@@ -1656,6 +1730,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_shl_asm = x86_emit_shl_asm,
     .emit_shr_asm = x86_emit_shr_asm,
     .emit_sar_asm = x86_emit_sar_asm,
+    .emit_extend_asm = x86_emit_extend_asm,
     .emit_cmp_asm = x86_emit_cmp_asm,
     .emit_cond_set_asm = x86_emit_cond_set_asm,
     .emit_neg_asm = x86_emit_neg_asm,

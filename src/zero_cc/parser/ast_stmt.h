@@ -510,7 +510,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
     if (is_type_specifier(c, t)) {
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
+        bool decl_is_unsigned = false;
         c->token_pos++;
+        /* Consume a leading signed/unsigned qualifier: `unsigned char x;`,
+         * `signed short y;`, bare `unsigned z;`. Without this the base
+         * specifier is misread and narrow-int locals/params get the wrong
+         * signedness tag (e.g. `unsigned char` -> TYPE_INT8). */
+        if (type_tok == TK_UNSIGNED || type_tok == TK_SIGNED) {
+            decl_is_unsigned = (type_tok == TK_UNSIGNED);
+            if (c->token_pos < c->token_count &&
+                (c->tokens[c->token_pos].type == TK_INT ||
+                 c->tokens[c->token_pos].type == TK_CHAR ||
+                 c->tokens[c->token_pos].type == TK_SHORT ||
+                 c->tokens[c->token_pos].type == TK_LONG)) {
+                type_tok = c->tokens[c->token_pos].type;
+                type_start_pos = c->token_pos;
+                c->token_pos++;
+                if (type_tok == TK_LONG && c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+            } else {
+                type_tok = TK_INT;  /* bare `unsigned` / `signed` */
+            }
+        }
         if (type_tok == TK_STRUCT || type_tok == TK_UNION || type_tok == TK_ENUM) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 type_start_pos = c->token_pos;
@@ -648,6 +669,25 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         break; // error
                     }
                     c->token_pos++;
+                    /* signed/unsigned parameter qualifier (C11 6.7.5): the
+                     * signedness token precedes the base specifier. */
+                    bool param_is_unsigned = false;
+                    if (param_type_tok == TK_UNSIGNED || param_type_tok == TK_SIGNED) {
+                        param_is_unsigned = (param_type_tok == TK_UNSIGNED);
+                        if (c->token_pos < c->token_count &&
+                            (c->tokens[c->token_pos].type == TK_INT ||
+                             c->tokens[c->token_pos].type == TK_CHAR ||
+                             c->tokens[c->token_pos].type == TK_SHORT ||
+                             c->tokens[c->token_pos].type == TK_LONG)) {
+                            ptype_pos = c->token_pos;
+                            param_type_tok = c->tokens[c->token_pos].type;
+                            c->token_pos++;
+                            if (param_type_tok == TK_LONG && c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+                        } else {
+                            param_type_tok = TK_INT;
+                        }
+                    }
                     const char *param_tag_name = NULL;
                     if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION || param_type_tok == TK_ENUM) &&
                         c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
@@ -702,6 +742,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         /* Store parameter type info via canonical resolver and bridge */
                         const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
                         ZeroCCType ptype = zero_cc_resolve_base_type(c, param_type_tok, ptname);
+                        /* Apply the signedness qualifier (resolver returns signed variants). */
+                        if (param_is_unsigned) {
+                            if (ptype.tag == TYPE_INT8) ptype.tag = TYPE_UINT8;
+                            else if (ptype.tag == TYPE_INT16) ptype.tag = TYPE_UINT16;
+                            else if (ptype.tag == TYPE_INT32) ptype.tag = TYPE_UINT32;
+                            else if (ptype.tag == TYPE_INT64) ptype.tag = TYPE_UINT64;
+                        }
                         ptype.is_const = param_is_const;
                         ptype.is_volatile = param_is_volatile;
                         for (int pd = 0; pd < param_ptr_depth; pd++) {
@@ -733,6 +780,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             if (is_function) {
                 /* Build canonical return type and function TypeInfo */
                 ZeroCCType ret_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                if (decl_is_unsigned) {
+                    if (ret_type.tag == TYPE_INT8) ret_type.tag = TYPE_UINT8;
+                    else if (ret_type.tag == TYPE_INT16) ret_type.tag = TYPE_UINT16;
+                    else if (ret_type.tag == TYPE_INT32) ret_type.tag = TYPE_UINT32;
+                    else if (ret_type.tag == TYPE_INT64) ret_type.tag = TYPE_UINT64;
+                }
                 for (int pd = 0; pd < ptr_depth; pd++) ret_type = zero_cc_type_ptr(&ret_type);
                 TypeInfo *ret_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ret_type);
                 TypeInfo *param_tis[16];
@@ -867,6 +920,14 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
 
                 ZeroCCType decl_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                /* Apply the signedness qualifier (zero_cc_resolve_base_type
+                 * always returns the signed variant for int base types). */
+                if (decl_is_unsigned) {
+                    if (decl_type.tag == TYPE_INT8) decl_type.tag = TYPE_UINT8;
+                    else if (decl_type.tag == TYPE_INT16) decl_type.tag = TYPE_UINT16;
+                    else if (decl_type.tag == TYPE_INT32) decl_type.tag = TYPE_UINT32;
+                    else if (decl_type.tag == TYPE_INT64) decl_type.tag = TYPE_UINT64;
+                }
                 decl_type.is_const = is_const;
                 decl_type.is_volatile = is_volatile;
                 decl_type.is_atomic = is_atomic;

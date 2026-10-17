@@ -225,6 +225,25 @@ static void riscv64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     riscv_emit_u32(c, 0x40000033 | (RV_REG(dst) << 7) | (RV_REG(src) << 20));
 }
 
+/* In-place width extension.
+ * sext: slli rd,rs,N; srai rd,rd,N   (N = 56/48/32 for 8/16/32-bit)
+ * zext8/16: andi rd,rs,mask
+ * zext32: slli rd,rd,32; srli rd,rd,32 */
+static void riscv64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
+    if (sign) {
+        int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
+        riscv_emit_u32(c, 0x00000013 | ((uint32_t)shamt << 20) | (RV_REG(dst) << 7) | (RV_REG(src) << 15));            /* slli */
+        riscv_emit_u32(c, 0x40000013 | ((uint32_t)shamt << 20) | (RV_REG(dst) << 7) | (RV_REG(dst) << 15)); /* srai */
+    } else if (width == 1) {
+        riscv_emit_u32(c, 0x00000013 | (0xFFu << 20) | (RV_REG(dst) << 7) | (RV_REG(src) << 15));  /* andi */
+    } else if (width == 2) {
+        riscv_emit_u32(c, 0x00000013 | (0xFFFFu << 20) | (RV_REG(dst) << 7) | (RV_REG(src) << 15));
+    } else {
+        riscv_emit_u32(c, 0x00000013 | (32u << 20) | (RV_REG(dst) << 7) | (RV_REG(src) << 15));                            /* slli */
+        riscv_emit_u32(c, 0x00000013 | (32u << 20) | (RV_REG(dst) << 7) | (RV_REG(dst) << 15));      /* srli */
+    }
+}
+
 static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* ld dst, offset(base) */
     riscv_emit_u32(c, 0x00000003 | (RV_REG(dst_reg) << 7) | (RV_REG(base_reg) << 15) | ((offset & 0xFFF) << 20));
@@ -827,6 +846,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_cond_set = riscv64_emit_cond_set,
     .emit_jcond = riscv64_emit_jcond,
     .emit_neg = riscv64_emit_neg,
+    .emit_extend = riscv64_emit_extend,
     .emit_test = riscv64_emit_test,
     .emit_cqo = riscv64_emit_cqo,
     .emit_idiv = riscv64_emit_idiv,
@@ -919,6 +939,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_shl_asm = riscv_emit_shl_asm,
     .emit_shr_asm = riscv_emit_shr_asm,
     .emit_sar_asm = riscv_emit_sar_asm,
+    .emit_extend_asm = riscv_emit_extend_asm,
     .emit_cmp_asm = riscv_emit_cmp_asm,
     .emit_cond_set_asm = riscv_emit_cond_set_asm,
     .emit_neg_asm = riscv_emit_neg_asm,

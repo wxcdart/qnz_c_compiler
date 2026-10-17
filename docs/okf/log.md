@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-17T20:53:11Z
+timestamp: 2026-10-17T23:46:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -98,3 +98,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-17 — Updated `scalar-float-x86.md`
 - Added scalar-float-x86 page: double-width FP model, VLOADSS/SD emitters, XMM/VEC classing, WSL2 128-bit RX-read GPF workaround
+
+## 2026-10-17 — Updated `frontend-and-types.md`
+- Sprint 22: signedness tags end-to-end, narrow-int width extension at value boundaries, both param parser paths
+
+## 2026-10-17 — Updated `isa-backends.md`
+- Sprint 22: OP_SEXT/ZEXT emitters all ISAs, x86 byte-register ModRM trap (verified against GNU as), GAS syntax limits

@@ -84,6 +84,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_shl_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
     void (*emit_shr_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
     void (*emit_sar_asm)(ZeroCCCompiler *c, int dst, int src, int shift, FILE *out);
+    void (*emit_extend_asm)(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out); /* width 1/2/4, sign 0=zext 1=sext */
     void (*emit_cmp_asm)(ZeroCCCompiler *c, int src1, int src2, FILE *out);
     void (*emit_cond_set_asm)(ZeroCCCompiler *c, int dst, int cond, FILE *out);
     void (*emit_neg_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -158,6 +159,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_cmp)(ZeroCCCompiler *c, int src1, int src2);
     void (*emit_cond_set)(ZeroCCCompiler *c, int dst, int cond);
     void (*emit_neg)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_extend)(ZeroCCCompiler *c, int dst, int src, int width, int sign); /* width 1/2/4, sign 0=zext 1=sext, in-place */
     void (*emit_test)(ZeroCCCompiler *c, int src1, int src2);
     void (*emit_cqo)(ZeroCCCompiler *c);
     void (*emit_idiv)(ZeroCCCompiler *c, int src);

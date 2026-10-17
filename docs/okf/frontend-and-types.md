@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-17T20:23:56Z
+timestamp: 2026-10-17T23:46:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -23,6 +23,15 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
    - `zero_cc_resolve_base_type(c, type_tok, type_name)`: Single source of truth for resolving base declaration, parameter, and return types (primitives, structs, unions, enums, and typedefs).
    - `zero_cc_type_to_typeinfo(perm, t)` and `typeinfo_to_zero_cc_type(ti)`: Bidirectional conversion between `ZeroCCType` and `TypeInfo *`, preserving pointers, function pointers (`is_func_ptr`), multi-dimensional arrays/VLAs, structs/unions, enums, and qualifiers (`const`, `volatile`, `restrict`, `_Atomic`). The parser constructs `ZeroCCType` once per declarator and derives `TypeInfo *` via `zero_cc_type_to_typeinfo()` rather than building parallel type trees.
    - `ast_node_set_typeinfo(c, node, ti)` and `ast_node_get_typeinfo(c, node)`: Canonical accessors for attaching and querying semantic `TypeInfo *` on `ZeroCCASTNode.aux.extra` across parser (`ast_expr.h`), semantic analyzer (`visitor.c`), and IR lowering (`ast_lowering_expr.c`).
+
+## Signedness & Narrow-Int Correctness (C1)
+
+All C int types carry an explicit signedness tag end-to-end, and every narrow-int value is re-extended to 64-bit double-word at every value boundary:
+
+- **Tags**: `ZeroCCType.tag` uses `TYPE_UINT8/16/32/64` (not the signed variants) for `unsigned char/short/int/long`; `TypeInfo` uses `TYPE_MOD_UNSIGNED` on `TYPE_KIND_CHAR/SHORT/INT/LONG`. Both directions of the bridge preserve it: `zero_cc_type_to_typeinfo` maps `TYPE_UINT8→type_uchar` etc., and `typeinfo_to_zero_cc_type` maps back via the `TYPE_MOD_UNSIGNED` modifier.
+- **Parser signedness consumption**: a leading `signed`/`unsigned` token is consumed before the base specifier in every declaration path — locals/declarations (`ast_stmt.h`, `decl_is_unsigned`), function parameters (**two** parser paths: `ast_stmt.h` and the legacy `jit/compile.h`), function return types (`jit/compile.h`), struct members (`definitions.h`, all six tag sites use `is_unsigned ? TYPE_UINTn : TYPE_INTn`), file-scope globals (`compile_unit.h` via `zero_cc_parse_type_name`), and cast/initializer type names (`zero_cc_parse_type_name_at_pos` — `unsigned char` must consume the `char` token). `zero_cc_resolve_base_type` always returns the **signed** variant; callers apply the `UINTn` remap.
+- **Lowering width extension**: `ir/ast_lowering_expr.c` marks integer results with `ir_mark_last_width`/`zero_cc_operand_int_width` (wider operand wins; equal width → unsigned wins; comparisons unmarked). Extension is emitted in-place as `OP_SEXT8/16/32`/`OP_ZEXT8/16/32` at: local/global loads, struct-member loads (replacing the old AND/xor/sub narrowing), call arguments (per callee `param_types[i]`), scalar returns, int↔int and float→int casts, and `NODE_BINOP`/`NODE_UNOP(~)` results. Signed right shifts of signed left operands lower to `OP_SAR`, not logical `SHR`.
+- **`int` wraparound**: 32-bit `int` arithmetic truncates to 32 bits before further use (`SEXT32`/`ZEXT32` on the result), so `int a=2000000000; a+a` wraps to `-294967296` like gcc.
 
 ## Function Pointer Representation (`is_func_ptr`)
 

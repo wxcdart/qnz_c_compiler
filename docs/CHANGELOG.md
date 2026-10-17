@@ -1,5 +1,28 @@
 # ZeroCC Changelog
 
+## [Sprint 22] - 2026-10-18 - C1: 32-bit Int Wraparound, Signedness End-to-End, Byte-Register Encoding Fix, Global-Struct Member Write
+
+### Added
+- **`OP_SEXT8/16/32` / `OP_ZEXT8/16/32` in-place width-extension opcodes** (`ir/ir.h`, appended at the end of the `Opcode` enum to preserve existing values; `Instr.width` field + `ir_mark_last_width`, `ir_emit_sext/zext/sar` helpers in `ir_emit_ops.h`): every narrow-int value is re-extended to 64-bit at its value boundary — local/global loads, struct-member loads (replacing the old AND/xor/sub narrowing arithmetic), function-call arguments (per callee `param_types[i]`), scalar returns, int↔int and float→int casts, and int arithmetic/bitwise results (wider operand wins; equal width → unsigned wins; comparisons unmarked).
+- **`emit_extend` + `emit_extend_asm` vtable slots** for all three backends: x86-64 (`movsxd`/32-bit self-`mov`/`0F BF`+`movsxd`/`0F BE`+`movsxd`/`movzx`), AArch64 (`sxtb/sxth/sxtw`, `uxtb/uxth/uxtw`), RISC-V (`slli`+`srai`, `andi`, `slli/srli`). The `-S` asm path round-trips through GNU `as` + host gcc and runs correctly (verified `f(unsigned char, unsigned short)` wrapper program, x86-64).
+- **Signed right shift**: `TK_SHR` with a signed left operand lowers to `OP_SAR` (arithmetic) instead of logical `SHR` — `-16 >> 2 == -4` now matches gcc.
+- **Global struct member assignment** (`ir/ast_lowering_expr.c` `NODE_ASSIGN`): `g.member = val;` on a file-scope struct (all member widths incl. float) — previously "undefined local variable in struct assignment". Mirrors the global-base rvalue path (`ir_emit_mov_global` + offset + width-sized store).
+
+### Fixed
+- **C1 core — `int` overflow/wraparound**: 32-bit `int` math now truncates to 32 bits (`SEXT32`/`ZEXT32` on results) and narrow loads sign/zero-extend, so `int a=2000000000; int b=a+a;` yields `-294967296`, `char 127 + 1 == -128`, `unsigned char 255 + 1 == 0`, `1<<31 == -2147483648`, `x=-2147483648; x>>1 == -1073741824`, etc. (37/39 gcc-cross-checked matrix probes; the 2 remaining are invalid C89 implicit-int `main(){...}` inputs).
+- **`unsigned`/`signed` qualifiers now parsed in every declaration path**: locals (`ast_stmt.h` `decl_is_unsigned`), **both** function-parameter parsers (`ast_stmt.h` and the legacy `jit/compile.h`), function return types (`jit/compile.h`), struct members (`definitions.h` — all six tag sites now `is_unsigned ? TYPE_UINTn : TYPE_INTn`), file-scope globals (`compile_unit.h` — `unsigned char g;` previously failed with "use of undeclared identifier"), and type-name parsers (`const_eval.h` — `unsigned char` in casts and `unsigned long`/`long long` consumed correctly; `(unsigned char)x` casts previously fell back to parenthesized-expression parsing).
+- **`zero_cc_type_to_typeinfo` dropped unsigned** (`jit/type_info.h`): `TYPE_UINT8/16/32/64` mapped to the *signed* `TypeInfo` (`type_char/short/int/long`); now maps to `type_uchar/ushort/uint/ulong` (`TYPE_MOD_UNSIGNED`), which the lowering uses to choose ZEXT vs SEXT.
+- **x86 byte-register ModRM encoding** (`x86_64.c` `x86_emit_extend`): the legacy 8-bit r/m encoding is not 1:1 with the register index (`%bl`=`rm 3`, `%dh`=`rm 6`, `%sil`/`%dil`/`%bpl`/`%spl` need the REX **X** bit with shifted rm values). The first table mapped register 3 (rbx) to BPL and mis-encoded rsi/rdi/rbp — `unsigned char` locals landed in rbx/rsi and read the wrong byte. Table verified byte-for-byte against GNU `as` (`movzbl %bl→0F B6 C3`, `%sil→40 0F B6 C6`, …).
+- **RISC-V extend emitter** (`riscv.c`): the sext/zext32 `slli` was missing its `rs1` field (extended **zero** instead of the value).
+- **GAS-legal `-S` extend emission** (`x86_64_asm.c`): `movzbl`/`movzwl` have no 64-bit-destination syntax in GAS; the asm path emits 32-bit-destination forms (upper half zeroed) + follow-up `movl`/`movslq` as needed.
+
+### Verification
+- `make test`: 140/140. `sret_verifier.py`: 6/6. 37/39 gcc-cross-checked signedness/overflow matrix (JIT = AOT). C99 probe battery: JIT == AOT, no new divergences vs the pre-fix baseline (verified by building `git archive 5ab94ac`). x86-64 `-S` output assembles with GNU `as` and runs correctly via host gcc; aarch64/riscv64 `-S` emit valid `sxt*/uxt*` / `slli/srai/andi` sequences (0 `UNKNOWN` opcodes).
+
+### Documented (OKF)
+- `docs/okf/frontend-and-types.md`: new "Signedness & Narrow-Int Correctness (C1)" section (tags, parser paths, width-marking rule, extension sites).
+- `docs/okf/isa-backends.md`: new "Integer Width Extension & the x86 Byte-Register Encoding Trap" section (per-ISA instructions, the verified ModRM byte table, GAS syntax limits).
+
 ## [Sprint 21] - 2026-10-18 - Scalar Float Pipeline (x86-64), Cast Grammar, Global-Struct Width Narrowing, WSL2 128-Bit RX-Read Workaround
 
 ### Added

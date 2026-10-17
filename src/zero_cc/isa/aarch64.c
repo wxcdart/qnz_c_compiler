@@ -229,6 +229,14 @@ static void aarch64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
     arm64_emit_u32(c, 0xCB000000 | (src << 16) | (31 << 5) | dst);  /* sub dst, xzr, src */
 }
 
+/* In-place width extension: SXTB/SXTH/SXTW or UXTB/UXTH/UXTW dst, src */
+static void aarch64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
+    uint32_t base = sign ? 0x1AC00C00u : 0x3AC00C00u; /* SXTx / UXTx */
+    if (width == 2) base |= 0x00001000u;               /* SxTH / UXTH */
+    else if (width == 4) base |= 0x00020000u;          /* SXTW / UXTW */
+    arm64_emit_u32(c, base | ((src & 0x1F) << 16) | (dst & 0x1F));
+}
+
 static void aarch64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
     /* mov dst, src - implemented as orr dst, xzr, src */
@@ -925,6 +933,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_cmp = aarch64_emit_cmp,
     .emit_cond_set = aarch64_emit_cond_set,
     .emit_neg = aarch64_emit_neg,
+    .emit_extend = aarch64_emit_extend,
     .emit_mov_reg = aarch64_emit_mov_reg,
     .emit_not = aarch64_emit_not,
     .emit_shr = aarch64_emit_shr,
@@ -1022,6 +1031,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_shl_asm = aarch64_emit_shl_asm,
     .emit_shr_asm = aarch64_emit_shr_asm,
     .emit_sar_asm = aarch64_emit_sar_asm,
+    .emit_extend_asm = aarch64_emit_extend_asm,
     .emit_cmp_asm = aarch64_emit_cmp_asm,
     .emit_cond_set_asm = aarch64_emit_cond_set_asm,
     .emit_neg_asm = aarch64_emit_neg_asm,

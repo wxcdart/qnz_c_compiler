@@ -211,6 +211,22 @@ static void aarch64_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift,
     fprintf(out, "\tasr\t%s, %s, %s\n", dst_name, src_name, shift_name);
 }
 
+/* SEXT/ZEXT: sxtb/sxth/sxtw, uxtb/uxth/uxtwd (in-place).
+ * SXTB/SXTH/UXTB/UXTH require 32-bit (w) registers in AArch64. */
+static void aarch64_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src_name = BE(c)->get_hw_reg_name(src);
+    const char *mnem;
+    if (width == 1) mnem = sign ? "sxtb" : "uxtb";
+    else if (width == 2) mnem = sign ? "sxth" : "uxth";
+    else mnem = sign ? "sxtw" : "uxtw";
+    if (width <= 2) {
+        fprintf(out, "\t%s\tw%s, w%s\n", mnem, dst_name + 1, src_name + 1);
+    } else {
+        fprintf(out, "\t%s\t%s, %s\n", mnem, dst_name, src_name);
+    }
+}
+
 /* CMP: cmp src1, src2 */
 static void aarch64_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
@@ -759,6 +775,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_shl_asm = aarch64_emit_shl_asm;
     be->emit_shr_asm = aarch64_emit_shr_asm;
     be->emit_sar_asm = aarch64_emit_sar_asm;
+    be->emit_extend_asm = aarch64_emit_extend_asm;
     be->emit_cmp_asm = aarch64_emit_cmp_asm;
     be->emit_cond_set_asm = aarch64_emit_cond_set_asm;
     be->emit_neg_asm = aarch64_emit_neg_asm;

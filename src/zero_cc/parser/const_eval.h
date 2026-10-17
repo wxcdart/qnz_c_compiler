@@ -558,6 +558,9 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         if (*pos < c->token_count && c->tokens[*pos].type == TK_SHORT) {
             ty = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
             (*pos)++;
+        } else if (*pos < c->token_count && c->tokens[*pos].type == TK_CHAR) {
+            ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
+            (*pos)++;
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) {
             ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
             (*pos)++;
@@ -678,6 +681,9 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         c->token_pos++;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SHORT) {
             ty = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
+            c->token_pos++;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR) {
+            ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
             c->token_pos++;
         } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
             ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();

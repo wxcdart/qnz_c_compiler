@@ -279,6 +279,55 @@ static void x86_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
     }
 }
 
+/* SEXT/ZEXT (in-place width extension, dst == src physical register).
+ * Mirrors the binary emitter's encodings (see x86_emit_extend). */
+static const char *x86_reg8_name(int r) {
+    static const char *names[] = {"al","cl","dl","bl","spl","bpl","sil","dil",
+                                  "r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"};
+    return (r >= 0 && r < 16) ? names[r] : "al";
+}
+static const char *x86_reg16_name(int r) {
+    static const char *names[] = {"ax","cx","dx","bx","sp","bp","si","di",
+                                  "r8w","r9w","r10w","r11w","r12w","r13w","r14w","r15w"};
+    return (r >= 0 && r < 16) ? names[r] : "ax";
+}
+static const char *x86_reg32_name(int r) {
+    static const char *names[] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi",
+                                  "r8d","r9d","r10d","r11d","r12d","r13d","r14d","r15d"};
+    return (r >= 0 && r < 16) ? names[r] : "eax";
+}
+
+static void x86_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    if (width == 4) {
+        if (sign) fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
+        else fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
+        return;
+    }
+    if (width == 1) {
+        if (sign) {
+            fprintf(out, "\tmovsbl\t%%%s,%%%s\n", x86_reg8_name(dst), x86_reg32_name(dst));
+            fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
+        } else {
+            /* No 64-bit-destination form of movzbl is accepted by GAS; use a
+             * 32-bit destination (which zeroes the upper half). */
+            fprintf(out, "\tmovzbl\t%%%s,%%%s\n", x86_reg8_name(dst), x86_reg32_name(dst));
+            fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
+        }
+        return;
+    }
+    /* width 2 */
+    if (!sign) {
+        /* No 64-bit-destination form exists for movzwl; use two 32-bit ops
+         * (the 32-bit write clears the upper half). */
+        fprintf(out, "\tmovzwl\t%%%s,%%%s\n", x86_reg16_name(dst), x86_reg32_name(dst));
+        fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
+        return;
+    }
+    fprintf(out, "\tmovswl\t%%%s,%%%s\n", x86_reg16_name(dst), x86_reg32_name(dst));
+    fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
+}
+
 /* CMP */
 static void x86_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
@@ -810,6 +859,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_shl_asm = x86_emit_shl_asm;
     be->emit_shr_asm = x86_emit_shr_asm;
     be->emit_sar_asm = x86_emit_sar_asm;
+    be->emit_extend_asm = x86_emit_extend_asm;
     be->emit_cmp_asm = x86_emit_cmp_asm;
     be->emit_cond_set_asm = x86_emit_cond_set_asm;
     be->emit_neg_asm = x86_emit_neg_asm;

@@ -180,6 +180,14 @@ typedef enum {
     /* RIP-relative addressing (2) */
     OP_LEA_RIP,        /* load effective address (position-independent) */
     OP_MOV_GLOBAL,     /* load global variable (position-independent) */
+
+    /* C99 width extension (6) - appended so existing enum values are stable */
+    OP_SEXT8,          /* in-place sign-extend lower 8 bits of temp_src1 */
+    OP_SEXT16,         /* in-place sign-extend lower 16 bits of temp_src1 */
+    OP_SEXT32,         /* in-place sign-extend lower 32 bits of temp_src1 */
+    OP_ZEXT8,          /* in-place zero-extend lower 8 bits of temp_src1 */
+    OP_ZEXT16,         /* in-place zero-extend lower 16 bits of temp_src1 */
+    OP_ZEXT32,         /* in-place zero-extend lower 32 bits of temp_src1 */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -209,6 +217,12 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_DIV: return "DIV";
         case OP_MOD: return "MOD";
         case OP_NEG: return "NEG";
+        case OP_SEXT8: return "SEXT8";
+        case OP_SEXT16: return "SEXT16";
+        case OP_SEXT32: return "SEXT32";
+        case OP_ZEXT8: return "ZEXT8";
+        case OP_ZEXT16: return "ZEXT16";
+        case OP_ZEXT32: return "ZEXT32";
         case OP_INC: return "INC";
         case OP_DEC: return "DEC";
         case OP_AND: return "AND";
@@ -369,6 +383,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  flags_out;   /* Flags output register (REG_FLAGS or 0xFF) */
     uint8_t  flags_in;    /* Flags input register (REG_FLAGS or 0xFF) */
     uint8_t  alias_group; /* Alias group for restrict pointer tracking (0 = unconstrained) */
+    uint8_t  width;       /* C99 result width: 0=none, 1/2/4=sign-extend, 8+1/2/4=zero-extend */
     int16_t  imm;         /* Immediate value (-32768 to 32767) */
     int64_t  imm64;       /* 64-bit immediate value */
     uint16_t label_idx;   /* Label index for jumps (0-65535) */
@@ -405,6 +420,14 @@ size_t ir_get_count(void);
 
 /* Access instruction by index */
 Instr* ir_get(size_t idx);
+
+/* Mark the most recently emitted instruction with a C99 result width so the
+ * MC layer extends the 64-bit result to true N-bit wrap semantics:
+ * w in {1,2,4} = sign-extend, w in {9,10,12} = zero-extend. */
+static inline void ir_mark_last_width(uint8_t w) {
+    size_t n = ir_get_count();
+    if (n > 0) ir_get(n - 1)->width = w;
+}
 
 /* Insert instruction at specific index (shifts existing instructions) */
 void ir_insert_at(size_t idx, Instr instr);

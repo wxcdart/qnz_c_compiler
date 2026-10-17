@@ -353,12 +353,18 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         /* Ensure result is in rax (VREG_0) for return */
         int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {
+            ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
+            /* C99 width semantics: truncate/extend the result to the declared
+             * return width (e.g. `return a + a;` from an `int` function must
+             * wrap to 32 bits, not return the 64-bit residue). */
+            if (fn_ret_type.tag != TYPE_FLOAT && fn_ret_type.tag != TYPE_DOUBLE) {
+                zero_cc_emit_int_extend(c, result_temp, &fn_ret_type);
+            }
             /* Move result to rax if not already there - emit IR */
             if (result_temp != VREG_0) {
                 ir_emit_mov_reg(VREG_0, result_temp);
             }
             /* If function returns float/double, convert int to float */
-            ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
             if (fn_ret_type.tag == TYPE_FLOAT || fn_ret_type.tag == TYPE_DOUBLE) {
                 final_float_temp = c->next_temp_id++;
                 ir_emit_cvtsi2sd((uint8_t)final_float_temp, (uint8_t)result_temp);

@@ -24,14 +24,14 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     switch (t.tag) {
         case TYPE_VOID: ti = type_void(perm); break;
         case TYPE_BOOL: ti = type_bool(perm); break;
-        case TYPE_INT8:
-        case TYPE_UINT8: ti = type_char(perm); break;
-        case TYPE_INT16:
-        case TYPE_UINT16: ti = type_short(perm); break;
-        case TYPE_INT32:
-        case TYPE_UINT32: ti = type_int(perm); break;
-        case TYPE_INT64:
-        case TYPE_UINT64: ti = type_long(perm); break;
+        case TYPE_INT8: ti = type_char(perm); break;
+        case TYPE_UINT8: ti = type_uchar(perm); break;
+        case TYPE_INT16: ti = type_short(perm); break;
+        case TYPE_UINT16: ti = type_ushort(perm); break;
+        case TYPE_INT32: ti = type_int(perm); break;
+        case TYPE_UINT32: ti = type_uint(perm); break;
+        case TYPE_INT64: ti = type_long(perm); break;
+        case TYPE_UINT64: ti = type_ulong(perm); break;
         case TYPE_FLOAT: ti = type_float(perm); break;
         case TYPE_DOUBLE: ti = type_double(perm); break;
         case TYPE_PTR: {

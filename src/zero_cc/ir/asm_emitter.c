@@ -274,6 +274,22 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_neg_asm(c, phys_dst, phys_src1, out);
             }
             return;
+
+        /* In-place width extension: dst is the value register, src is its
+         * (expected identical) physical register. */
+        case OP_SEXT8:
+        case OP_SEXT16:
+        case OP_SEXT32:
+        case OP_ZEXT8:
+        case OP_ZEXT16:
+        case OP_ZEXT32: {
+            int width = (instr->op >= OP_ZEXT8) ? ((instr->op - OP_ZEXT8) / 2 + 1) : ((instr->op - OP_SEXT8) / 2 + 1);
+            int sign = (instr->op < OP_ZEXT8) ? 1 : 0;
+            if (BE(c)->emit_extend_asm) {
+                BE(c)->emit_extend_asm(c, phys_dst, phys_src1, width, sign, out);
+            }
+            return;
+        }
             
         /* Comparison */
         case OP_CMP:

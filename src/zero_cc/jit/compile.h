@@ -34,6 +34,21 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 
     /* Return type */
     ZeroCCType fn_ret_type = zero_cc_type_int();
+    bool fn_ret_unsigned = false;
+    if (c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED) {
+        fn_ret_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+        c->token_pos++;
+        if (c->token_pos < c->token_count &&
+            (c->tokens[c->token_pos].type == TK_INT ||
+             c->tokens[c->token_pos].type == TK_CHAR ||
+             c->tokens[c->token_pos].type == TK_SHORT ||
+             c->tokens[c->token_pos].type == TK_LONG)) {
+            /* fall through to the base-specifier dispatch below */
+        } else {
+            /* bare `unsigned` / `signed` */
+            fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+        }
+    }
     if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_IDENT) {
@@ -85,6 +100,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
         c->token_pos++;
     }
+    /* Apply the signedness qualifier to a plain int return type */
+    if (fn_ret_unsigned) {
+        if (fn_ret_type.tag == TYPE_INT8) fn_ret_type.tag = TYPE_UINT8;
+        else if (fn_ret_type.tag == TYPE_INT16) fn_ret_type.tag = TYPE_UINT16;
+        else if (fn_ret_type.tag == TYPE_INT32) fn_ret_type.tag = TYPE_UINT32;
+        else if (fn_ret_type.tag == TYPE_INT64) fn_ret_type.tag = TYPE_UINT64;
+    }
     /* Skip _Noreturn that may appear after return type */
     while (c->tokens[c->token_pos].type == TK_NORETURN) {
         fn_noreturn = true;
@@ -134,6 +156,22 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 if (!pfound) pfound = zero_cc_find_struct(c, ptname);
                 if (!pfound) pfound = zero_cc_find_enum(c, ptname);
                 c->token_pos++;
+                /* signed/unsigned qualifier (C11 6.7.5): consume and remember */
+                bool p_is_unsigned = (ptt == TK_UNSIGNED);
+                if (ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+                    if (c->token_pos < c->token_count &&
+                        (c->tokens[c->token_pos].type == TK_INT ||
+                         c->tokens[c->token_pos].type == TK_CHAR ||
+                         c->tokens[c->token_pos].type == TK_SHORT ||
+                         c->tokens[c->token_pos].type == TK_LONG)) {
+                        ptt = c->tokens[c->token_pos].type;
+                        c->token_pos++;
+                        if (ptt == TK_LONG && c->token_pos < c->token_count &&
+                            c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+                    } else {
+                        ptt = TK_INT;
+                    }
+                }
                 if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
                     ptname = c->tokens[c->token_pos].str_val;
                     pfound = zero_cc_find_struct(c, ptname);
@@ -189,6 +227,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                             pt = zero_cc_type_int64();
                         } else {
                             pt = zero_cc_type_int64();
+                        }
+                        if (p_is_unsigned) {
+                            if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
+                            else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
+                            else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
+                            else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
                         }
                         pt.is_const = p_is_const;
                         pt.is_volatile = p_is_volatile;

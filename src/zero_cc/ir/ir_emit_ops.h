@@ -63,6 +63,43 @@ static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
     });
 }
 
+/* In-place width extension: sign- or zero-extend the low 8/16/32 bits of a
+ * temp to full 64-bit width. Used to give 32-bit `int` values true 32-bit
+ * wrap semantics (the machine word is 64 bits, so without this a `int a=2000000000;
+ * int b=a+a;` would compare b against a 64-bit residue instead of the
+ * 32-bit wrap value). temp_dest must equal temp_src (in-place, no new temp). */
+static inline void ir_emit_sext(int temp, int width) {
+    Opcode op = (width == 4) ? OP_SEXT32 : (width == 2) ? OP_SEXT16 : OP_SEXT8;
+    ir_emit((Instr){
+        .op = op,
+        .temp_dest = (uint8_t)temp,
+        .temp_src1 = (uint8_t)temp,
+        .temp_src2 = 0xFF,
+        .cond = 0,
+        .flags_out = 0xFF,
+        .flags_in = 0xFF,
+        .imm = 0,
+        .imm64 = 0,
+        .label_idx = 0
+    });
+}
+
+static inline void ir_emit_zext(int temp, int width) {
+    Opcode op = (width == 4) ? OP_ZEXT32 : (width == 2) ? OP_ZEXT16 : OP_ZEXT8;
+    ir_emit((Instr){
+        .op = op,
+        .temp_dest = (uint8_t)temp,
+        .temp_src1 = (uint8_t)temp,
+        .temp_src2 = 0xFF,
+        .cond = 0,
+        .flags_out = 0xFF,
+        .flags_in = 0xFF,
+        .imm = 0,
+        .imm64 = 0,
+        .label_idx = 0
+    });
+}
+
 /* lea rax, [rbp - offset] (address) */
 static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
@@ -269,6 +306,22 @@ static inline void ir_emit_shl(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_shr(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_SHR,
+        .temp_dest = (uint8_t)temp_dest,
+        .temp_src1 = (uint8_t)temp_src1,
+        .temp_src2 = (uint8_t)temp_src2,
+        .cond = 0,
+        .flags_out = 0xFF,  /* Doesn't set flags */
+        .flags_in = 0xFF,   /* Doesn't read flags */
+        .imm = 0,
+        .imm64 = 0,
+        .label_idx = 0
+    });
+}
+
+/* sar rax, rbx (arithmetic right shift, signed >>) */
+static inline void ir_emit_sar(int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit((Instr){
+        .op = OP_SAR,
         .temp_dest = (uint8_t)temp_dest,
         .temp_src1 = (uint8_t)temp_src1,
         .temp_src2 = (uint8_t)temp_src2,

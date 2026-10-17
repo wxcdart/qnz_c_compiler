@@ -41,6 +41,37 @@ static bool struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, 
     return false;
 }
 
+/* Infer the C99 narrow-int width of an operand expression when it can be
+ * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
+ * pointer / non-int). Used for binop result-width marking and signed >>.
+ * Covers the common operand shapes; anything exotic returns 0 (no mark,
+ * conservative). */
+static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                     ASTRef operand, int *sign) {
+    *sign = 1;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, operand);
+    if (!n) return 0;
+    switch (n->tag) {
+        case NODE_INT: {
+            int64_t v = n->int_val;
+            if (v >= INT32_MIN && v <= INT32_MAX) { *sign = 1; return 4; }
+            if (v > INT32_MAX && v <= INT64_C(0xFFFFFFFF)) { *sign = 0; return 4; }
+            return 0;  /* long / long long literal */
+        }
+        case NODE_BOOL:  *sign = 0; return 1;  /* _Bool is 1-byte, 0/1 */
+        case NODE_NULLPTR: return 0;  /* 8-byte pointer value */
+        case NODE_IDENT: {
+            ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
+            if (sym) return zero_cc_narrow_int_width(&sym->type, sign);
+            ZeroCCGlobalVar *gv = find_global_var(n->s.str);
+            if (gv) return zero_cc_narrow_int_width(&gv->type, sign);
+            return 0;
+        }
+        default:
+            return 0;
+    }
+}
+
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return 0xFF;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
@@ -131,6 +162,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else {
                     int temp = c->next_temp_id++;
                     ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    /* 32-bit int semantics: extend narrow int locals to full
+                     * 64-bit width (sign/zero per type) so overflowed values
+                     * compare and store correctly. No-op for ptr/struct/8-byte. */
+                    zero_cc_emit_int_extend(c, temp, &sym->type);
                     if (sym->is_restrict && sym->type.tag == TYPE_PTR && temp < 256) {
                         /* Each restrict pointer gets its own alias group (locals index + 1) */
                         c->lowering.temp_alias_group[temp] = (uint8_t)((sym - c->locals) + 1);
@@ -164,6 +199,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     else if (gv_sz == 2) ir_emit_load_16(val_temp, addr_temp);
                     else if (gv_sz == 4) ir_emit_load_32(val_temp, addr_temp);
                     else ir_emit_deref(val_temp, addr_temp);
+                    /* Width-aware loads zero-extend; complete sign extension
+                     * for signed narrow ints (e.g. `int g=-1`). */
+                    zero_cc_emit_int_extend(c, val_temp, &gv->type);
                     c->last_expr_is_float = 0;
                     return val_temp;
                 }
@@ -301,9 +339,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 case TK_SHL:
                     ir_emit_shl(result_temp, left_temp, right_temp);
                     break;
-                case TK_SHR:
-                    ir_emit_shr(result_temp, left_temp, right_temp);
+                case TK_SHR: {
+                    /* Signed >> is an arithmetic shift (C: implementation-
+                     * defined; gcc defines it as arithmetic for signed). */
+                    int lsign = 1;
+                    if (zero_cc_operand_int_width(c, arena, node->left, &lsign) > 0 && lsign) {
+                        ir_emit_sar(result_temp, left_temp, right_temp);
+                    } else {
+                        ir_emit_shr(result_temp, left_temp, right_temp);
+                    }
                     break;
+                }
                 case TK_EQ:
                 case TK_NE:
                 case TK_LT:
@@ -328,6 +374,27 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 default:
                     ir_emit_mov_reg(result_temp, left_temp);
                     break;
+            }
+            /* C99 width semantics: derive the result width from the operand
+             * types (C usual arithmetic conversions: the wider operand wins;
+             * equal width -> unsigned wins). Marks the op so the MC layer
+             * extends the 64-bit result to true N-bit wrap semantics.
+             * Comparisons yield 0/1 (already in range) - unmarked. */
+            {
+                int bop = node->aux.op;
+                if (!(bop == TK_EQ || bop == TK_NE || bop == TK_LT ||
+                      bop == TK_LE || bop == TK_GT || bop == TK_GE)) {
+                    int ls = 1, rs = 1;
+                    int lw = zero_cc_operand_int_width(c, arena, node->left, &ls);
+                    int rw = zero_cc_operand_int_width(c, arena, node->right, &rs);
+                    if (lw != 0 && rw != 0) {
+                        int w, s;
+                        if (lw > rw) { w = lw; s = ls; }
+                        else if (rw > lw) { w = rw; s = rs; }
+                        else { w = lw; s = (ls && rs) ? 1 : 0; }  /* equal width: any unsigned -> unsigned */
+                        ir_mark_last_width(s ? (uint8_t)w : (uint8_t)(8 + w));
+                    }
+                }
             }
             c->last_expr_is_float = 0;
             return result_temp;
@@ -591,6 +658,20 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_mov_reg(result_temp, operand_temp);
                     break;
             }
+            /* C99 width semantics: bitwise NOT produces a full-width bit
+             * pattern that must be re-extended to the operand's int width.
+             * (Negation of an already-extended operand stays extended; the
+             * INT_MIN case is UB in C.) */
+            if (node->aux.op == TK_TILDE) {
+                TypeInfo *u_ti = ast_node_get_typeinfo(c, node);
+                if (u_ti) {
+                    size_t wsz = type_size(u_ti);
+                    if (wsz == 1 || wsz == 2 || wsz == 4) {
+                        bool wu = (u_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                        ir_mark_last_width(wu ? (uint8_t)(8 + wsz) : (uint8_t)wsz);
+                    }
+                }
+            }
             c->last_expr_is_float = 0;
             return result_temp;
         }
@@ -602,7 +683,32 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_res_temp = c->next_temp_id++;
                 ir_emit_cvttsd2si((uint8_t)int_res_temp, (uint8_t)result);
                 c->last_expr_is_float = 0;
+                /* cvttsd2si yields a 64-bit int; extend to the cast target
+                 * width when it is a narrow int ((int)d, (short)d). */
+                TypeInfo *f2i_ti = ast_node_get_typeinfo(c, node);
+                if (f2i_ti) {
+                    size_t f2isz = type_size(f2i_ti);
+                    if (f2isz == 1 || f2isz == 2 || f2isz == 4) {
+                        bool f2isu = (f2i_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                        if (f2isu) ir_emit_zext(int_res_temp, (int)f2isz);
+                        else ir_emit_sext(int_res_temp, (int)f2isz);
+                    }
+                }
                 return int_res_temp;
+            }
+            /* int->int narrowing cast ((int)longv, (short)x): extend the
+             * 64-bit value to the target width so it carries true N-bit
+             * semantics (a plain cast previously did nothing). */
+            {
+                TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
+                if (cast_ti) {
+                    size_t ctsz = type_size(cast_ti);
+                    if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
+                        bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                        if (ctsu) ir_emit_zext(result, (int)ctsz);
+                        else ir_emit_sext(result, (int)ctsz);
+                    }
+                }
             }
             return result;
         }
@@ -697,6 +803,43 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 // Find the base variable's stack offset if it's a local identifier
                 if (base_node && base_node->tag == NODE_IDENT) {
                     ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+                    ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(base_node->s.str);
+                    if (ggv && !base_is_ptr) {
+                        /* Global struct/union base: `g.member = val`. Load the
+                         * global address, add the member offset, store. */
+                        int gaddr = c->next_temp_id++;
+                        ir_emit_mov_global(gaddr, ggv->name);
+                        int addr_temp = gaddr;
+                        if (member_offset != 0) {
+                            int off_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(off_temp, member_offset);
+                            addr_temp = c->next_temp_id++;
+                            ir_emit_add(addr_temp, gaddr, off_temp);
+                        }
+                        size_t m_size = 4;
+                        TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
+                        if (member_ti) m_size = type_size(member_ti);
+                        if (c->last_expr_is_float) {
+                            if (m_size == 4) {
+                                ir_emit_vstoress(addr_temp, (uint8_t)right_temp);
+                            } else {
+                                ir_emit_vstoresd(addr_temp, (uint8_t)right_temp);
+                            }
+                            c->last_expr_is_float = 1;
+                        } else {
+                            if (m_size == 1) {
+                                ir_emit_store_byte(right_temp, addr_temp);
+                            } else if (m_size == 2) {
+                                ir_emit_store_16(right_temp, addr_temp);
+                            } else if (m_size == 4) {
+                                ir_emit_store_32(right_temp, addr_temp);
+                            } else {
+                                ir_emit_store_64(right_temp, addr_temp);
+                            }
+                            c->last_expr_is_float = 0;
+                        }
+                        return right_temp;
+                    }
                     if (!sym) {
                         diag_report_error_at_token(c, "undefined local variable '%s' in struct assignment", base_node->s.str);
                         return 0xFF;
@@ -1748,54 +1891,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     val_temp = ext_temp;
                 }
             } else {
+                /* Single-instruction in-place extension (replaces the old
+                 * AND/xor/sub arithmetic narrowing - same semantics, no extra
+                 * temps): sext for signed narrow members, zext for unsigned. */
                 TypeInfo *ti = ast_node_get_typeinfo(c, node);
                 size_t sz = ti ? type_size(ti) : 4;
                 bool is_u = ti && (ti->modifiers & TYPE_MOD_UNSIGNED);
-                if (sz == 1) {
-                    int mask_temp = c->next_temp_id++;
-                    ir_emit_mov_imm(mask_temp, 0xFF);
-                    int masked = c->next_temp_id++;
-                    ir_emit_and(masked, val_temp, mask_temp);
-                    val_temp = masked;
-                    if (!is_u) {
-                        int sign_temp = c->next_temp_id++;
-                        ir_emit_mov_imm(sign_temp, 0x80);
-                        int xor_temp = c->next_temp_id++;
-                        ir_emit_xor(xor_temp, val_temp, sign_temp);
-                        int ext_temp = c->next_temp_id++;
-                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
-                        val_temp = ext_temp;
-                    }
-                } else if (sz == 2) {
-                    int mask_temp = c->next_temp_id++;
-                    ir_emit_mov_imm(mask_temp, 0xFFFF);
-                    int masked = c->next_temp_id++;
-                    ir_emit_and(masked, val_temp, mask_temp);
-                    val_temp = masked;
-                    if (!is_u) {
-                        int sign_temp = c->next_temp_id++;
-                        ir_emit_mov_imm(sign_temp, 0x8000);
-                        int xor_temp = c->next_temp_id++;
-                        ir_emit_xor(xor_temp, val_temp, sign_temp);
-                        int ext_temp = c->next_temp_id++;
-                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
-                        val_temp = ext_temp;
-                    }
-                } else if (sz == 4) {
-                    int mask_temp = c->next_temp_id++;
-                    ir_emit_mov_imm(mask_temp, 0xFFFFFFFFLL);
-                    int masked = c->next_temp_id++;
-                    ir_emit_and(masked, val_temp, mask_temp);
-                    val_temp = masked;
-                    if (!is_u) {
-                        int sign_temp = c->next_temp_id++;
-                        ir_emit_mov_imm(sign_temp, 0x80000000LL);
-                        int xor_temp = c->next_temp_id++;
-                        ir_emit_xor(xor_temp, val_temp, sign_temp);
-                        int ext_temp = c->next_temp_id++;
-                        ir_emit_sub(ext_temp, xor_temp, sign_temp);
-                        val_temp = ext_temp;
-                    }
+                if (sz == 1 || sz == 2 || sz == 4) {
+                    if (is_u) ir_emit_zext(val_temp, (int)sz);
+                    else ir_emit_sext(val_temp, (int)sz);
                 }
             }
 
@@ -1958,6 +2062,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int32_t fp_spill_offsets[8];
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
+                int param_idx = 0;  /* declaration-order index into callee param_types */
                 
                 ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
                 ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
@@ -1990,6 +2095,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 while (arg != AST_NULL) {
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     int temp = lower_expr(c, arena, arg);
+                    /* C99 int width semantics: narrow int args are extended
+                     * to full 64-bit width before being passed (the callee
+                     * must see a true 32-bit value, not 64-bit overflow
+                     * residue). No-op for pointers/structs/8-byte args. */
+                    if (!c->last_expr_is_float && callee_fn &&
+                        param_idx < (int)callee_fn->param_count) {
+                        zero_cc_emit_int_extend(c, temp, &callee_fn->param_types[param_idx]);
+                    }
+                    param_idx++;
                     if (c->last_expr_is_float) {
                         /* Float argument: spill it to a stack slot via IR */
                         if (fp_arg_idx < 8) {

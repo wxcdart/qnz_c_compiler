@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-17T20:23:56Z
+timestamp: 2026-10-17T23:46:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -68,6 +68,17 @@ When taking the address of a function (`fn` or `&fn` assigned to a function poin
 ## Global Data Reloc Patching (JIT)
 
 `ZeroCCDataReloc` entries (pointer initializers `const char *g = "...";`, `int *p = &x;` — see [global-data-relocs.md](./global-data-relocs.md)) are patched in `execution.h` **after** the data `memcpy`: 8-byte absolute addresses written into the still-writable data page (`(char*)mem + data_offset + patch_offset`), targeting the data page (kind 1) or `(char*)mem + text_section.length + rodata_offset` (kind 0). The RX transition happens afterwards, so the patched pointers are valid at run time.
+
+## Integer Width Extension (`OP_SEXT*`/`OP_ZEXT*`) & the x86 Byte-Register Encoding Trap
+
+In-place width-extension opcodes (`OP_SEXT8/16/32`, `OP_ZEXT8/16/32`, appended at the **end** of the `Opcode` enum to preserve existing values) are emitted via the `emit_extend` vtable slot (binary) and `emit_extend_asm` (the `-S` path):
+
+- **x86-64** (`x86_64.c` `x86_emit_extend`): `sext32` = `movsxd`; `zext32` = 32-bit self-`mov` (there is **no** `MOVZX r64, r/m32`); `sext16` = `movsx r32, r/m16` (`0F BF`, **not** `0F BE` which is the byte form) + `movsxd`; `sext8` = `movsx r32, r/m8` (`0F BE`) + `movsxd`; `zext16` = `movzx r64, r/m16`; `zext8` = `movzx r64, r/m8`.
+- **⚠️ Byte-register ModRM trap**: for 8-bit register r/m operands the legacy ModRM 0-7 field is **not** 1:1 with the register index (verified against GNU `as`: `%bl`=`0F B6 C3`, `%dh`=`0F B6 C6`, `%sil`=`40 0F B6 C6`, `%dil`=`40 0F B6 C7`, `%bpl`=`40 0F B6 C5`, `%spl`=`40 0F B6 C4`). In ZeroCC's numbering (0=rax…3=rbx, **4=rsp, 5=rbp, 6=rsi, 7=rdi**), registers 4-7 need the REX **X** bit and 8-15 the REX **B** bit with rm = reg&7. An un-mapped encoding silently reads the wrong byte (e.g. `rm=3` without REX reads BL on a 32-bit dest, but is the *only* legal encoding for BL there) — every byte-register operand must go through the mapping table in `x86_emit_extend`.
+- **AArch64**: `sxtb/sxth/sxtw` + `uxtb/uxth/uxtw`; note SXTB/SXTH/UXTB/UXTH require **W** registers in the asm emission.
+- **RISC-V**: `slli`+`srai` (sext), `andi 0xff/0xffff` or `slli/srli 32` (zext); the `slli` operand must carry `rs1 = src` (a missing field silently extends zero).
+
+The `-S` asm emitters mirror the binary encodings but must stay **GAS-legal**: `movzbl`/`movzwl` have no accepted 64-bit-destination syntax, so the x86 asm path emits 32-bit-destination forms (which zero the upper half) plus a follow-up `movl` where a 64-bit dest is required.
 
 ## Multi-ISA SIMD / Vector Emission (SSE, NEON, RVV 1.0)
 
