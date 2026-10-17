@@ -963,6 +963,7 @@
         "emit_deref_asm",
         "emit_div_asm",
         "emit_epilogue_asm",
+        "emit_extend_asm",
         "emit_fp_add_asm",
         "emit_fp_div_asm",
         "emit_fp_mov_asm",
@@ -1165,6 +1166,9 @@
     },
     "zero_cc/ir/ast_lowering_expr.c": {
       "functions_called": [
+        "0",
+        "1",
+        "4",
         "AMD64",
         "BE",
         "Lowering",
@@ -1178,13 +1182,17 @@
         "ast_node_get_typeinfo",
         "below",
         "call",
+        "cast",
         "cmp_branch",
         "diag_report_error_at_token",
         "double",
         "expression",
+        "extension",
         "find_global_var",
         "group",
         "index",
+        "int",
+        "ints",
         "ir_call_args_record",
         "ir_emit_add",
         "ir_emit_and",
@@ -1226,6 +1234,8 @@
         "ir_emit_neg",
         "ir_emit_not",
         "ir_emit_or",
+        "ir_emit_sar",
+        "ir_emit_sext",
         "ir_emit_shl",
         "ir_emit_shr",
         "ir_emit_store",
@@ -1239,8 +1249,10 @@
         "ir_emit_vstoresd",
         "ir_emit_vstoress",
         "ir_emit_xor",
+        "ir_emit_zext",
         "ir_get_buffer",
         "ir_get_count",
+        "ir_mark_last_width",
         "list",
         "lower_expr",
         "member",
@@ -1248,9 +1260,12 @@
         "name",
         "object",
         "operands",
+        "passed",
         "pointer",
         "rdx",
         "registers",
+        "semantics",
+        "shift",
         "single",
         "slot",
         "struct",
@@ -1260,21 +1275,27 @@
         "type_size",
         "typeinfo",
         "typeinfo_to_zero_cc_type",
+        "types",
         "union",
         "va_arg",
         "va_start",
         "value",
+        "width",
         "x8",
         "zero_cc_ast_get",
         "zero_cc_buf_put_bytes",
+        "zero_cc_emit_int_extend",
         "zero_cc_find_enum_const",
         "zero_cc_find_function",
-        "zero_cc_find_local"
+        "zero_cc_find_local",
+        "zero_cc_narrow_int_width",
+        "zero_cc_operand_int_width"
       ],
       "functions_defined": [
         "if",
         "lower_expr",
-        "struct_resolve_scalar_leaf"
+        "struct_resolve_scalar_leaf",
+        "zero_cc_operand_int_width"
       ],
       "globals_used": [],
       "includes": [
@@ -1288,13 +1309,20 @@
         "emit_ir_to_machine_code",
         "emit_prologue_mc",
         "emit_return_jumps",
+        "ir_emit_sext",
+        "ir_emit_zext",
         "lower_expr",
         "lower_node",
+        "temp",
+        "zero_cc_emit_int_extend",
         "zero_cc_get_current_fn_ret_type",
+        "zero_cc_narrow_int_width",
         "zero_cc_type_int"
       ],
       "functions_defined": [
-        "zero_cc_get_current_fn_ret_type"
+        "zero_cc_emit_int_extend",
+        "zero_cc_get_current_fn_ret_type",
+        "zero_cc_narrow_int_width"
       ],
       "globals_used": [],
       "includes": [
@@ -1388,6 +1416,7 @@
         "emit_dec",
         "emit_deref",
         "emit_div",
+        "emit_extend",
         "emit_fp_add",
         "emit_fp_cmp",
         "emit_fp_cvtsf",
@@ -1503,6 +1532,7 @@
         "ir_get_count",
         "label",
         "load",
+        "now",
         "patch_jmp",
         "pointer",
         "position",
@@ -1594,7 +1624,9 @@
         "register",
         "scope",
         "slot",
+        "width",
         "zero_cc_ast_get",
+        "zero_cc_emit_int_extend",
         "zero_cc_find_local",
         "zero_cc_get_current_fn_ret_type"
       ],
@@ -1730,6 +1762,7 @@
         "divps",
         "emission",
         "exchange",
+        "extension",
         "fence",
         "index",
         "instruction",
@@ -1825,6 +1858,7 @@
         "ir_insert_label",
         "ir_insert_mov_imm",
         "ir_insert_mov_reg",
+        "ir_mark_last_width",
         "ir_opcode_is_float",
         "ir_opcode_is_simd",
         "ir_opcode_name",
@@ -1934,6 +1968,7 @@
         "ir_insert_label",
         "ir_insert_mov_imm",
         "ir_insert_mov_reg",
+        "ir_mark_last_width",
         "ir_opcode_is_float",
         "ir_opcode_is_simd"
       ],
@@ -2018,13 +2053,18 @@
         "ir_emit_neg",
         "ir_emit_not",
         "ir_emit_or",
+        "ir_emit_sar",
+        "ir_emit_sext",
         "ir_emit_shl",
         "ir_emit_shr",
         "ir_emit_store",
         "ir_emit_sub_imm",
         "ir_emit_xor",
+        "ir_emit_zext",
         "rax",
-        "rbx"
+        "rbx",
+        "semantics",
+        "temp_src"
       ],
       "functions_defined": [
         "ir_emit_add_imm",
@@ -2045,11 +2085,14 @@
         "ir_emit_neg",
         "ir_emit_not",
         "ir_emit_or",
+        "ir_emit_sar",
+        "ir_emit_sext",
         "ir_emit_shl",
         "ir_emit_shr",
         "ir_emit_store",
         "ir_emit_sub_imm",
-        "ir_emit_xor"
+        "ir_emit_xor",
+        "ir_emit_zext"
       ],
       "globals_used": [],
       "includes": [
@@ -2432,6 +2475,7 @@
         "aarch64_emit_div",
         "aarch64_emit_epilogue",
         "aarch64_emit_epilogue_asm",
+        "aarch64_emit_extend",
         "aarch64_emit_fp_add",
         "aarch64_emit_fp_cmp",
         "aarch64_emit_fp_cvtsf",
@@ -2584,6 +2628,7 @@
         "aarch64_emit_div",
         "aarch64_emit_epilogue",
         "aarch64_emit_epilogue_asm",
+        "aarch64_emit_extend",
         "aarch64_emit_fp_add",
         "aarch64_emit_fp_cmp",
         "aarch64_emit_fp_cvtsf",
@@ -2685,6 +2730,7 @@
         "aarch64_emit_deref_asm",
         "aarch64_emit_div_asm",
         "aarch64_emit_epilogue_asm",
+        "aarch64_emit_extend_asm",
         "aarch64_emit_fp_add_asm",
         "aarch64_emit_fp_div_asm",
         "aarch64_emit_fp_mov_asm",
@@ -2752,6 +2798,7 @@
         "aarch64_get_hw_reg_name",
         "aarch64_get_vec_reg_name",
         "aarch64_init_asm_emission",
+        "bit",
         "compliance",
         "emission",
         "emit_load_asm",
@@ -2764,6 +2811,7 @@
         "regalloc_get_reg_for_temp",
         "regalloc_get_spill_slot_for_temp",
         "store",
+        "uxtwd",
         "x7"
       ],
       "functions_defined": [
@@ -2775,6 +2823,7 @@
         "aarch64_emit_deref_asm",
         "aarch64_emit_div_asm",
         "aarch64_emit_epilogue_asm",
+        "aarch64_emit_extend_asm",
         "aarch64_emit_fp_add_asm",
         "aarch64_emit_fp_div_asm",
         "aarch64_emit_fp_mov_asm",
@@ -2896,6 +2945,7 @@
         "8",
         "BE",
         "LEA",
+        "N",
         "NOT",
         "RV_REG",
         "VREG_0",
@@ -2992,6 +3042,7 @@
         "riscv64_emit_div",
         "riscv64_emit_epilogue",
         "riscv64_emit_epilogue_asm",
+        "riscv64_emit_extend",
         "riscv64_emit_fp_add",
         "riscv64_emit_fp_cmp",
         "riscv64_emit_fp_cvtsf",
@@ -3081,6 +3132,7 @@
         "zero"
       ],
       "functions_defined": [
+        "if",
         "riscv32_emit_add",
         "riscv32_emit_add_imm",
         "riscv32_emit_and",
@@ -3154,6 +3206,7 @@
         "riscv64_emit_div",
         "riscv64_emit_epilogue",
         "riscv64_emit_epilogue_asm",
+        "riscv64_emit_extend",
         "riscv64_emit_fp_add",
         "riscv64_emit_fp_cmp",
         "riscv64_emit_fp_cvtsf",
@@ -3267,6 +3320,7 @@
         "riscv_emit_deref_asm",
         "riscv_emit_div_asm",
         "riscv_emit_epilogue_asm",
+        "riscv_emit_extend_asm",
         "riscv_emit_fp_add_asm",
         "riscv_emit_fp_div_asm",
         "riscv_emit_fp_mov_asm",
@@ -3334,6 +3388,8 @@
         "riscv_get_hw_reg_name",
         "riscv_get_vec_reg_name",
         "s0",
+        "srai",
+        "srli",
         "t0",
         "vv"
       ],
@@ -3348,6 +3404,7 @@
         "riscv_emit_deref_asm",
         "riscv_emit_div_asm",
         "riscv_emit_epilogue_asm",
+        "riscv_emit_extend_asm",
         "riscv_emit_fp_add_asm",
         "riscv_emit_fp_div_asm",
         "riscv_emit_fp_mov_asm",
@@ -3430,6 +3487,7 @@
         "101",
         "4",
         "5",
+        "7",
         "BE",
         "ModRM",
         "RCX",
@@ -3448,10 +3506,15 @@
         "dst_reg",
         "elsewhere",
         "emission",
+        "encoding",
+        "extension",
         "field",
         "first",
         "instructions",
+        "m16",
+        "m32",
         "m64",
+        "m8",
         "me_emit_u32",
         "me_emit_u64",
         "me_emit_u8",
@@ -3470,6 +3533,7 @@
         "r13",
         "r14",
         "r15",
+        "r32",
         "r8",
         "r9",
         "rax",
@@ -3514,6 +3578,7 @@
         "x86_emit_div",
         "x86_emit_epilogue",
         "x86_emit_epilogue_asm",
+        "x86_emit_extend",
         "x86_emit_fp_add",
         "x86_emit_fp_cmp",
         "x86_emit_fp_cvtsf",
@@ -3650,6 +3715,7 @@
         "x86_emit_div",
         "x86_emit_epilogue",
         "x86_emit_epilogue_asm",
+        "x86_emit_extend",
         "x86_emit_fp_add",
         "x86_emit_fp_cmp",
         "x86_emit_fp_cvtsf",
@@ -3767,10 +3833,13 @@
         "Assembler",
         "BE",
         "Emission",
+        "ZEXT",
         "call",
         "conflict",
+        "destination",
         "dst",
         "emission",
+        "encodings",
         "get_hw_reg_name",
         "get_vec_reg_name",
         "load",
@@ -3787,6 +3856,7 @@
         "x86_emit_deref_asm",
         "x86_emit_div_asm",
         "x86_emit_epilogue_asm",
+        "x86_emit_extend_asm",
         "x86_emit_fp_add_asm",
         "x86_emit_fp_div_asm",
         "x86_emit_fp_mov_asm",
@@ -3855,7 +3925,10 @@
         "x86_emit_xor_asm",
         "x86_get_hw_reg_name",
         "x86_get_vec_reg_name",
-        "x86_init_asm_emission"
+        "x86_init_asm_emission",
+        "x86_reg16_name",
+        "x86_reg32_name",
+        "x86_reg8_name"
       ],
       "functions_defined": [
         "x86_emit_add_asm",
@@ -3866,6 +3939,7 @@
         "x86_emit_deref_asm",
         "x86_emit_div_asm",
         "x86_emit_epilogue_asm",
+        "x86_emit_extend_asm",
         "x86_emit_fp_add_asm",
         "x86_emit_fp_div_asm",
         "x86_emit_fp_mov_asm",
@@ -3934,7 +4008,10 @@
         "x86_emit_xor_asm",
         "x86_get_hw_reg_name",
         "x86_get_vec_reg_name",
-        "x86_init_asm_emission"
+        "x86_init_asm_emission",
+        "x86_reg16_name",
+        "x86_reg32_name",
+        "x86_reg8_name"
       ],
       "globals_used": [],
       "includes": [
@@ -3969,6 +4046,7 @@
         "arena_alloc",
         "ir_reset",
         "ir_set_compiler",
+        "qualifier",
         "regalloc_init",
         "scope",
         "scope_enter",
@@ -3995,6 +4073,7 @@
         "zero_cc_type_int64",
         "zero_cc_type_ptr",
         "zero_cc_type_to_typeinfo",
+        "zero_cc_type_uint32",
         "zero_cc_type_void"
       ],
       "functions_defined": [
@@ -4371,6 +4450,10 @@
         "type_new",
         "type_pointer_to",
         "type_short",
+        "type_uchar",
+        "type_uint",
+        "type_ulong",
+        "type_ushort",
         "type_void",
         "typeinfo_to_zero_cc_type",
         "zero_cc_find_enum",
@@ -5406,9 +5489,11 @@
         "parse_assignment_ast",
         "parse_brace_init_list_ast",
         "parse_expr_ast_internal",
+        "qualifier",
         "skip_c23_attributes",
         "stmt",
         "table",
+        "tag",
         "type_function",
         "type_int",
         "zero_cc_add_local",
@@ -5493,6 +5578,7 @@
         "zero_cc_type_uint16",
         "zero_cc_type_uint32",
         "zero_cc_type_uint64",
+        "zero_cc_type_uint8",
         "zero_cc_type_void"
       ],
       "functions_defined": [
@@ -6706,6 +6792,7 @@
   "functions": {
     "0": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/isa/riscv.c",
         "zero_cc/isa/riscv_asm.c",
         "zero_cc/jit/elf_writer.c",
@@ -6725,6 +6812,7 @@
     },
     "1": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/ir/ir.h",
         "zero_cc/isa/riscv.c",
         "zero_cc/jit/compile.h"
@@ -6815,6 +6903,7 @@
     },
     "4": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/isa/x86_64.c",
         "zero_cc/opt/opt_dce.c",
         "zero_cc/opt/opt_vectorize.c"
@@ -6845,7 +6934,8 @@
     },
     "7": {
       "called_in": [
-        "zero_cc/isa/riscv.c"
+        "zero_cc/isa/riscv.c",
+        "zero_cc/isa/x86_64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7246,6 +7336,13 @@
       "defined_in": null,
       "depends_on": []
     },
+    "N": {
+      "called_in": [
+        "zero_cc/isa/riscv.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "NODE_BINOP": {
       "called_in": [
         "zero_cc/ir/ast_lowering_ir.h"
@@ -7635,6 +7732,13 @@
       "defined_in": null,
       "depends_on": []
     },
+    "ZEXT": {
+      "called_in": [
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "_Alignof": {
       "called_in": [
         "zero_cc/parser/const_eval.h"
@@ -7964,6 +8068,20 @@
     "aarch64_emit_epilogue_asm": {
       "called_in": [
         "zero_cc/isa/aarch64.c",
+        "zero_cc/isa/aarch64_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/aarch64_asm.c",
+      "depends_on": []
+    },
+    "aarch64_emit_extend": {
+      "called_in": [
+        "zero_cc/isa/aarch64.c"
+      ],
+      "defined_in": "zero_cc/isa/aarch64.c",
+      "depends_on": []
+    },
+    "aarch64_emit_extend_asm": {
+      "called_in": [
         "zero_cc/isa/aarch64_asm.c"
       ],
       "defined_in": "zero_cc/isa/aarch64_asm.c",
@@ -9348,6 +9466,7 @@
     },
     "bit": {
       "called_in": [
+        "zero_cc/isa/aarch64_asm.c",
         "zero_cc/semantic/promote.c"
       ],
       "defined_in": null,
@@ -9439,6 +9558,7 @@
     },
     "cast": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/semantic/promote.c"
       ],
       "defined_in": null,
@@ -9975,6 +10095,7 @@
     },
     "destination": {
       "called_in": [
+        "zero_cc/isa/x86_64_asm.c",
         "zero_cc/opt/opt_dce.c"
       ],
       "defined_in": null,
@@ -10719,6 +10840,20 @@
       "depends_on": []
     },
     "emit_epilogue_asm": {
+      "called_in": [
+        "zero_cc/ir/asm_emitter.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "emit_extend": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_mc.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "emit_extend_asm": {
       "called_in": [
         "zero_cc/ir/asm_emitter.c"
       ],
@@ -11807,6 +11942,20 @@
       "defined_in": null,
       "depends_on": []
     },
+    "encoding": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "encodings": {
+      "called_in": [
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "end": {
       "called_in": [
         "zero_cc/ir/live_range.h"
@@ -12077,6 +12226,15 @@
     "expressions": {
       "called_in": [
         "zero_cc/opt/opt_cse.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "extension": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ir.h",
+        "zero_cc/isa/x86_64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12811,6 +12969,7 @@
     },
     "int": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/isa/isa_backend.h",
         "zero_cc/jit/execution.h",
         "zero_cc/semantic/promote.h"
@@ -12828,6 +12987,13 @@
     "intervals": {
       "called_in": [
         "zero_cc/ir/regalloc.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "ints": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -13470,6 +13636,23 @@
       "defined_in": "zero_cc/ir/ir.h",
       "depends_on": []
     },
+    "ir_emit_sar": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ir_emit_ops.h"
+      ],
+      "defined_in": "zero_cc/ir/ir_emit_ops.h",
+      "depends_on": []
+    },
+    "ir_emit_sext": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ast_lowering_internal.h",
+        "zero_cc/ir/ir_emit_ops.h"
+      ],
+      "defined_in": "zero_cc/ir/ir_emit_ops.h",
+      "depends_on": []
+    },
     "ir_emit_shl": {
       "called_in": [
         "zero_cc/ir/ast_lowering_expr.c",
@@ -13824,6 +14007,15 @@
       "defined_in": "zero_cc/ir/ir_emit_ops.h",
       "depends_on": []
     },
+    "ir_emit_zext": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ast_lowering_internal.h",
+        "zero_cc/ir/ir_emit_ops.h"
+      ],
+      "defined_in": "zero_cc/ir/ir_emit_ops.h",
+      "depends_on": []
+    },
     "ir_emitter_alloc_temp": {
       "called_in": [
         "zero_cc/ir/ir_emitter.h"
@@ -13970,6 +14162,14 @@
         "zero_cc/opt/opt_constant_fold.h"
       ],
       "defined_in": "zero_cc/opt/opt_constant_fold.c",
+      "depends_on": []
+    },
+    "ir_mark_last_width": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ir.h"
+      ],
+      "defined_in": "zero_cc/ir/ir.h",
       "depends_on": []
     },
     "ir_opcode_is_float": {
@@ -14575,7 +14775,28 @@
       "defined_in": null,
       "depends_on": []
     },
+    "m16": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "m32": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "m64": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "m8": {
       "called_in": [
         "zero_cc/isa/x86_64.c"
       ],
@@ -15206,6 +15427,13 @@
         "zero_cc/semantic/visitor.h"
       ],
       "defined_in": "zero_cc/semantic/visitor.c",
+      "depends_on": []
+    },
+    "now": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_mc.c"
+      ],
+      "defined_in": null,
       "depends_on": []
     },
     "number": {
@@ -16065,6 +16293,13 @@
       "defined_in": null,
       "depends_on": []
     },
+    "passed": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "patch_jmp": {
       "called_in": [
         "zero_cc/ir/ast_lowering_mc.c"
@@ -16351,6 +16586,14 @@
       "defined_in": null,
       "depends_on": []
     },
+    "qualifier": {
+      "called_in": [
+        "zero_cc/jit/compile.h",
+        "zero_cc/parser/ast_stmt.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "qualifiers": {
       "called_in": [
         "zero_cc/semantic/promote.h"
@@ -16410,6 +16653,13 @@
     "r25": {
       "called_in": [
         "zero_cc/opt/opt_gvn.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "r32": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -17299,6 +17549,13 @@
       "defined_in": "zero_cc/isa/riscv.c",
       "depends_on": []
     },
+    "riscv64_emit_extend": {
+      "called_in": [
+        "zero_cc/isa/riscv.c"
+      ],
+      "defined_in": "zero_cc/isa/riscv.c",
+      "depends_on": []
+    },
     "riscv64_emit_fp_add": {
       "called_in": [
         "zero_cc/isa/riscv.c"
@@ -17862,6 +18119,13 @@
       "depends_on": []
     },
     "riscv_emit_epilogue_asm": {
+      "called_in": [
+        "zero_cc/isa/riscv_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/riscv_asm.c",
+      "depends_on": []
+    },
+    "riscv_emit_extend_asm": {
       "called_in": [
         "zero_cc/isa/riscv_asm.c"
       ],
@@ -18650,6 +18914,14 @@
       "defined_in": "zero_cc/semantic/semantic.c",
       "depends_on": []
     },
+    "semantics": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ir_emit_ops.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "separators": {
       "called_in": [
         "zero_cc/lexer/scan.h"
@@ -18662,6 +18934,13 @@
         "zero_cc/jit/elf_writer.c"
       ],
       "defined_in": "zero_cc/jit/elf_writer.c",
+      "depends_on": []
+    },
+    "shift": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c"
+      ],
+      "defined_in": null,
       "depends_on": []
     },
     "shufps": {
@@ -18782,6 +19061,13 @@
       "defined_in": null,
       "depends_on": []
     },
+    "srai": {
+      "called_in": [
+        "zero_cc/isa/riscv_asm.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "src": {
       "called_in": [
         "zero_cc/isa/aarch64.c",
@@ -18811,6 +19097,13 @@
     "sret": {
       "called_in": [
         "zero_cc/ir/ast_lowering_mc.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "srli": {
+      "called_in": [
+        "zero_cc/isa/riscv_asm.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19206,6 +19499,13 @@
       "defined_in": null,
       "depends_on": []
     },
+    "tag": {
+      "called_in": [
+        "zero_cc/parser/ast_stmt.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
     "target": {
       "called_in": [
         "zero_cc/ir/regalloc.h"
@@ -19222,11 +19522,19 @@
     },
     "temp": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_internal.h",
         "zero_cc/ir/ir.h",
         "zero_cc/ir/live_range.h",
         "zero_cc/opt/opt_copy_prop.c",
         "zero_cc/opt/opt_dce.c",
         "zero_cc/opt/opt_vectorize.c"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "temp_src": {
+      "called_in": [
+        "zero_cc/ir/ir_emit_ops.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19688,6 +19996,7 @@
     },
     "type_uchar": {
       "called_in": [
+        "zero_cc/jit/type_info.h",
         "zero_cc/semantic/type.c",
         "zero_cc/semantic/type.h"
       ],
@@ -19696,6 +20005,7 @@
     },
     "type_uint": {
       "called_in": [
+        "zero_cc/jit/type_info.h",
         "zero_cc/semantic/promote.c",
         "zero_cc/semantic/type.c",
         "zero_cc/semantic/type.h"
@@ -19705,6 +20015,7 @@
     },
     "type_ulong": {
       "called_in": [
+        "zero_cc/jit/type_info.h",
         "zero_cc/semantic/promote.c",
         "zero_cc/semantic/type.c",
         "zero_cc/semantic/type.h"
@@ -19714,6 +20025,7 @@
     },
     "type_ushort": {
       "called_in": [
+        "zero_cc/jit/type_info.h",
         "zero_cc/semantic/type.c",
         "zero_cc/semantic/type.h"
       ],
@@ -19755,6 +20067,7 @@
     },
     "types": {
       "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/parser/const_eval.h",
         "zero_cc/semantic/promote.h",
         "zero_cc/types/types.h"
@@ -19796,6 +20109,13 @@
         "zero_cc/common/posix_fileio.h",
         "zero_cc/core/preprocessor.h",
         "zero_cc/jit/elf_emitter.h"
+      ],
+      "defined_in": null,
+      "depends_on": []
+    },
+    "uxtwd": {
+      "called_in": [
+        "zero_cc/isa/aarch64_asm.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -20007,6 +20327,14 @@
     "while": {
       "called_in": [],
       "defined_in": "zero_cc/parser/const_eval.h",
+      "depends_on": []
+    },
+    "width": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ast_lowering_stmt.c"
+      ],
+      "defined_in": null,
       "depends_on": []
     },
     "write": {
@@ -20356,6 +20684,20 @@
     "x86_emit_epilogue_asm": {
       "called_in": [
         "zero_cc/isa/x86_64.c",
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/x86_64_asm.c",
+      "depends_on": []
+    },
+    "x86_emit_extend": {
+      "called_in": [
+        "zero_cc/isa/x86_64.c"
+      ],
+      "defined_in": "zero_cc/isa/x86_64.c",
+      "depends_on": []
+    },
+    "x86_emit_extend_asm": {
+      "called_in": [
         "zero_cc/isa/x86_64_asm.c"
       ],
       "defined_in": "zero_cc/isa/x86_64_asm.c",
@@ -21499,6 +21841,27 @@
       "defined_in": "zero_cc/isa/x86_64.c",
       "depends_on": []
     },
+    "x86_reg16_name": {
+      "called_in": [
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/x86_64_asm.c",
+      "depends_on": []
+    },
+    "x86_reg32_name": {
+      "called_in": [
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/x86_64_asm.c",
+      "depends_on": []
+    },
+    "x86_reg8_name": {
+      "called_in": [
+        "zero_cc/isa/x86_64_asm.c"
+      ],
+      "defined_in": "zero_cc/isa/x86_64_asm.c",
+      "depends_on": []
+    },
     "x86_resolve_labels": {
       "called_in": [
         "zero_cc/isa/x86_64.c"
@@ -21883,6 +22246,15 @@
       "defined_in": "zero_cc/types/emit_helpers.h",
       "depends_on": []
     },
+    "zero_cc_emit_int_extend": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ast_lowering_internal.h",
+        "zero_cc/ir/ast_lowering_stmt.c"
+      ],
+      "defined_in": "zero_cc/ir/ast_lowering_internal.h",
+      "depends_on": []
+    },
     "zero_cc_emit_lea_rax_rodata": {
       "called_in": [
         "zero_cc/types/emit_helpers.h"
@@ -22187,6 +22559,21 @@
         "zero_cc/parser/parser.h"
       ],
       "defined_in": "zero_cc/ir/ast_lowering.c",
+      "depends_on": []
+    },
+    "zero_cc_narrow_int_width": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c",
+        "zero_cc/ir/ast_lowering_internal.h"
+      ],
+      "defined_in": "zero_cc/ir/ast_lowering_internal.h",
+      "depends_on": []
+    },
+    "zero_cc_operand_int_width": {
+      "called_in": [
+        "zero_cc/ir/ast_lowering_expr.c"
+      ],
+      "defined_in": "zero_cc/ir/ast_lowering_expr.c",
       "depends_on": []
     },
     "zero_cc_parse_expr_ast": {
@@ -22671,6 +23058,7 @@
     },
     "zero_cc_type_uint32": {
       "called_in": [
+        "zero_cc/jit/compile.h",
         "zero_cc/jit/type_info.h",
         "zero_cc/parser/const_eval.h",
         "zero_cc/parser/definitions.h",
@@ -22692,6 +23080,7 @@
     "zero_cc_type_uint8": {
       "called_in": [
         "zero_cc/jit/type_info.h",
+        "zero_cc/parser/const_eval.h",
         "zero_cc/parser/definitions.h",
         "zero_cc/types/type_funcs.h"
       ],
