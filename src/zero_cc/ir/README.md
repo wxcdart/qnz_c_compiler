@@ -1,232 +1,122 @@
-# Parser Module - AST Lowering & Code Emission
+# IR, AST Lowering, Register Allocation & Code Emission (`src/zero_cc/ir/`)
 
 ## Overview
 
-This module handles the transformation from AST to executable code. It includes:
-- AST statement lowering (`ast_lowering_stmt.c`)
-- AST expression lowering (`ast_lowering_expr.c`)
-- Assembly emission (`asm_emitter.c`)
-- Machine code emission (`ast_lowering_mc.c`)
-- Optimization passes (`opt_pass.c`, `opt_constant_fold.c`, etc.)
+`src/zero_cc/ir/` implements the middle-end Intermediate Representation (IR), AST-to-IR lowering, linear-scan register allocation, and dual-path code emission (in-memory JIT / ELF binary emission and GNU Assembler `.s` text emission):
+
+- **IR Representation & Arenas**: [`ir.h`](./ir.h), [`ir.c`](./ir.c), [`ir_arena.h`](./ir_arena.h), [`ir_emitter.h`](./ir_emitter.h), [`ir_emit_ops.h`](./ir_emit_ops.h)
+- **AST-to-IR Lowering**: [`ast_lowering.c`](./ast_lowering.c), [`ast_lowering_stmt.c`](./ast_lowering_stmt.c), [`ast_lowering_expr.c`](./ast_lowering_expr.c), [`abi_classify.h`](./abi_classify.h)
+- **Live-Range Analysis & Linear-Scan Register Allocation**: [`live_range.h`](./live_range.h), [`regalloc.h`](./regalloc.h)
+- **Code Emission (JIT/ELF Binary & AOT Assembly)**: [`ast_lowering_mc.c`](./ast_lowering_mc.c), [`asm_emitter.c`](./asm_emitter.c), [`machine_emitter.h`](./machine_emitter.h), [`label_patcher.h`](./label_patcher.h)
+
+> **Subsystem Boundaries**:
+> - Frontend AST construction lives in [`src/zero_cc/parser/`](../parser/).
+> - Middle-end IR optimization passes (`opt_pass.c`, `opt_mem2reg.c`, `opt_loop.c`, `opt_vectorize.c`, etc.) live in [`src/zero_cc/opt/`](../opt/).
+> - Target ISA vtable implementations (`x86_64`, `aarch64`, `riscv`) live in [`src/zero_cc/isa/`](../isa/).
+
+---
 
 ## Architecture
 
 ### Two-Path Code Generation
 
-The module supports two output paths from the same IR:
+Both code generation paths consume the same optimized, register-allocated IR buffer:
 
 ```
-AST → Semantic Analysis → IR → ──┬──► asm_emitter.c → GAS text (.s) → as → ELF
-                                 │
-                                 └──► ast_lowering_mc.c → Binary ELF (direct)
+AST (parser/) ──► Semantic Analysis (semantic/) ──► AST Lowering (ir/ast_lowering*.c)
+                                                            │
+                                                            ▼
+                                                   IR Buffer (ir/ir.c)
+                                                            │
+                                                            ▼
+                                                Optimization Passes (opt/)
+                                                            │
+                                                            ▼
+                                       Live Ranges & RegAlloc (ir/live_range.h, regalloc.h)
+                                                            │
+                                           ┌────────────────┴────────────────┐
+                                           ▼                                 ▼
+                                  ir/asm_emitter.c                ir/ast_lowering_mc.c
+                                  GAS Assembly (.s)            Direct Machine Code (.text)
+                                           │                                 │
+                                           ▼                                 ├──► JIT Execution (--run)
+                                      Host Assembler                         └──► ELF Writer (-c / -o)
 ```
 
-**Assembly Path** (`-S` flag):
-- Human-readable text output
-- Useful for debugging code generation
-- Requires external assembler (`as`)
-
-**Machine Code Path** (default):
-- Binary output for direct JIT/linking
-- Faster (no external tool needed)
-- Production use
-
-### File Organization
+### File Organization (`src/zero_cc/ir/`)
 
 | File | Purpose |
 |------|---------|
-| `ast_lowering.c` | Coordinator (`zero_cc_lower_ast`) |
-| `ast_lowering_internal.h` | Shared lowering declarations and helpers |
-| `ast_lowering_stmt.c` | Statement lowering (if, while, for, etc.) |
-| `ast_lowering_expr.c` | Expression lowering (arithmetic, calls, etc.) |
-| `asm_emitter.c` | IR → GAS assembly emission |
-| `asm_emitter.h` | Assembly emitter interface |
-| `ast_lowering_mc.c` | IR → Machine code emission |
-| `opt_pass.c` | Optimization pass driver (`opt_run_passes`) |
-| `ir.h` / `ir.c` | IR instruction definitions and buffers |
-| `regalloc.h` | Linear-scan register allocation |
-| `live_range.h` | Live range analysis |
+| [`ir.h`](./ir.h) / [`ir.c`](./ir.c) | 85-opcode `Instr` representation, `IRCallArgs` side table, and IR arena management |
+| [`ir_arena.h`](./ir_arena.h) | Growable `IRArena` and `IRCallArgsArena` data structures |
+| [`ir_emitter.h`](./ir_emitter.h) / [`ir_emit_ops.h`](./ir_emit_ops.h) | Typed helper functions (`ir_emit_*`) for appending instructions to the active `IRArena` |
+| [`lowering_state.h`](./lowering_state.h) | Per-function lowering context (`ZeroCCLoweringState`: VLA state, loop label stacks, alias groups) |
+| [`abi_classify.h`](./abi_classify.h) | System V AMD64 / AAPCS64 / LP64D struct eightbyte classification and `sret` helpers |
+| [`ast_lowering.c`](./ast_lowering.c) | Per-function pipeline coordinator (`lower_function`, `zero_cc_lower_ast`) |
+| [`ast_lowering_stmt.c`](./ast_lowering_stmt.c) | Statement lowering (`if`/`else`, `while`, `for`, `do`/`while`, `switch`, `goto`, `return`, local `NODE_DECL`, VLAs) |
+| [`ast_lowering_expr.c`](./ast_lowering_expr.c) | Expression lowering (arithmetic, pointer/array indexing, structs, compound literals, `va_arg`, `NODE_CALL`, atomics) |
+| [`ast_lowering_internal.h`](./ast_lowering_internal.h) / [`ast_lowering_ir.h`](./ast_lowering_ir.h) | Shared declarations across lowering translation units |
+| [`live_range.h`](./live_range.h) | Liveness analysis, call-spanning (`spans_call`) detection, and loop backedge live-range extension |
+| [`regalloc.h`](./regalloc.h) | Linear-scan register allocator (`RegAllocator`) with callee-saved enforcement and stack spill slot assignment |
+| [`ast_lowering_mc.c`](./ast_lowering_mc.c) | IR → binary machine code emitter (`emit_ir_to_mc`) with unified scratch-register spill reload/store |
+| [`asm_emitter.h`](./asm_emitter.h) / [`asm_emitter.c`](./asm_emitter.c) | IR → GAS text assembly emitter (`emit_ir_to_asm`) with unified scratch-register spill reload/store |
+| [`machine_emitter.h`](./machine_emitter.h) | Low-level byte buffer emission helpers (`me_emit_u8`, `me_emit_u32`, `me_emit_u64`) |
+| [`label_patcher.h`](./label_patcher.h) | Two-pass forward/backward branch target offset patching for binary codegen |
 
 ### Build Pattern
 
-Each `.c` module (`parser.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, `opt_pass.c`, and individual `opt_*.c` passes) is compiled as a standalone `.o` translation unit in `Makefile` (with `-MMD -MP` dependency tracking), sharing declarations through `ast_lowering_internal.h`, `asm_emitter.h`, and `opt_pass.h`.
+Each `.c` file in `src/zero_cc/ir/` (`ir.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`) is compiled as a standalone `.o` translation unit in [`Makefile`](../../../Makefile) with `-MMD -MP` header dependency tracking.
 
-## Assembly Emitter (`asm_emitter.c`)
+---
 
-### Purpose
+## Register Allocation & Spill Handling (`live_range.h`, `regalloc.h`)
 
-Translates IR instructions to GNU Assembler (GAS) syntax text output.
+- **Reserved Physical Registers (`temp < 16`)**:
+  - `VREG_0` (`0`, `%rax`/`x0`/`a0`) and `VREG_2` (`2`, `%rdx` for 9–16B struct returns) are fixed ABI physical registers.
+  - `%rsp` (`4`), `%rbp` (`5`), `%rcx` (`1`, variable shifts), and `%r10`/`%r11` (`10`/`11`, backend scratch registers `scratch_reg1`/`scratch_reg2`) are never allocated to general virtual registers (`temp >= 16`).
+- **Call-Spanning Virtual Registers (`spans_call`)**:
+  - Any virtual register whose live range crosses `OP_CALL` or `OP_CALL_INDIRECT` is restricted exclusively to callee-saved GPRs (`%rbx`, `%r12`–`%r15` on x86-64; `x19`–`x28` on AArch64; `s1`–`s11` on RISC-V).
+  - Function prologues and epilogues symmetrically emit `OP_CALLEE_SAVE_STORES` and `OP_CALLEE_SAVE_LOADS` (`-8(%rbp)`..`-40(%rbp)`).
+- **Unified Stack Spill / Reload**:
+  - When register pressure exceeds available GPRs (or callee-saved GPRs across a call), `regalloc_allocate()` assigns a stack spill slot at `-(spill_base_offset + spill_slot * 8)`.
+  - Both [`ast_lowering_mc.c`](./ast_lowering_mc.c) and [`asm_emitter.c`](./asm_emitter.c) transparently reload spilled source operands into `scratch_reg1` / `scratch_reg2` before instruction execution (including spilled `OP_CALL` arguments and indirect callee pointers) and store spilled destinations afterward.
 
-### Interface
+---
 
-```c
-// Main entry point
-void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset);
+## Supported Opcode Families (`ir.h`)
 
-// Individual instruction emission
-void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx);
+- **Data Movement**: `OP_MOV`, `OP_MOV_IMM`, `OP_MOV_REG`, `OP_MOV_MEM`, `OP_LEA`, `OP_LEA_RIP`, `OP_MOV_GLOBAL`, `OP_DEREF`, `OP_LOAD_BYTE`, `OP_LOAD_16`, `OP_LOAD_32`, `OP_STORE_BYTE`, `OP_STORE_16`, `OP_STORE_32`, `OP_STORE_64`, `OP_PUSH`, `OP_POP`
+- **Integer Arithmetic & Bitwise**: `OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_DIV`, `OP_MOD`, `OP_NEG`, `OP_AND`, `OP_OR`, `OP_XOR`, `OP_NOT`, `OP_SHL`, `OP_SHR`, `OP_SAR`
+- **Comparison & Control Flow**: `OP_CMP`, `OP_CMP_ZERO`, `OP_COND_SET`, `OP_JMP`, `OP_JMP_LABEL`, `OP_JE`, `OP_JNE`, `OP_JL`, `OP_JLE`, `OP_JG`, `OP_JCOND`, `OP_LABEL`
+- **Calls & Frame Management**: `OP_PROLOGUE`, `OP_EPILOGUE`, `OP_CALL`, `OP_CALL_INDIRECT`, `OP_RET`, `OP_PARAM_SAVE_INT`, `OP_PARAM_SAVE_FP`, `OP_VARIADIC_SPILL`, `OP_VLA_ALLOC`, `OP_CALLEE_SAVE_STORES`, `OP_CALLEE_SAVE_LOADS`
+- **C11 Atomics**: `OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_CMPXCHG_BOOL`, `OP_ATOMIC_XCHG`, `OP_MFENCE`
+- **Scalar Floating-Point**: `OP_FMOV_IMM`, `OP_FLOAD`, `OP_FSTORE`, `OP_FMOV`, `OP_FADD`, `OP_FSUB`, `OP_FMUL`, `OP_FDIV`, `OP_FCMP`, `OP_CVTSI2SD`, `OP_CVTTSD2SI`
+- **128-Bit SIMD Vector (`float4`, `double2`, `int4`)**: `OP_VMOV`, `OP_VLOAD`, `OP_VSTORE`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VSHUFPS`, `OP_VBROADCASTSS`, `OP_VHADDPS`, and scalar-lane ops (`OP_VADDSS`, `OP_VADDSD`, etc.)
 
-// Helper functions
-void asm_emit_prologue(FILE *out, size_t frame_size);
-void asm_emit_epilogue(FILE *out);
-void asm_emit_label(FILE *out, const char *label);
-```
+---
 
-### ISA-Agnostic Design
-
-The emitter uses the backend's register information:
-
-```c
-// Get register name from backend
-const char *reg_name = BE(c)->regs->int_arg_regs[seq_idx];
-fprintf(out, "\tmovq %%%s, %d(%%rbp)\n", reg_name, offset);
-```
-
-This ensures:
-- Correct register names for each ISA
-- Easy addition of new ISAs
-- No hardcoded register names
-
-### Example Output
-
-```asm
-# 0: OP_PROLOGUE
-.globl main
-main:
-    push %rbp
-    mov %rsp, %rbp
-    sub $16, %rsp
-    
-# 1: OP_PARAM_SAVE_INT
-    movq %rdi, -8(%rbp)
-    
-# 2: OP_MOV_IMM
-    movq $42, %rax
-    
-# 3: OP_MOV_MEM
-    movq %rax, -16(%rbp)
-    
-# 4: OP_LABEL
-.L0:
-    # loop body...
-```
-
-### Supported Opcodes
-
-**Data Movement:**
-- `OP_MOV_IMM`, `OP_MOV_REG`, `OP_MOV_MEM`, `OP_LEA`
-- `OP_DEREF`, `OP_LOAD_32`, `OP_STORE_32`, `OP_STORE_64`
-
-**Arithmetic:**
-- `OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_DIV`, `OP_MOD`
-- `OP_NEG`, `OP_AND`, `OP_OR`, `OP_XOR`, `OP_NOT`
-- `OP_SHL`, `OP_SHR`, `OP_SAR`
-
-**Control Flow:**
-- `OP_JMP`, `OP_JE`, `OP_JNE`, `OP_JL`, `OP_JLE`, `OP_JG`
-- `OP_JCOND`, `OP_LABEL`
-
-**Function:**
-- `OP_CALL`, `OP_CALL_INDIRECT`, `OP_RET`
-- `OP_PARAM_SAVE_INT`, `OP_PARAM_SAVE_FP`
-- `OP_PROLOGUE`, `OP_EPILOGUE`
-
-**Memory:**
-- `OP_VLA_ALLOC`, `OP_CALLEE_SAVE_STORES`, `OP_CALLEE_SAVE_LOADS`
-
-**Floating Point:**
-- `OP_FADD`, `OP_FSUB`, `OP_FMUL`, `OP_FDIV`
-- `OP_CVTSI2SD`, `OP_CVTTSD2SI`
-
-**SIMD:**
-- `OP_VADDSS`, `OP_VSUBSS`, `OP_VMULSS`, `OP_VDIVSS`
-- `OP_VMOV`, `OP_VLOAD`, `OP_VSTORE`
-
-## Machine Code Emitter (`ast_lowering_mc.c`)
-
-### Purpose
-
-Translates IR instructions to binary machine code and writes ELF object format.
-
-### Key Features
-
-- Direct binary emission (no external tools)
-- ELF object file generation
-- JIT compilation support
-- AOT compilation support
-
-### ISA Backend Integration
-
-Uses backend function pointers for ISA-specific emission:
-
-```c
-// Generic IR opcode
-case OP_ADD:
-    BE(c)->emit_add(c, phys_dst, phys_src1);
-    break;
-
-// Backend implements ISA-specific encoding
-// x86_64.c: x86_emit_add()
-// aarch64.c: aarch64_emit_add()
-// riscv.c: riscv64_emit_add()
-```
-
-## Testing
-
-### Assembly Emitter Tests
+## Debugging & Verification
 
 ```bash
-# Generate assembly
-./build/bin/zerocc -S -o test.s input.c
+# Dump IR before/after optimizations
+./build/bin/zerocc -dump-ir path/to/file.c
 
-# Validate output
-python3 tools/asm_emitter_validator.py --input test.s
+# Emit AOT assembly (.s)
+./build/bin/zerocc -S path/to/file.c -o /tmp/out.s
 
-# Check instruction coverage
-python3 tools/asm_instruction_checker.py --input test.s
+# Compile & run via AOT ELF and JIT (--run)
+./build/bin/zerocc path/to/file.c -o /tmp/out && /tmp/out
+./build/bin/zerocc --run path/to/file.c
+
+# Run full regression suite (140/140 tests)
+make test
 ```
-
-### All Tests Pass
-
-```
-Results: 118/118 passed, 0 failed in 0.29s
-```
-
-## Debugging
-
-### Common Issues
-
-**1. Assembly output is binary instead of text:**
-- Ensure `-S` flag is set
-- Check `c->emit_asm` is true
-
-**2. Wrong register names:**
-- Check backend initialization (`x86_64_init()`, etc.)
-- Verify `BE(c)->regs->int_regs[]` is populated
-
-**3. Label naming conflicts:**
-- Labels use `.L%zu` format (`.L0:`, `.L1:`, etc.)
-- Ensure unique label indices
-
-### IR Dumps
-
-```bash
-# See IR before emission
-./build/bin/zerocc -dump-ir input.c
-
-# See IR with register allocation
-./build/bin/zerocc -dump-regalloc input.c
-```
-
-## Future Work
-
-1. **More SIMD Instructions**: Implement remaining SIMD opcodes
-2. **Assembly Optimization**: Add optimization passes for size/speed
-3. **Named Labels**: Use function-scoped label names instead of `.L%zu`
-4. **Cross-ISA Testing**: Compare assembly output across ISAs
 
 ## References
 
-- [ASM_EMITTER_TESTING.md](../../docs/ASM_EMITTER_TESTING.md) - Testing guide
-- [ASM_EMITTER_REFACTORING.md](../../ASM_EMITTER_REFACTORING.md) - Refactoring summary
-- [CHANGELOG.md](../../docs/CHANGELOG.md) - Version history
+- [OKF Knowledge Graph Index](../../../docs/okf/index.md)
+- [Two-Pass IR & Linear Scan Register Allocation](../../../docs/okf/ir-and-regalloc.md)
+- [Compilation Pipeline & Two-Pass Architecture](../../../docs/okf/architecture-pipeline.md)
+- [Optimization Passes & Safety Invariants](../../../docs/okf/optimization-passes.md)
+- [System V AMD64 ABI & Struct Calling Conventions](../../../docs/okf/abi-sysv-x86_64.md)
+- [Multi-ISA Backends (x86-64, AArch64, RISC-V)](../../../docs/okf/isa-backends.md)
