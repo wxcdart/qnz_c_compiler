@@ -235,10 +235,19 @@ def rc_status(rc):
 
 
 def classify_jit(zerocc, src, timeout):
-    """Run `zerocc --run src`. Return a status string."""
+    """Run `zerocc --run src`. Return a status string.
+
+    A compile-only dry run (-S) goes first so that a failed compile is not
+    confused with a program that simply returns 1.
+    """
+    rc, to = run([zerocc, "-O0", "-S", src, "-o", os.devnull], timeout)
+    if to:
+        return "HANG(compile)"
+    if rc != 0:
+        return "COMPILE-ERR(rc=%d)" % rc
     rc, to = run([zerocc, "-O0", "--run", src], timeout)
     if to:
-        return "HANG"
+        return "HANG(run)"
     return rc_status(rc)
 
 

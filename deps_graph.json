@@ -2,9 +2,6 @@
   "files": {
     "main.c": {
       "functions_called": [
-        "D",
-        "I",
-        "address",
         "compile_and_link",
         "compile_jit",
         "compile_object",
@@ -13,16 +10,12 @@
         "elf_writer_add_symbol",
         "elf_writer_cleanup",
         "elf_writer_init",
-        "first",
         "fread",
         "fseek",
         "ftell",
         "getpid",
-        "initializers",
         "ir_arena_free",
         "ir_call_args_arena_free",
-        "linker",
-        "literals",
         "main",
         "opt_init",
         "opt_profile_dump",
@@ -34,12 +27,9 @@
         "print_usage",
         "print_version",
         "read_file",
-        "size",
         "strncat",
         "strrchr",
-        "symbol",
         "unlink",
-        "variables",
         "zero_cc_buf_free",
         "zero_cc_compile_c99",
         "zero_cc_execute_jit",
@@ -86,8 +76,7 @@
         "arena_destroy",
         "arena_index_of",
         "arena_index_to_ptr",
-        "arena_reset",
-        "buffer"
+        "arena_reset"
       ],
       "functions_defined": [
         "align8",
@@ -112,9 +101,7 @@
         "arena_destroy",
         "arena_index_of",
         "arena_index_to_ptr",
-        "arena_reset",
-        "empty",
-        "offset"
+        "arena_reset"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -125,7 +112,6 @@
     },
     "zero_cc/common/hash_table.h": {
       "functions_called": [
-        "entries",
         "ht32_free",
         "ht32_get",
         "ht32_init",
@@ -145,14 +131,11 @@
     },
     "zero_cc/common/hash_table_tpht.c": {
       "functions_called": [
-        "blocks",
         "ht32_free",
         "ht32_get",
         "ht32_init",
         "ht32_put",
         "ht32_remove",
-        "implementation",
-        "table",
         "zero_flatten_tpht_destroy",
         "zero_flatten_tpht_get",
         "zero_flatten_tpht_put",
@@ -515,7 +498,6 @@
     },
     "zero_cc/common/posix_system.h": {
       "functions_called": [
-        "Abstractions",
         "GetComputerNameA",
         "GetSystemInfo",
         "_exit",
@@ -606,8 +588,6 @@
     },
     "zero_cc/common/zero_chained_tpht.h": {
       "functions_called": [
-        "Table",
-        "pointers",
         "zero_chained_tpht_destroy",
         "zero_chained_tpht_get",
         "zero_chained_tpht_init",
@@ -647,8 +627,6 @@
     },
     "zero_cc/common/zero_tinyptr.h": {
       "functions_called": [
-        "Table",
-        "byte",
         "zero_posix_memset",
         "zero_tinyptr_deref",
         "zero_tinyptr_destroy",
@@ -672,7 +650,6 @@
       "functions_called": [
         "ZERO_AUTO_TPHT",
         "__attribute__",
-        "full",
         "zero_auto_tpht_cleanup",
         "zero_flatten_tpht_destroy",
         "zero_flatten_tpht_get",
@@ -687,7 +664,6 @@
         "zero_tpht_hash"
       ],
       "functions_defined": [
-        "if",
         "zero_auto_tpht_cleanup",
         "zero_flatten_tpht_destroy",
         "zero_flatten_tpht_get",
@@ -707,7 +683,6 @@
     },
     "zero_cc/core/buffers.h": {
       "functions_called": [
-        "Stack",
         "memcpy",
         "zero_cc_buf_ensure",
         "zero_cc_buf_free",
@@ -780,63 +755,16 @@
     },
     "zero_cc/core/preprocessor.h": {
       "functions_called": [
-        "__builtin_va_arg",
-        "__builtin_va_end",
-        "__builtin_va_start",
-        "close",
         "defined",
-        "directive",
-        "dlclose",
-        "dlerror",
-        "dlopen",
-        "dlsym",
-        "fflush",
         "fread",
         "fseek",
         "ftell",
-        "fwrite",
-        "handling",
         "isalnum",
-        "isalpha",
-        "isdigit",
         "isspace",
-        "isxdigit",
-        "memcmp",
         "memcpy",
-        "mmap",
-        "mprotect",
-        "munmap",
-        "offsetof",
-        "others",
-        "pragmas",
-        "pthread_cond_broadcast",
-        "pthread_cond_destroy",
-        "pthread_cond_init",
-        "pthread_cond_signal",
-        "pthread_cond_wait",
-        "pthread_join",
-        "pthread_mutex_destroy",
-        "pthread_mutex_init",
-        "pthread_mutex_lock",
-        "pthread_mutex_unlock",
-        "putchar",
-        "puts",
-        "read",
-        "signal",
         "strchr",
         "strdup",
-        "strncat",
-        "strrchr",
-        "strstr",
-        "tolower",
-        "toupper",
         "typeof",
-        "unlink",
-        "va_arg",
-        "va_copy",
-        "va_end",
-        "value",
-        "write",
         "zero_cc_buf_free",
         "zero_cc_buf_init",
         "zero_cc_buf_putc",
@@ -931,9 +859,7 @@
     },
     "zero_cc/ir/abi_classify.h": {
       "functions_called": [
-        "INTEGER",
-        "abi_classify_struct",
-        "eightbytes"
+        "abi_classify_struct"
       ],
       "functions_defined": [
         "abi_classify_struct",
@@ -950,11 +876,9 @@
     "zero_cc/ir/asm_emitter.c": {
       "functions_called": [
         "BE",
-        "_asm",
         "asm_emit_instruction",
         "asm_emit_instruction_core",
         "asm_get_phys_reg",
-        "directly",
         "emit_add_asm",
         "emit_and_asm",
         "emit_call_asm",
@@ -1035,15 +959,11 @@
         "fflush",
         "get_hw_reg_name",
         "get_vec_reg_name",
-        "imm64",
         "ir_call_args_find",
         "ir_get_buffer",
         "ir_get_count",
-        "label",
-        "moves",
         "regalloc_get_reg_for_temp",
-        "regalloc_get_spill_slot_for_temp",
-        "registers"
+        "regalloc_get_spill_slot_for_temp"
       ],
       "functions_defined": [
         "asm_emit_instruction",
@@ -1066,24 +986,15 @@
     },
     "zero_cc/ir/asm_emitter.h": {
       "functions_called": [
-        "BE",
         "asm_emit_epilogue",
         "asm_emit_instruction",
         "asm_emit_label",
         "asm_emit_prologue",
         "asm_get_reg_name",
-        "context",
-        "directly",
         "emit_function_label_asm",
         "emit_ir_to_asm",
         "emit_param_saves_mc",
-        "emit_prologue_asm",
-        "index",
-        "label",
-        "registers",
-        "saves",
-        "string",
-        "temporaries"
+        "emit_prologue_asm"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -1097,19 +1008,8 @@
     },
     "zero_cc/ir/ast_lowering.c": {
       "functions_called": [
-        "16",
-        "ABI",
         "BE",
-        "FIRST",
-        "IR",
-        "Pipeline",
-        "RDI",
-        "RSI",
-        "a0",
-        "a1",
-        "allocation",
-        "d",
-        "emission",
+        "diag_report_error_at_token",
         "emit_function_label_asm",
         "emit_ir_to_asm",
         "emit_ir_to_machine_code",
@@ -1141,14 +1041,11 @@
         "opt_init",
         "opt_run_passes",
         "opt_shutdown",
-        "rbp",
         "regalloc_allocate",
         "regalloc_destroy",
         "regalloc_init",
         "regalloc_set_isa",
         "resolve_labels",
-        "x0",
-        "x8",
         "zero_cc_lower_ast"
       ],
       "functions_defined": [
@@ -1166,33 +1063,10 @@
     },
     "zero_cc/ir/ast_lowering_expr.c": {
       "functions_called": [
-        "0",
-        "1",
-        "4",
-        "AMD64",
         "BE",
-        "Lowering",
-        "Ternary",
-        "address",
-        "alt",
-        "argument",
-        "array",
-        "as",
-        "assignment",
         "ast_node_get_typeinfo",
-        "below",
-        "call",
-        "cast",
-        "cmp_branch",
         "diag_report_error_at_token",
-        "double",
-        "expression",
-        "extension",
         "find_global_var",
-        "group",
-        "index",
-        "int",
-        "ints",
         "ir_call_args_record",
         "ir_emit_add",
         "ir_emit_and",
@@ -1253,35 +1127,11 @@
         "ir_get_buffer",
         "ir_get_count",
         "ir_mark_last_width",
-        "list",
         "lower_expr",
-        "member",
-        "memory",
-        "name",
-        "object",
-        "operands",
-        "passed",
-        "pointer",
-        "rdx",
-        "registers",
-        "semantics",
-        "shift",
-        "single",
-        "slot",
-        "struct",
         "struct_resolve_scalar_leaf",
-        "trick",
         "type_is_floating",
         "type_size",
-        "typeinfo",
         "typeinfo_to_zero_cc_type",
-        "types",
-        "union",
-        "va_arg",
-        "va_start",
-        "value",
-        "width",
-        "x8",
         "zero_cc_ast_get",
         "zero_cc_buf_put_bytes",
         "zero_cc_emit_int_extend",
@@ -1305,7 +1155,6 @@
     },
     "zero_cc/ir/ast_lowering_internal.h": {
       "functions_called": [
-        "directly",
         "emit_ir_to_machine_code",
         "emit_prologue_mc",
         "emit_return_jumps",
@@ -1313,7 +1162,6 @@
         "ir_emit_zext",
         "lower_expr",
         "lower_node",
-        "temp",
         "zero_cc_emit_int_extend",
         "zero_cc_get_current_fn_ret_type",
         "zero_cc_narrow_int_width",
@@ -1350,8 +1198,6 @@
     "zero_cc/ir/ast_lowering_ir.h": {
       "functions_called": [
         "BE",
-        "Lowering",
-        "NODE_BINOP",
         "emit_mov_reg",
         "ir_emit_add",
         "ir_emit_and",
@@ -1369,7 +1215,6 @@
         "ir_emit_shr",
         "ir_emit_sub",
         "ir_emit_xor",
-        "lower_expr",
         "lower_expr_ir",
         "lower_expr_to_vreg0",
         "zero_cc_ast_get",
@@ -1396,11 +1241,7 @@
     "zero_cc/ir/ast_lowering_mc.c": {
       "functions_called": [
         "BE",
-        "Emission",
-        "arguments",
-        "backend",
         "backend_get_int_arg_reg",
-        "directly",
         "emit_add",
         "emit_add_imm",
         "emit_and",
@@ -1523,28 +1364,14 @@
         "emit_vsubss_asm",
         "emit_vxorps_asm",
         "emit_xor",
-        "fp_reg_idx",
         "get_code_offset",
-        "imm",
-        "imm64",
         "ir_call_args_find",
         "ir_get_buffer",
         "ir_get_count",
-        "label",
-        "load",
-        "now",
         "patch_jmp",
-        "pointer",
-        "position",
         "regalloc_get_class_for_temp",
         "regalloc_get_reg_for_temp",
-        "regalloc_get_spill_slot_for_temp",
-        "register",
-        "registers",
-        "sret",
-        "store",
-        "too",
-        "x8"
+        "regalloc_get_spill_slot_for_temp"
       ],
       "functions_defined": [
         "emit_ir_to_machine_code",
@@ -1558,16 +1385,9 @@
     },
     "zero_cc/ir/ast_lowering_stmt.c": {
       "functions_called": [
-        "Array",
         "BE",
-        "RAX",
-        "VREG_0",
-        "VREG_F0",
-        "definition",
         "diag_report_error_at_token",
         "emit_return_jumps",
-        "epilogue",
-        "expression",
         "get_or_create_user_ir_label",
         "ir_emit_add",
         "ir_emit_and",
@@ -1596,7 +1416,6 @@
         "ir_emit_store_64",
         "ir_emit_store_byte",
         "ir_emit_vla_alloc",
-        "label",
         "label_patcher_enter_loop",
         "label_patcher_exit_loop",
         "label_patcher_find_or_create_user_label",
@@ -1618,13 +1437,6 @@
         "lower_stmt_static_assert",
         "lower_stmt_switch",
         "lower_stmt_while",
-        "pointer",
-        "rax",
-        "rdx",
-        "register",
-        "scope",
-        "slot",
-        "width",
         "zero_cc_ast_get",
         "zero_cc_emit_int_extend",
         "zero_cc_find_local",
@@ -1672,10 +1484,6 @@
     },
     "zero_cc/ir/ir.c": {
       "functions_called": [
-        "buffer",
-        "compiler",
-        "count",
-        "index",
         "ir_arena",
         "ir_arena_emit",
         "ir_arena_insert",
@@ -1735,38 +1543,7 @@
     },
     "zero_cc/ir/ir.h": {
       "functions_called": [
-        "1",
-        "2",
-        "Arithmetic",
-        "Comparison",
-        "Flow",
-        "Function",
-        "Logical",
-        "Management",
-        "Movement",
-        "NOT",
-        "O",
-        "OP_COND_SET",
-        "Special",
         "__attribute__",
-        "addpd",
-        "addps",
-        "address",
-        "addressing",
-        "andps",
-        "based",
-        "buffer",
-        "code",
-        "conversion",
-        "divpd",
-        "divps",
-        "emission",
-        "exchange",
-        "extension",
-        "fence",
-        "index",
-        "instruction",
-        "integer",
         "ir_call_args_find",
         "ir_call_args_record",
         "ir_clear",
@@ -1863,33 +1640,7 @@
         "ir_opcode_is_simd",
         "ir_opcode_name",
         "ir_reset",
-        "ir_set_compiler",
-        "jumps",
-        "loads",
-        "modulo",
-        "movapd",
-        "movaps",
-        "move",
-        "mulpd",
-        "mulps",
-        "operations",
-        "orps",
-        "paddd",
-        "pmulld",
-        "prologue",
-        "psubd",
-        "register",
-        "relative",
-        "relocation",
-        "shufps",
-        "stores",
-        "subpd",
-        "subps",
-        "temp",
-        "tracking",
-        "value",
-        "variable",
-        "xorps"
+        "ir_set_compiler"
       ],
       "functions_defined": [
         "ir_emit_add",
@@ -1985,12 +1736,6 @@
     },
     "zero_cc/ir/ir_arena.h": {
       "functions_called": [
-        "O",
-        "arena",
-        "buffer",
-        "capacity",
-        "function",
-        "index",
         "ir_arena_emit",
         "ir_arena_free",
         "ir_arena_get",
@@ -2033,7 +1778,6 @@
     },
     "zero_cc/ir/ir_emit_ops.h": {
       "functions_called": [
-        "condition",
         "ir_emit",
         "ir_emit_add_imm",
         "ir_emit_and",
@@ -2060,11 +1804,7 @@
         "ir_emit_store",
         "ir_emit_sub_imm",
         "ir_emit_xor",
-        "ir_emit_zext",
-        "rax",
-        "rbx",
-        "semantics",
-        "temp_src"
+        "ir_emit_zext"
       ],
       "functions_defined": [
         "ir_emit_add_imm",
@@ -2130,14 +1870,12 @@
     },
     "zero_cc/ir/label_patcher.h": {
       "functions_called": [
-        "label",
         "label_patcher_enter_loop",
         "label_patcher_exit_loop",
         "label_patcher_find_or_create_user_label",
         "label_patcher_get_break_label",
         "label_patcher_get_continue_label",
-        "label_patcher_init",
-        "labels"
+        "label_patcher_init"
       ],
       "functions_defined": [
         "label_patcher_enter_loop",
@@ -2156,15 +1894,10 @@
     },
     "zero_cc/ir/live_range.h": {
       "functions_called": [
-        "0xFF",
         "__attribute__",
-        "backedge",
-        "end",
-        "imm",
         "ir_call_args_find",
         "ir_get",
         "ir_get_count",
-        "list",
         "live_range_add_use",
         "live_range_compute",
         "live_range_free",
@@ -2173,15 +1906,8 @@
         "live_range_mark_clobber",
         "live_range_record_call",
         "live_range_scan_ir",
-        "loop",
-        "position",
-        "rax",
-        "rdx",
         "regalloc_add_interval",
-        "regalloc_set_interval_spans_call",
-        "temp",
-        "temps",
-        "values"
+        "regalloc_set_interval_spans_call"
       ],
       "functions_defined": [
         "if",
@@ -2206,13 +1932,7 @@
       ]
     },
     "zero_cc/ir/lowering_state.h": {
-      "functions_called": [
-        "backend",
-        "emission",
-        "enforcement",
-        "pointers",
-        "state"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": [
@@ -2224,7 +1944,6 @@
     },
     "zero_cc/ir/machine_emitter.h": {
       "functions_called": [
-        "CQO",
         "me_add_rax_rcx",
         "me_cmp_rax_rcx",
         "me_cmp_rcx_rax",
@@ -2268,7 +1987,6 @@
         "me_test_rax_rax",
         "me_xor_rax_rax",
         "memcpy",
-        "rel32",
         "zero_cc_buf_put_bytes",
         "zero_cc_emit_u16",
         "zero_cc_emit_u32",
@@ -2329,42 +2047,15 @@
     },
     "zero_cc/ir/regalloc.h": {
       "functions_called": [
-        "12",
-        "13",
-        "14",
-        "15",
-        "3",
-        "30",
-        "CALLEE_SAVE_FRAME_RESERVE",
         "VEC_COUNT",
-        "VREG",
-        "VREG_0",
-        "VREG_2",
         "__attribute__",
-        "a7",
         "alloc_reg",
-        "allocation",
-        "bytes",
-        "class",
         "compare_intervals_by_cost",
         "compare_intervals_by_start",
-        "cost",
-        "count",
-        "counts",
-        "depth",
         "expire_old_intervals",
-        "index",
-        "intervals",
         "ir_get",
-        "label",
-        "location",
-        "macro",
-        "number",
         "opt_profile_count_regalloc_interval",
         "opt_profile_count_regalloc_spill",
-        "position",
-        "positions",
-        "priority",
         "regalloc_add_interval",
         "regalloc_allocate",
         "regalloc_allocate_cost_based",
@@ -2383,21 +2074,7 @@
         "regalloc_is_callee_saved_gpr",
         "regalloc_set_interval_spans_call",
         "regalloc_set_isa",
-        "register",
-        "registers",
-        "s1",
-        "s11",
-        "scratch1",
-        "scratch2",
-        "slot",
-        "slots",
-        "spill_interval",
-        "t0",
-        "t1",
-        "t6",
-        "target",
-        "x16",
-        "x17"
+        "spill_interval"
       ],
       "functions_defined": [
         "alloc_reg",
@@ -2440,23 +2117,6 @@
     },
     "zero_cc/isa/aarch64.c": {
       "functions_called": [
-        "29",
-        "31",
-        "ADD",
-        "B",
-        "BE",
-        "D",
-        "LDR",
-        "LDUR",
-        "LR",
-        "NOT",
-        "Register",
-        "Rt",
-        "Rt2",
-        "STR",
-        "STUR",
-        "SUB",
-        "Xm",
         "aarch64_emit_add",
         "aarch64_emit_add_imm",
         "aarch64_emit_and",
@@ -2474,7 +2134,6 @@
         "aarch64_emit_deref",
         "aarch64_emit_div",
         "aarch64_emit_epilogue",
-        "aarch64_emit_epilogue_asm",
         "aarch64_emit_extend",
         "aarch64_emit_fp_add",
         "aarch64_emit_fp_cmp",
@@ -2519,7 +2178,6 @@
         "aarch64_emit_param_save_int",
         "aarch64_emit_pop_reg",
         "aarch64_emit_prologue",
-        "aarch64_emit_prologue_asm",
         "aarch64_emit_push_reg",
         "aarch64_emit_ret",
         "aarch64_emit_sar",
@@ -2547,67 +2205,13 @@
         "aarch64_emit_xor",
         "aarch64_get_code_offset",
         "aarch64_get_fp_reg",
-        "aarch64_get_hw_reg_name",
         "aarch64_get_int_reg",
         "aarch64_patch_jmp",
         "aarch64_resolve_labels",
         "abort",
-        "alignment",
         "arm64_emit_u32",
-        "branch",
-        "d0",
-        "d1",
-        "d2",
-        "dN",
-        "dst_reg",
-        "epilogue",
-        "eq",
-        "equal",
-        "equivalent",
-        "ge",
-        "gt",
-        "imm",
-        "instructions",
-        "ish",
-        "label",
-        "le",
-        "lt",
         "me_emit_u8",
-        "me_get_offset",
-        "ne",
-        "offset",
-        "offsets",
-        "parameter",
-        "registers",
-        "skip",
-        "src",
-        "src2",
-        "stores",
-        "than",
-        "through",
-        "truncation",
-        "unconditional",
-        "value",
-        "wN",
-        "x0",
-        "x1",
-        "x10",
-        "x11",
-        "x12",
-        "x13",
-        "x14",
-        "x15",
-        "x16",
-        "x2",
-        "x28",
-        "x29",
-        "x3",
-        "x4",
-        "x5",
-        "x6",
-        "x7",
-        "x8",
-        "x9"
+        "me_get_offset"
       ],
       "functions_defined": [
         "aarch64_emit_add",
@@ -2627,7 +2231,6 @@
         "aarch64_emit_deref",
         "aarch64_emit_div",
         "aarch64_emit_epilogue",
-        "aarch64_emit_epilogue_asm",
         "aarch64_emit_extend",
         "aarch64_emit_fp_add",
         "aarch64_emit_fp_cmp",
@@ -2672,7 +2275,6 @@
         "aarch64_emit_param_save_int",
         "aarch64_emit_pop_reg",
         "aarch64_emit_prologue",
-        "aarch64_emit_prologue_asm",
         "aarch64_emit_push_reg",
         "aarch64_emit_ret",
         "aarch64_emit_sar",
@@ -2700,7 +2302,6 @@
         "aarch64_emit_xor",
         "aarch64_get_code_offset",
         "aarch64_get_fp_reg",
-        "aarch64_get_hw_reg_name",
         "aarch64_get_int_reg",
         "aarch64_patch_jmp",
         "aarch64_resolve_labels",
@@ -2718,10 +2319,7 @@
     },
     "zero_cc/isa/aarch64_asm.c": {
       "functions_called": [
-        "AArch64",
-        "Assembler",
         "BE",
-        "Emission",
         "aarch64_emit_add_asm",
         "aarch64_emit_and_asm",
         "aarch64_emit_call_asm",
@@ -2798,21 +2396,11 @@
         "aarch64_get_hw_reg_name",
         "aarch64_get_vec_reg_name",
         "aarch64_init_asm_emission",
-        "bit",
-        "compliance",
-        "emission",
         "emit_load_asm",
-        "fcmp",
-        "fmov",
         "get_hw_reg_name",
         "get_vec_reg_name",
-        "load",
-        "parameter",
         "regalloc_get_reg_for_temp",
-        "regalloc_get_spill_slot_for_temp",
-        "store",
-        "uxtwd",
-        "x7"
+        "regalloc_get_spill_slot_for_temp"
       ],
       "functions_defined": [
         "aarch64_emit_add_asm",
@@ -2906,20 +2494,12 @@
     "zero_cc/isa/isa_backend.h": {
       "functions_called": [
         "BE",
-        "GPR",
         "aarch64_init_asm_emission",
         "backend_get_fp_arg_reg",
         "backend_get_int_arg_reg",
-        "bytes",
-        "emission",
         "int",
-        "mapping",
-        "register",
-        "registers",
         "riscv64_init_asm_emission",
         "size_t",
-        "spilling",
-        "variants",
         "void",
         "x86_init_asm_emission",
         "zero_cc_get_backend",
@@ -2938,37 +2518,9 @@
     },
     "zero_cc/isa/riscv.c": {
       "functions_called": [
-        "0",
-        "1",
-        "15",
-        "7",
-        "8",
-        "BE",
-        "LEA",
-        "N",
-        "NOT",
         "RV_REG",
-        "VREG_0",
-        "a0",
-        "a7",
-        "alignment",
-        "backend",
-        "convention",
-        "dereference",
-        "dst",
-        "dst_reg",
-        "equal",
-        "fp_reg",
-        "fs",
-        "gp",
-        "greater",
-        "imm",
-        "instructions",
-        "label",
-        "less",
         "me_emit_u8",
         "me_get_offset",
-        "offset",
         "riscv32_emit_add",
         "riscv32_emit_add_imm",
         "riscv32_emit_and",
@@ -3041,7 +2593,6 @@
         "riscv64_emit_deref",
         "riscv64_emit_div",
         "riscv64_emit_epilogue",
-        "riscv64_emit_epilogue_asm",
         "riscv64_emit_extend",
         "riscv64_emit_fp_add",
         "riscv64_emit_fp_cmp",
@@ -3086,7 +2637,6 @@
         "riscv64_emit_param_save_int",
         "riscv64_emit_pop_reg",
         "riscv64_emit_prologue",
-        "riscv64_emit_prologue_asm",
         "riscv64_emit_push_reg",
         "riscv64_emit_ret",
         "riscv64_emit_sar",
@@ -3113,23 +2663,11 @@
         "riscv64_emit_vla_alloc",
         "riscv64_emit_xor",
         "riscv64_get_code_offset",
-        "riscv64_get_hw_reg_name",
         "riscv64_patch_jmp",
         "riscv_emit_u32",
         "riscv_get_fp_reg",
         "riscv_get_int_reg",
-        "riscv_vreg_to_phys",
-        "s11",
-        "sp_reg",
-        "src",
-        "src1",
-        "src2",
-        "stores",
-        "t0",
-        "t1",
-        "t7",
-        "x0",
-        "zero"
+        "riscv_vreg_to_phys"
       ],
       "functions_defined": [
         "if",
@@ -3205,7 +2743,6 @@
         "riscv64_emit_deref",
         "riscv64_emit_div",
         "riscv64_emit_epilogue",
-        "riscv64_emit_epilogue_asm",
         "riscv64_emit_extend",
         "riscv64_emit_fp_add",
         "riscv64_emit_fp_cmp",
@@ -3250,7 +2787,6 @@
         "riscv64_emit_param_save_int",
         "riscv64_emit_pop_reg",
         "riscv64_emit_prologue",
-        "riscv64_emit_prologue_asm",
         "riscv64_emit_push_reg",
         "riscv64_emit_ret",
         "riscv64_emit_sar",
@@ -3277,7 +2813,6 @@
         "riscv64_emit_vla_alloc",
         "riscv64_emit_xor",
         "riscv64_get_code_offset",
-        "riscv64_get_hw_reg_name",
         "riscv64_patch_jmp",
         "riscv_emit_u32",
         "riscv_get_fp_reg",
@@ -3295,22 +2830,12 @@
     },
     "zero_cc/isa/riscv_asm.c": {
       "functions_called": [
-        "0",
-        "Assembler",
         "BE",
-        "Emission",
-        "V",
-        "a7",
-        "compliance",
-        "emission",
         "emit_load_asm",
         "get_hw_reg_name",
         "get_vec_reg_name",
-        "off",
-        "offset",
         "regalloc_get_reg_for_temp",
         "regalloc_get_spill_slot_for_temp",
-        "ret",
         "riscv64_init_asm_emission",
         "riscv_emit_add_asm",
         "riscv_emit_and_asm",
@@ -3386,12 +2911,7 @@
         "riscv_emit_vxorps_asm",
         "riscv_emit_xor_asm",
         "riscv_get_hw_reg_name",
-        "riscv_get_vec_reg_name",
-        "s0",
-        "srai",
-        "srli",
-        "t0",
-        "vv"
+        "riscv_get_vec_reg_name"
       ],
       "functions_defined": [
         "if",
@@ -3484,78 +3004,15 @@
     },
     "zero_cc/isa/x86_64.c": {
       "functions_called": [
-        "101",
-        "4",
-        "5",
-        "7",
-        "BE",
-        "ModRM",
-        "RCX",
-        "Register",
         "aarch64_init_asm_emission",
         "abort",
-        "add",
-        "alignment",
-        "call",
-        "cl",
-        "code",
-        "cvtss2sd",
         "defined",
-        "divide",
-        "double",
-        "dst_reg",
-        "elsewhere",
-        "emission",
-        "encoding",
-        "extension",
-        "field",
-        "first",
-        "instructions",
-        "m16",
-        "m32",
-        "m64",
-        "m8",
         "me_emit_u32",
         "me_emit_u64",
         "me_emit_u8",
         "me_get_offset",
         "me_patch_u32",
-        "move",
-        "multiply",
-        "offset",
-        "offsets",
-        "other",
-        "place",
-        "quotient",
-        "r10",
-        "r11",
-        "r12",
-        "r13",
-        "r14",
-        "r15",
-        "r32",
-        "r8",
-        "r9",
-        "rax",
-        "rbp",
-        "rbx",
-        "rcx",
-        "rdi",
-        "rdx",
-        "register",
-        "registers",
-        "remainder",
         "riscv64_init_asm_emission",
-        "rsi",
-        "rsp",
-        "scratch",
-        "src1",
-        "src2",
-        "stack_size",
-        "statics",
-        "stores",
-        "subtract",
-        "through",
         "x86_alu",
         "x86_alu3_comm",
         "x86_divmod",
@@ -3577,7 +3034,6 @@
         "x86_emit_deref",
         "x86_emit_div",
         "x86_emit_epilogue",
-        "x86_emit_epilogue_asm",
         "x86_emit_extend",
         "x86_emit_fp_add",
         "x86_emit_fp_cmp",
@@ -3620,7 +3076,6 @@
         "x86_emit_param_save_int",
         "x86_emit_pop_reg",
         "x86_emit_prologue",
-        "x86_emit_prologue_asm",
         "x86_emit_push_reg",
         "x86_emit_ret",
         "x86_emit_sar",
@@ -3669,7 +3124,6 @@
         "x86_emit_xor",
         "x86_get_code_offset",
         "x86_get_fp_reg",
-        "x86_get_hw_reg_name",
         "x86_get_int_reg",
         "x86_init_asm_emission",
         "x86_modrm",
@@ -3679,10 +3133,6 @@
         "x86_rex",
         "x86_rm",
         "x86_rr",
-        "xmm",
-        "xmm0",
-        "xmm1",
-        "xmm2",
         "zero_cc_buf_put_bytes",
         "zero_cc_emit_u32",
         "zero_cc_emit_u8",
@@ -3714,7 +3164,6 @@
         "x86_emit_deref",
         "x86_emit_div",
         "x86_emit_epilogue",
-        "x86_emit_epilogue_asm",
         "x86_emit_extend",
         "x86_emit_fp_add",
         "x86_emit_fp_cmp",
@@ -3757,7 +3206,6 @@
         "x86_emit_param_save_int",
         "x86_emit_pop_reg",
         "x86_emit_prologue",
-        "x86_emit_prologue_asm",
         "x86_emit_push_reg",
         "x86_emit_ret",
         "x86_emit_sar",
@@ -3806,7 +3254,6 @@
         "x86_emit_xor",
         "x86_get_code_offset",
         "x86_get_fp_reg",
-        "x86_get_hw_reg_name",
         "x86_get_int_reg",
         "x86_modrm",
         "x86_mov_rr",
@@ -3829,25 +3276,11 @@
     },
     "zero_cc/isa/x86_64_asm.c": {
       "functions_called": [
-        "64",
-        "Assembler",
         "BE",
-        "Emission",
-        "ZEXT",
-        "call",
-        "conflict",
-        "destination",
-        "dst",
-        "emission",
-        "encodings",
         "get_hw_reg_name",
         "get_vec_reg_name",
-        "load",
-        "offset",
         "regalloc_get_reg_for_temp",
         "regalloc_get_spill_slot_for_temp",
-        "stack",
-        "store",
         "x86_emit_add_asm",
         "x86_emit_and_asm",
         "x86_emit_call_asm",
@@ -4025,8 +3458,6 @@
     },
     "zero_cc/jit/backends.h": {
       "functions_called": [
-        "hook",
-        "variable",
         "void",
         "zero_cc_set_tls_backend"
       ],
@@ -4039,16 +3470,11 @@
     },
     "zero_cc/jit/compile.h": {
       "functions_called": [
-        "1",
-        "2",
         "BE",
-        "IR",
         "arena_alloc",
         "ir_reset",
         "ir_set_compiler",
-        "qualifier",
         "regalloc_init",
-        "scope",
         "scope_enter",
         "scope_leave",
         "scope_put_symbol",
@@ -4104,9 +3530,6 @@
         "add_global_var",
         "arena_create",
         "arena_destroy",
-        "comma",
-        "declaration",
-        "declarations",
         "declare",
         "diag_init",
         "diag_merge",
@@ -4114,20 +3537,11 @@
         "diag_set_file",
         "diag_sync_compiler",
         "find_global_var",
-        "function",
-        "initializer",
         "ir_arena_free",
-        "literal",
-        "members",
         "memcpy",
-        "pattern",
-        "pointer",
         "regalloc_init",
         "reset_global_vars",
-        "scalar",
         "sem_context_destroy",
-        "symbol",
-        "type",
         "zero_cc_buf_init",
         "zero_cc_buf_put_bytes",
         "zero_cc_compile_c99",
@@ -4138,6 +3552,9 @@
         "zero_cc_emit_u8",
         "zero_cc_eval_const_expr",
         "zero_cc_eval_const_expr_float",
+        "zero_cc_find_enum",
+        "zero_cc_find_struct",
+        "zero_cc_find_typedef",
         "zero_cc_get_native_backend",
         "zero_cc_init_standard_types",
         "zero_cc_parse_type_name",
@@ -4153,7 +3570,6 @@
       ],
       "functions_defined": [
         "if",
-        "while",
         "zero_cc_compile_c99",
         "zero_cc_compile_top_level_decl",
         "zero_cc_emit_scalar_bytes",
@@ -4181,21 +3597,12 @@
     },
     "zero_cc/jit/elf_emitter.h": {
       "functions_called": [
-        "16",
-        "60",
         "ELF64_ST_INFO",
         "__has_include",
         "chmod",
         "defined",
-        "eax",
-        "ebp",
         "fwrite",
-        "instruction",
-        "main",
         "memcpy",
-        "rdi",
-        "rsp",
-        "symbols",
         "unlink",
         "zero_cc_emit_ape_exe",
         "zero_cc_emit_elf_exe",
@@ -4232,18 +3639,7 @@
     },
     "zero_cc/jit/elf_writer.c": {
       "functions_called": [
-        "0",
-        "Headers",
-        "Sections",
         "add_string",
-        "bytes",
-        "e_entry",
-        "e_phnum",
-        "e_phoff",
-        "e_shnum",
-        "e_shoff",
-        "e_shstrndx",
-        "e_type",
         "elf_get_reloc_type",
         "elf_machine_name",
         "elf_reloc_count_for_section",
@@ -4261,17 +3657,8 @@
         "find_or_add_section",
         "find_section_by_name",
         "fwrite",
-        "header",
-        "headers",
-        "index",
         "memcpy",
-        "relocations",
-        "section",
-        "sections",
-        "set_error",
-        "symbol",
-        "symtab",
-        "table"
+        "set_error"
       ],
       "functions_defined": [
         "add_string",
@@ -4289,10 +3676,7 @@
         "ensure_section_capacity",
         "find_or_add_section",
         "find_section_by_name",
-        "for",
-        "if",
-        "set_error",
-        "symbol"
+        "set_error"
       ],
       "globals_used": [],
       "includes": [
@@ -4305,13 +3689,7 @@
     },
     "zero_cc/jit/elf_writer.h": {
       "functions_called": [
-        "Class",
-        "Entry",
-        "Header",
-        "Structures",
         "__attribute__",
-        "binding",
-        "buffer",
         "elf_get_reloc_type",
         "elf_machine_name",
         "elf_writer_add_relocation",
@@ -4322,11 +3700,7 @@
         "elf_writer_get_output_size",
         "elf_writer_init",
         "elf_writer_write",
-        "elf_writer_write_to_buffer",
-        "entries",
-        "file",
-        "name",
-        "type"
+        "elf_writer_write_to_buffer"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -4338,21 +3712,12 @@
     },
     "zero_cc/jit/execution.h": {
       "functions_called": [
-        "Execute",
-        "RW",
-        "RX",
-        "Write",
-        "data",
         "defined",
         "else",
         "find_global_var",
-        "imm64",
-        "initializers",
         "int",
         "jit_main",
         "memcpy",
-        "reference",
-        "section",
         "zero_cc_execute_jit",
         "zero_cc_find_function",
         "zero_cc_resolve_symbol",
@@ -4398,15 +3763,6 @@
     },
     "zero_cc/jit/tls_backend.c": {
       "functions_called": [
-        "GS",
-        "RAX",
-        "XMM0",
-        "backend",
-        "override",
-        "rax",
-        "register",
-        "segment",
-        "storage",
         "tls_declare",
         "tls_emit_address",
         "tls_emit_load",
@@ -4436,7 +3792,6 @@
         "ast_node_get_typeinfo",
         "ast_node_set_typeinfo",
         "memcpy",
-        "pointer",
         "type_add_bitfield",
         "type_add_field",
         "type_array_of",
@@ -4569,15 +3924,8 @@
     },
     "zero_cc/lexer/scan.h": {
       "functions_called": [
-        "F",
-        "L",
         "isdigit",
-        "literal",
-        "literals",
         "memcpy",
-        "ooo",
-        "separators",
-        "suffixes",
         "tolower",
         "zero_cc_handle_escape",
         "zero_cc_keyword_lookup",
@@ -4620,7 +3968,6 @@
       "functions_called": [
         "diag_report_error_file",
         "isalnum",
-        "pack",
         "zero_cc_compiler_free_tokens",
         "zero_cc_get_pack_value",
         "zero_cc_lexer_init",
@@ -4655,8 +4002,6 @@
       "functions_defined": [
         "clear_constants",
         "fold_binop",
-        "for",
-        "if",
         "ir_get_constant",
         "ir_is_constant",
         "mark_constant",
@@ -4676,13 +4021,11 @@
     },
     "zero_cc/opt/opt_constant_fold.h": {
       "functions_called": [
-        "arithmetic",
         "ir_get_constant",
         "ir_is_constant",
         "ir_replace_with_const",
         "ir_replace_with_mov",
-        "opt_fold_constants",
-        "simplification"
+        "opt_fold_constants"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -4690,16 +4033,13 @@
     },
     "zero_cc/opt/opt_copy_prop.c": {
       "functions_called": [
-        "Implementation",
         "copy_prop_get_source",
         "copy_prop_invalidate",
         "copy_prop_is_return_reg",
         "copy_prop_replace",
         "copy_prop_reset_block",
-        "flags",
         "instr_defines_temp",
         "instr_uses_flags",
-        "instructions",
         "ir_get",
         "ir_get_count",
         "opt_copy_propagate",
@@ -4707,10 +4047,7 @@
         "opt_profile_count_copy_prop_changed",
         "opt_profile_count_copy_prop_instruction",
         "opt_profile_set_copy_prop_changes",
-        "opt_shutdown_copy_prop",
-        "register",
-        "source_temp",
-        "temp"
+        "opt_shutdown_copy_prop"
       ],
       "functions_defined": [
         "copy_prop_get_source",
@@ -4739,8 +4076,7 @@
       "functions_called": [
         "opt_copy_propagate",
         "opt_init_copy_prop",
-        "opt_shutdown_copy_prop",
-        "relationships"
+        "opt_shutdown_copy_prop"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -4755,19 +4091,16 @@
         "cse_init",
         "cse_key",
         "cse_shutdown",
-        "expression",
         "ht32_free",
         "ht32_init",
         "ht32_put",
         "instr_is_pure",
-        "invalid",
         "ir_get",
         "ir_get_count",
         "opt_eliminate_cse",
         "opt_profile_count_cse_basic_block",
         "opt_profile_count_cse_eliminated",
         "opt_profile_count_cse_instruction",
-        "register",
         "replace_with_cse_copy"
       ],
       "functions_defined": [
@@ -4798,7 +4131,6 @@
     },
     "zero_cc/opt/opt_cse.h": {
       "functions_called": [
-        "expressions",
         "opt_eliminate_cse"
       ],
       "functions_defined": [],
@@ -4807,35 +4139,21 @@
     },
     "zero_cc/opt/opt_dce.c": {
       "functions_called": [
-        "0",
-        "2",
-        "4",
-        "IR",
         "clear_liveness",
-        "destination",
-        "effects",
-        "imm",
         "instr_has_side_effects",
-        "instructions",
         "ir_get",
         "ir_get_buffer",
         "ir_get_count",
         "ir_opcode_is_simd",
         "is_live",
-        "live",
         "mark_call_args_live",
         "mark_live",
         "mark_uses",
         "opt_eliminate_dead_code",
-        "opt_flag_dce",
-        "rax",
-        "rdx",
-        "temp"
+        "opt_flag_dce"
       ],
       "functions_defined": [
         "clear_liveness",
-        "for",
-        "if",
         "instr_has_side_effects",
         "is_live",
         "mark_call_args_live",
@@ -4860,9 +4178,6 @@
     },
     "zero_cc/opt/opt_dce.h": {
       "functions_called": [
-        "code",
-        "instructions",
-        "liveness",
         "opt_eliminate_dead_code",
         "opt_flag_dce"
       ],
@@ -4872,11 +4187,6 @@
     },
     "zero_cc/opt/opt_gvn.c": {
       "functions_called": [
-        "G",
-        "Numbering",
-        "expression",
-        "forwarding",
-        "group",
         "gvn_add",
         "gvn_find",
         "gvn_key",
@@ -4885,7 +4195,6 @@
         "ht32_init",
         "ht32_put",
         "instr_is_numberable",
-        "invalid",
         "ir_get",
         "ir_get_count",
         "mf_forget_temp",
@@ -4893,14 +4202,12 @@
         "mf_is_load",
         "mf_remove_if_group",
         "mf_reset",
-        "on",
         "opt_eliminate_gvn",
         "opt_init_gvn",
         "opt_profile_count_gvn_eliminated",
         "opt_profile_count_gvn_instruction",
         "opt_restrict_memory_forward",
         "opt_shutdown_gvn",
-        "register",
         "replace_with_gvn_copy"
       ],
       "functions_defined": [
@@ -4945,11 +4252,9 @@
     },
     "zero_cc/opt/opt_gvn.h": {
       "functions_called": [
-        "Numbering",
         "opt_eliminate_gvn",
         "opt_init_gvn",
-        "opt_shutdown_gvn",
-        "r25"
+        "opt_shutdown_gvn"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -4957,33 +4262,25 @@
     },
     "zero_cc/opt/opt_loop.c": {
       "functions_called": [
-        "backedges",
         "detect_loops",
         "instr_has_moving_side_effects",
         "instr_is_invariant",
-        "instructions",
-        "invariants",
         "ir_arena_emit",
         "ir_arena_free",
         "ir_get",
         "ir_get_count",
         "loop_analysis_free",
         "loop_analysis_init",
-        "motion",
-        "n",
-        "operation",
         "opt_branch_simplify",
         "opt_licm",
         "opt_loop_analysis",
         "opt_profile_count_licm_invariant",
         "opt_profile_count_licm_loop",
         "opt_profile_count_licm_moved",
-        "opt_strength_reduction",
-        "registers"
+        "opt_strength_reduction"
       ],
       "functions_defined": [
         "detect_loops",
-        "if",
         "instr_has_moving_side_effects",
         "instr_is_invariant",
         "loop_analysis_free",
@@ -5010,11 +4307,9 @@
         "loop_analysis_free",
         "loop_analysis_init",
         "loop_analyze",
-        "motion",
         "opt_branch_simplify",
         "opt_licm",
-        "opt_strength_reduction",
-        "preheader"
+        "opt_strength_reduction"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -5025,24 +4320,14 @@
     },
     "zero_cc/opt/opt_mem2reg.c": {
       "functions_called": [
-        "OP_VLA_ALLOC",
-        "Pass",
         "get_frame_offset",
         "instr_invalidates_slots",
         "instr_is_stack_load",
         "instr_is_stack_store",
         "ir_get",
         "ir_get_count",
-        "offsets",
         "opt_promote_mem2reg",
-        "pass",
-        "points",
-        "seen",
-        "slot",
-        "slot_from_offset",
-        "stack",
-        "track",
-        "valid"
+        "slot_from_offset"
       ],
       "functions_defined": [
         "get_frame_offset",
@@ -5064,7 +4349,6 @@
     },
     "zero_cc/opt/opt_mem2reg.h": {
       "functions_called": [
-        "instance",
         "opt_promote_mem2reg"
       ],
       "functions_defined": [],
@@ -5227,7 +4511,6 @@
     },
     "zero_cc/opt/opt_profile.h": {
       "functions_called": [
-        "functions",
         "opt_profile_count_copy_prop_changed",
         "opt_profile_count_copy_prop_instruction",
         "opt_profile_count_cse_basic_block",
@@ -5250,9 +4533,7 @@
         "opt_profile_set_copy_prop_changes",
         "opt_profile_set_instructions_after",
         "opt_profile_set_instructions_before",
-        "opt_profile_set_regalloc_max_depth",
-        "opt_run_passes",
-        "profiling"
+        "opt_profile_set_regalloc_max_depth"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -5264,30 +4545,15 @@
     },
     "zero_cc/opt/opt_vectorize.c": {
       "functions_called": [
-        "4",
         "analyze_loop_for_vectorization_full",
-        "bytes",
-        "elements",
-        "float32",
         "get_vec_op",
-        "increment",
         "ir_get",
         "ir_get_constant",
         "ir_get_count",
         "is_array_load",
         "is_array_store",
         "is_vec_arith",
-        "loads",
-        "loop",
-        "loops",
-        "mapped",
         "opt_auto_vectorize",
-        "patterns",
-        "src2",
-        "store",
-        "temp",
-        "unchanged",
-        "vec_width",
         "vectorization_analyze_full",
         "vectorization_free",
         "vectorization_get_width",
@@ -5325,12 +4591,7 @@
     },
     "zero_cc/opt/opt_vectorize.h": {
       "functions_called": [
-        "bytes",
-        "configurable",
-        "operations",
         "opt_auto_vectorize",
-        "stride",
-        "vector",
         "vectorization_analyze",
         "vectorization_free",
         "vectorization_get_width",
@@ -5392,15 +4653,9 @@
     },
     "zero_cc/parser/ast_expr.h": {
       "functions_called": [
-        "__builtin_va_arg",
-        "__builtin_va_start",
-        "a",
         "arena_index_of",
-        "argument",
         "ast_node_set_typeinfo",
         "diag_report_error_at_token",
-        "expr",
-        "expression",
         "is_assign_op",
         "is_primary_token",
         "is_type_specifier",
@@ -5421,9 +4676,7 @@
         "parse_shift_ast",
         "parse_ternary_ast",
         "parse_unary_ast",
-        "rhs",
         "skip_c23_attributes",
-        "type",
         "zero_cc_add_local",
         "zero_cc_ast_alloc_node",
         "zero_cc_ast_get",
@@ -5480,20 +4733,13 @@
     },
     "zero_cc/parser/ast_stmt.h": {
       "functions_called": [
-        "Type",
-        "_Atomic",
-        "_Static_assert",
         "decl_node_set_type",
         "decl_node_type",
         "diag_report_error_at_token",
         "parse_assignment_ast",
         "parse_brace_init_list_ast",
         "parse_expr_ast_internal",
-        "qualifier",
         "skip_c23_attributes",
-        "stmt",
-        "table",
-        "tag",
         "type_function",
         "type_int",
         "zero_cc_add_local",
@@ -5536,20 +4782,15 @@
     },
     "zero_cc/parser/const_eval.h": {
       "functions_called": [
-        "_Alignof",
         "diag_report_error_at_token",
         "eval_alignof",
         "eval_sizeof",
-        "name",
         "parse_additive",
         "parse_equality",
         "parse_multiplicative",
         "parse_primary",
         "parse_relational",
         "parse_unary",
-        "primary",
-        "size_t",
-        "types",
         "zero_cc_eval_const_expr",
         "zero_cc_find_enum",
         "zero_cc_find_local",
@@ -5591,7 +4832,6 @@
         "parse_primary",
         "parse_relational",
         "parse_unary",
-        "while",
         "zero_cc_eval_const_expr",
         "zero_cc_parse_type_name",
         "zero_cc_parse_type_name_at_pos",
@@ -5617,9 +4857,7 @@
     },
     "zero_cc/parser/definitions.h": {
       "functions_called": [
-        "RetType",
         "diag_report_error_at_token",
-        "effective_align",
         "zero_cc_eval_const_expr",
         "zero_cc_find_enum",
         "zero_cc_find_struct",
@@ -5691,15 +4929,6 @@
         "NODE_FLAG_DESIGNATED",
         "NODE_MEMBER_IS_ARROW",
         "NODE_MEMBER_IS_BITFIELD",
-        "branch",
-        "designator",
-        "expr",
-        "first_stmt",
-        "indices",
-        "node",
-        "op",
-        "prototype",
-        "rhs",
         "zero_cc_ast_alloc_node",
         "zero_cc_ast_arena_free",
         "zero_cc_ast_arena_init",
@@ -5721,7 +4950,6 @@
     },
     "zero_cc/parser/static_assert.h": {
       "functions_called": [
-        "_Static_assert",
         "diag_report_error_at_token",
         "zero_cc_eval_const_expr",
         "zero_cc_stmt_static_assert"
@@ -5739,7 +4967,6 @@
       "functions_called": [
         "arena_index_of",
         "arena_index_to_ptr",
-        "body",
         "decl_error",
         "decl_eval_node",
         "decl_get_node",
@@ -5751,15 +4978,12 @@
         "decl_node_set_type",
         "decl_node_type",
         "diag_report",
-        "exist",
-        "exists",
         "expr_handle_expression",
         "scope_enter",
         "scope_leave",
         "scope_lookup_current",
         "scope_put_symbol",
         "sem_analyze_node",
-        "type",
         "type_function",
         "type_int",
         "type_new",
@@ -5790,19 +5014,13 @@
     },
     "zero_cc/semantic/decl.h": {
       "functions_called": [
-        "TypeInfo",
-        "correctness",
         "decl_handle_declaration",
         "decl_handle_function_proto",
         "decl_handle_tag",
         "decl_handle_typedef",
         "decl_handle_var",
         "decl_node_set_type",
-        "decl_node_type",
-        "declarations",
-        "pool",
-        "scope",
-        "type_compatible_assign"
+        "decl_node_type"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -5848,8 +5066,6 @@
         "diag_set_file",
         "diag_sync_compiler",
         "diag_warning_count",
-        "diagnostic",
-        "diagnostics",
         "memcpy",
         "va_copy",
         "va_end",
@@ -5922,10 +5138,7 @@
         "diag_report_warning_named",
         "diag_set_file",
         "diag_sync_compiler",
-        "diag_warning_count",
-        "diagnostics",
-        "filename",
-        "location"
+        "diag_warning_count"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -5941,8 +5154,6 @@
       "functions_called": [
         "arena_index_of",
         "arena_index_to_ptr",
-        "codegen",
-        "decrement",
         "diag_report",
         "expr_error",
         "expr_get_node",
@@ -5962,13 +5173,8 @@
         "expr_is_lvalue",
         "expr_node_set_type",
         "expr_node_type",
-        "extra",
-        "operator",
-        "parameter",
         "promote_binary",
-        "scalar",
         "scope_lookup",
-        "step",
         "type_bool",
         "type_char",
         "type_common_arithmetic_type",
@@ -5987,9 +5193,7 @@
         "type_promote",
         "type_void",
         "va_end",
-        "va_list",
         "va_start",
-        "void",
         "vsnprintf",
         "zero_cc_ast_get"
       ],
@@ -6024,7 +5228,6 @@
     },
     "zero_cc/semantic/expr.h": {
       "functions_called": [
-        "correctness",
         "expr_handle_assignment",
         "expr_handle_binary",
         "expr_handle_call",
@@ -6039,8 +5242,7 @@
         "expr_handle_va_arg",
         "expr_handle_va_start",
         "expr_node_set_type",
-        "expr_node_type",
-        "pool"
+        "expr_node_type"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -6059,18 +5261,10 @@
     },
     "zero_cc/semantic/promote.c": {
       "functions_called": [
-        "0",
-        "OR",
-        "bit",
-        "cast",
         "diag_report",
         "get_integer_rank",
-        "operators",
         "promote_binary",
         "promote_unary",
-        "ptrdiff_t",
-        "scalar",
-        "type",
         "type_can_cast",
         "type_common_arithmetic_type",
         "type_common_real",
@@ -6092,8 +5286,7 @@
         "type_promote",
         "type_size",
         "type_uint",
-        "type_ulong",
-        "void"
+        "type_ulong"
       ],
       "functions_defined": [
         "get_integer_rank",
@@ -6115,24 +5308,14 @@
     },
     "zero_cc/semantic/promote.h": {
       "functions_called": [
-        "arithmetic",
-        "constant",
-        "conversions",
-        "int",
-        "long",
-        "model",
         "promote_binary",
         "promote_unary",
-        "qualifiers",
-        "signedness",
-        "size",
         "type_can_cast",
         "type_common_arithmetic_type",
         "type_common_real",
         "type_compatible_assign",
         "type_is_compatible",
-        "type_promote",
-        "types"
+        "type_promote"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -6177,10 +5360,6 @@
     },
     "zero_cc/semantic/scope.h": {
       "functions_called": [
-        "current",
-        "failure",
-        "hierarchy",
-        "scope",
         "scope_enter",
         "scope_get",
         "scope_leave",
@@ -6221,10 +5400,8 @@
     },
     "zero_cc/semantic/semantic.h": {
       "functions_called": [
-        "node",
         "semantic_analyze",
-        "semantic_print_diagnostics",
-        "stream"
+        "semantic_print_diagnostics"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -6238,9 +5415,7 @@
     },
     "zero_cc/semantic/stmt.c": {
       "functions_called": [
-        "branch",
         "is_scalar_type",
-        "scalar",
         "scope_enter",
         "scope_leave",
         "sem_analyze_node",
@@ -6305,7 +5480,6 @@
     },
     "zero_cc/semantic/type.c": {
       "functions_called": [
-        "0",
         "arena_alloc",
         "make_basic",
         "memcpy",
@@ -6344,7 +5518,6 @@
         "type_void"
       ],
       "functions_defined": [
-        "if",
         "make_basic",
         "type_add_bitfield",
         "type_add_field",
@@ -6388,7 +5561,6 @@
     "zero_cc/semantic/type.h": {
       "functions_called": [
         "arena_alloc",
-        "info",
         "type_add_bitfield",
         "type_add_field",
         "type_align",
@@ -6439,7 +5611,6 @@
       "functions_called": [
         "arena_index_of",
         "arena_index_to_ptr",
-        "body",
         "decl_handle_function_proto",
         "decl_handle_typedef",
         "decl_handle_var",
@@ -6449,12 +5620,8 @@
         "expr_handle_va_start",
         "expr_node_set_type",
         "expr_node_type",
-        "is",
         "node_set_type",
         "node_type",
-        "operations",
-        "operators",
-        "prototype",
         "scope_leave",
         "scope_lookup",
         "sem_analyze_node",
@@ -6516,20 +5683,15 @@
     },
     "zero_cc/semantic/visitor.h": {
       "functions_called": [
-        "Context",
-        "body",
-        "failure",
         "node_set_type",
         "node_type",
-        "pool",
         "sem_analyze_node",
         "sem_analyze_ref",
         "sem_context_destroy",
         "sem_context_init",
         "sem_get_node",
         "sem_node_error",
-        "sem_walk_node",
-        "statement"
+        "sem_walk_node"
       ],
       "functions_defined": [],
       "globals_used": [],
@@ -6548,10 +5710,8 @@
     },
     "zero_cc/types/emit_helpers.h": {
       "functions_called": [
-        "Helpers",
         "defined",
-        "implementation",
-        "load",
+        "else",
         "zero_cc_buf_put_bytes",
         "zero_cc_emit_epilogue",
         "zero_cc_emit_lea_rax_rodata",
@@ -6562,9 +5722,7 @@
         "zero_cc_emit_u16",
         "zero_cc_emit_u32",
         "zero_cc_emit_u64",
-        "zero_cc_emit_u8",
-        "zero_cc_keyword_lookup",
-        "zero_cc_tokenize_c99"
+        "zero_cc_emit_u8"
       ],
       "functions_defined": [
         "zero_cc_emit_epilogue",
@@ -6647,16 +5805,7 @@
       ]
     },
     "zero_cc/types/symbols.h": {
-      "functions_called": [
-        "alignment",
-        "assembly",
-        "bytecode",
-        "constants",
-        "file",
-        "globals",
-        "local",
-        "state"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": [
@@ -6676,9 +5825,7 @@
       ]
     },
     "zero_cc/types/token.h": {
-      "functions_called": [
-        "strings"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": [
@@ -6734,19 +5881,7 @@
       "includes": []
     },
     "zero_cc/types/type_system.h": {
-      "functions_called": [
-        "bits",
-        "declarations",
-        "functions",
-        "member",
-        "offset",
-        "prototypes",
-        "references",
-        "rodata",
-        "storage",
-        "target_data_offset",
-        "unit"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": [
@@ -6754,14 +5889,7 @@
       ]
     },
     "zero_cc/types/types.h": {
-      "functions_called": [
-        "functions",
-        "helpers",
-        "management",
-        "order",
-        "struct",
-        "types"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": [
@@ -6775,275 +5903,26 @@
       ]
     },
     "zero_cc/types/vregs.h": {
-      "functions_called": [
-        "BE",
-        "Register",
-        "flags",
-        "numbers",
-        "registers",
-        "saved",
-        "temporaries"
-      ],
+      "functions_called": [],
       "functions_defined": [],
       "globals_used": [],
       "includes": []
     }
   },
   "functions": {
-    "0": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/riscv_asm.c",
-        "zero_cc/jit/elf_writer.c",
-        "zero_cc/opt/opt_dce.c",
-        "zero_cc/semantic/promote.c",
-        "zero_cc/semantic/type.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "0xFF": {
-      "called_in": [
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "1": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/jit/compile.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "101": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "12": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "13": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "14": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "15": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "16": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "2": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/jit/compile.h",
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "29": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "3": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "30": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "31": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "4": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_dce.c",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "5": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "60": {
-      "called_in": [
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "64": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "7": {
-      "called_in": [
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "8": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "AArch64": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ABI": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ADD": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "AMD64": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Abstractions": {
-      "called_in": [
-        "zero_cc/common/posix_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Arithmetic": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Array": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Assembler": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/riscv_asm.c",
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "B": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "BE": {
       "called_in": [
         "zero_cc/ir/asm_emitter.c",
-        "zero_cc/ir/asm_emitter.h",
         "zero_cc/ir/ast_lowering.c",
         "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/ir/ast_lowering_ir.h",
         "zero_cc/ir/ast_lowering_mc.c",
         "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/isa/aarch64.c",
         "zero_cc/isa/aarch64_asm.c",
         "zero_cc/isa/isa_backend.h",
-        "zero_cc/isa/riscv.c",
         "zero_cc/isa/riscv_asm.c",
-        "zero_cc/isa/x86_64.c",
         "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/jit/compile.h",
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "CALLEE_SAVE_FRAME_RESERVE": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "CQO": {
-      "called_in": [
-        "zero_cc/ir/machine_emitter.h"
+        "zero_cc/jit/compile.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7055,30 +5934,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "Class": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "CloseHandle": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Comparison": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Context": {
-      "called_in": [
-        "zero_cc/semantic/visitor.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7090,90 +5948,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "D": {
-      "called_in": [
-        "main.c",
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "ELF64_ST_INFO": {
       "called_in": [
         "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Emission": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/riscv_asm.c",
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Entry": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Execute": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "F": {
-      "called_in": [
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "FIRST": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Flow": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Function": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "G": {
-      "called_in": [
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "GPR": {
-      "called_in": [
-        "zero_cc/isa/isa_backend.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "GS": {
-      "called_in": [
-        "zero_cc/jit/tls_backend.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7200,107 +5977,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "Header": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Headers": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Helpers": {
-      "called_in": [
-        "zero_cc/types/emit_helpers.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "I": {
-      "called_in": [
-        "main.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "INTEGER": {
-      "called_in": [
-        "zero_cc/ir/abi_classify.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "IR": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/jit/compile.h",
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Implementation": {
-      "called_in": [
-        "zero_cc/opt/opt_copy_prop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "L": {
-      "called_in": [
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "LDR": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "LDUR": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "LEA": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "LR": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Logical": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Lowering": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "MAP_FAILED": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
@@ -7308,44 +5984,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "Management": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "MapViewOfFile": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ModRM": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Movement": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "N": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "NODE_BINOP": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_ir.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7385,98 +6026,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "NOT": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Numbering": {
-      "called_in": [
-        "zero_cc/opt/opt_gvn.c",
-        "zero_cc/opt/opt_gvn.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "O": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/ir_arena.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "OPT_PASS_COUNT": {
       "called_in": [
         "zero_cc/opt/opt_pass.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "OP_COND_SET": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "OP_VLA_ALLOC": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "OR": {
-      "called_in": [
-        "zero_cc/semantic/promote.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Pass": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Pipeline": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RAX": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/jit/tls_backend.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RCX": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RDI": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RSI": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7495,78 +6047,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "RW": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RX": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Register": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "RetType": {
-      "called_in": [
-        "zero_cc/parser/definitions.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Rt": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Rt2": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "STR": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "STUR": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "SUB": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Sections": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "SetLastError": {
       "called_in": [
         "zero_cc/common/posix_error.h"
@@ -7581,56 +6061,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "Special": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Stack": {
-      "called_in": [
-        "zero_cc/core/buffers.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Structures": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Table": {
-      "called_in": [
-        "zero_cc/common/zero_chained_tpht.h",
-        "zero_cc/common/zero_tinyptr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Ternary": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Type": {
-      "called_in": [
-        "zero_cc/parser/ast_stmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "TypeInfo": {
-      "called_in": [
-        "zero_cc/semantic/decl.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "UnmapViewOfFile": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
@@ -7638,46 +6068,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "V": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "VEC_COUNT": {
       "called_in": [
         "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "VREG": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "VREG_0": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "VREG_2": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "VREG_F0": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7704,59 +6097,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "Write": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "XMM0": {
-      "called_in": [
-        "zero_cc/jit/tls_backend.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "Xm": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "ZERO_AUTO_TPHT": {
       "called_in": [
         "zero_cc/common/zero_tpht.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ZEXT": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "_Alignof": {
-      "called_in": [
-        "zero_cc/parser/const_eval.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "_Atomic": {
-      "called_in": [
-        "zero_cc/parser/ast_stmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "_Static_assert": {
-      "called_in": [
-        "zero_cc/parser/ast_stmt.h",
-        "zero_cc/parser/static_assert.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7773,39 +6116,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "__builtin_va_arg": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h",
-        "zero_cc/parser/ast_expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "__builtin_va_end": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "__builtin_va_start": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h",
-        "zero_cc/parser/ast_expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "__has_include": {
       "called_in": [
         "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "_asm": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -7862,37 +6175,6 @@
     "_mkdir": {
       "called_in": [
         "zero_cc/common/posix_fileio.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "a": {
-      "called_in": [
-        "zero_cc/parser/ast_expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "a0": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "a1": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "a7": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/riscv_asm.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -8067,7 +6349,6 @@
     },
     "aarch64_emit_epilogue_asm": {
       "called_in": [
-        "zero_cc/isa/aarch64.c",
         "zero_cc/isa/aarch64_asm.c"
       ],
       "defined_in": "zero_cc/isa/aarch64_asm.c",
@@ -8544,7 +6825,6 @@
     },
     "aarch64_emit_prologue_asm": {
       "called_in": [
-        "zero_cc/isa/aarch64.c",
         "zero_cc/isa/aarch64_asm.c"
       ],
       "defined_in": "zero_cc/isa/aarch64_asm.c",
@@ -9028,7 +7308,6 @@
     },
     "aarch64_get_hw_reg_name": {
       "called_in": [
-        "zero_cc/isa/aarch64.c",
         "zero_cc/isa/aarch64_asm.c"
       ],
       "defined_in": "zero_cc/isa/aarch64_asm.c",
@@ -9094,13 +7373,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "add": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "add_global_var": {
       "called_in": [
         "zero_cc/jit/compile_unit.h",
@@ -9116,51 +7388,11 @@
       "defined_in": "zero_cc/jit/elf_writer.c",
       "depends_on": []
     },
-    "addpd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "addps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "address": {
-      "called_in": [
-        "main.c",
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "addressing": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "align8": {
       "called_in": [
         "zero_cc/common/arena.c"
       ],
       "defined_in": "zero_cc/common/arena.c",
-      "depends_on": []
-    },
-    "alignment": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "alloc_reg": {
@@ -9170,40 +7402,11 @@
       "defined_in": "zero_cc/ir/regalloc.h",
       "depends_on": []
     },
-    "allocation": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "alt": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "analyze_loop_for_vectorization_full": {
       "called_in": [
         "zero_cc/opt/opt_vectorize.c"
       ],
       "defined_in": "zero_cc/opt/opt_vectorize.c",
-      "depends_on": []
-    },
-    "andps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "arena": {
-      "called_in": [
-        "zero_cc/ir/ir_arena.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "arena_alloc": {
@@ -9273,48 +7476,11 @@
       "defined_in": "zero_cc/common/arena.c",
       "depends_on": []
     },
-    "argument": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/parser/ast_expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "arguments": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "arithmetic": {
-      "called_in": [
-        "zero_cc/opt/opt_constant_fold.h",
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "arm64_emit_u32": {
       "called_in": [
         "zero_cc/isa/aarch64.c"
       ],
       "defined_in": "zero_cc/isa/aarch64.c",
-      "depends_on": []
-    },
-    "array": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "as": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "asm_emit_epilogue": {
@@ -9367,20 +7533,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "assembly": {
-      "called_in": [
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "assignment": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "ast_node_get_typeinfo": {
       "called_in": [
         "zero_cc/ir/ast_lowering_expr.c",
@@ -9404,30 +7556,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "backedge": {
-      "called_in": [
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "backedges": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "backend": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/lowering_state.h",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/jit/tls_backend.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "backend_get_fp_arg_reg": {
       "called_in": [
         "zero_cc/isa/isa_backend.h"
@@ -9443,127 +7571,6 @@
       "defined_in": "zero_cc/isa/isa_backend.h",
       "depends_on": []
     },
-    "based": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "below": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "binding": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "bit": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/semantic/promote.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "bits": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "blocks": {
-      "called_in": [
-        "zero_cc/common/hash_table_tpht.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "body": {
-      "called_in": [
-        "zero_cc/semantic/decl.c",
-        "zero_cc/semantic/visitor.c",
-        "zero_cc/semantic/visitor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "branch": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/parser/parser.h",
-        "zero_cc/semantic/stmt.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "buffer": {
-      "called_in": [
-        "zero_cc/common/arena.c",
-        "zero_cc/ir/ir.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/ir_arena.h",
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "byte": {
-      "called_in": [
-        "zero_cc/common/zero_tinyptr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "bytecode": {
-      "called_in": [
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "bytes": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/isa_backend.h",
-        "zero_cc/jit/elf_writer.c",
-        "zero_cc/opt/opt_vectorize.c",
-        "zero_cc/opt/opt_vectorize.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "call": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "capacity": {
-      "called_in": [
-        "zero_cc/ir/ir_arena.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "cast": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/semantic/promote.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "chdir": {
       "called_in": [
         "zero_cc/common/posix_fileio.h"
@@ -9575,20 +7582,6 @@
       "called_in": [
         "zero_cc/common/posix_fileio.h",
         "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "cl": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "class": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -9616,38 +7609,7 @@
     },
     "close": {
       "called_in": [
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "cmp_branch": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "code": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_dce.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "codegen": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "comma": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -9687,84 +7649,6 @@
       "defined_in": "main.c",
       "depends_on": []
     },
-    "compiler": {
-      "called_in": [
-        "zero_cc/ir/ir.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "compliance": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "condition": {
-      "called_in": [
-        "zero_cc/ir/ir_emit_ops.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "configurable": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "conflict": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "constant": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "constants": {
-      "called_in": [
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "context": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "convention": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "conversion": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "conversions": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "copy_prop_get_source": {
       "called_in": [
         "zero_cc/opt/opt_copy_prop.c"
@@ -9798,36 +7682,6 @@
         "zero_cc/opt/opt_copy_prop.c"
       ],
       "defined_in": "zero_cc/opt/opt_copy_prop.c",
-      "depends_on": []
-    },
-    "correctness": {
-      "called_in": [
-        "zero_cc/semantic/decl.h",
-        "zero_cc/semantic/expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "cost": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "count": {
-      "called_in": [
-        "zero_cc/ir/ir.c",
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "counts": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "cse_add": {
@@ -9877,62 +7731,6 @@
         "zero_cc/opt/opt_cse.c"
       ],
       "defined_in": "zero_cc/opt/opt_cse.c",
-      "depends_on": []
-    },
-    "current": {
-      "called_in": [
-        "zero_cc/semantic/scope.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "cvtss2sd": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "d": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "d0": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "d1": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "d2": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dN": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "data": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "decl_error": {
@@ -10017,32 +7815,9 @@
       "defined_in": "zero_cc/semantic/decl.c",
       "depends_on": []
     },
-    "declaration": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "declarations": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/semantic/decl.h",
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "declare": {
       "called_in": [
         "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "decrement": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -10061,42 +7836,6 @@
         "zero_cc/jit/elf_emitter.h",
         "zero_cc/jit/execution.h",
         "zero_cc/types/emit_helpers.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "definition": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "depth": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dereference": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "designator": {
-      "called_in": [
-        "zero_cc/parser/parser.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "destination": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/opt/opt_dce.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -10222,6 +7961,7 @@
     },
     "diag_report_error_at_token": {
       "called_in": [
+        "zero_cc/ir/ast_lowering.c",
         "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/ir/ast_lowering_stmt.c",
         "zero_cc/parser/ast_expr.h",
@@ -10341,109 +8081,9 @@
       "defined_in": "zero_cc/semantic/diagnostics.c",
       "depends_on": []
     },
-    "diagnostic": {
-      "called_in": [
-        "zero_cc/semantic/diagnostics.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "diagnostics": {
-      "called_in": [
-        "zero_cc/semantic/diagnostics.c",
-        "zero_cc/semantic/diagnostics.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "directive": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "directly": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c",
-        "zero_cc/ir/asm_emitter.h",
-        "zero_cc/ir/ast_lowering_internal.h",
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "divide": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "divpd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "divps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dlclose": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dlerror": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dlopen": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "dlsym": {
       "called_in": [
-        "zero_cc/core/preprocessor.h",
         "zero_cc/types/symbol_mgmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "double": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dst": {
-      "called_in": [
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "dst_reg": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -10451,97 +8091,6 @@
     "dup2": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_entry": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_phnum": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_phoff": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_shnum": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_shoff": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_shstrndx": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "e_type": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "eax": {
-      "called_in": [
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ebp": {
-      "called_in": [
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "effective_align": {
-      "called_in": [
-        "zero_cc/parser/definitions.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "effects": {
-      "called_in": [
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "eightbytes": {
-      "called_in": [
-        "zero_cc/ir/abi_classify.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "elements": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -10659,28 +8208,8 @@
         "zero_cc/common/posix_mmap.h",
         "zero_cc/common/posix_system.h",
         "zero_cc/jit/execution.h",
+        "zero_cc/types/emit_helpers.h",
         "zero_cc/types/symbol_mgmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "elsewhere": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "emission": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/lowering_state.h",
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/isa_backend.h",
-        "zero_cc/isa/riscv_asm.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/isa/x86_64_asm.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -11935,84 +9464,11 @@
       "defined_in": null,
       "depends_on": []
     },
-    "empty": {
-      "called_in": [
-        "zero_cc/common/arena.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "encoding": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "encodings": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "end": {
-      "called_in": [
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "enforcement": {
-      "called_in": [
-        "zero_cc/ir/lowering_state.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "ensure_section_capacity": {
       "called_in": [
         "zero_cc/jit/elf_writer.c"
       ],
       "defined_in": "zero_cc/jit/elf_writer.c",
-      "depends_on": []
-    },
-    "entries": {
-      "called_in": [
-        "zero_cc/common/hash_table.h",
-        "zero_cc/jit/elf_writer.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "epilogue": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "eq": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "equal": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "equivalent": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "eval_alignof": {
@@ -12029,40 +9485,11 @@
       "defined_in": "zero_cc/parser/const_eval.h",
       "depends_on": []
     },
-    "exchange": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "exist": {
-      "called_in": [
-        "zero_cc/semantic/decl.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "exists": {
-      "called_in": [
-        "zero_cc/semantic/decl.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "expire_old_intervals": {
       "called_in": [
         "zero_cc/ir/regalloc.h"
       ],
       "defined_in": "zero_cc/ir/regalloc.h",
-      "depends_on": []
-    },
-    "expr": {
-      "called_in": [
-        "zero_cc/parser/ast_expr.h",
-        "zero_cc/parser/parser.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "expr_error": {
@@ -12212,65 +9639,9 @@
       "defined_in": "zero_cc/semantic/expr.c",
       "depends_on": []
     },
-    "expression": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/opt/opt_cse.c",
-        "zero_cc/opt/opt_gvn.c",
-        "zero_cc/parser/ast_expr.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "expressions": {
-      "called_in": [
-        "zero_cc/opt/opt_cse.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "extension": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "extra": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "failure": {
-      "called_in": [
-        "zero_cc/semantic/scope.h",
-        "zero_cc/semantic/visitor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fcmp": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "fcntl": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fence": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12292,30 +9663,7 @@
     "fflush": {
       "called_in": [
         "zero_cc/common/posix_fileio.h",
-        "zero_cc/core/preprocessor.h",
         "zero_cc/ir/asm_emitter.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "field": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "file": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.h",
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "filename": {
-      "called_in": [
-        "zero_cc/semantic/diagnostics.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12351,43 +9699,6 @@
       "defined_in": "zero_cc/jit/elf_writer.c",
       "depends_on": []
     },
-    "first": {
-      "called_in": [
-        "main.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "first_stmt": {
-      "called_in": [
-        "zero_cc/parser/parser.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "flags": {
-      "called_in": [
-        "zero_cc/opt/opt_copy_prop.c",
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "float32": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fmov": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "fold_binop": {
       "called_in": [
         "zero_cc/opt/opt_constant_fold.c"
@@ -12397,28 +9708,7 @@
     },
     "for": {
       "called_in": [],
-      "defined_in": "zero_cc/opt/opt_dce.c",
-      "depends_on": []
-    },
-    "forwarding": {
-      "called_in": [
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fp_reg": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fp_reg_idx": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
+      "defined_in": "zero_cc/common/posix_fileio.h",
       "depends_on": []
     },
     "fread": {
@@ -12426,13 +9716,6 @@
         "main.c",
         "zero_cc/common/posix_fileio.h",
         "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "fs": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12476,43 +9759,11 @@
       "defined_in": null,
       "depends_on": []
     },
-    "full": {
-      "called_in": [
-        "zero_cc/common/zero_tpht.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "function": {
-      "called_in": [
-        "zero_cc/ir/ir_arena.h",
-        "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "functions": {
-      "called_in": [
-        "zero_cc/opt/opt_profile.h",
-        "zero_cc/types/type_system.h",
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "fwrite": {
       "called_in": [
         "zero_cc/common/posix_fileio.h",
-        "zero_cc/core/preprocessor.h",
         "zero_cc/jit/elf_emitter.h",
         "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ge": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12593,42 +9844,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "globals": {
-      "called_in": [
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "gp": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "greater": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "group": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "gt": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "gvn_add": {
       "called_in": [
         "zero_cc/opt/opt_gvn.c"
@@ -12657,53 +9872,11 @@
       "defined_in": "zero_cc/opt/opt_gvn.c",
       "depends_on": []
     },
-    "handling": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "hash_str": {
       "called_in": [
         "zero_cc/semantic/scope.c"
       ],
       "defined_in": "zero_cc/semantic/scope.c",
-      "depends_on": []
-    },
-    "header": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "headers": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "helpers": {
-      "called_in": [
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "hierarchy": {
-      "called_in": [
-        "zero_cc/semantic/scope.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "hook": {
-      "called_in": [
-        "zero_cc/jit/backends.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "ht32_free": {
@@ -12764,83 +9937,6 @@
       "defined_in": "zero_cc/semantic/visitor.c",
       "depends_on": []
     },
-    "imm": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/live_range.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "imm64": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c",
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "implementation": {
-      "called_in": [
-        "zero_cc/common/hash_table_tpht.c",
-        "zero_cc/types/emit_helpers.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "increment": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "index": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.h",
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/ir_arena.h",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "indices": {
-      "called_in": [
-        "zero_cc/parser/parser.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "info": {
-      "called_in": [
-        "zero_cc/semantic/type.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "initializer": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "initializers": {
-      "called_in": [
-        "main.c",
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "inotify_add_watch": {
       "called_in": [
         "zero_cc/common/posix_system.h"
@@ -12865,13 +9961,6 @@
     "inotify_rm_watch": {
       "called_in": [
         "zero_cc/common/posix_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "instance": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -12946,69 +10035,10 @@
       "defined_in": "zero_cc/opt/opt_copy_prop.c",
       "depends_on": []
     },
-    "instruction": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "instructions": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_copy_prop.c",
-        "zero_cc/opt/opt_dce.c",
-        "zero_cc/opt/opt_dce.h",
-        "zero_cc/opt/opt_loop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "int": {
       "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/isa/isa_backend.h",
-        "zero_cc/jit/execution.h",
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "integer": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "intervals": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ints": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "invalid": {
-      "called_in": [
-        "zero_cc/opt/opt_cse.c",
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "invariants": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.c"
+        "zero_cc/jit/execution.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -14228,13 +11258,6 @@
       "defined_in": "zero_cc/ir/ir.c",
       "depends_on": []
     },
-    "is": {
-      "called_in": [
-        "zero_cc/semantic/visitor.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "is_array_load": {
       "called_in": [
         "zero_cc/opt/opt_vectorize.c"
@@ -14299,13 +11322,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "isalpha": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "isatty": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
@@ -14315,16 +11331,8 @@
     },
     "isdigit": {
       "called_in": [
-        "zero_cc/core/preprocessor.h",
         "zero_cc/lexer/next.h",
         "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ish": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -14336,37 +11344,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "isxdigit": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "jit_main": {
       "called_in": [
         "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "jumps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "label": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c",
-        "zero_cc/ir/asm_emitter.h",
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/label_patcher.h",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -14417,65 +11397,6 @@
         "zero_cc/ir/label_patcher.h"
       ],
       "defined_in": "zero_cc/ir/label_patcher.h",
-      "depends_on": []
-    },
-    "labels": {
-      "called_in": [
-        "zero_cc/ir/label_patcher.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "le": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "less": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "linker": {
-      "called_in": [
-        "main.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "list": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "literal": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "literals": {
-      "called_in": [
-        "main.c",
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "live": {
-      "called_in": [
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "live_range_add_use": {
@@ -14538,61 +11459,6 @@
       "defined_in": "zero_cc/ir/live_range.h",
       "depends_on": []
     },
-    "liveness": {
-      "called_in": [
-        "zero_cc/opt/opt_dce.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "load": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/types/emit_helpers.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "loads": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "local": {
-      "called_in": [
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "location": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/semantic/diagnostics.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "long": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "loop": {
-      "called_in": [
-        "zero_cc/ir/live_range.h",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "loop_analysis_free": {
       "called_in": [
         "zero_cc/opt/opt_loop.c",
@@ -14616,18 +11482,10 @@
       "defined_in": null,
       "depends_on": []
     },
-    "loops": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "lower_expr": {
       "called_in": [
         "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/ir/ast_lowering_internal.h",
-        "zero_cc/ir/ast_lowering_ir.h",
         "zero_cc/ir/ast_lowering_stmt.c"
       ],
       "defined_in": "zero_cc/ir/ast_lowering_expr.c",
@@ -14768,52 +11626,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "lt": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "m16": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "m32": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "m64": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "m8": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "macro": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "main": {
       "called_in": [
-        "main.c",
-        "zero_cc/jit/elf_emitter.h"
+        "main.c"
       ],
       "defined_in": "main.c",
       "depends_on": []
@@ -14823,27 +11638,6 @@
         "zero_cc/semantic/type.c"
       ],
       "defined_in": "zero_cc/semantic/type.c",
-      "depends_on": []
-    },
-    "management": {
-      "called_in": [
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "mapped": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "mapping": {
-      "called_in": [
-        "zero_cc/isa/isa_backend.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "mark_call_args_live": {
@@ -15177,25 +11971,9 @@
       "defined_in": "zero_cc/ir/machine_emitter.h",
       "depends_on": []
     },
-    "member": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "members": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "memcmp": {
       "called_in": [
-        "zero_cc/common/posix_system.h",
-        "zero_cc/core/preprocessor.h"
+        "zero_cc/common/posix_system.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -15224,13 +12002,6 @@
       "called_in": [
         "zero_cc/common/posix_system.h",
         "zero_cc/ir/ir_arena.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "memory": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -15280,88 +12051,14 @@
     "mmap": {
       "called_in": [
         "zero_cc/common/mmap_adapter.h",
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "model": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "modulo": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "motion": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.c",
-        "zero_cc/opt/opt_loop.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "movapd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "movaps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "move": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "moves": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
     },
     "mprotect": {
       "called_in": [
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "mulpd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "mulps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "multiply": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -15369,24 +12066,7 @@
     "munmap": {
       "called_in": [
         "zero_cc/common/mmap_adapter.h",
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "n": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "name": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/jit/elf_writer.h",
-        "zero_cc/parser/const_eval.h"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -15394,21 +12074,6 @@
     "nanosleep": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ne": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "node": {
-      "called_in": [
-        "zero_cc/parser/parser.h",
-        "zero_cc/semantic/semantic.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -15429,91 +12094,6 @@
       "defined_in": "zero_cc/semantic/visitor.c",
       "depends_on": []
     },
-    "now": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "number": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "numbers": {
-      "called_in": [
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "object": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "off": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "offset": {
-      "called_in": [
-        "zero_cc/common/arena.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/riscv_asm.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "offsetof": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "offsets": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "on": {
-      "called_in": [
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ooo": {
-      "called_in": [
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "op": {
-      "called_in": [
-        "zero_cc/parser/parser.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "op_to_str": {
       "called_in": [
         "zero_cc/parser/ast_dump.h"
@@ -15524,44 +12104,6 @@
     "open": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "operands": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "operation": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "operations": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/opt/opt_vectorize.h",
-        "zero_cc/semantic/visitor.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "operator": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "operators": {
-      "called_in": [
-        "zero_cc/semantic/promote.c",
-        "zero_cc/semantic/visitor.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -16010,8 +12552,7 @@
       "called_in": [
         "zero_cc/ir/ast_lowering.c",
         "zero_cc/opt/opt_pass.c",
-        "zero_cc/opt/opt_pass.h",
-        "zero_cc/opt/opt_profile.h"
+        "zero_cc/opt/opt_pass.h"
       ],
       "defined_in": "zero_cc/opt/opt_pass.c",
       "depends_on": []
@@ -16048,64 +12589,6 @@
         "zero_cc/opt/opt_pass.c"
       ],
       "defined_in": "zero_cc/opt/opt_loop.c",
-      "depends_on": []
-    },
-    "order": {
-      "called_in": [
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "orps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "other": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "others": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "override": {
-      "called_in": [
-        "zero_cc/jit/tls_backend.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pack": {
-      "called_in": [
-        "zero_cc/lexer/tokenize.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "paddd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "parameter": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/semantic/expr.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "parse_additive": {
@@ -16286,37 +12769,9 @@
       "defined_in": "zero_cc/parser/ast_expr.h",
       "depends_on": []
     },
-    "pass": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "passed": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "patch_jmp": {
       "called_in": [
         "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pattern": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "patterns": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -16335,92 +12790,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "place": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pmulld": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pointer": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/jit/type_info.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pointers": {
-      "called_in": [
-        "zero_cc/common/zero_chained_tpht.h",
-        "zero_cc/ir/lowering_state.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "points": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pool": {
-      "called_in": [
-        "zero_cc/semantic/decl.h",
-        "zero_cc/semantic/expr.h",
-        "zero_cc/semantic/visitor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "position": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/live_range.h",
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "positions": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pragmas": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "preheader": {
-      "called_in": [
-        "zero_cc/opt/opt_loop.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "primary": {
-      "called_in": [
-        "zero_cc/parser/const_eval.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "print_usage": {
       "called_in": [
         "main.c"
@@ -16433,27 +12802,6 @@
         "main.c"
       ],
       "defined_in": "main.c",
-      "depends_on": []
-    },
-    "priority": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "profiling": {
-      "called_in": [
-        "zero_cc/opt/opt_profile.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "prologue": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "promote_binary": {
@@ -16473,269 +12821,9 @@
       "defined_in": "zero_cc/semantic/promote.c",
       "depends_on": []
     },
-    "prototype": {
-      "called_in": [
-        "zero_cc/parser/parser.h",
-        "zero_cc/semantic/visitor.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "prototypes": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "psubd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_cond_broadcast": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_cond_destroy": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_cond_init": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_cond_signal": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_cond_wait": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_join": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_mutex_destroy": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_mutex_init": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_mutex_lock": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "pthread_mutex_unlock": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "ptrdiff_t": {
-      "called_in": [
-        "zero_cc/semantic/promote.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "putchar": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "puts": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "qualifier": {
-      "called_in": [
-        "zero_cc/jit/compile.h",
-        "zero_cc/parser/ast_stmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "qualifiers": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "quotient": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r10": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r11": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r12": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r13": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r14": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r15": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r25": {
-      "called_in": [
-        "zero_cc/opt/opt_gvn.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r32": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r8": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "r9": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rax": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/ir_emit_ops.h",
-        "zero_cc/ir/live_range.h",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/jit/tls_backend.c",
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rbp": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rbx": {
-      "called_in": [
-        "zero_cc/ir/ir_emit_ops.h",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rcx": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rdi": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rdx": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/live_range.h",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_dce.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "read": {
       "called_in": [
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -16745,20 +12833,6 @@
         "main.c"
       ],
       "defined_in": "main.c",
-      "depends_on": []
-    },
-    "reference": {
-      "called_in": [
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "references": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "regalloc_add_interval": {
@@ -16906,80 +12980,6 @@
       "defined_in": "zero_cc/ir/regalloc.h",
       "depends_on": []
     },
-    "register": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/isa_backend.h",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/jit/tls_backend.c",
-        "zero_cc/opt/opt_copy_prop.c",
-        "zero_cc/opt/opt_cse.c",
-        "zero_cc/opt/opt_gvn.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "registers": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.c",
-        "zero_cc/ir/asm_emitter.h",
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/isa_backend.h",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_loop.c",
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rel32": {
-      "called_in": [
-        "zero_cc/ir/machine_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "relationships": {
-      "called_in": [
-        "zero_cc/opt/opt_copy_prop.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "relative": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "relocation": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "relocations": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "remainder": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "rename": {
       "called_in": [
         "zero_cc/common/posix_fileio.h"
@@ -17016,24 +13016,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "ret": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "rewind": {
       "called_in": [
         "zero_cc/common/posix_fileio.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rhs": {
-      "called_in": [
-        "zero_cc/parser/ast_expr.h",
-        "zero_cc/parser/parser.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -17542,13 +13527,6 @@
       "defined_in": "zero_cc/isa/riscv.c",
       "depends_on": []
     },
-    "riscv64_emit_epilogue_asm": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": "zero_cc/isa/riscv.c",
-      "depends_on": []
-    },
     "riscv64_emit_extend": {
       "called_in": [
         "zero_cc/isa/riscv.c"
@@ -17857,13 +13835,6 @@
       "defined_in": "zero_cc/isa/riscv.c",
       "depends_on": []
     },
-    "riscv64_emit_prologue_asm": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": "zero_cc/isa/riscv.c",
-      "depends_on": []
-    },
     "riscv64_emit_push_reg": {
       "called_in": [
         "zero_cc/isa/riscv.c"
@@ -18040,13 +14011,6 @@
       "depends_on": []
     },
     "riscv64_get_code_offset": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": "zero_cc/isa/riscv.c",
-      "depends_on": []
-    },
-    "riscv64_get_hw_reg_name": {
       "called_in": [
         "zero_cc/isa/riscv.c"
       ],
@@ -18629,87 +14593,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "rodata": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rsi": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "rsp": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "run": {
       "called_in": [
         "zero_cc/opt/opt_pass.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "s0": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "s1": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "s11": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "saved": {
-      "called_in": [
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "saves": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "scalar": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/semantic/expr.c",
-        "zero_cc/semantic/promote.c",
-        "zero_cc/semantic/stmt.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "scope": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/jit/compile.h",
-        "zero_cc/semantic/decl.h",
-        "zero_cc/semantic/scope.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -18780,56 +14666,6 @@
         "zero_cc/semantic/scope.h"
       ],
       "defined_in": "zero_cc/semantic/scope.c",
-      "depends_on": []
-    },
-    "scratch": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "scratch1": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "scratch2": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "section": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c",
-        "zero_cc/jit/execution.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "sections": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "seen": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "segment": {
-      "called_in": [
-        "zero_cc/jit/tls_backend.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "sem_analyze_node": {
@@ -18914,21 +14750,6 @@
       "defined_in": "zero_cc/semantic/semantic.c",
       "depends_on": []
     },
-    "semantics": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir_emit_ops.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "separators": {
-      "called_in": [
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "set_error": {
       "called_in": [
         "zero_cc/jit/elf_writer.c"
@@ -18936,67 +14757,9 @@
       "defined_in": "zero_cc/jit/elf_writer.c",
       "depends_on": []
     },
-    "shift": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "shufps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "signal": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "signedness": {
-      "called_in": [
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "simplification": {
-      "called_in": [
-        "zero_cc/opt/opt_constant_fold.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "single": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "size": {
-      "called_in": [
-        "main.c",
-        "zero_cc/semantic/promote.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "size_t": {
       "called_in": [
-        "zero_cc/isa/isa_backend.h",
-        "zero_cc/parser/const_eval.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "skip": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
+        "zero_cc/isa/isa_backend.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19009,42 +14772,11 @@
       "defined_in": "zero_cc/parser/ast_expr.h",
       "depends_on": []
     },
-    "slot": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_stmt.c",
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "slot_from_offset": {
       "called_in": [
         "zero_cc/opt/opt_mem2reg.c"
       ],
       "defined_in": "zero_cc/opt/opt_mem2reg.c",
-      "depends_on": []
-    },
-    "slots": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "source_temp": {
-      "called_in": [
-        "zero_cc/opt/opt_copy_prop.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "sp_reg": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "spill_interval": {
@@ -19054,114 +14786,9 @@
       "defined_in": "zero_cc/ir/regalloc.h",
       "depends_on": []
     },
-    "spilling": {
-      "called_in": [
-        "zero_cc/isa/isa_backend.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "srai": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "src": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "src1": {
-      "called_in": [
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "src2": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "sret": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "srli": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "stack": {
-      "called_in": [
-        "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "stack_size": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "stat": {
       "called_in": [
         "zero_cc/common/posix_mmap.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "state": {
-      "called_in": [
-        "zero_cc/ir/lowering_state.h",
-        "zero_cc/types/symbols.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "statement": {
-      "called_in": [
-        "zero_cc/semantic/visitor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "statics": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "step": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "stmt": {
-      "called_in": [
-        "zero_cc/parser/ast_stmt.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19265,34 +14892,6 @@
       "defined_in": "zero_cc/semantic/stmt.c",
       "depends_on": []
     },
-    "storage": {
-      "called_in": [
-        "zero_cc/jit/tls_backend.c",
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "store": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/isa/aarch64_asm.c",
-        "zero_cc/isa/x86_64_asm.c",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "stores": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "strchr": {
       "called_in": [
         "zero_cc/core/preprocessor.h"
@@ -19307,13 +14906,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "stream": {
-      "called_in": [
-        "zero_cc/semantic/semantic.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "strerror": {
       "called_in": [
         "zero_cc/common/posix_error.h"
@@ -19321,47 +14913,17 @@
       "defined_in": null,
       "depends_on": []
     },
-    "stride": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "string": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "strings": {
-      "called_in": [
-        "zero_cc/types/token.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "strncat": {
       "called_in": [
         "main.c",
-        "zero_cc/common/posix_libc.h",
-        "zero_cc/core/preprocessor.h"
+        "zero_cc/common/posix_libc.h"
       ],
       "defined_in": null,
       "depends_on": []
     },
     "strrchr": {
       "called_in": [
-        "main.c",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "strstr": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
+        "main.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19380,14 +14942,6 @@
       "defined_in": null,
       "depends_on": []
     },
-    "struct": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "struct_resolve_scalar_leaf": {
       "called_in": [
         "zero_cc/ir/ast_lowering_expr.c"
@@ -19395,176 +14949,15 @@
       "defined_in": "zero_cc/ir/ast_lowering_expr.c",
       "depends_on": []
     },
-    "subpd": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "subps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "subtract": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "suffixes": {
-      "called_in": [
-        "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "switch": {
       "called_in": [],
       "defined_in": "zero_cc/common/posix_error.h",
-      "depends_on": []
-    },
-    "symbol": {
-      "called_in": [
-        "main.c",
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": "zero_cc/jit/elf_writer.c",
-      "depends_on": []
-    },
-    "symbols": {
-      "called_in": [
-        "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "symtab": {
-      "called_in": [
-        "zero_cc/jit/elf_writer.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "sysconf": {
       "called_in": [
         "zero_cc/common/mmap_adapter.h",
         "zero_cc/common/posix_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "t0": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c",
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "t1": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "t6": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "t7": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "table": {
-      "called_in": [
-        "zero_cc/common/hash_table_tpht.c",
-        "zero_cc/jit/elf_writer.c",
-        "zero_cc/parser/ast_stmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "tag": {
-      "called_in": [
-        "zero_cc/parser/ast_stmt.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "target": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "target_data_offset": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "temp": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_internal.h",
-        "zero_cc/ir/ir.h",
-        "zero_cc/ir/live_range.h",
-        "zero_cc/opt/opt_copy_prop.c",
-        "zero_cc/opt/opt_dce.c",
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "temp_src": {
-      "called_in": [
-        "zero_cc/ir/ir_emit_ops.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "temporaries": {
-      "called_in": [
-        "zero_cc/ir/asm_emitter.h",
-        "zero_cc/types/vregs.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "temps": {
-      "called_in": [
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "than": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "through": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/x86_64.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19599,61 +14992,7 @@
     },
     "tolower": {
       "called_in": [
-        "zero_cc/core/preprocessor.h",
         "zero_cc/lexer/scan.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "too": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_mc.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "toupper": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "track": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "tracking": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "trick": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "truncation": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "type": {
-      "called_in": [
-        "zero_cc/jit/compile_unit.h",
-        "zero_cc/jit/elf_writer.h",
-        "zero_cc/parser/ast_expr.h",
-        "zero_cc/semantic/decl.c",
-        "zero_cc/semantic/promote.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -19742,7 +15081,6 @@
     },
     "type_compatible_assign": {
       "called_in": [
-        "zero_cc/semantic/decl.h",
         "zero_cc/semantic/promote.c",
         "zero_cc/semantic/promote.h"
       ],
@@ -20043,13 +15381,6 @@
       "defined_in": "zero_cc/semantic/type.c",
       "depends_on": []
     },
-    "typeinfo": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "typeinfo_to_zero_cc_type": {
       "called_in": [
         "zero_cc/ir/ast_lowering_expr.c",
@@ -20065,72 +15396,17 @@
       "defined_in": null,
       "depends_on": []
     },
-    "types": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/parser/const_eval.h",
-        "zero_cc/semantic/promote.h",
-        "zero_cc/types/types.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "unchanged": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "unconditional": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "union": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "unit": {
-      "called_in": [
-        "zero_cc/types/type_system.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "unlink": {
       "called_in": [
         "main.c",
         "zero_cc/common/posix_fileio.h",
-        "zero_cc/core/preprocessor.h",
         "zero_cc/jit/elf_emitter.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "uxtwd": {
-      "called_in": [
-        "zero_cc/isa/aarch64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "va_arg": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h",
-        "zero_cc/ir/ast_lowering_expr.c"
       ],
       "defined_in": null,
       "depends_on": []
     },
     "va_copy": {
       "called_in": [
-        "zero_cc/core/preprocessor.h",
         "zero_cc/semantic/diagnostics.c"
       ],
       "defined_in": null,
@@ -20140,18 +15416,10 @@
       "called_in": [
         "zero_cc/common/posix_fileio.h",
         "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h",
         "zero_cc/semantic/decl.c",
         "zero_cc/semantic/diagnostics.c",
         "zero_cc/semantic/expr.c",
         "zero_cc/semantic/visitor.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "va_list": {
-      "called_in": [
-        "zero_cc/semantic/expr.c"
       ],
       "defined_in": null,
       "depends_on": []
@@ -20160,71 +15428,10 @@
       "called_in": [
         "zero_cc/common/posix_fileio.h",
         "zero_cc/common/posix_mmap.h",
-        "zero_cc/ir/ast_lowering_expr.c",
         "zero_cc/semantic/decl.c",
         "zero_cc/semantic/diagnostics.c",
         "zero_cc/semantic/expr.c",
         "zero_cc/semantic/visitor.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "valid": {
-      "called_in": [
-        "zero_cc/opt/opt_mem2reg.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "value": {
-      "called_in": [
-        "zero_cc/core/preprocessor.h",
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ir.h",
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "values": {
-      "called_in": [
-        "zero_cc/ir/live_range.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "variable": {
-      "called_in": [
-        "zero_cc/ir/ir.h",
-        "zero_cc/jit/backends.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "variables": {
-      "called_in": [
-        "main.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "variants": {
-      "called_in": [
-        "zero_cc/isa/isa_backend.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "vec_width": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "vector": {
-      "called_in": [
-        "zero_cc/opt/opt_vectorize.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -20286,9 +15493,7 @@
       "called_in": [
         "zero_cc/isa/isa_backend.h",
         "zero_cc/jit/backends.h",
-        "zero_cc/opt/opt_pass.h",
-        "zero_cc/semantic/expr.c",
-        "zero_cc/semantic/promote.c"
+        "zero_cc/opt/opt_pass.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -20310,177 +15515,9 @@
       "defined_in": null,
       "depends_on": []
     },
-    "vv": {
-      "called_in": [
-        "zero_cc/isa/riscv_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "wN": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "while": {
-      "called_in": [],
-      "defined_in": "zero_cc/parser/const_eval.h",
-      "depends_on": []
-    },
-    "width": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_stmt.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
     "write": {
       "called_in": [
-        "zero_cc/common/posix_mmap.h",
-        "zero_cc/core/preprocessor.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x0": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x1": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x10": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x11": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x12": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x13": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x14": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x15": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x16": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h",
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x17": {
-      "called_in": [
-        "zero_cc/ir/regalloc.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x2": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x28": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x29": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x3": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x4": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x5": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x6": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x7": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c",
-        "zero_cc/isa/aarch64_asm.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "x8": {
-      "called_in": [
-        "zero_cc/ir/ast_lowering.c",
-        "zero_cc/ir/ast_lowering_expr.c",
-        "zero_cc/ir/ast_lowering_mc.c",
-        "zero_cc/isa/aarch64.c"
+        "zero_cc/common/posix_mmap.h"
       ],
       "defined_in": null,
       "depends_on": []
@@ -20683,7 +15720,6 @@
     },
     "x86_emit_epilogue_asm": {
       "called_in": [
-        "zero_cc/isa/x86_64.c",
         "zero_cc/isa/x86_64_asm.c"
       ],
       "defined_in": "zero_cc/isa/x86_64_asm.c",
@@ -21153,7 +16189,6 @@
     },
     "x86_emit_prologue_asm": {
       "called_in": [
-        "zero_cc/isa/x86_64.c",
         "zero_cc/isa/x86_64_asm.c"
       ],
       "defined_in": "zero_cc/isa/x86_64_asm.c",
@@ -21791,7 +16826,6 @@
     },
     "x86_get_hw_reg_name": {
       "called_in": [
-        "zero_cc/isa/x86_64.c",
         "zero_cc/isa/x86_64_asm.c"
       ],
       "defined_in": "zero_cc/isa/x86_64_asm.c",
@@ -21888,55 +16922,6 @@
         "zero_cc/isa/x86_64.c"
       ],
       "defined_in": "zero_cc/isa/x86_64.c",
-      "depends_on": []
-    },
-    "x9": {
-      "called_in": [
-        "zero_cc/isa/aarch64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "xmm": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "xmm0": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "xmm1": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "xmm2": {
-      "called_in": [
-        "zero_cc/isa/x86_64.c"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "xorps": {
-      "called_in": [
-        "zero_cc/ir/ir.h"
-      ],
-      "defined_in": null,
-      "depends_on": []
-    },
-    "zero": {
-      "called_in": [
-        "zero_cc/isa/riscv.c"
-      ],
-      "defined_in": null,
       "depends_on": []
     },
     "zero_auto_tpht_cleanup": {
@@ -22364,6 +17349,7 @@
     "zero_cc_find_enum": {
       "called_in": [
         "zero_cc/jit/compile.h",
+        "zero_cc/jit/compile_unit.h",
         "zero_cc/jit/type_info.h",
         "zero_cc/parser/ast_expr.h",
         "zero_cc/parser/const_eval.h",
@@ -22407,6 +17393,7 @@
     "zero_cc_find_struct": {
       "called_in": [
         "zero_cc/jit/compile.h",
+        "zero_cc/jit/compile_unit.h",
         "zero_cc/jit/type_info.h",
         "zero_cc/parser/ast_expr.h",
         "zero_cc/parser/const_eval.h",
@@ -22426,6 +17413,7 @@
     "zero_cc_find_typedef": {
       "called_in": [
         "zero_cc/jit/compile.h",
+        "zero_cc/jit/compile_unit.h",
         "zero_cc/jit/type_info.h",
         "zero_cc/parser/const_eval.h",
         "zero_cc/parser/definitions.h",
@@ -22523,8 +17511,7 @@
     "zero_cc_keyword_lookup": {
       "called_in": [
         "zero_cc/lexer/init.h",
-        "zero_cc/lexer/scan.h",
-        "zero_cc/types/emit_helpers.h"
+        "zero_cc/lexer/scan.h"
       ],
       "defined_in": "zero_cc/lexer/init.h",
       "depends_on": []
@@ -22832,8 +17819,7 @@
     "zero_cc_tokenize_c99": {
       "called_in": [
         "main.c",
-        "zero_cc/lexer/tokenize.h",
-        "zero_cc/types/emit_helpers.h"
+        "zero_cc/lexer/tokenize.h"
       ],
       "defined_in": "zero_cc/lexer/tokenize.h",
       "depends_on": []

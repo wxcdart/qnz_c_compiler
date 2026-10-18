@@ -115,6 +115,22 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
     ir_emit_label(c->lowering.epilogue_label);
+
+    /* C2a guard: Instr temp fields are uint8_t and 0xFF is the "no temp"
+     * sentinel. A function whose temps reach id 255 (or wrap past 255 into
+     * the VREG_0-15 space) would silently miscompile: the LRA skips 0xFF
+     * (no live interval) and truncated ids alias real ABI registers.
+     * Fail loudly instead of emitting broken code. */
+    if (c->next_temp_id - 1 >= 255) {
+        const char *fn_name = "<anon>";
+        if (c->function_count > 0) fn_name = c->functions[c->function_count - 1].name;
+        diag_report_error_at_token(c,
+            "function '%s' uses %d temporaries; max is 239 per function (8-bit temp "
+            "ids, 0xFF = no-temp sentinel). Split the function into smaller helper "
+            "functions (each has its own temp-id space); 16-bit temp ids tracked as C2.",
+            fn_name, c->next_temp_id - VREG_USER_START);
+        return;
+    }
     
     /* 1. Run IR optimization passes FIRST (before register allocation) */
     opt_init(OPT_LEVEL_O1);

@@ -10,6 +10,41 @@ import json
 import sys
 from collections import defaultdict
 
+# Single-pass stripper: C/C++ comments (// and /* */) and string/char
+# literals. Needed because the name/call extractors otherwise match
+# `word (` patterns inside comments (e.g. "...reach id 255 (or wrap..."
+# produced a bogus function '255') and inside string literals (error
+# message text). A state machine (not one big regex) is required: a regex
+# char-literal pattern desynchronizes on apostrophes inside comments and
+# swallows real code (e.g. it deleted genuine calls like pthread_mutex_lock).
+# Do NOT apply to extract_includes: it needs the string content of
+# #include "...".
+def strip_comments_and_strings(content):
+    out = []
+    i, n = 0, len(content)
+    while i < n:
+        ch = content[i]
+        nxt = content[i + 1] if i + 1 < n else ''
+        if ch == '/' and nxt == '/':
+            j = content.find('\n', i)
+            i = n if j == -1 else j          # keep the newline
+        elif ch == '/' and nxt == '*':
+            j = content.find('*/', i + 2)
+            out.append(' ')
+            i = n if j == -1 else j + 2
+        elif ch == '"' or ch == "'":
+            j = i + 1
+            while j < n and content[j] != ch and content[j] != '\n':
+                if content[j] == '\\':
+                    j += 1
+                j += 1
+            out.append(' ')
+            i = j + 1
+        else:
+            out.append(ch)
+            i += 1
+    return ''.join(out)
+
 def extract_includes(filepath):
     """Extract #include directives from a file."""
     includes = []
@@ -28,7 +63,7 @@ def extract_globals_defined(filepath):
     globals_defined = {}
     try:
         with open(filepath, 'r') as f:
-            content = f.read()
+            content = strip_comments_and_strings(f.read())
             # Match: static TYPE name[SIZE] = ... or static TYPE name = ...
             pattern = r'static\s+(\w+(?:\s+\w+)*\s+)(\w+)\s*(?:\[[^\]]*\])?\s*=?'
             for match in re.finditer(pattern, content):
@@ -44,7 +79,7 @@ def extract_globals_used(filepath):
     globals_used = set()
     try:
         with open(filepath, 'r') as f:
-            content = f.read()
+            content = strip_comments_and_strings(f.read())
             # Match g_* followed by . or [ or space or ; or )
             pattern = r'\bg_(\w+)(?:\.|\[|\s|;|\)|,)'
             for match in re.finditer(pattern, content):
@@ -58,7 +93,7 @@ def extract_functions_defined(filepath):
     functions = set()
     try:
         with open(filepath, 'r') as f:
-            content = f.read()
+            content = strip_comments_and_strings(f.read())
             # Match: static TYPE func_name(...) { or TYPE func_name(...) {
             pattern = r'(?:static\s+)?(?:inline\s+)?\w+\s+\**\s*(\w+)\s*\([^)]*\)\s*{'
             for match in re.finditer(pattern, content):
@@ -72,7 +107,7 @@ def extract_function_calls(filepath):
     calls = set()
     try:
         with open(filepath, 'r') as f:
-            content = f.read()
+            content = strip_comments_and_strings(f.read())
             # Match: func_name( pattern (not including definitions)
             pattern = r'(?<!\w)(\w+)\s*\([^)]*\)'
             for match in re.finditer(pattern, content):

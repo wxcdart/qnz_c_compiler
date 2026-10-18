@@ -17,24 +17,30 @@ Integer arithmetic is performed in 64-bit registers and 32-bit `int` results are
 - Probe: `p12a` (fails), `p12b` (unsigned, passes), `p12c` (in-range, passes).
 - Fix direction: truncate to 32 bits when storing/reloading 32-bit signed int locals (sign-extend on load), or emit 32-bit ALU ops for `int`-typed values.
 
-### C2. Temp-id exhaustion at 255 → hang or crash
+### C2. Temp-id exhaustion at 255 → silent miscompilation — **C2a applied, C2b pending**
 
-`Instr` temp fields are `uint8_t` with `0xFF` = "no temp". `next_temp_id` has **no bound check**; a function with >255 temps wraps into the sentinel.
+`Instr` temp fields are `uint8_t` with `0xFF` = "no temp". `next_temp_id` is an unbounded `int` that truncates on store: temp id 255 aliases the 0xFF sentinel (LRA skips it, `regalloc_get_reg_for_temp` returns the default register), and 256+ wrap into 0–15, colliding with the real VREG_0–15 (return/arg registers).
 
-- Bisect: 116 nested calls ≈ 254 temps → OK; 117 (r255 reached, verified in `-dump-ir`) → JIT **hangs** (rc=124), larger depths segfault (rc=139).
-- LRA temp *arrays* are growable (`live_range.h`), but the IR field width is not.
-- Fix direction: explicit bound check with a diagnostic when `next_temp_id >= 0xFF`; long-term, spill/renumber.
+- **Refined diagnosis (Sprint 23)**: this is *silent miscompilation*, not a compiler crash. The compiler finishes (even `-S` succeeds) and the **generated program** segfaults (AOT) or infinite-loops (JIT). A bare `-dump-ir` also "hangs" because `compile_jit` always calls `zero_cc_execute_jit` — it runs the code even without `--run`.
+- Boundary: 116 nested calls = 240 temps (ids 16–255, first id to hit the sentinel) → OK; 117 → broken.
+- The LRA is **not** the problem: nested-call results are only live across one outer call (~2–4 temps simultaneously live), so its 2-register/no-spill allocation is correct.
+- **C2a (applied, `ast_lowering.c`)**: after `lower_node`, if the function used ≥240 temps, a clean fatal diagnostic: `function 'main' uses 241 temporaries; max is 239 per function (8-bit temp ids, 0xFF = no-temp sentinel). Split the function into smaller helper functions ...`. Verified: 116 OK / 117 clean error (rc=1, no binary) in both modes; temp ids never reset per statement, so splitting *expressions* does not help — splitting into *helper functions* does (verified: 120 nested calls via a 4-call helper passes all modes).
+- **C2b (pending, the real fix)**: widen `Instr.temp_dest/src1/src2` to `uint16_t` (packed struct 19→25 B, in-memory only), sentinel `0xFF`→`0xFFFF` via a `TEMP_NONE` macro. Blast radius measured: 152 sentinel sites across 16 files (516 field refs, most read-only); LRA/arena are already `realloc`/`sizeof(Instr)`-based. Raises the bound to 65535 temps/function.
+- Consequence while C2b is pending: the C3 (>128 cases) and C4 (~231 locals) boundaries are now *masked* — 129 cases ≈ 325 temps and 231 locals ≈ 234+ temps both trip the C2a guard first. Re-measure after C2b.
 
 ### C3. Switch with >128 cases silently drops the rest
 
 `ast_lowering_stmt.c:493`: `while (s != AST_NULL && n_cases < 128)` — cases 129+ never get labels, no diagnostic.
 
 - 300-case switch: JIT **hangs** on out-of-range value; AOT binary **segfaults** (rc=139). gcc: both fine.
+- **Refined (Sprint 23)**: the 119/120 "switch" boundary measured earlier was C2 in disguise (~2.5 temps per case dispatch; 100 cases already reach temp 255). With C2a's guard, ~95+ cases already produce a clean temp-id error, so the true >128-case cap cannot be exercised until C2b lands. Re-measure after C2b.
 - Fix direction: emit all cases (dispatch is O(n) CMP/JNE already) or a diagnostic.
 
 ### C4. ~231 locals in one function → compiler hang/crash
 
 Bisect: 230 `int` locals → OK; 232 → **hang** (rc=124), at 400+ also segfault (rc=139, ASLR-dependent). Correlates with **symbol count**, not frame size (250 `char` locals hang too). `ZERO_CC_MAX_LOCALS` is 8192, so a hidden smaller structure saturates first (scope lookup table or O(n²) pass suspected). No diagnostic. Root cause not yet pinned.
+
+- **Refined (Sprint 23)**: each `int l_i=0;` declaration also consumes a temp, so 231+ locals now trip the C2a temp guard *first* (clean error instead of hang). The underlying C4 mechanism is still unmeasured; re-bisect after C2b with a temp-cheap probe.
 
 ### C5. Member chains through pointer members fail to resolve
 
@@ -44,9 +50,9 @@ Bisect: 230 `int` locals → OK; 232 → **hang** (rc=124), at 400+ also segfaul
 
 ## HIGH
 
-### H1. ~115 nested expression depth → compiler segfault
+### H1. ~200 nested expression depth → parser stack overflow (segfault/hang at compile time)
 
-110 nested parens OK, 120 → **compiler crash** (rc=139) in both JIT and AOT builds. Recursive-descent parser stack overflow (large per-level stack frames). gcc handles 120 trivially.
+**Refined (Sprint 23)**: the original ~115 boundary was C2 in disguise (temp exhaustion at ~118-deep `+0` chains). The *real* H1 is a **parser stack overflow**: recursive-descent expression parsing uses ~18 stack frames per nesting level, so the default 8 MB main-thread stack exhausts near depth 200 (backtrace: 3600+ frames of `parse_primary_ast` → `parse_assignment_ast` cycles; non-deterministic segfault/hang depending where the overflow lands). Verified: with `ulimit -s 65536`, depth-200 parses fine and reaches the C2a temp guard. Pre-existing; independent of C2. gcc handles 120 (and far more) trivially.
 
 ### H2. Diagnostics do not stop compilation
 
@@ -86,7 +92,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 ## Suggested fix order
 
 1. **C1** int32 wrap/extension — largest semantic gap, affects real-world code (hashes, coordinates, bit math).
-2. **C2** temp-id bound check + diagnostic (crash → error).
+2. **C2** ~~temp-id bound check + diagnostic (crash → error)~~ — **C2a done (Sprint 23)**; remaining: C2b 16-bit temp-id widening.
 3. **C3** switch case cap (remove or diagnose).
 4. **C4** root-cause the ~231-local hang.
 5. **C5** multi-segment member chain type resolution.

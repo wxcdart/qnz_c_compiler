@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 23] - 2026-10-18 - C2a: Temp-Id Exhaustion Guard (Silent Miscompilation → Clean Diagnostic)
+
+### Added
+- **C2a temp-id exhaustion guard** (`ir/ast_lowering.c`, after `lower_node`): a function whose temp ids reach 255 (the `0xFF` "no temp" sentinel) or wrap past it into the VREG_0–15 space used to **silently miscompile** — the compiler finished (even `-S` succeeded) and the *generated program* segfaulted (AOT) or infinite-looped (JIT). Now a clean fatal diagnostic: `function 'main' uses 241 temporaries; max is 239 per function (8-bit temp ids, 0xFF = no-temp sentinel). Split the function into smaller helper functions ...` (rc=1, no binary emitted). All 221 temp allocations share `c->next_temp_id`, so the single guard covers every path (the legacy `ir_emitter_alloc_temp` path has no callers).
+- **`fragility_probe.py` JIT classification hardening** (`tools/fragility_probe.py`): `classify_jit` now does a compile-only dry run (`-S -o /dev/null`) before `--run`, so a failed compile is reported as `COMPILE-ERR` instead of being confused with a program that returns 1.
+
+### Documented (fragility-analysis.md refinements)
+- **C2 reclassified**: silent miscompilation, not a compiler crash (the observed segfault/hang was the *executed* broken code; bare `-dump-ir` "hangs" because `compile_jit` always runs the code). The LRA is innocent — nested-call results are only live across one outer call (~2–4 temps simultaneously live), so its 2-register/no-spill allocation is correct; the bug is purely the 8-bit id space. **C2b** (the permanent fix): widen `Instr.temp_dest/src1/src2` to `uint16_t`, sentinel → `TEMP_NONE 0xFFFF` (152 sites / 16 files measured; LRA/arena already width-safe).
+- **H1 reclassified**: the original ~115 boundary was C2 in disguise. The real H1 is a **parser stack overflow** — ~18 stack frames per nesting level exhausts the default 8 MB stack near depth 200 (3600+ frame backtrace; non-deterministic segv/hang). Verified with `ulimit -s 65536`: depth-200 then parses fine and hits the C2a guard. Pre-existing, independent of C2.
+- **C3/C4 now masked by C2a**: 129 switch cases ≈ 325 temps and 231 initialized locals ≈ 234+ temps both trip the guard first — the true C3 (>128-case cap) and C4 (~231-local hang) boundaries must be re-measured after C2b.
+
+### Verification
+- Boundary: 116 nested calls (240 temps) OK in both modes; 117 → clean error in both modes, **no binary** (previously: hang/JIT, runtime segv/AOT). Split-function workaround verified: 120 nested calls via a 4-call helper function passes JIT+AOT+gcc (temp ids never reset per statement, so only *function* splitting helps — the diagnostic says so).
+- `make test`: 140/140. `sret_verifier.py`: 6/6. C1 battery (29 checks) OK both modes. No effect on other probe families' behavior below the guard threshold.
+
 ## [Sprint 22] - 2026-10-18 - C1: 32-bit Int Wraparound, Signedness End-to-End, Byte-Register Encoding Fix, Global-Struct Member Write
 
 ### Added
