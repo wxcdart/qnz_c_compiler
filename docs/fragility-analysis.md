@@ -46,7 +46,20 @@ Original report: 230 `int` locals OK, 232 → hang, 400+ → segfault. **Refined
 
 Float/double locals lowering to `OP_FLOAD`/`OP_FSTORE` (float stack access) are now implemented across all three ISA assembly backends (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) via `emit_load_fp_asm` and `emit_store_fp_asm` vtable callbacks. Float call arguments in `x86_emit_call_asm`, `aarch64_emit_call_asm`, and `riscv_emit_call_asm` now also resolve their source register names from `fp_regs` rather than GPR tables. Verified with `-S` output roundtrip assembled and linked via `gas`/`gcc` with exact results.
 
-*Closure verification (Sprint 25+) surfaced two adjacent, pre-existing `-S`-only gaps (the `-o` ELF path is unaffected): (1) the asm emitter never emits a `.data` section, so any program with a global fails to link from `-S` output (all ISAs); (2) `CVTSI2SD` (int→double) is unimplemented in all three asm emitters (`# UNKNOWN:`). Both are tracked in `docs/zero-rt-plan.md` §9 as T2/AOT-asm completeness items.*
+*Closure verification (Sprint 25+) surfaced two adjacent, pre-existing `-S`-only gaps (the `-o` ELF path is unaffected): (1) the asm emitter never emits a `.data` section, so any program with a global fails to link from `-S` output (all ISAs); (2) `CVTSI2SD` (int→double) is unimplemented in all three asm emitters (`# UNKNOWN:`). **Both resolved in `b0975fc`** (Sprint 26 era) — `-S` output now emits `.data`/`.rodata` globals and `CVTSI2SD`/`CVTTSD2SI`, and roundtrips through `gas`+`gcc`. Remaining `-S` float gap found while re-running the float probes: float constants are stored as 8-byte doubles in `.rodata` but the asm emitter loads them with 4-byte `movss` (reads the low 4 bytes = 0.0), and float `!=` compares emit integer `cmpq` — repro `float a=2.0f+0.25f; if(a!=2.25f) return 1;` gives rc=1 via `-S` but rc=0 via `-o`. Tracked in `docs/zero-rt-plan.md` §9.*
+
+### C7. Compound assignment to struct members stored only the RHS — **RESOLVED (Sprint 27)**
+
+`s.w += 5;`, `s.f += 0.5f;`, `s.d *= 2.0;` on single-segment members (local struct base, global struct base, local pointer base `p->m op= v`, general base expression) — the member-assignment lowering had compound handling only in the multi-segment chain path (added by C5); every single-member path stored the RHS directly, so `s.w += 5` stored 5 and `s.d *= 2.0` stored 2.0. Pre-existing (reproduces on the pre-C5 baseline).
+
+- **Fix** (`ir/ast_lowering_expr.c`): new `member_apply_compound()` helper — width-correct load of the current value (byte/16/32/deref, or VLOADSS/VLOADSD for float members under the double-width FP model), integer op set (incl. `%`), float ops via FADD/FSUB/FMUL/FDIV with int→float RHS conversion — wired into all four single-segment paths. The shared tail's integer member store also became width-correct (it was an unconditional 64-bit `ir_emit_store`, which clobbers the adjacent member of a 1/2/4-byte field).
+- **Verified**: d1–d8 (int/float/double members × local/pointer/global bases, adjacent-field survival) and c2/c3 pass JIT + AOT; 140/140, sret 6/6, C5 battery, c1-wrap, 3000-globals AOT all stay green.
+
+### C8. Float function-call result clobbered by FP arithmetic in the same expression — **OPEN**
+
+`if(use2(2.0f) != 1.0f+1.25f)` computes the call result in xmm0/F0, then the RHS literal load + FADD in the same expression corrupts it — wrong result in both JIT and AOT. Pre-existing (reproduces on the pre-C5 baseline). A plain `use2(2.0f) != 2.25f` works, and storing the result first (`float r = use2(2.0f); r != 1.0f+1.25f`) works — so the call-result temp is not kept live across the RHS lowering (or the FADD destination aliases it); suspected FP-value liveness/regalloc issue around `OP_CALL`.
+
+- **Repro** (`/tmp/c6v/e10.c`): `float use2(float x){ return x + 0.25f; } int main(void){ if(use2(2.0f) != 1.0f+1.25f) return 1; return 0; }` → rc=1 (JIT and AOT, current and baseline).
 
 ---
 

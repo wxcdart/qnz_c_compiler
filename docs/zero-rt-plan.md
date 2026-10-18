@@ -110,10 +110,10 @@ zero_rt-Linux is the **first real customer of the T2 ELF linker**: it validates 
 
 ## 9. Related known gaps found during C5/C6 verification (Sprint 25+)
 
-Pre-existing, independent of zero_rt, candidates for T2 / AOT-asm completeness:
-
-1. **AOT `-S` never emits `.data`** — any program with a global (`int g=7;`) produces asm that references the symbol but defines no section; the object fails to link. Affects all ISAs; the `-o` ELF path is **not** affected (verified: full C5 AOT battery passes with global structs).
-2. **`CVTSI2SD` (int→double) unimplemented in the asm emitters** — emits `# UNKNOWN: CVTSI2SD` on x86/aarch64/riscv `-S` output (verified in float programs). Distinct from C6 (FLOAD/FSTORE, resolved in `f0254b5`).
+1. ~~**AOT `-S` never emits `.data`**~~ — **resolved in `b0975fc`**: `-S` output now emits `.data`/`.rodata` global sections; objects with globals link and run.
+2. ~~**`CVTSI2SD` (int→double) unimplemented in the asm emitters**~~ — **resolved in `b0975fc`** (`CVTSI2SD`/`CVTTSD2SI` across all three ISAs).
+3. **`-S` float constant/comparison width (new, Sprint 27)**: float constants are stored as 8-byte doubles in `.rodata`, but the x86 asm emitter loads them with 4-byte `movss` (reads the low 4 bytes → 0.0), and float `!=` emits integer `cmpq`. Repro: `float a=2.0f+0.25f; if(a!=2.25f) return 1;` → rc=1 via `-S`, rc=0 via `-o`. The `-o` ELF path is unaffected. Candidate for the AOT-asm float-completeness item.
+4. **C8 (Sprint 27, not `-S`-specific)**: float function-call result clobbered by FP arithmetic in the same expression (both JIT and AOT; pre-existing) — see `docs/fragility-analysis.md` §C8.
 
 ## 10. Open questions
 

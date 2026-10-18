@@ -148,6 +148,56 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
     return addr;
 }
 
+/* Apply a compound-assignment op (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=)
+ * to the member value at address temp `addr` (m_size bytes; float members
+ * use the double-width FP model). Loads the current value with the
+ * width-correct load, applies the op, and updates *right_temp. Mirrors the
+ * multi-segment chain handling (C5). */
+static void member_apply_compound(ZeroCCCompiler *c, int op_tok, int addr,
+                                  int *right_temp, size_t m_size, bool is_flt) {
+    if (is_flt) {
+        int lhs_val = c->next_temp_id++;
+        if (m_size == 4) ir_emit_vloadss((uint16_t)lhs_val, (uint16_t)addr);
+        else ir_emit_vloadsd((uint16_t)lhs_val, (uint16_t)addr);
+        int float_rhs = *right_temp;
+        if (!c->last_expr_is_float) {
+            float_rhs = c->next_temp_id++;
+            ir_emit_cvtsi2sd((uint16_t)float_rhs, (uint16_t)*right_temp);
+        }
+        int op_res = c->next_temp_id++;
+        switch (op_tok) {
+            case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)op_res, (uint16_t)lhs_val, (uint16_t)float_rhs); break;
+            case TK_SUB_ASSIGN: ir_emit_fsub((uint16_t)op_res, (uint16_t)lhs_val, (uint16_t)float_rhs); break;
+            case TK_MUL_ASSIGN: ir_emit_fmul((uint16_t)op_res, (uint16_t)lhs_val, (uint16_t)float_rhs); break;
+            case TK_DIV_ASSIGN: ir_emit_fdiv((uint16_t)op_res, (uint16_t)lhs_val, (uint16_t)float_rhs); break;
+            default: op_res = float_rhs; break;
+        }
+        *right_temp = op_res;
+        c->last_expr_is_float = 1;
+    } else {
+        int curr_val = c->next_temp_id++;
+        if (m_size == 1) ir_emit_load_byte(curr_val, addr);
+        else if (m_size == 2) ir_emit_load_16(curr_val, addr);
+        else if (m_size == 4) ir_emit_load_32(curr_val, addr);
+        else ir_emit_deref(curr_val, addr);
+        int op_res = c->next_temp_id++;
+        switch (op_tok) {
+            case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, *right_temp); break;
+            case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, *right_temp); break;
+            case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, *right_temp); break;
+            case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, *right_temp); break;
+            case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, *right_temp); break;
+            case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, *right_temp); break;
+            case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, *right_temp); break;
+            case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, *right_temp); break;
+            case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, *right_temp); break;
+            case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, *right_temp); break;
+            default: ir_emit_mov_reg(op_res, *right_temp); break;
+        }
+        *right_temp = op_res;
+    }
+}
+
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
@@ -993,6 +1043,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         size_t m_size = 4;
                         TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
                         if (member_ti) m_size = type_size(member_ti);
+                        if (is_compound)
+                            member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
+                                                   m_size,
+                                                   (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
                         if (c->last_expr_is_float) {
                             if (m_size == 4) {
                                 ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
@@ -1032,6 +1086,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         size_t m_size = 4;
                         TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
                         if (member_ti) m_size = type_size(member_ti);
+                        if (is_compound)
+                            member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
+                                                   m_size,
+                                                   (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
                         if (c->last_expr_is_float) {
                             if (m_size == 4) {
                                 ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
@@ -1091,6 +1149,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     size_t m_size = 4;
                     TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
                     if (member_ti) m_size = type_size(member_ti);
+                    if (is_compound)
+                        member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
+                                               m_size,
+                                               (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
                     if (c->last_expr_is_float) {
                         if (m_size == 4) {
                             ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
@@ -1198,6 +1260,20 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return right_temp;
                 }
 
+                /* Compound assignment on a plain (non-bitfield) single-segment
+                 * member: load the current member value width-correct, apply
+                 * the op, then the store below writes the combined result.
+                 * (C7 - previously only the RHS was stored, so `s.w += 5`
+                 * stored 5.) */
+                if (is_compound) {
+                    int mc_addr = c->next_temp_id++;
+                    ir_emit_lea(mc_addr, TEMP_NONE, total_offset);
+                    TypeInfo *mc_ti = ast_node_get_typeinfo(c, left_node);
+                    size_t mc_size = mc_ti ? type_size(mc_ti) : 4;
+                    member_apply_compound(c, node->aux.op, mc_addr, &right_temp, mc_size,
+                                           (mc_ti && type_is_floating(mc_ti)) || c->last_expr_is_float);
+                }
+
                 if (c->last_expr_is_float) {
                     /* Float value: store via IR. A 4-byte float member must
                      * use the width-correct VSTORESS - the 8-byte FSTORE
@@ -1216,8 +1292,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 1;
                     return right_temp;
                 } else {
-                    /* Integer/pointer value in GPR - use IR store */
-                    ir_emit_store(right_temp, BE(c)->fp_reg, total_offset);
+                    /* Integer/pointer value in GPR - width-correct store
+                     * (a 64-bit store into a 1/2/4-byte member clobbers the
+                     * adjacent member). */
+                    TypeInfo *mc_ti2 = ast_node_get_typeinfo(c, left_node);
+                    size_t mc_size2 = mc_ti2 ? type_size(mc_ti2) : 8;
+                    int mc_addr2 = c->next_temp_id++;
+                    ir_emit_lea(mc_addr2, TEMP_NONE, total_offset);
+                    if (mc_size2 == 1) ir_emit_store_byte((uint16_t)right_temp, (uint16_t)mc_addr2);
+                    else if (mc_size2 == 2) ir_emit_store_16((uint16_t)right_temp, (uint16_t)mc_addr2);
+                    else if (mc_size2 == 4) ir_emit_store_32((uint16_t)right_temp, (uint16_t)mc_addr2);
+                    else ir_emit_store_64((uint16_t)right_temp, (uint16_t)mc_addr2);
                     c->last_expr_is_float = 0;
                     return right_temp;
                 }

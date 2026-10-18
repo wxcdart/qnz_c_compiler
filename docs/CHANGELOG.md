@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Sprint 27] - 2026-10-18 - C7 Member Compound Assignment & Width-Correct Member Stores; C8 Discovered
+
+### Fixed
+- **C7 - compound assignment to struct members** (`ir/ast_lowering_expr.c`): `s.w += 5`, `s.f += 0.5f`, `s.d *= 2.0` and `p->m op= v` stored only the RHS - compound handling existed only in the multi-segment chain path (C5). New `member_apply_compound()` helper (width-correct load: byte/16/32/deref or VLOADSS/VLOADSD; integer ops incl. `%`; float ops FADD/FSUB/FMUL/FDIV with int→float RHS conversion) wired into all four single-segment paths: global base, local pointer base, general base expression, and the shared local/compound-literal tail.
+- **Width-correct member store in the shared tail**: the unconditional 64-bit `ir_emit_store` into a member slot → width-correct byte/16/32/64 store. `struct S{int a,b;}; s.b=1; s.a=2;` previously clobbered `b` (w1/w2 probes now pass JIT+AOT).
+
+### Discovered (documented, not fixed)
+- **C8 (OPEN)**: a float function-call result is clobbered when followed by FP arithmetic in the same expression - `if(use2(2.0f) != 1.0f+1.25f)` is wrong in both JIT and AOT (pre-existing; repro `/tmp/c6v/e10.c` works when the result is stored in a local first). Suspected FP liveness/regalloc issue around `OP_CALL`.
+- **`-S` float constant width**: after `b0975fc` closed the `.data` and `CVTSI2SD` gaps, the `-S` float path still loads 8-byte rodata doubles with 4-byte `movss` (reads the low 4 bytes) and emits integer `cmpq` for float `!=` - `float a=2.0f+0.25f; a!=2.25f` gives rc=1 via `-S` but rc=0 via `-o` (a5.c repro).
+
+### Verification
+- d1-d8, c2, c3, w1, w2 pass JIT + AOT; `make test` 140/140; sret 6/6; C5 battery (c5_all/h14/c5a) rc=0 both modes; c1-wrap OK; `globals 500` OK; t-series spot checks pass.
+
 ## [Sprint 26] - 2026-10-18 - M2: Dynamic Global Table, Dynamic ELF Writer Tables, Scope TPHT Growth
 
 ### Fixed

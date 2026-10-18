@@ -11,6 +11,12 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 27: C7 Member Compound Assignment & Width-Correct Member Stores ✅
+- **Status**: COMPLETE
+- **Achievement**: Compound assignment to single-segment struct members (`s.w += 5`, `s.f += 0.5f`, `s.d *= 2.0`, `p->m op= v`) now loads the current member value, applies the op, and stores the result (previously only the RHS was stored — pre-existing since before C5). Member stores in the shared tail became width-correct (no more adjacent-member clobber from 64-bit stores). **C8 discovered and documented**: float function-call results are clobbered by FP arithmetic in the same expression (both modes, pre-existing) — suspected FP liveness issue around `OP_CALL`.
+- **Key Deliverables**: `member_apply_compound()` helper in `ir/ast_lowering_expr.c` (width-correct loads, integer + float op sets) wired into all four single-segment member-assignment paths; width-correct tail store.
+- **Result**: d1–d8/c2/c3/w1/w2 probes pass JIT+AOT; `make test` **140/140**, sret **6/6**, C5 battery rc=0, c1-wrap OK, 3000-globals AOT OK.
+
 ### Sprint 26: M2 Dynamic Global Table & ELF Writer Tables, Scope TPHT Growth ✅
 - **Status**: COMPLETE
 - **Achievement**: Removed the three stacked caps behind "globals ≤ 256 silently dropped": the global variable table, the scope two-phase hash table (64+61 → 256+247 blocks), and the ELF writer's symbol/strtab/relocation tables are all dynamically growing. 3000 globals verified in JIT + AOT (previously: silent drop at 257, AOT runtime segfault past ~1100 from dangling symbol indices). The TPHT growth also raised M5 (locals per scope) from ~758 to ~3000.
@@ -137,10 +143,10 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 - **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **10/10 pages valid**, links & graph reachability verified
 
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
-- **CRITICAL tier — ALL RESOLVED**: C1 (S22), C2 (S23 guard + S24 16-bit temps), C3 (S24), C4 (reclassified → M5), C5 (S25), C6 (S25)
+- **CRITICAL tier**: C1–C7 **RESOLVED** (C7 = member compound assignment, Sprint 27); **C8 OPEN** (float call-result clobbered by FP arithmetic in the same expression — suspected FP liveness around `OP_CALL`, both modes, pre-existing)
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
 - **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
-- **AOT `-S` completeness gaps** (pre-existing, `-o` ELF path unaffected): `.data` section never emitted; `CVTSI2SD` (int→double) unimplemented — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
+- **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; remaining: float constants loaded with wrong width (`movss` on 8-byte rodata doubles) and float `!=` emitted as integer `cmpq` (Sprint 27 finding, tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9)
 
 ---
 
@@ -208,8 +214,12 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - **T3** — zero_rt platform phases (see §5)
 
 ### 7. AOT `-S` Path Completeness
-- `.data` section emission for globals (today a `-S` object with any global fails to link; the `-o` ELF path is unaffected)
-- Remaining asm-emitter opcodes (`CVTSI2SD` int→double and any others surfaced by roundtrips) — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
+- ~~`.data` section emission for globals~~ — **done (`b0975fc`)**; objects with globals now link from `-S` output
+- ~~`CVTSI2SD` (int→double)~~ — **done (`b0975fc`)**, plus `CVTTSD2SI`
+- Remaining (Sprint 27 finding): float constants loaded with wrong width in the asm path (`movss` on 8-byte rodata doubles) and float `!=` emitted as integer `cmpq` — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
+
+### 7a. C8 — Float call-result liveness across FP arithmetic (OPEN)
+- `use2(2.0f) != 1.0f+1.25f` miscompiles in both JIT and AOT (result stored in a local first works); pre-existing; suspected FP-value liveness/regalloc issue around `OP_CALL` — repro and analysis in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C8
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
 - ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT
