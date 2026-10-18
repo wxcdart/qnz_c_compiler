@@ -499,6 +499,18 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_fp_mov_asm(c, phys_dst, phys_src1, out);
             }
             return;
+
+        case OP_CVTSI2SD:
+            if (BE(c)->emit_fp_cvtsf_asm) {
+                BE(c)->emit_fp_cvtsf_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+
+        case OP_CVTTSD2SI:
+            if (BE(c)->emit_fp_cvtsi_asm) {
+                BE(c)->emit_fp_cvtsi_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
             
         /* VLA */
         case OP_VLA_ALLOC:

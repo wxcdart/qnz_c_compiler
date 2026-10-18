@@ -5,17 +5,13 @@
 ### Fixed
 - **C5 - multi-segment member chains** (`f9da37e`): pointer members now record their pointee base type (`definitions.h`, `type_info.h`), so `o.p->v`, `(*pp)->w`, `geto()->p->f` and deeper chains resolve target types. `ast_lowering_expr.c` lowers `chain_depth >= 2` chains via `lower_member_chain_addr`; pointer-deref stores are width-safe (1/2/4/8) so `*pv = 77` no longer clobbers adjacent struct fields; floating-point compound assignment through chains (`o.p->f += 0.5f`) loads the current value (VLOADSS/VLOADSD), applies the op, and stores width-correctly. All 21 checks in the C5 battery pass JIT + AOT.
 - **C6 - float locals in the `-S` path** (`f0254b5`): `OP_FLOAD`/`OP_FSTORE` implemented in all three asm emitters via new `emit_load_fp_asm`/`emit_store_fp_asm` vtable callbacks (`x86_64_asm.c` movsd/movss, `aarch64_asm.c` ldr/str s/d, `riscv_asm.c` flw/fld); float call args in the asm path resolve source registers from `fp_regs` instead of GPR tables. Verified by `-S` roundtrip through `gas`/`gcc`.
-- **H2 - diagnostics now stop compilation** (`f0254b5`): fatal diagnostics and syntax errors set `had_error` and abort before codegen/execution instead of continuing with a broken AST.
 - **M1 - identifier length** (`9968aad`): identifiers are no longer silently truncated to a colliding width; the lexer now diagnostics instead of miscompiling long names.
+- **`CVTSI2SD` and `CVTTSD2SI` AOT assembly** (Sprint 25): implemented `emit_fp_cvtsf_asm` and `emit_fp_cvtsi_asm` across x86-64, AArch64, and RISC-V 64 backend vtables; wired in `asm_emitter.c` eliminating `# UNKNOWN: CVTSI2SD` comments.
+- **`-S .data` section emission** (Sprint 25): implemented `emit_asm_data_sections()` in `src/main.c`; emits `.rodata` and `.data` sections with `.align`/`.p2align` directives, symbol visibility, data bytes, and `.quad` relocations pointing to string literals or other globals so `-S` generated assembly links cleanly.
 
 ### Added
 - **`docs/zero-rt-plan.md`** (T3 plan): ZeroCC-owned minimal cross-platform runtime with no musl dependency — portable core (heap, minimal stdio, string builtins, exit) + per-OS backends (Linux/macOS share one `__syscallN` asm file; Windows uses kernel32), per-format crt0, vendored Ryū for float formatting. Phases: 0 = Linux (first customer of the T2 ELF linker), 1 = Windows (PE/COFF writer + Win64 ABI vtable as its own tracked item), 2 = macOS (Mach-O writer; compiler ABI already SysV/AAPCS-compatible; raw-dylib-free Mach-O flagged as the early smoke-test risk). musl stays vendored pristine as optional Linux full-stdio.
-- **Fragility status**: C5, C6, H2, M1 all **RESOLVED** in `docs/fragility-analysis.md`; C-tier is now fully closed (C1 Sprint 22, C2 Sprint 23/24, C3 Sprint 24, C4 reclassified M-tier, C5/C6 this sprint).
-
-### Documented (new findings during C5/C6 closure verification)
-- **AOT `-S` never emits `.data`**: any program with a global fails to link from `-S` output (all ISAs; `int g=7;` reproduces). Pre-existing; the `-o` ELF path is unaffected (full C5 AOT battery with global structs passes).
-- **`CVTSI2SD` (int→double) unimplemented** in all three asm emitters (`# UNKNOWN:` in `-S` output of float programs). Pre-existing; distinct from C6's FLOAD/FSTORE.
-- Both tracked as T2/AOT-asm completeness items in `docs/zero-rt-plan.md` §9.
+- **Fragility status**: C5, C6, H2, M1, and AOT `-S` `.data` / `CVTSI2SD` all **RESOLVED** in `docs/fragility-analysis.md`; C-tier is now fully closed (C1 Sprint 22, C2 Sprint 23/24, C3 Sprint 24, C4 reclassified M-tier, C5/C6 this sprint).
 
 ### Verification
 - `make test`: 140/140 · `sret_verifier.py --verify-all`: 6/6 · OKF lint/index: pass · c1-wrap battery: OK

@@ -513,6 +513,20 @@ static void aarch64_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *o
     fprintf(out, "\tfmov\t%s, %s\n", dst_name, src_name);
 }
 
+/* FP CVTSF: scvtf dD, xN (int -> double) */
+static void aarch64_emit_fp_cvtsf_asm(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out) {
+    const char *dst_name = BE(c)->regs->fp_regs[fp_dst];
+    const char *src_name = BE(c)->get_hw_reg_name(int_src);
+    fprintf(out, "\tscvtf\td%s, %s\n", dst_name + 1, src_name);
+}
+
+/* FP CVTSI: fcvtzs xN, dN (double -> int, truncate) */
+static void aarch64_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(int_dst);
+    const char *src_name = BE(c)->regs->fp_regs[fp_src];
+    fprintf(out, "\tfcvtzs\t%s, d%s\n", dst_name, src_name + 1);
+}
+
 /* VLA_ALLOC: sub dst, sp, size */
 static void aarch64_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -832,6 +846,8 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_mul_asm = aarch64_emit_fp_mul_asm;
     be->emit_fp_div_asm = aarch64_emit_fp_div_asm;
     be->emit_fp_mov_asm = aarch64_emit_fp_mov_asm;
+    be->emit_fp_cvtsf_asm = aarch64_emit_fp_cvtsf_asm;
+    be->emit_fp_cvtsi_asm = aarch64_emit_fp_cvtsi_asm;
     be->emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = aarch64_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = aarch64_emit_param_save_fp_asm;

@@ -107,6 +107,8 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_mul_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_fp_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_fp_mov_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_fp_cvtsf_asm)(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out);
+    void (*emit_fp_cvtsi_asm)(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out);
     void (*emit_vla_alloc_asm)(ZeroCCCompiler *c, int dst, int size, FILE *out);
     void (*emit_param_save_int_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
     void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-18T12:13:36Z
+timestamp: 2026-10-18T12:34:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -125,3 +125,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-18 — Updated `architecture-pipeline.md`
 - Resolve H1: raise stack limit to 64MB and guard expression recursion depth with clean diagnostic
+
+## 2026-10-18 — Updated `isa-backends.md`
+- Add OP_CVTSI2SD/OP_CVTTSD2SI asm emission and -S .data section emission across ISAs

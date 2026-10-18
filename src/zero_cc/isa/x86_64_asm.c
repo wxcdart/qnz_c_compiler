@@ -572,6 +572,20 @@ static void x86_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) 
     fprintf(out, "\tmovsd\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* FP CVTSF: cvtsi2sd %reg, %xmm (int -> double) */
+static void x86_emit_fp_cvtsf_asm(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out) {
+    const char *dst_name = BE(c)->regs->fp_regs[fp_dst];
+    const char *src_name = BE(c)->get_hw_reg_name(int_src);
+    fprintf(out, "\tcvtsi2sd\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* FP CVTSI: cvttsd2si %xmm, %reg (double -> int, truncate) */
+static void x86_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(int_dst);
+    const char *src_name = BE(c)->regs->fp_regs[fp_src];
+    fprintf(out, "\tcvttsd2si\t%%%s,%%%s\n", src_name, dst_name);
+}
+
 /* VLA_ALLOC */
 static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -898,6 +912,8 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_mul_asm = x86_emit_fp_mul_asm;
     be->emit_fp_div_asm = x86_emit_fp_div_asm;
     be->emit_fp_mov_asm = x86_emit_fp_mov_asm;
+    be->emit_fp_cvtsf_asm = x86_emit_fp_cvtsf_asm;
+    be->emit_fp_cvtsi_asm = x86_emit_fp_cvtsi_asm;
     be->emit_vla_alloc_asm = x86_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = x86_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = x86_emit_param_save_fp_asm;

@@ -476,6 +476,20 @@ static void riscv_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *out
     fprintf(out, "\tfmv.d\t%s, %s\n", dst_name, src_name);
 }
 
+/* FP CVTSF: fcvt.d.w / fcvt.d.l fd, rs (int -> double) */
+static void riscv_emit_fp_cvtsf_asm(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out) {
+    const char *dst_name = (fp_dst >= 0 && fp_dst < 32) ? BE(c)->regs->fp_regs[fp_dst] : "fa0";
+    const char *src_name = BE(c)->get_hw_reg_name(int_src);
+    fprintf(out, "\tfcvt.d.w\t%s, %s\n", dst_name, src_name);
+}
+
+/* FP CVTSI: fcvt.w.d rd, fs, rtz (double -> int, truncate) */
+static void riscv_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(int_dst);
+    const char *src_name = (fp_src >= 0 && fp_src < 32) ? BE(c)->regs->fp_regs[fp_src] : "fa0";
+    fprintf(out, "\tfcvt.w.d\t%s, %s, rtz\n", dst_name, src_name);
+}
+
 /* VLA_ALLOC: sub dst, sp, size */
 static void riscv_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -804,6 +818,8 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_mul_asm = riscv_emit_fp_mul_asm;
     be->emit_fp_div_asm = riscv_emit_fp_div_asm;
     be->emit_fp_mov_asm = riscv_emit_fp_mov_asm;
+    be->emit_fp_cvtsf_asm = riscv_emit_fp_cvtsf_asm;
+    be->emit_fp_cvtsi_asm = riscv_emit_fp_cvtsi_asm;
     be->emit_vla_alloc_asm = riscv_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = riscv_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = riscv_emit_param_save_fp_asm;

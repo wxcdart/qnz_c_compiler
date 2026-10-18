@@ -90,7 +90,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 ## LOW (documented / accepted)
 
 - **WSL2 GPF**: any 128-bit SIMD read from a `PROT_READ|PROT_EXEC` page faults on kernel 6.18.54 WSL2 (see `docs/okf/scalar-float-x86.md`). 32/64-bit reads fine.
-- **`-S` path** lacks `.data` section emission (AOT `-o` fine).
+- **`-S` path `.data` & `CVTSI2SD`**: resolved (Sprint 25); `.data` sections, relocations, and float/int conversion opcodes now emitted across all ISAs.
 - Computed-size VLA, flexible-array `offsetof` (C99 audit leftovers).
 - `>>` lowers to logical shift (implementation-defined for signed).
 

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-17T23:46:19Z
+timestamp: 2026-10-18T12:34:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -95,8 +95,20 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Vector registers `v0`–`v31` with explicit vector length/type configuration.
   - Configuration: `vsetivli zero, 4, e32, m1, ta, ma` (sets vector length to 4 elements of 32-bit floats, LMUL=1).
   - Memory moves: `vle32.v v0, 0(a1)` / `vse32.v v0, 0(a0)`.
-  - Vector arithmetic: `vfadd.vv vd, vs2, vs1` (standard GNU assembler format: `vfadd.vv v0, v0, v1`).
   - Scalar float operations continue using standard RISC-V FP registers (`fa0`–`fa7`, `ft0`–`ft11`) via `flw`/`fsw`/`fadd.s`.
+
+## Scalar Float / Integer Conversions (`OP_CVTSI2SD` / `OP_CVTTSD2SI`)
+
+Conversion between integers and scalar floating-point values is supported across JIT and AOT assembly emission via `emit_fp_cvtsf` / `emit_fp_cvtsf_asm` (int to double) and `emit_fp_cvtsi` / `emit_fp_cvtsi_asm` (double to int):
+- **x86-64**: `cvtsi2sd %src, %xmm_dst` and `cvttsd2si %xmm_src, %dst`.
+- **AArch64**: `scvtf d<dst>, <src>` and `fcvtzs <dst>, d<src>`.
+- **RISC-V 64**: `fcvt.d.w <dst>, <src>` and `fcvt.w.d <dst>, <src>, rtz`.
+
+## AOT Assembly Data Emission (`-S .data` and `.rodata`)
+
+When `-S` is invoked, `emit_asm_data_sections()` emits all global symbols, alignments, initialized data bytes, and relocations:
+- `.rodata` for string literals and floating-point constants.
+- `.data` section emitting `.globl` directives, `.p2align` / `.align`, labels, initialized bytes, and `.quad` relocations pointing to `.rodata` string literals or other globals (`target_kind = 0/1`).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
