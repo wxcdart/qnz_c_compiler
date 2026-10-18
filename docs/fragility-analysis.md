@@ -104,12 +104,12 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 |---|---|---|---|
 | Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | 757 OK / 758 clean diagnostic (scope TPHT: 64+61 blocks × 8 slots) | M5 - capability, not correctness |
 | Switch cases | unbounded (jump tables) | ~32k cap (16-bit labels, O(n) dispatch) - 1500 verified | capability (no practical C code approaches this) |
-| Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`, silent truncation) | M1 - the one remaining *silent* cap; should become an error |
+| Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`) — clean fatal diagnostic since Sprint 25 | M1 - **RESOLVED** (Sprint 25) |
 | Globals per TU | unbounded | 256 (silent drop) | M2 |
 | Struct members | unbounded | 64 (silent drop) | M3 |
 | Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
 
-Key distinction after Sprints 22–24: every former **C-tier** bug was a cap that *silently miscompiled*; every remaining limit now *fails clean* (diagnostic, no binary) except M1/M2/M3 which still truncate/drop silently — those are the top candidates if more conformance headroom is wanted. C5 (pointer-member chains) and C6 (float locals in `-S` asm) are the open C-tier items.
+Key distinction after Sprints 22–25: every former **C-tier** bug was a cap that *silently miscompiled*; every remaining limit now *fails clean* (diagnostic, no binary) except M2/M3 which still truncate/drop silently — those are the top candidates if more conformance headroom is wanted. All C-tier items (C1–C6) and both H-tier items (H1/H2) are **RESOLVED** (C5/C6/H2 in Sprint 25).
 
 ---
 
@@ -128,8 +128,8 @@ Key distinction after Sprints 22–24: every former **C-tier** bug was a cap tha
 2. **C2** ~~temp-id bound~~ — **Fixed (Sprint 23 guard + Sprint 24 16-bit temp ids)**.
 3. **C3** ~~switch case cap~~ — **Fixed (Sprint 24)**.
 4. **C4** ~~~231-local hang~~ — **Reclassified (Sprint 24)**: C2 in disguise + clean 758 tpht cap; no action needed.
-5. **C5** multi-segment member chain type resolution.
-6. **C6** implement `OP_FLOAD/OP_FSTORE` in the three asm emitters (float locals in `-S` output).
-7. **H2** make diagnostics fatal by default.
+5. **C5** ~~multi-segment member chain type resolution~~ — **Fixed (Sprint 25)**.
+6. **C6** ~~implement `OP_FLOAD/OP_FSTORE` in the three asm emitters~~ — **Fixed (Sprint 25)**. (Residual `-S` gaps: `.data` emission, `CVTSI2SD` — tracked in `docs/zero-rt-plan.md` §9.)
+7. **H2** ~~make diagnostics fatal by default~~ — **Fixed (Sprint 25)**.
 8. **M1** ~~error (not truncate) on identifiers >127~~ — **Fixed**: emit clean fatal diagnostic on identifiers exceeding 127 chars.
 9. **H1** ~~raise parser stack or iterate the expression recursion~~ — **Fixed**: raised stack to 64MB and added expression depth guard (clean error at 151+).
