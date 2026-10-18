@@ -1584,6 +1584,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .sp_reg = X86_RSP,  /* hardware encoding 4 */
     .scratch_reg1 = 10,                        /* r10 (non-argument/return register) */
     .scratch_reg2 = 11,                        /* r11 (non-argument/return register) */
+    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* xmm15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* xmm14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 48,           /* 5 callee-saved regs: rbx, r12-r15 */
     
     .emit_prologue = x86_emit_prologue,

@@ -2580,7 +2580,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 
                 if (call_ret_type.tag == TYPE_FLOAT || call_ret_type.tag == TYPE_DOUBLE) {
                     c->last_expr_is_float = 1;
-                    return VREG_F0;  /* Return value in xmm0 */
+                    /* Materialize the FP result into a tracked temp (C8):
+                     * returning VREG_F0 directly leaves xmm0 untracked by
+                     * the LRA, so the allocator may assign a later temp
+                     * (e.g. a float literal loaded for the RHS of the same
+                     * expression) to xmm0 and clobber the result before it
+                     * is consumed. */
+                    int fp_res = c->next_temp_id++;
+                    ir_emit_fmov((uint16_t)fp_res, (uint16_t)VREG_F0);
+                    return fp_res;
                 }
 
                 c->last_expr_is_float = 0;

@@ -55,11 +55,27 @@ Float/double locals lowering to `OP_FLOAD`/`OP_FSTORE` (float stack access) are 
 - **Fix** (`ir/ast_lowering_expr.c`): new `member_apply_compound()` helper — width-correct load of the current value (byte/16/32/deref, or VLOADSS/VLOADSD for float members under the double-width FP model), integer op set (incl. `%`), float ops via FADD/FSUB/FMUL/FDIV with int→float RHS conversion — wired into all four single-segment paths. The shared tail's integer member store also became width-correct (it was an unconditional 64-bit `ir_emit_store`, which clobbers the adjacent member of a 1/2/4-byte field).
 - **Verified**: d1–d8 (int/float/double members × local/pointer/global bases, adjacent-field survival) and c2/c3 pass JIT + AOT; 140/140, sret 6/6, C5 battery, c1-wrap, 3000-globals AOT all stay green.
 
-### C8. Float function-call result clobbered by FP arithmetic in the same expression — **OPEN**
+### C8. Float function-call result clobbered by FP arithmetic in the same expression — **RESOLVED (Sprint 28)**
 
-`if(use2(2.0f) != 1.0f+1.25f)` computes the call result in xmm0/F0, then the RHS literal load + FADD in the same expression corrupts it — wrong result in both JIT and AOT. Pre-existing (reproduces on the pre-C5 baseline). A plain `use2(2.0f) != 2.25f` works, and storing the result first (`float r = use2(2.0f); r != 1.0f+1.25f`) works — so the call-result temp is not kept live across the RHS lowering (or the FADD destination aliases it); suspected FP-value liveness/regalloc issue around `OP_CALL`.
+`if(use2(2.0f) != 1.0f+1.25f)` computed the call result in xmm0/F0, then the RHS lowering corrupted it — wrong result in both JIT and AOT. Pre-existing (reproduces on the pre-C5 baseline). The failure had **three stacked root causes**, all fixed:
 
-- **Repro** (`/tmp/c6v/e10.c`): `float use2(float x){ return x + 0.25f; } int main(void){ if(use2(2.0f) != 1.0f+1.25f) return 1; return 0; }` → rc=1 (JIT and AOT, current and baseline).
+1. **Untracked FP return**: the float/double call result was referenced directly as the physical return register (`VREG_F0`) with no tracked temp, so the LRA never saw the value live across subsequent instructions. **Fix** (`ir/ast_lowering_expr.c`): materialize the result into a fresh temp via `OP_FMOV` immediately after the call.
+2. **XMM intervals ignored `spans_call`**: `alloc_reg()` respected the `spans_call` flag only for GPRs; an FP interval spanning a call was happily assigned a caller-saved XMM, which the call clobbers. **Fix** (`ir/regalloc.h`): `REG_CLASS_XMM` (and the steal guards) now force a spill when `spans_call` is set — all FP/SIMD registers are caller-saved on every supported ABI.
+3. **Register steal from an already-spilled interval**: the spill-selection "steal" branch handed the current interval the stolen interval's `assigned_reg` — which is `-1` when the stolen interval was already spilled, producing a **dangling temp** (no register, no spill slot) that silently read the fallback register. **Fix**: skip `is_spilled` intervals in both spill-selection loops, never allow an FP/VEC interval spanning a call to steal (no callee-saved FP registers exist), and fall back to spilling the current interval when the stolen register is `-1`.
+
+Supporting fixes in the same change:
+- **Class-aware spill reload/store** (`ir/ast_lowering_mc.c`, `ir/asm_emitter.c`): spilled FP temps reload/store through `emit_load_fp`/`emit_store_fp` (movsd) into new `fp_scratch_reg1/2` (x86 `xmm15/xmm14`, aarch64 `d15/d14`, riscv `f15/f14` — outside the 0–7 XMM pool, shared constants `REGALLOC_FP_SCRATCH1/2`), instead of the GPR 64-bit scratch path.
+- **XMM↔VEC pool aliasing** (pre-existing, exposed by #1): VEC-class temporaries (scalar float locals use 16-byte `OP_VLOAD`) allocated from a separate `vec_free[]` array that aliases the same physical xmm registers as the XMM pool — an overlapping VEC load could clobber an XMM temp (e.g. a float local load clobbering a call result). **Fix**: on shared-hardware ISAs (x86/AArch64; RISC-V v-registers are separate hardware) the two pools cross-mark indices 0–7 and VEC allocation skips the FP scratch indices.
+
+- **Verified** (all JIT `-O0`/`-O1` + AOT `-o`): e10 (original repro), e11 (call result in `+ * - / !=` with a later FP op), e12 (int `f()+f()` regression), e13 (nested FP calls `id(use2(1.0f))`), e14 (three-call sum), e15 (FP value live across an intervening int call), e16/e17 (isolated two-call / FDIV), e22 (XMM/VEC aliasing repro — failed on baseline), plus the C5/d-batteries, 140/140 `make test`, sret 6/6, c1-wrap, 500-globals. The `-S` path contains the C8 mechanism correctly (materialize → spill store → call → reload); e11 still fails **only** via `-S`+gcc because of the separate, pre-existing `-S` float-emit gaps (see C6 note: 2-operand `addsd`, integer `cmpq` for float compares, `movss` on 8-byte rodata doubles).
+
+### C9. Inline int→float cast dropped in call-argument position — **OPEN (pre-existing)**
+
+`use2((float)k)` with `k` an int local: the `CVTSI2SD` conversion is **absent from the IR** — the raw integer bits are stored to the float-argument slot and read back as a double bit pattern (int `3` → `3.0e-323` → `use2` returns `0.25`). The cast works when it lands in its own statement (`float f=(float)k; use2(f);` passes). Fails identically on the pre-C5 baseline. Repro `/tmp/c6v/e25.c` (value probe `/tmp/c6v/e25p.c`: prints `r=0.250` where 3.25 is expected — baseline and current agree).
+
+### C10. Float local as call argument inside a loop — **OPEN (pre-existing)**
+
+`for(...) { float fk=(float)k; last = id(fk); }` (or `s += use2(fk);`) produces wrong values every iteration; the same pattern with a **float literal** argument (e33), an **int** argument (e34), or outside a loop (e32 — fixed by the C8 work, failed on baseline) all pass. The per-iteration float-local argument path (VLOAD → FSTORE arg-slot → VLOAD → CALL in the IR) loses the value. Fails identically on the pre-C5 baseline. Repros `/tmp/c6v/e30.c`, `e31.c`.
 
 ---
 
@@ -93,10 +109,10 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 | # | Limit | Behavior past limit | Probe |
 |---|-------|--------------------|-------|
 | M1 | identifiers ≤ **127** chars | clean fatal diagnostic: `identifier exceeds maximum length of 127 characters` | **RESOLVED**: error diagnosed, no truncation |
-| M2 | globals ≤ **256** | 257th silently dropped (`add_global_var` returns -1, ignored) | `p3` 260 globals "passes" (only checked first 13) |
+| M2 | globals ≤ **256** | **RESOLVED (Sprint 27)**: global table is heap-allocated and grows (init 64, doubles); verified 3000 globals JIT+AOT with data-reloc inits | `globals` 3000 OK both modes |
 | M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | `p4` |
 | M4 | IR dump shows `imm` (int16) not `imm64` | large immediates displayed truncated (e.g. `2000000000` shown as `-27648`); **emission is correct** (uses `imm64`) — misleading for debugging only | `p11` IR dump |
-| M5 | locals ≤ **~758 per scope** (was C4) | clean fatal `failed to insert symbol` diagnostic, no binary (reclassified from C in Sprint 24 - the original hang was C2 in disguise) | `locals` 757 OK / 758 COMPILE-ERR |
+| M5 | locals ≤ **~3000 per scope** (was C4) | clean fatal `failed to insert symbol` diagnostic, no binary (scope TPHT raised 64→256 blocks in Sprint 27; was ~758) | `locals` 1000 OK / ~3000 clean COMPILE-ERR |
 
 ---
 
@@ -122,7 +138,7 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 | Struct members | unbounded | 64 (silent drop) | M3 |
 | Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
 
-Key distinction after Sprints 22–25: every former **C-tier** bug was a cap that *silently miscompiled*; every remaining limit now *fails clean* (diagnostic, no binary) except M2/M3 which still truncate/drop silently — those are the top candidates if more conformance headroom is wanted. All C-tier items (C1–C6) and both H-tier items (H1/H2) are **RESOLVED** (C5/C6/H2 in Sprint 25).
+Key distinction after Sprints 22–28: every former **C-tier** correctness bug was a cap or liveness bug that *silently miscompiled*; the remaining limits now *fail clean* (diagnostic, no binary) except M3 which still drops silently (top candidate if more conformance headroom is wanted). All C-tier items **C1–C8** and both H-tier items (H1/H2) are **RESOLVED**; C9/C10 (Sprint 28 findings, pre-existing) are the open C-tier items.
 
 ---
 
@@ -142,7 +158,11 @@ Key distinction after Sprints 22–25: every former **C-tier** bug was a cap tha
 3. **C3** ~~switch case cap~~ — **Fixed (Sprint 24)**.
 4. **C4** ~~~231-local hang~~ — **Reclassified (Sprint 24)**: C2 in disguise + clean 758 tpht cap; no action needed.
 5. **C5** ~~multi-segment member chain type resolution~~ — **Fixed (Sprint 25)**.
-6. **C6** ~~implement `OP_FLOAD/OP_FSTORE` in the three asm emitters~~ — **Fixed (Sprint 25)**. (Residual `-S` gaps: `.data` emission, `CVTSI2SD` — tracked in `docs/zero-rt-plan.md` §9.)
+6. **C6** ~~implement `OP_FLOAD/OP_FSTORE` in the three asm emitters~~ — **Fixed (Sprint 25)**. (Residual `-S` gaps: float const width / float compare / 2-operand `addsd` — tracked in `docs/zero-rt-plan.md` §9.)
 7. **H2** ~~make diagnostics fatal by default~~ — **Fixed (Sprint 25)**.
+8. **C7** ~~member compound assignment stored only the RHS~~ — **Fixed (Sprint 27)**.
+9. **C8** ~~FP call result clobbered by same-expression FP arithmetic~~ — **Fixed (Sprint 28)**: FMOV materialization of FP call returns + XMM `spans_call` forced spill + no-steal-from-spilled + class-aware FP spill + XMM↔VEC pool cross-marking.
+10. **C9 / C10** (new, Sprint 28) — inline int→float cast dropped in call-argument position; float local as call argument inside a loop. Both pre-existing (fail on the pre-C5 baseline); next candidates.
+11. **`-S` float emit completeness** — 2-operand `addsd`/`subsd` (needs 3-operand form), float compare as integer `cmpq` (needs `ucomisd`+`setcc`), `movss` on 8-byte rodata doubles (needs `movsd`). Contained `x86_64_asm.c`/`asm_emitter.c` work; unblocks full `-S` float parity (a5 repro).
 8. **M1** ~~error (not truncate) on identifiers >127~~ — **Fixed**: emit clean fatal diagnostic on identifiers exceeding 127 chars.
 9. **H1** ~~raise parser stack or iterate the expression recursion~~ — **Fixed**: raised stack to 64MB and added expression depth guard (clean error at 151+).

@@ -817,6 +817,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .sp_reg = 2,   /* sp */
     .scratch_reg1 = 5,                         /* t0 */
     .scratch_reg2 = 6,                         /* t1 */
+    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,   /* f15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,     /* f14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
     
     .emit_prologue = riscv64_emit_prologue,
@@ -1315,6 +1317,8 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .sp_reg = 2,
     .scratch_reg1 = 5,                         /* t0 (non-argument/return) */
     .scratch_reg2 = 6,                         /* t1 (non-argument/return) */
+    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,   /* f15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,     /* f14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
     
     .emit_prologue = riscv32_emit_prologue,

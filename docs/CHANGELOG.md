@@ -1,5 +1,28 @@
 # ZeroCC Changelog
 
+## [Sprint 28] - 2026-10-18 - C8: FP Call-Result Liveness (Materialized Returns, XMM Spans-Call Spill, Pool Aliasing)
+
+### Fixed
+- **C8 - float/double function-call result clobbered by FP arithmetic in the same expression** - three stacked root causes:
+  1. **Untracked FP return** (`ir/ast_lowering_expr.c`): the float/double call result was referenced directly as the physical return register (`VREG_F0`) with no tracked temp, so the LRA never saw it live. Now materialized into a fresh temp via `OP_FMOV` after the call.
+  2. **XMM `spans_call` ignored** (`ir/regalloc.h`): `alloc_reg()` honored `spans_call` only for GPRs; an FP interval spanning a call was assigned a caller-saved XMM that the call then clobbers. XMM intervals with `spans_call` now always force the spill path (all FP/SIMD registers are caller-saved on every supported ABI).
+  3. **Steal from an already-spilled interval** (`ir/regalloc.h`): the spill-selection steal branch copied the stolen interval's `assigned_reg` - which is `-1` once that interval was spilled - leaving a **dangling temp** (no register, no spill slot) that silently read the fallback register. Selection now skips `is_spilled` intervals, FP/VEC intervals spanning a call may not steal at all (no callee-saved FP registers exist), and a `-1` steal falls back to spilling the current interval.
+- **Class-aware FP spill** (`ir/ast_lowering_mc.c`, `ir/asm_emitter.c`): spilled FP temps now reload/store through `emit_load_fp`/`emit_store_fp` (movsd) into new `fp_scratch_reg1/2` backend fields (x86 `xmm15/xmm14`, aarch64 `d15/d14`, riscv `f15/f14` - outside the 0-7 XMM pool; shared constants `REGALLOC_FP_SCRATCH1/2` in `regalloc.h`) instead of the GPR 64-bit scratch path, in both the JIT and `-S` emitters.
+- **XMM↔VEC register-pool aliasing** (pre-existing, exposed by the materialized returns; `ir/regalloc.h`): VEC-class temps (scalar float locals use 16-byte `OP_VLOAD`) allocated from a separate `vec_free[]` array aliasing the same physical xmm registers as the XMM pool - an overlapping VEC load could clobber an XMM temp (e.g. a float-local load clobbering a call result; baseline repro `/tmp/c6v/e22.c` failed before, passes now). On shared-hardware ISAs (x86/AArch64) the pools now cross-mark indices 0-7 at allocate and expire; RISC-V keeps separate v-registers. VEC allocation also skips the FP scratch indices.
+
+### Discovered (documented, pre-existing on the pre-C5 baseline)
+- **C9 (OPEN)**: inline int→float cast in call-argument position drops the conversion - `use2((float)k)` passes the raw int bits as a double (int 3 → 3.0e-323); the cast in its own statement works. Repro `/tmp/c6v/e25.c` / value probe `e25p.c`.
+- **C10 (OPEN)**: a float local used as a call argument inside a loop loses its value (`for(...) { float fk=(float)k; last = id(fk); }`); the same shape with a float literal or int argument passes. Repros `/tmp/c6v/e30.c`, `e31.c`.
+
+### Verification
+- C8 battery JIT (`-O0`/`-O1`) + AOT all rc=0: e10 (original repro), e11 (call result in `+ * - / !=` with later FP ops), e12 (int `f()+f()` regression), e13 (nested `id(use2(1.0f))`), e14 (three-call sum), e15 (FP live across an intervening int call), e16/e17 (isolated two-call / FDIV), e22 (XMM/VEC aliasing), plus the earlier `f.c`.
+- `make test` 140/140 · sret 6/6 · OKF lint PASS · C5 b/h battery rc=0 · d1-d8 rc=0 · c1-wrap OK · `globals 500` OK (JIT+AOT)
+- The `-S` path contains the C8 mechanism correctly (materialize → spill store → call → reload); e11 via `-S`+gcc still fails only on the separate pre-existing `-S` float-emit gaps (2-operand `addsd`, integer `cmpq` for float compares, `movss` on 8-byte rodata doubles) - see `docs/zero-rt-plan.md` §9 / fragility C6 note.
+
+### Documented
+- `docs/fragility-analysis.md`: C8 **RESOLVED** (full root-cause breakdown), C9/C10 added as open findings, M2/M5 table rows refreshed, fix-order list extended.
+- `docs/okf/ir-and-regalloc.md`: C8 invariants recorded (materialized FP returns, spans-call spill rule, no-steal guards, pool cross-marking, FP scratch registers).
+
 ## [Sprint 27] - 2026-10-18 - C7 Member Compound Assignment & Width-Correct Member Stores; C8 Discovered
 
 ### Fixed

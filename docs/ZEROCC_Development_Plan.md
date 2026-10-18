@@ -11,6 +11,17 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 28: C8 FP Call-Result Liveness — Materialized Returns, XMM Spans-Call Spill, Pool Aliasing ✅
+- **Status**: COMPLETE
+- **Achievement**: Float/double function-call results are no longer clobbered by FP arithmetic later in the same expression (`if(use2(2.0f) != 1.0f+1.25f)` and harder multi-call forms), in both JIT and AOT. Three stacked root causes fixed: (1) FP call returns were untracked physical-register references — now materialized into a fresh temp via `OP_FMOV` after the call; (2) XMM intervals ignored `spans_call` — they now always spill (no callee-saved FP registers exist); (3) the spill-selection steal branch could hand over `-1` from an already-spilled interval, creating a dangling temp — selection now skips spilled intervals, FP intervals spanning a call may not steal, and a `-1` steal falls back to spilling. Supporting: class-aware FP spill reload/store through new `fp_scratch_reg1/2` (physical 15/14, outside the XMM pool) in both emitters, and XMM↔VEC pool cross-marking (a pre-existing aliasing bug where a scalar float local's 16-byte VLOAD could clobber an overlapping XMM temp).
+- **Key Deliverables**:
+  - `ir/ast_lowering_expr.c`: `OP_FMOV` materialization of float/double call results.
+  - `ir/regalloc.h`: XMM `spans_call` → forced spill; `is_spilled` skip + no-steal guards in both spill-selection loops; `-1`-steal fallback; XMM↔VEC pool cross-marking (shared-hardware ISAs only); `REGALLOC_FP_SCRATCH1/2` constants.
+  - `ir/ast_lowering_mc.c` + `ir/asm_emitter.c`: class-aware spill reload/store (GPR scratch vs `emit_load_fp/store_fp` into the FP scratch XMMs).
+  - `isa/isa_backend.h` + x86_64/aarch64/riscv backends: `fp_scratch_reg1/2` (xmm15/xmm14, d15/d14, f15/f14).
+- **Discovered (documented, pre-existing on the pre-C5 baseline)**: **C9** — inline int→float cast in call-argument position drops the conversion (`use2((float)k)` passes raw int bits); **C10** — a float local as a call argument inside a loop loses its value (literal/int arguments fine). Repros `/tmp/c6v/e25.c`, `e30.c`, `e31.c`.
+- **Result**: C8 battery (e10–e18, e22, f.c) rc=0 JIT `-O0`/`-O1` + AOT; `make test` **140/140**, sret **6/6**, OKF lint PASS, C5/d batteries rc=0, c1-wrap OK, 500-globals OK. The `-S` path contains the C8 mechanism correctly; e11 via `-S`+gcc still fails only on the separate pre-existing `-S` float-emit gaps (2-operand `addsd`, integer `cmpq` for float compares, `movss` on 8-byte rodata doubles).
+
 ### Sprint 27: C7 Member Compound Assignment & Width-Correct Member Stores ✅
 - **Status**: COMPLETE
 - **Achievement**: Compound assignment to single-segment struct members (`s.w += 5`, `s.f += 0.5f`, `s.d *= 2.0`, `p->m op= v`) now loads the current member value, applies the op, and stores the result (previously only the RHS was stored — pre-existing since before C5). Member stores in the shared tail became width-correct (no more adjacent-member clobber from 64-bit stores). **C8 discovered and documented**: float function-call results are clobbered by FP arithmetic in the same expression (both modes, pre-existing) — suspected FP liveness issue around `OP_CALL`.
@@ -139,14 +150,14 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
-- **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 757 OK / 758 clean error, expr depth 150 OK / 151 clean error
+- **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
 - **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **10/10 pages valid**, links & graph reachability verified
 
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
-- **CRITICAL tier**: C1–C7 **RESOLVED** (C7 = member compound assignment, Sprint 27); **C8 OPEN** (float call-result clobbered by FP arithmetic in the same expression — suspected FP liveness around `OP_CALL`, both modes, pre-existing)
+- **CRITICAL tier**: C1–C8 **RESOLVED** (C8 = FP call-result liveness, Sprint 28); **C9/C10 OPEN** (Sprint 28 findings, pre-existing: inline int→float cast dropped in call-argument position; float local as call argument inside a loop)
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
 - **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
-- **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; remaining: float constants loaded with wrong width (`movss` on 8-byte rodata doubles) and float `!=` emitted as integer `cmpq` (Sprint 27 finding, tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9)
+- **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; remaining: float constants loaded with wrong width (`movss` on 8-byte rodata doubles), float `!=` emitted as integer `cmpq` (needs `ucomisd`), and 2-operand `addsd`/`subsd` FP arithmetic (needs 3-operand form) (Sprint 27/28 findings, tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9)
 
 ---
 
@@ -216,10 +227,12 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 ### 7. AOT `-S` Path Completeness
 - ~~`.data` section emission for globals~~ — **done (`b0975fc`)**; objects with globals now link from `-S` output
 - ~~`CVTSI2SD` (int→double)~~ — **done (`b0975fc`)**, plus `CVTTSD2SI`
-- Remaining (Sprint 27 finding): float constants loaded with wrong width in the asm path (`movss` on 8-byte rodata doubles) and float `!=` emitted as integer `cmpq` — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
+- Remaining (Sprint 27/28 findings): float constants loaded with wrong width in the asm path (`movss` on 8-byte rodata doubles), float `!=` emitted as integer `cmpq` (needs `ucomisd` + `setcc`), and 2-operand `addsd`/`subsd` FP arithmetic (needs the 3-operand form with a `movsd` of src1, or the commutative shortcut) — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
 
-### 7a. C8 — Float call-result liveness across FP arithmetic (OPEN)
-- `use2(2.0f) != 1.0f+1.25f` miscompiles in both JIT and AOT (result stored in a local first works); pre-existing; suspected FP-value liveness/regalloc issue around `OP_CALL` — repro and analysis in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C8
+### 7a. C9 / C10 — pre-existing FP argument lowering bugs (OPEN, found in Sprint 28)
+- **C9**: inline int→float cast in call-argument position drops the `CVTSI2SD` (`use2((float)k)` passes the raw int bits as a double; the cast in its own statement works) — repro `/tmp/c6v/e25.c`
+- **C10**: a float local used as a call argument inside a loop loses its value (float literal / int arguments fine; outside a loop fine) — repros `/tmp/c6v/e30.c`, `e31.c`
+- Both fail identically on the pre-C5 baseline; analysis in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C9/§C10
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
 - ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT

@@ -112,8 +112,9 @@ zero_rt-Linux is the **first real customer of the T2 ELF linker**: it validates 
 
 1. ~~**AOT `-S` never emits `.data`**~~ — **resolved in `b0975fc`**: `-S` output now emits `.data`/`.rodata` global sections; objects with globals link and run.
 2. ~~**`CVTSI2SD` (int→double) unimplemented in the asm emitters**~~ — **resolved in `b0975fc`** (`CVTSI2SD`/`CVTTSD2SI` across all three ISAs).
-3. **`-S` float constant/comparison width (new, Sprint 27)**: float constants are stored as 8-byte doubles in `.rodata`, but the x86 asm emitter loads them with 4-byte `movss` (reads the low 4 bytes → 0.0), and float `!=` emits integer `cmpq`. Repro: `float a=2.0f+0.25f; if(a!=2.25f) return 1;` → rc=1 via `-S`, rc=0 via `-o`. The `-o` ELF path is unaffected. Candidate for the AOT-asm float-completeness item.
-4. **C8 (Sprint 27, not `-S`-specific)**: float function-call result clobbered by FP arithmetic in the same expression (both JIT and AOT; pre-existing) — see `docs/fragility-analysis.md` §C8.
+3. **`-S` float constant/comparison/arithmetic width (Sprint 27, extended Sprint 28)**: float constants are stored as 8-byte doubles in `.rodata`, but the x86 asm emitter loads them with 4-byte `movss` (reads the low 4 bytes → 0.0), float `!=` emits integer `cmpq` (needs `ucomisd` + `setcc`), and FP arithmetic emits 2-operand `addsd %src2,%dst` / `subsd` (only correct when dst pre-loads src1 — the JIT MC path handles the general 3-operand case). Repro: `float a=2.0f+0.25f; if(a!=2.25f) return 1;` → rc=1 via `-S`, rc=0 via `-o`. The `-o` ELF path is unaffected. Candidate for the AOT-asm float-completeness item.
+4. ~~**C8 (Sprint 27, not `-S`-specific)**~~: float function-call result clobbered by FP arithmetic in the same expression — **RESOLVED in Sprint 28** (materialized FP returns + XMM spans-call spill + no-steal guards + class-aware FP spill + XMM/VEC pool cross-marking; see `docs/fragility-analysis.md` §C8).
+5. **C9 / C10 (Sprint 28, pre-existing)**: inline int→float cast dropped in call-argument position; float local as call argument inside a loop — see `docs/fragility-analysis.md` §C9/§C10.
 
 ## 10. Open questions
 

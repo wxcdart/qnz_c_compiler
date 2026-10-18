@@ -857,31 +857,56 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
     int spill_dst  = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
 
-    /* Reload spilled sources into scratch registers (scratch_reg1 for src1, scratch_reg2 for src2) */
+    /* Reload spilled sources into scratch registers. FP-class values use
+     * the FP scratch XMMs (emit_load_fp_asm); GPR values use the GPR
+     * scratches (C8). */
     if (spill_src1 >= 0) {
         int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
-        if (BE(c)->emit_load_asm) {
-            BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+        if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
+            if (BE(c)->emit_load_fp_asm) {
+                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+            }
+            phys_src1 = BE(c)->fp_scratch_reg1;
+        } else {
+            if (BE(c)->emit_load_asm) {
+                BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+            }
+            phys_src1 = BE(c)->scratch_reg1;
         }
-        phys_src1 = BE(c)->scratch_reg1;
     }
     if (spill_src2 >= 0) {
         int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
-        if (BE(c)->emit_load_asm) {
-            BE(c)->emit_load_asm(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+        if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
+            if (BE(c)->emit_load_fp_asm) {
+                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+            }
+            phys_src2 = BE(c)->fp_scratch_reg2;
+        } else {
+            if (BE(c)->emit_load_asm) {
+                BE(c)->emit_load_asm(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+            }
+            phys_src2 = BE(c)->scratch_reg2;
         }
-        phys_src2 = BE(c)->scratch_reg2;
     }
     if (spill_dst >= 0) {
-        phys_dst = BE(c)->scratch_reg1;
+        if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
+            phys_dst = BE(c)->fp_scratch_reg1;
+        } else {
+            phys_dst = BE(c)->scratch_reg1;
+        }
     }
 
     asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2, out);
 
-    /* If destination temp was spilled, store scratch register back to frame spill slot */
+    /* If destination temp was spilled, store the scratch register back to
+     * the frame spill slot (FP scratch for FP-class). */
     if (spill_dst >= 0) {
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
-        if (BE(c)->emit_store_asm) {
+        if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
+            if (BE(c)->emit_store_fp_asm) {
+                BE(c)->emit_store_fp_asm(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+            }
+        } else if (BE(c)->emit_store_asm) {
             BE(c)->emit_store_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
         }
     }

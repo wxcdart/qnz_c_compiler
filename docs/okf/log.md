@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-18T12:34:36Z
+timestamp: 2026-10-18T13:14:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -128,3 +128,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-18 — Updated `isa-backends.md`
 - Add OP_CVTSI2SD/OP_CVTTSD2SI asm emission and -S .data section emission across ISAs
+
+## 2026-10-18 — Updated `ir-and-regalloc.md`
+- C8 invariants: materialized FP call returns, XMM spans_call forced spill, no-steal-from-spilled guards, class-aware FP spill scratch (fp_scratch_reg1/2 = 15/14), XMM-VEC pool cross-marking

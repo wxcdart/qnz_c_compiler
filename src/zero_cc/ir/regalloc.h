@@ -48,6 +48,11 @@ static const char *xmm_registers[] __attribute__((unused)) = {
 };
 #define XMM_COUNT 8
 
+/* FP spill scratch registers - outside the XMM pool (0-7). Must match the
+ * ISA backends' fp_scratch_reg1/2 initializers (C8). */
+#define REGALLOC_FP_SCRATCH1 15
+#define REGALLOC_FP_SCRATCH2 14
+
 /* Vector registers (ISA-specific) */
 /* x86-64: 16 XMM registers, AArch64: 32 NEON registers, RISC-V: 32 RVV registers */
 static const char *vec_registers_x86[] __attribute__((unused)) = {
@@ -277,8 +282,16 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
                     ra->gpr_free[active->assigned_reg] = true;
                 } else if (active->reg_class == REG_CLASS_XMM) {
                     ra->xmm_free[active->assigned_reg] = true;
+                    if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                        active->assigned_reg < 32) {
+                        ra->vec_free[active->assigned_reg] = true;
+                    }
                 } else if (active->reg_class == REG_CLASS_VEC) {
                     ra->vec_free[active->assigned_reg] = true;
+                    if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                        active->assigned_reg < XMM_COUNT) {
+                        ra->xmm_free[active->assigned_reg] = true;
+                    }
                 }
             }
             /* Remove from active list */
@@ -401,9 +414,18 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             }
         }
     } else if (interval->reg_class == REG_CLASS_XMM) {
+        /* All FP registers are caller-saved on every supported ABI: an FP
+         * interval that spans a call cannot live in a register - force the
+         * (class-aware) spill path (C8). */
+        if (interval->spans_call) return -1;
         for (int i = 0; i < XMM_COUNT; i++) {
             if (ra->xmm_free[i]) {
                 ra->xmm_free[i] = false;
+                /* x86/AArch64: VEC index i (i<8) is the same physical
+                 * register as xmm i - never double-allocate (C8). */
+                if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 && i < 32) {
+                    ra->vec_free[i] = false;
+                }
                 return i;
             }
         }
@@ -411,10 +433,18 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         /* Vector register allocation (ISA-specific count) */
         int vec_count = VEC_COUNT(ra);
         for (int i = 0; i < vec_count; i++) {
-            if (ra->vec_free[i]) {
-                ra->vec_free[i] = false;
-                return i;
+            if (!ra->vec_free[i]) continue;
+            if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32) {
+                /* x86/AArch64: vec i (i<8) is the same physical register
+                 * as xmm i; 14/15 are the FP spill scratch (C8). */
+                if (i < XMM_COUNT && !ra->xmm_free[i]) continue;
+                if (i == REGALLOC_FP_SCRATCH1 || i == REGALLOC_FP_SCRATCH2) continue;
             }
+            ra->vec_free[i] = false;
+            if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 && i < XMM_COUNT) {
+                ra->xmm_free[i] = false;
+            }
+            return i;
         }
     }
     
@@ -517,8 +547,16 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    /* Already-spilled intervals hold no register to hand over */
+                    if (active->is_spilled) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
+                        continue;
+                    }
+                    /* All FP/SIMD registers are caller-saved: an interval
+                     * spanning a call must spill, never steal (C8). */
+                    if (current->spans_call &&
+                        (current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
                         continue;
                     }
                     
@@ -538,8 +576,16 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    /* Already-spilled intervals hold no register to hand over */
+                    if (active->is_spilled) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
+                        continue;
+                    }
+                    /* All FP/SIMD registers are caller-saved: an interval
+                     * spanning a call must spill, never steal (C8). */
+                    if (current->spans_call &&
+                        (current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
                         continue;
                     }
                     if (active->end > spill->end) {
@@ -548,8 +594,9 @@ static void regalloc_allocate(RegAllocator *ra) {
                 }
             }
             
-            if (spill == current) {
-                /* Spill current interval */
+            if (spill == current || spill->assigned_reg < 0) {
+                /* Spill current interval (also when the "stolen" interval
+                 * holds no register - stealing -1 leaves a dangling temp) */
                 opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, current);
             } else {

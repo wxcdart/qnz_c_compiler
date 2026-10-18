@@ -289,6 +289,8 @@ typedef struct ZeroCCISABackend {
     /* Scratch registers for spilling (ISA-specific, non-argument/return registers) */
     int scratch_reg1;  /* First scratch register (e.g., r10 on x86, x9 on AArch64, t0 on RISC-V) */
     int scratch_reg2;  /* Second scratch register (e.g., r11 on x86, x10 on AArch64, t1 on RISC-V) */
+    int fp_scratch_reg1; /* FP scratch for spilled FP src1/dest (outside the 0-7 XMM pool) */
+    int fp_scratch_reg2; /* FP scratch for spilled FP src2 */
     
     /* Callee-save frame reserve in bytes (ISA-specific: 48 for x86, 96 for AArch64/RISC-V) */
     int callee_save_frame_reserve;

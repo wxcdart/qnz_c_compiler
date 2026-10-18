@@ -908,6 +908,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .sp_reg = 31,  /* sp */
     .scratch_reg1 = 9,                         /* x9 (non-argument/return) */
     .scratch_reg2 = 10,                        /* x10 (non-argument/return) */
+    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* d15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* d14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: x19-x30 */
     
     .emit_prologue = aarch64_emit_prologue,
