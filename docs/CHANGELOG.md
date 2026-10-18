@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 29] - 2026-10-18 - C9: Float Cast Lowering; C11: Vectorizer Must Not Vectorize Call Loops (C10 Resolved)
+
+### Fixed
+- **C9 - inline int→float cast dropped** (`ir/ast_lowering_expr.c`, `NODE_CAST`): `use2((float)k)` passed the raw integer bits as a double bit pattern (int 3 → 3.0e-323) - the cast handler had no int→float branch at all, and the float-source branch unconditionally ran `cvttsd2si` even when the target was float (so `(double)a`/`(float)a` truncated to int). Now: float/double *target* + int/pointer source emits `CVTSI2SD` into a fresh temp and sets `last_expr_is_float`; float→float/double is a no-op under the 64-bit double FP model. The downstream paths that previously supplied their own conversion (float local/global assignment) are all `last_expr_is_float`-guarded, so no double conversion occurs.
+- **C11 - auto-vectorizer vectorized loops containing calls** (`opt/opt_vectorize.c`): the loop analyzer's criteria promised "no function calls" but never checked - a loop like `for(...) { float t = use2(1.0f); s += t; }` was accepted, the transform widened the induction step (`k += 1` → `k += 4`) and converted the scalar float ops to 128-bit SIMD (`VADDPS`), while the scalar `OP_CALL` body ran only once per 4 iterations - dropped loop iterations and packed-lane math on 16-byte loads of scalar floats. The analyzer now rejects any loop whose body contains `OP_CALL`/`OP_CALL_INDIRECT`/`OP_RET` (`has_call` guard). Legitimate element-wise array loops still vectorize (VADDPS confirmed in e48, correct results).
+- **C10 - "float local as call argument inside a loop" - resolved**: the e30/e31 repros were C11 in disguise (their loop bodies contained calls); they pass JIT + AOT unchanged once C11 is fixed.
+
+### Verification
+- C9: e25 (repro), e25p (value probe prints `r=3.250`), e36 (float→double/float), e37 (15-assertion cast battery) - rc=0 JIT `-O0`/`-O1` + AOT, gcc cross-check rc=0
+- C11: e21/e23/e24/e29/e30/e31/e38/e39/e40/e41/e43/e46 (call-in-loop battery incl. value probes) rc=0 JIT + AOT; e42/e44/e45 (no-call loops) and e47/e48 (vectorizer sanity: VADDPS still emitted, gcc cross-check) rc=0
+- `make test` **140/140** · sret **6/6** · OKF lint PASS · C8 battery rc=0 (no regression) · C5/d batteries rc=0 · c1-wrap OK · `globals 500` OK (JIT+AOT)
+
+### Documented
+- `docs/fragility-analysis.md`: C9/C10 **RESOLVED**, **C11 added and RESOLVED** (with the two known vectorizer residuals: mid-body conditional branches not rejected; increment rewrite matches any `OP_ADD` with a constant-1 operand), fix-order list extended.
+- `docs/okf/optimization-passes.md`: auto_vectorize safety invariant recorded (no calls/returns in a vectorized loop body).
+
 ## [Sprint 28] - 2026-10-18 - C8: FP Call-Result Liveness (Materialized Returns, XMM Spans-Call Spill, Pool Aliasing)
 
 ### Fixed

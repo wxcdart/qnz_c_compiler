@@ -11,6 +11,14 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 29: C9 Float Cast Lowering & C11 Vectorizer Call-Guard (C10 Resolved) ✅
+- **Status**: COMPLETE
+- **Achievement**: (1) `NODE_CAST` now actually converts: int/pointer→float/double emits `CVTSI2SD` (previously the raw int bits were passed/stored as a double bit pattern — `use2((float)k)` gave 3.0e-323), and float→float/double no longer truncates through `cvttsd2si`. (2) The auto-vectorizer no longer vectorizes loops whose body contains a call/return (C11): it previously widened the induction step to `k += 4` and converted scalar float ops to VADDPS while the scalar call-body ran 1/4 as often — dropping loop iterations. This also resolved **C10** ("float local as call argument inside a loop" — its repros were C11 in disguise).
+- **Key Deliverables**:
+  - `ir/ast_lowering_expr.c`: float/double target branch in `NODE_CAST` (`CVTSI2SD` for int/pointer sources; no-op for float sources; sets `last_expr_is_float`).
+  - `opt/opt_vectorize.c`: `has_call` guard (OP_CALL/OP_CALL_INDIRECT/OP_RET) in the vectorization criteria; documented residuals (mid-body branches, increment-rewrite breadth).
+- **Result**: C9 battery (e25/e25p/e36/e37) and C11 loop battery (e21–e48) rc=0 JIT `-O0`/`-O1` + AOT with gcc cross-checks; vectorizer still fires on real array loops (e48 VADDPS); `make test` **140/140**, sret **6/6**, OKF lint PASS, C8/C5/d batteries rc=0, c1-wrap OK, 500-globals OK.
+
 ### Sprint 28: C8 FP Call-Result Liveness — Materialized Returns, XMM Spans-Call Spill, Pool Aliasing ✅
 - **Status**: COMPLETE
 - **Achievement**: Float/double function-call results are no longer clobbered by FP arithmetic later in the same expression (`if(use2(2.0f) != 1.0f+1.25f)` and harder multi-call forms), in both JIT and AOT. Three stacked root causes fixed: (1) FP call returns were untracked physical-register references — now materialized into a fresh temp via `OP_FMOV` after the call; (2) XMM intervals ignored `spans_call` — they now always spill (no callee-saved FP registers exist); (3) the spill-selection steal branch could hand over `-1` from an already-spilled interval, creating a dangling temp — selection now skips spilled intervals, FP intervals spanning a call may not steal, and a `-1` steal falls back to spilling. Supporting: class-aware FP spill reload/store through new `fp_scratch_reg1/2` (physical 15/14, outside the XMM pool) in both emitters, and XMM↔VEC pool cross-marking (a pre-existing aliasing bug where a scalar float local's 16-byte VLOAD could clobber an overlapping XMM temp).
@@ -154,7 +162,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 - **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **10/10 pages valid**, links & graph reachability verified
 
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
-- **CRITICAL tier**: C1–C8 **RESOLVED** (C8 = FP call-result liveness, Sprint 28); **C9/C10 OPEN** (Sprint 28 findings, pre-existing: inline int→float cast dropped in call-argument position; float local as call argument inside a loop)
+- **CRITICAL tier**: C1–C11 **ALL RESOLVED** (C8 Sprint 28; C9 cast lowering + C11 vectorizer call-guard Sprint 29; C10 resolved as C11 in disguise). No open C-tier items.
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
 - **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
 - **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; remaining: float constants loaded with wrong width (`movss` on 8-byte rodata doubles), float `!=` emitted as integer `cmpq` (needs `ucomisd`), and 2-operand `addsd`/`subsd` FP arithmetic (needs 3-operand form) (Sprint 27/28 findings, tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9)
@@ -229,10 +237,10 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - ~~`CVTSI2SD` (int→double)~~ — **done (`b0975fc`)**, plus `CVTTSD2SI`
 - Remaining (Sprint 27/28 findings): float constants loaded with wrong width in the asm path (`movss` on 8-byte rodata doubles), float `!=` emitted as integer `cmpq` (needs `ucomisd` + `setcc`), and 2-operand `addsd`/`subsd` FP arithmetic (needs the 3-operand form with a `movsd` of src1, or the commutative shortcut) — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
 
-### 7a. C9 / C10 — pre-existing FP argument lowering bugs (OPEN, found in Sprint 28)
-- **C9**: inline int→float cast in call-argument position drops the `CVTSI2SD` (`use2((float)k)` passes the raw int bits as a double; the cast in its own statement works) — repro `/tmp/c6v/e25.c`
-- **C10**: a float local used as a call argument inside a loop loses its value (float literal / int arguments fine; outside a loop fine) — repros `/tmp/c6v/e30.c`, `e31.c`
-- Both fail identically on the pre-C5 baseline; analysis in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C9/§C10
+### 7a. Conformance residuals from Sprints 28/29 (all resolved; watch-items only)
+- ~~**C9**~~ — inline int→float cast dropped in call-argument position — **fixed (Sprint 29)** via the `NODE_CAST` float-target branch
+- ~~**C10**~~ — float local as call argument inside a loop — **fixed (Sprint 29)** (was C11 in disguise)
+- ~~**C11**~~ — auto-vectorizer vectorized loops containing calls (loop counter widened to `k += 4`) — **fixed (Sprint 29)** via the `has_call` guard; residuals documented in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C11 (mid-body branches, increment-rewrite breadth)
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
 - ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT

@@ -831,6 +831,25 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         case NODE_CAST: {
             int result = lower_expr(c, arena, node->left);
+            TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
+            bool target_is_float = type_is_floating(cast_ti);
+            if (target_is_float) {
+                if (!c->last_expr_is_float) {
+                    /* int/pointer -> float/double: convert (C9). Previously
+                     * this case fell through and returned the raw integer
+                     * bits as if they were a double bit pattern (int 3 ->
+                     * 3.0e-323), with last_expr_is_float left 0 so callers
+                     * (e.g. the call-argument path) took the integer route. */
+                    int fp_res = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)result);
+                    c->last_expr_is_float = 1;
+                    return fp_res;
+                }
+                /* float -> float/double: no-op under the 64-bit double FP
+                 * model (previously the float-source branch below truncated
+                 * the value through cvttsd2si). */
+                return result;
+            }
             /* Float to int conversion: emit via IR for correct sequencing */
             if (c->last_expr_is_float) {
                 int int_res_temp = c->next_temp_id++;
@@ -838,11 +857,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 0;
                 /* cvttsd2si yields a 64-bit int; extend to the cast target
                  * width when it is a narrow int ((int)d, (short)d). */
-                TypeInfo *f2i_ti = ast_node_get_typeinfo(c, node);
-                if (f2i_ti) {
-                    size_t f2isz = type_size(f2i_ti);
+                if (cast_ti) {
+                    size_t f2isz = type_size(cast_ti);
                     if (f2isz == 1 || f2isz == 2 || f2isz == 4) {
-                        bool f2isu = (f2i_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                        bool f2isu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
                         if (f2isu) ir_emit_zext(int_res_temp, (int)f2isz);
                         else ir_emit_sext(int_res_temp, (int)f2isz);
                     }
@@ -852,15 +870,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             /* int->int narrowing cast ((int)longv, (short)x): extend the
              * 64-bit value to the target width so it carries true N-bit
              * semantics (a plain cast previously did nothing). */
-            {
-                TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
-                if (cast_ti) {
-                    size_t ctsz = type_size(cast_ti);
-                    if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
-                        bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
-                        if (ctsu) ir_emit_zext(result, (int)ctsz);
-                        else ir_emit_sext(result, (int)ctsz);
-                    }
+            if (cast_ti) {
+                size_t ctsz = type_size(cast_ti);
+                if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
+                    bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                    if (ctsu) ir_emit_zext(result, (int)ctsz);
+                    else ir_emit_sext(result, (int)ctsz);
                 }
             }
             return result;

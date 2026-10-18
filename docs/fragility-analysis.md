@@ -69,13 +69,24 @@ Supporting fixes in the same change:
 
 - **Verified** (all JIT `-O0`/`-O1` + AOT `-o`): e10 (original repro), e11 (call result in `+ * - / !=` with a later FP op), e12 (int `f()+f()` regression), e13 (nested FP calls `id(use2(1.0f))`), e14 (three-call sum), e15 (FP value live across an intervening int call), e16/e17 (isolated two-call / FDIV), e22 (XMM/VEC aliasing repro — failed on baseline), plus the C5/d-batteries, 140/140 `make test`, sret 6/6, c1-wrap, 500-globals. The `-S` path contains the C8 mechanism correctly (materialize → spill store → call → reload); e11 still fails **only** via `-S`+gcc because of the separate, pre-existing `-S` float-emit gaps (see C6 note: 2-operand `addsd`, integer `cmpq` for float compares, `movss` on 8-byte rodata doubles).
 
-### C9. Inline int→float cast dropped in call-argument position — **OPEN (pre-existing)**
+### C9. Inline int→float cast dropped in call-argument position — **RESOLVED (Sprint 29)**
 
-`use2((float)k)` with `k` an int local: the `CVTSI2SD` conversion is **absent from the IR** — the raw integer bits are stored to the float-argument slot and read back as a double bit pattern (int `3` → `3.0e-323` → `use2` returns `0.25`). The cast works when it lands in its own statement (`float f=(float)k; use2(f);` passes). Fails identically on the pre-C5 baseline. Repro `/tmp/c6v/e25.c` (value probe `/tmp/c6v/e25p.c`: prints `r=0.250` where 3.25 is expected — baseline and current agree).
+`use2((float)k)` with `k` an int local: the `CVTSI2SD` conversion was **absent from the IR** — the raw integer bits were stored to the float-argument slot and read back as a double bit pattern (int `3` → `3.0e-323` → `use2` returns `0.25`). The cast worked when it landed in its own statement (`float f=(float)k; use2(f);`) because the float-local *assignment* path supplies its own conversion; the call-argument path trusts `last_expr_is_float`, which the cast never set. Pre-existing (reproduces on the pre-C5 baseline).
 
-### C10. Float local as call argument inside a loop — **OPEN (pre-existing)**
+- **Fix** (`ir/ast_lowering_expr.c`, `NODE_CAST`): the cast handler now detects a float/double *target* type. Int/pointer→float/double emits `CVTSI2SD` into a fresh temp and sets `last_expr_is_float = 1`; float→float/double is a no-op under the 64-bit double FP model. The second half of the bug (also fixed): a float *source* cast previously fell into the float→int branch unconditionally, so `(double)a`/`(float)a` truncated the value through `cvttsd2si` — a float target now short-circuits before that path.
+- **Verified**: e25 (original repro), e25p (value probe now prints `r=3.250`), e36 (float→double / float→float casts), e37 (15-assertion cast battery: int/unsigned/short/long→float/double as args, in expressions, in assignments, nested casts, float→int/unsigned/short truncation) — all rc=0 JIT `-O0`/`-O1` + AOT, gcc cross-check rc=0.
 
-`for(...) { float fk=(float)k; last = id(fk); }` (or `s += use2(fk);`) produces wrong values every iteration; the same pattern with a **float literal** argument (e33), an **int** argument (e34), or outside a loop (e32 — fixed by the C8 work, failed on baseline) all pass. The per-iteration float-local argument path (VLOAD → FSTORE arg-slot → VLOAD → CALL in the IR) loses the value. Fails identically on the pre-C5 baseline. Repros `/tmp/c6v/e30.c`, `e31.c`.
+### C10. Float local as call argument inside a loop — **RESOLVED (Sprint 29, was C11 in disguise)**
+
+`for(...) { float fk=(float)k; last = id(fk); }` produced wrong values. The symptom pointed at the float-argument path, but the actual cause was **C11** (the auto-vectorizer rewriting loops that contain calls) — the e30/e31 repros all contain a call in the loop body. Once C11 is fixed, e30/e31 (and every other call-in-loop repro) pass JIT + AOT unchanged.
+
+### C11. Auto-vectorizer vectorized loops containing function calls — **RESOLVED (Sprint 29, pre-existing)**
+
+Discovered while re-testing the C9 loop cases: `for(k...) { float t = use2(1.0f); s += t; }` (and every `s += use2((float)k)` variant) ran the body only **once per 4 loop steps** — the loop counter was being incremented by 4. Root cause in `opt_vectorize.c`: `analyze_loop_for_vectorization_full` counted loads/stores/arith and accepted the loop (its comment promised "no function calls" but never checked), and `vectorization_transform` then (a) rewrote the induction step `k += 1` → `k += vec_width` (4) and (b) converted the scalar float ops to 128-bit SIMD (`VADDPS`), while the `OP_CALL` in the body stayed scalar and ran 1/4 as often. Result: dropped loop iterations + packed-lane arithmetic on 16-byte loads of scalar floats. Fails identically on the pre-C5 baseline.
+
+- **Fix** (`opt/opt_vectorize.c`): the analyzer now scans the loop body for `OP_CALL` / `OP_CALL_INDIRECT` / `OP_RET` and rejects such loops (`has_call` guard in the vectorization criteria). Legitimate element-wise array loops (`a[i] = b[i] + c[i]`) still vectorize and run correctly (e48: VADDPS still emitted, rc=0 JIT+AOT+gcc).
+- **Verified**: e21/e23/e24/e29/e30/e31/e38/e39/e40/e41/e43/e46 (call-in-loop battery, incl. value probes) pass JIT + AOT; e42/e44/e45 (no-call loops) and e47/e48 (vectorizer sanity) pass; `make test` 140/140 unchanged.
+- **Known residual (documented, not fixed)**: mid-body *conditional* branches in an otherwise array-shaped loop are still not rejected (the loop-condition `JE` is part of every for-loop's backedge span, so a blanket jump guard would disable the vectorizer entirely); and the transform's increment rewrite matches *any* `OP_ADD` with a constant-1 operand, which could corrupt a non-counter `x + 1` in a vectorized loop. Both are rarer patterns; tracked here for the vectorizer-hardening item.
 
 ---
 
@@ -138,7 +149,7 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 | Struct members | unbounded | 64 (silent drop) | M3 |
 | Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
 
-Key distinction after Sprints 22–28: every former **C-tier** correctness bug was a cap or liveness bug that *silently miscompiled*; the remaining limits now *fail clean* (diagnostic, no binary) except M3 which still drops silently (top candidate if more conformance headroom is wanted). All C-tier items **C1–C8** and both H-tier items (H1/H2) are **RESOLVED**; C9/C10 (Sprint 28 findings, pre-existing) are the open C-tier items.
+Key distinction after Sprints 22–29: every former **C-tier** correctness bug was a cap or liveness bug that *silently miscompiled*; the remaining limits now *fail clean* (diagnostic, no binary) except M3 which still drops silently (top candidate if more conformance headroom is wanted). **All C-tier items C1–C11 and both H-tier items (H1/H2) are RESOLVED** (C9/C11 fixed and C10 reclassified in Sprint 29).
 
 ---
 
@@ -162,7 +173,9 @@ Key distinction after Sprints 22–28: every former **C-tier** correctness bug w
 7. **H2** ~~make diagnostics fatal by default~~ — **Fixed (Sprint 25)**.
 8. **C7** ~~member compound assignment stored only the RHS~~ — **Fixed (Sprint 27)**.
 9. **C8** ~~FP call result clobbered by same-expression FP arithmetic~~ — **Fixed (Sprint 28)**: FMOV materialization of FP call returns + XMM `spans_call` forced spill + no-steal-from-spilled + class-aware FP spill + XMM↔VEC pool cross-marking.
-10. **C9 / C10** (new, Sprint 28) — inline int→float cast dropped in call-argument position; float local as call argument inside a loop. Both pre-existing (fail on the pre-C5 baseline); next candidates.
-11. **`-S` float emit completeness** — 2-operand `addsd`/`subsd` (needs 3-operand form), float compare as integer `cmpq` (needs `ucomisd`+`setcc`), `movss` on 8-byte rodata doubles (needs `movsd`). Contained `x86_64_asm.c`/`asm_emitter.c` work; unblocks full `-S` float parity (a5 repro).
+10. **C9** ~~inline int→float cast dropped in call-argument position~~ — **Fixed (Sprint 29)**: `NODE_CAST` now emits `CVTSI2SD` for int/pointer→float/double targets (and no longer truncates float→float casts through `cvttsd2si`).
+11. **C10** ~~float local as call argument inside a loop~~ — **Fixed (Sprint 29)**: was C11 in disguise (repros contained a call in the loop body).
+12. **C11** ~~auto-vectorizer vectorized loops containing calls~~ — **Fixed (Sprint 29)**: `has_call` guard (OP_CALL/OP_CALL_INDIRECT/OP_RET) in the vectorization criteria; pre-existing, loop counter widened to `k += 4` while the scalar call-body ran 1/4 as often.
+13. **`-S` float emit completeness** — 2-operand `addsd`/`subsd` (needs 3-operand form), float compare as integer `cmpq` (needs `ucomisd`+`setcc`), `movss` on 8-byte rodata doubles (needs `movsd`). Contained `x86_64_asm.c`/`asm_emitter.c` work; unblocks full `-S` float parity (a5 repro).
 8. **M1** ~~error (not truncate) on identifiers >127~~ — **Fixed**: emit clean fatal diagnostic on identifiers exceeding 127 chars.
 9. **H1** ~~raise parser stack or iterate the expression recursion~~ — **Fixed**: raised stack to 64MB and added expression depth guard (clean error at 151+).

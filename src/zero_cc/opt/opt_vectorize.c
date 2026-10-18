@@ -173,11 +173,22 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     int loop_var = -1;
     bool has_double = false;
     bool has_fp = false;
+    bool has_call = false;   /* C11: calls/returns in the body make it non-vectorizable */
     
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
         Instr *instr = ir_get(idx);
         if (!instr) continue;
+        
+        /* C11: a function call (or return) in the loop body is a side effect
+         * that cannot be replicated across vector lanes - the transform
+         * would still widen the induction step (i += 1 -> i += vec_width)
+         * while the scalar body (with the call) ran only once per
+         * vec_width iterations, dropping loop iterations. Reject such loops. */
+        if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT || instr->op == OP_RET) {
+            has_call = true;
+            continue;
+        }
         
         /* Look for array access pattern */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
@@ -222,9 +233,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      * - At least 2 array loads (read operands)
      * - At least 1 array store (write result inside the loop body)
      * - At least 1 arithmetic operation
-     * - No function calls or complex side effects
+     * - No function calls or complex side effects (C11: actually enforced via has_call)
      */
-    if (load_count >= 2 && store_count >= 1 && arith_count >= 1) {
+    if (!has_call && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
         vinfo->is_vectorizable = true;
         vinfo->is_double = has_double;
         vinfo->is_int32 = !has_fp && !has_double;
