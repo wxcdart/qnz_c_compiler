@@ -338,7 +338,8 @@ static void x86_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
 /* COND_SET */
 static void x86_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
-    const char *cc[] = {"l", "le", "g", "ge", "e", "ne"};
+    const char *cc[] = {"l", "le", "g", "ge", "e", "ne", "b", "be", "a", "ae"};
+    if (cond < 0 || cond > 9) return;
     fprintf(out, "\tset%s\t%%al\n", cc[cond]);
     fprintf(out, "\tmovzbq\t%%al,%%%s\n", dst_name);
 }
@@ -533,36 +534,81 @@ static void x86_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t 
     fprintf(out, "\tmovsd\t%%%s,%d(%%%s)\n", src_name, offset, base_name);
 }
 
-/* FP ADD */
+/* FP ADD - x86's addsd is 2-operand (dst <- dst + src2); materialize src1
+ * into dst first, with alias handling (dst may equal src1 or src2). */
 static void x86_emit_fp_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\taddsd\t%%%s,%%%s\n", src2_name, dst_name);
+    if (dst == src1) {
+        fprintf(out, "\taddsd\t%%%s,%%%s\n", src2_name, dst_name);
+    } else if (dst == src2) {
+        /* commutative: dst = src2 + src1 in place */
+        fprintf(out, "\taddsd\t%%%s,%%%s\n", src1_name, dst_name);
+    } else {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, dst_name);
+        fprintf(out, "\taddsd\t%%%s,%%%s\n", src2_name, dst_name);
+    }
 }
 
-/* FP SUB */
+/* FP SUB - non-commutative; when dst aliases src2, stage src1 through the
+ * FP scratch (xmm15, outside the allocatable pool). */
 static void x86_emit_fp_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tsubsd\t%%%s,%%%s\n", src2_name, dst_name);
+    const char *scratch = BE(c)->regs->fp_regs[15];
+    if (dst == src1) {
+        fprintf(out, "\tsubsd\t%%%s,%%%s\n", src2_name, dst_name);
+    } else if (dst == src2) {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, scratch);
+        fprintf(out, "\tsubsd\t%%%s,%%%s\n", dst_name, scratch);
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", scratch, dst_name);
+    } else {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, dst_name);
+        fprintf(out, "\tsubsd\t%%%s,%%%s\n", src2_name, dst_name);
+    }
 }
 
-/* FP MUL */
+/* FP MUL (commutative, same pattern as ADD) */
 static void x86_emit_fp_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tmulsd\t%%%s,%%%s\n", src2_name, dst_name);
+    if (dst == src1) {
+        fprintf(out, "\tmulsd\t%%%s,%%%s\n", src2_name, dst_name);
+    } else if (dst == src2) {
+        fprintf(out, "\tmulsd\t%%%s,%%%s\n", src1_name, dst_name);
+    } else {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, dst_name);
+        fprintf(out, "\tmulsd\t%%%s,%%%s\n", src2_name, dst_name);
+    }
 }
 
-/* FP DIV */
+/* FP DIV (non-commutative, same pattern as SUB) */
 static void x86_emit_fp_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tdivsd\t%%%s,%%%s\n", src2_name, dst_name);
+    const char *scratch = BE(c)->regs->fp_regs[15];
+    if (dst == src1) {
+        fprintf(out, "\tdivsd\t%%%s,%%%s\n", src2_name, dst_name);
+    } else if (dst == src2) {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, scratch);
+        fprintf(out, "\tdivsd\t%%%s,%%%s\n", dst_name, scratch);
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", scratch, dst_name);
+    } else {
+        fprintf(out, "\tmovsd\t%%%s,%%%s\n", src1_name, dst_name);
+        fprintf(out, "\tdivsd\t%%%s,%%%s\n", src2_name, dst_name);
+    }
+}
+
+/* FP compare: ucomisd src1, src2 (reg=src1, rm=src2 - matches the MC
+ * emitter's operand order). The following OP_COND_SET reuses the standard
+ * setcc path; ucomisd sets the same flags as cmp for ordered values. */
+static void x86_emit_fp_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
+    fprintf(out, "\tucomisd\t%%%s,%%%s\n",
+            BE(c)->regs->fp_regs[src2], BE(c)->regs->fp_regs[src1]);
 }
 
 /* FP MOV */
@@ -911,6 +957,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_sub_asm = x86_emit_fp_sub_asm;
     be->emit_fp_mul_asm = x86_emit_fp_mul_asm;
     be->emit_fp_div_asm = x86_emit_fp_div_asm;
+    be->emit_fp_cmp_asm = x86_emit_fp_cmp_asm;
     be->emit_fp_mov_asm = x86_emit_fp_mov_asm;
     be->emit_fp_cvtsf_asm = x86_emit_fp_cvtsf_asm;
     be->emit_fp_cvtsi_asm = x86_emit_fp_cvtsi_asm;

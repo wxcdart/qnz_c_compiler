@@ -199,6 +199,15 @@ typedef enum {
 #define CC_LE  1  /* signed less or equal */
 #define CC_GT  2  /* signed greater */
 #define CC_GE  3  /* signed greater or equal */
+/* Float-safe (CF/ZF-only) variants, x86 remap for OP_CMP with FP operands
+ * (C12): this host class (WSL2) comisd/ucomisd sets CF/ZF but not SF/OF,
+ * so the signed CCs misbehave on float compares. For ordered values CF/ZF
+ * encode the total order; these map to setb/setbe/seta/setae (gcc's choice
+ * for double compares). Never emitted by the lowering - remap only. */
+#define CC_FLT_LT 6  /* setb  (CF)             */
+#define CC_FLT_LE 7  /* setbe (CF or ZF)       */
+#define CC_FLT_GT 8  /* seta  (CF=0 and ZF=0)  */
+#define CC_FLT_GE 9  /* setae (CF=0)           */
 #define CC_EQ  4  /* equal */
 #define CC_NE  5  /* not equal */
 

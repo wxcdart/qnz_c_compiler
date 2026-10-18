@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 30] - 2026-10-19 - `-S` Float Emit Completeness (C12/C13: comisd flags & REX-before-prefix)
+
+### Fixed
+- **3-operand FP arithmetic in `-S`** (`isa/x86_64_asm.c`): `FADD/FSUB/FMUL/FDIV dst,src1,src2` was emitted as 2-operand `addsd %src2,%dst` (correct only when dst already held src1). All four emitters now handle dst==src1 / dst==src2 / dst==other, staging src1 via `movsd` and using `xmm15` for the non-commutative dst==src2 case.
+- **FP compares in `-S`** (`isa_backend.h`, `x86_64_asm.c`, `aarch64_asm.c`, `asm_emitter.c`): float `<`/`!=`/… emitted integer `cmpq`. New `emit_fp_cmp_asm` vtable slot (`ucomisd` / `fcmp`); `OP_CMP` in the asm emitter dispatches on operand class like the MC path.
+- **`FMOV_IMM` width in `-S`** (`asm_emitter.c`): float literals are 8-byte doubles in `.rodata` but were loaded with `movss`/`ldr s`/`flw` (low 4 bytes → 0.0). Now `movsd`/`ldr d`/`fld`.
+- **`VLOADSS` widening in `-S`** (`asm_emitter.c`): the 4-byte float load never widened into the 64-bit double lane. Added `cvtss2sd` (x86), `fmov d,s` (AArch64), `fcvt.d.s` (RISC-V) to match `x86_emit_vloadss`.
+- **`VSTORESS` narrowing in `-S`** (`asm_emitter.c`): a bare `movss %xmm,(mem)` stored the **low half of the double** (1.5 → 0x00000000) — every float struct member written via `-S` read back as 0.0 (sf3 rc=7). Now narrows into the FP scratch (`cvtsd2ss`→`xmm15` / `fcvt s15,d` / `fcvt.s.d`) and stores that, mirroring `x86_emit_vstoress`.
+- **`OP_CMP_ZERO` missing from the asm emitter** (`asm_emitter.c`): fell through to `# UNKNOWN: CMP_ZERO` — the second `setcc` in `!(a<b)` read the stale `ucomisd` flags. Now emits `testq %r,%r` (all int/FP `!expr` via `-S`, pre-existing).
+- **C12 — `comisd`/`ucomisd` signed condition codes** (`ir.h`, `ast_lowering.c`, `x86_64.c`, `x86_64_asm.c`): `ucomisd` only defines ZF/PF/CF (SF/OF are cleared), so `setl/setle/setg/setge` after an FP compare are wrong on every x86. Added `CC_FLT_LT/LE/GT/GE` (6–9 → `setb/setbe/seta/setae`, gcc's scheme) and a post-regalloc remap in `ast_lowering.c` (x86 only) that rewrites `COND_SET` 0–3 → 6–9 when the preceding `CMP` has FP-class operands; both setcc tables extended. Affects JIT/AOT, not only `-S`.
+- **C13 — broken REX in `x86_emit_fp_cmp`** (`x86_64.c`): REX.R/REX.B were crammed into the wrong bits *and* emitted before the `0x66` legacy prefix (CPU ignores REX then). Same REX-before-prefix ordering fixed in `x86_emit_vstoress` (`movdqa`) and `x86_emit_fp_neg` (`movsd`); `vstoress` also had a hardcoded REX.R=1 for an xmm7 destination (masked by the ordering bug).
+
+### Verification
+- `/tmp/sfloat` battery (sf1–sf5, m1–m8, c1–c5, s1–s3): **84/84** across JIT `-O0`, JIT `-O1`, AOT `-o`, and `-S`+gcc; zero `# UNKNOWN:` in any `.s`. Former `-S` repros `/tmp/c6v/a5.c` and `e11.c` rc=0 via `-S`.
+- `make test` **140/140** · sret **6/6** · OKF lint PASS.
+
 ## [Sprint 29] - 2026-10-18 - C9: Float Cast Lowering; C11: Vectorizer Must Not Vectorize Call Loops (C10 Resolved)
 
 ### Fixed

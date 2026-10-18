@@ -296,17 +296,34 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         }
             
         /* Comparison */
-        case OP_CMP:
-            if (BE(c)->emit_cmp_asm) {
+        case OP_CMP: {
+            /* Float compare (ucomisd / fcmp) when either operand is an
+             * FP-class temp - mirrors the MC emitter's dispatch. */
+            RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
+            RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2);
+            if ((rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
+                 rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC)
+                && BE(c)->emit_fp_cmp_asm) {
+                BE(c)->emit_fp_cmp_asm(c, phys_src1, phys_src2, out);
+            } else if (BE(c)->emit_cmp_asm) {
                 BE(c)->emit_cmp_asm(c, phys_src1, phys_src2, out);
             }
             return;
+        }
             
         case OP_COND_SET:
             if (BE(c)->emit_cond_set_asm) {
                 BE(c)->emit_cond_set_asm(c, phys_dst, instr->cond, out);
             }
             return;
+
+        /* CMP_ZERO: test reg, reg (mirrors the MC emitter) - sets ZF/SF for
+         * the following OP_COND_SET. Used by !expr / expr==0 / expr!=0. */
+        case OP_CMP_ZERO: {
+            const char *r = BE(c)->get_hw_reg_name(phys_src1);
+            fprintf(out, "\ttestq\t%%%s,%%%s\n", r, r);
+            return;
+        }
             
         /* Control Flow */
         case OP_LABEL:
@@ -716,11 +733,17 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (c->isa == ISA_AARCH64) {
                 if (instr->imm != 0) fprintf(out, "\tldr\ts%s, [%s, #%d]\n", dst_name + 1, addr_name, instr->imm);
                 else fprintf(out, "\tldr\ts%s, [%s]\n", dst_name + 1, addr_name);
+                /* widen into the 64-bit double lane (FP model) */
+                fprintf(out, "\tfmov\td%s, s%s\n", dst_name + 1, dst_name + 1);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
                 fprintf(out, "\tflw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+                fprintf(out, "\tfcvt.d.s\t%s, %s\n", fp_name, fp_name);  /* widen (FP model) */
             } else {
+                /* movss + cvtss2sd: 4-byte float memory -> 64-bit double
+                 * register (matches the MC emitter's widening) */
                 fprintf(out, "\tmovss\t%d(%%%s),%%%s\n", instr->imm, addr_name, dst_name);
+                fprintf(out, "\tcvtss2sd\t%%%s,%%%s\n", dst_name, dst_name);
             }
             return;
         }
@@ -749,14 +772,25 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            /* FP model: the register holds a 64-bit double. Narrow into the
+             * FP scratch (outside the XMM pool, so the source survives) and
+             * store 4 bytes - mirrors x86_emit_vstoress in the MC path. A bare
+             * movss would store the low half of the double (0 for 1.5). */
             if (c->isa == ISA_AARCH64) {
-                if (instr->imm != 0) fprintf(out, "\tstr\ts%s, [%s, #%d]\n", val_name + 1, addr_name, instr->imm);
-                else fprintf(out, "\tstr\ts%s, [%s]\n", val_name + 1, addr_name);
+                int s = BE(c)->fp_scratch_reg1;
+                fprintf(out, "\tfcvt\ts%d, d%s\n", s, val_name + 1);
+                if (instr->imm != 0) fprintf(out, "\tstr\ts%d, [%s, #%d]\n", s, addr_name, instr->imm);
+                else fprintf(out, "\tstr\ts%d, [%s]\n", s, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 const char *fp_name = (phys_src2 >= 0 && phys_src2 < 32) ? BE(c)->regs->fp_regs[phys_src2] : "fa0";
-                fprintf(out, "\tfsw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+                int s = BE(c)->fp_scratch_reg1;
+                const char *s_name = (s >= 0 && s < 32) ? BE(c)->regs->fp_regs[s] : "ft7";
+                fprintf(out, "\tfcvt.s.d\t%s, %s\n", s_name, fp_name);
+                fprintf(out, "\tfsw\t%s, %d(%s)\n", s_name, instr->imm, addr_name);
             } else {
-                fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", val_name, instr->imm, addr_name);
+                const char *s_name = BE(c)->get_vec_reg_name(BE(c)->fp_scratch_reg1);
+                fprintf(out, "\tcvtsd2ss\t%%%s,%%%s\n", val_name, s_name);
+                fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", s_name, instr->imm, addr_name);
             }
             return;
         }
@@ -781,14 +815,18 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             size_t rodata_offset = (size_t)instr->imm64;
             const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
             if (c->isa == ISA_AARCH64) {
+                /* 8-byte double in rodata - load the d-lane, not s */
                 fprintf(out, "\tadrp\tx9, .Lrodata+%zu\n", rodata_offset);
-                fprintf(out, "\tldr\ts%s, [x9, :lo12:.Lrodata+%zu]\n", dst_name + 1, rodata_offset);
+                fprintf(out, "\tldr\td%s, [x9, :lo12:.Lrodata+%zu]\n", dst_name + 1, rodata_offset);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                /* 8-byte double in rodata - fld, not flw */
                 const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
                 fprintf(out, "\tlla\tt0, .Lrodata+%zu\n", rodata_offset);
-                fprintf(out, "\tflw\t%s, 0(t0)\n", fp_name);
+                fprintf(out, "\tfld\t%s, 0(t0)\n", fp_name);
             } else {
-                fprintf(out, "\tmovss\t.Lrodata+%zu(%%rip),%%%s\n", rodata_offset, dst_name);
+                /* rodata holds 8-byte double bit patterns (64-bit double FP
+                 * model) - movsd, not movss. */
+                fprintf(out, "\tmovsd\t.Lrodata+%zu(%%rip),%%%s\n", rodata_offset, dst_name);
             }
             return;
         }

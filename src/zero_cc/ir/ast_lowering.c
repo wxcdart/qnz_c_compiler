@@ -160,6 +160,30 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         ir_emit_callee_save_loads(callee_save_mask);
     }
     
+    /* x86 float-compare CC remap (C12): on this host class (WSL2),
+     * comisd/ucomisd sets CF/ZF but NOT SF/OF, so the signed condition
+     * codes (setl/setle/setg/setge) misfire on float compares while
+     * integer cmp (which sets SF) is unaffected. For ordered values the
+     * CF/ZF bits encode the total order, so remap CC_LT/LE/GT/GE on the
+     * COND_SET that follows an FP CMP to the CF/ZF-only variants
+     * (setb/setbe/seta/setae) - the same scheme gcc uses for doubles. */
+    if (c->isa == ISA_X86_64) {
+        size_t n = ir_get_count();
+        for (size_t i = 1; i < n; i++) {
+            const Instr *cur = ir_get(i);
+            const Instr *prev = ir_get(i - 1);
+            if (!cur || !prev) break;
+            if (cur->op == OP_COND_SET && prev->op == OP_CMP && cur->cond <= 3) {
+                RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, prev->temp_src1);
+                RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, prev->temp_src2);
+                if (rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
+                    rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC) {
+                    ir_get(i)->cond = (uint8_t)(cur->cond + 6);
+                }
+            }
+        }
+    }
+    
     live_range_free(&lra);
     
     /* Allocate frame spill slots for any temps that were spilled */

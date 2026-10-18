@@ -4,7 +4,7 @@ title: Scalar Float Pipeline (x86-64) & WSL2 RX-Page 128-Byte Read Limitation
 description: ZeroCC's scalar FP model (all float/double values live in 64-bit double form), the VLOADSS/SD and VSTORESS/SD emitters (movss/movsd + widen/narrow), the XMM-vs-VEC register-class rule for scalar V loads, and the WSL2 general-protection-fault limitation for 128-bit memory reads from RX pages.
 resource: backend/scalar-float-x86
 tags: [backend, x86_64, floating-point, xmm, wsl2, register-allocation, movss, movsd]
-timestamp: 2026-10-18T10:55:02Z
+timestamp: 2026-10-18T14:16:44Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -104,6 +104,21 @@ In the AOT assembly emitter path (`src/zero_cc/ir/asm_emitter.c`), scalar float 
 - **AArch64** (`aarch64_asm.c`): `ldr dN, [base, #offset]` and `str dN, [base, #offset]` (with `#offset < -256` or large offset expansion via `x9`).
 - **RISC-V** (`riscv_asm.c`): `fld fa, offset(base)` and `fsd fa, offset(base)`.
 - **Function call argument register lookup**: In `x86_emit_call_asm`, `aarch64_emit_call_asm`, and `riscv_emit_call_asm`, float arguments (`is_fp[i] == 1`) query `BE(c)->regs->fp_regs` rather than the general-purpose register array (`get_hw_reg_name`), ensuring valid FP register operands are emitted.
+
+## 7. `-S` float parity with the MC path (Sprint 30)
+
+The text emitter (`asm_emitter.c` + `*_asm.c`) must obey the same FP-model invariants as the MC emitters:
+- **Width**: float literals are 8-byte doubles in `.rodata` → `movsd`/`ldr d`/`fld`, never `movss`.
+- **`VLOADSS` widens / `VSTORESS` narrows**: a 4-byte load is followed by `cvtss2sd` (`fmov d,s` / `fcvt.d.s`); a 4-byte store first narrows into the FP scratch (`cvtsd2ss %src,%xmm15` / `fcvt s15,d` / `fcvt.s.d`) and stores the scratch. A bare `movss %xmm,(mem)` stores the *low half of the double* (1.5 → 0x00000000) — this made every float struct member written via `-S` read back as 0.0.
+- **3-operand FP arithmetic**: x86 `addsd/subsd/mulsd/divsd` are 2-operand; the emitters handle dst==src1 / dst==src2 / dst==other, staging src1 with `movsd` and using `xmm15` for the non-commutative dst==src2 case.
+- **FP compares**: `OP_CMP` with an XMM/VEC-class operand goes through `emit_fp_cmp_asm` (`ucomisd` / `fcmp`), never integer `cmpq`.
+- **`OP_CMP_ZERO`**: `testq %r,%r` — previously unhandled (`# UNKNOWN:`), so the second `setcc` in `!(a<b)` read stale flags.
+
+### C12 — `ucomisd` defines only ZF/PF/CF
+`comisd`/`ucomisd` clear SF/OF, so the signed condition codes (`setl/setle/setg/setge`, `jl`…) are meaningless after an FP compare. IR condition codes `CC_FLT_LT/LE/GT/GE` (6–9) map to `setb/setbe/seta/setae` (gcc's scheme). A post-regalloc pass in `ast_lowering.c` (x86 only) rewrites `COND_SET` codes 0–3 → 6–9 when the preceding `CMP` has FP-class operands; both the MC setcc table (`x86_64.c`) and the asm cc table (`x86_64_asm.c`) accept 6–9. (Operand order for `<`/`<=` is unchanged — `a<b` ⇒ `ucomisd b,a` ⇒ CF.)
+
+### C13 — REX must follow legacy prefixes
+GAS/CPU order is `66|F2|F3` → `REX` → `0F …`. `x86_emit_fp_cmp` emitted REX first (and packed REX.R/REX.B into the wrong bits), so xmm8–15 operands silently decoded as xmm0–7. The same ordering bug was in `x86_emit_vstoress` (`movdqa`, also had a hardcoded REX.R=1 for an xmm7 destination) and `x86_emit_fp_neg` (`movsd`). Invariant: every MC emitter that takes a mandatory prefix calls `me_emit_u8(prefix)` **before** `x86_rex(...)`.
 
 ## Related Concepts
 

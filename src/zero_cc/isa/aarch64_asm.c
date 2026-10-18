@@ -506,6 +506,13 @@ static void aarch64_emit_fp_div_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     fprintf(out, "\tfdiv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
 }
 
+/* FP compare: fcmp dN, dM - sets NZCV like a subtract so the standard
+ * cset-based OP_COND_SET path works unchanged. */
+static void aarch64_emit_fp_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
+    fprintf(out, "\tfcmp\t%s, %s\n",
+            BE(c)->regs->fp_regs[src1], BE(c)->regs->fp_regs[src2]);
+}
+
 /* FP MOV: fmov dst, src */
 static void aarch64_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
@@ -845,6 +852,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_fp_sub_asm = aarch64_emit_fp_sub_asm;
     be->emit_fp_mul_asm = aarch64_emit_fp_mul_asm;
     be->emit_fp_div_asm = aarch64_emit_fp_div_asm;
+    be->emit_fp_cmp_asm = aarch64_emit_fp_cmp_asm;
     be->emit_fp_mov_asm = aarch64_emit_fp_mov_asm;
     be->emit_fp_cvtsf_asm = aarch64_emit_fp_cvtsf_asm;
     be->emit_fp_cvtsi_asm = aarch64_emit_fp_cvtsi_asm;

@@ -106,6 +106,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_sub_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_fp_mul_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_fp_div_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    /* FP compare (ucomisd / fcmp) for OP_CMP with float operands, followed
+     * by the standard emit_cond_set_asm. NULL on backends without an asm
+     * float-flags mechanism (RISC-V: no flags register). */
+    void (*emit_fp_cmp_asm)(ZeroCCCompiler *c, int src1, int src2, FILE *out);
     void (*emit_fp_mov_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_fp_cvtsf_asm)(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out);
     void (*emit_fp_cvtsi_asm)(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out);

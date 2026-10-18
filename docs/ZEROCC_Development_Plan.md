@@ -11,6 +11,11 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 30: `-S` Float Emit Completeness (+ C12 comisd flags, C13 REX ordering) ✅
+- **Status**: COMPLETE
+- **Achievement**: The `-S` text path now has float parity with the MC path: 3-operand FP arithmetic aliasing, `ucomisd`/`fcmp` compares via a new `emit_fp_cmp_asm` vtable slot, `movsd` for 8-byte rodata doubles, `VLOADSS` widen / `VSTORESS` narrow through the FP scratch (`xmm15`/`s15`/`fcvt.s.d`), and `OP_CMP_ZERO` (`testq`). Two MC-path bugs fell out: **C12** — `ucomisd` only defines ZF/PF/CF, so signed `setl/setle/setg/setge` after FP compares were wrong; new `CC_FLT_LT/LE/GT/GE` (6–9) → `setb/setbe/seta/setae` with a post-regalloc remap (x86). **C13** — `x86_emit_fp_cmp` built REX wrong and emitted it before the `0x66` prefix (CPU drops it); same ordering fixed in `vstoress`/`fp_neg`.
+- **Result**: `/tmp/sfloat` battery **84/84** (JIT `-O0`/`-O1`, AOT, `-S`+gcc), zero `# UNKNOWN:` ops; a5/e11 `-S` rc=0; `make test` **140/140**, sret **6/6**, OKF lint PASS.
+
 ### Sprint 29: C9 Float Cast Lowering & C11 Vectorizer Call-Guard (C10 Resolved) ✅
 - **Status**: COMPLETE
 - **Achievement**: (1) `NODE_CAST` now actually converts: int/pointer→float/double emits `CVTSI2SD` (previously the raw int bits were passed/stored as a double bit pattern — `use2((float)k)` gave 3.0e-323), and float→float/double no longer truncates through `cvttsd2si`. (2) The auto-vectorizer no longer vectorizes loops whose body contains a call/return (C11): it previously widened the induction step to `k += 4` and converted scalar float ops to VADDPS while the scalar call-body ran 1/4 as often — dropping loop iterations. This also resolved **C10** ("float local as call argument inside a loop" — its repros were C11 in disguise).
@@ -165,7 +170,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 - **CRITICAL tier**: C1–C11 **ALL RESOLVED** (C8 Sprint 28; C9 cast lowering + C11 vectorizer call-guard Sprint 29; C10 resolved as C11 in disguise). No open C-tier items.
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
 - **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
-- **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; remaining: float constants loaded with wrong width (`movss` on 8-byte rodata doubles), float `!=` emitted as integer `cmpq` (needs `ucomisd`), and 2-operand `addsd`/`subsd` FP arithmetic (needs 3-operand form) (Sprint 27/28 findings, tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9)
+- **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; float constant width, FP compares, 3-operand FP arithmetic, `VLOADSS`/`VSTORESS` width, and `OP_CMP_ZERO` **resolved in Sprint 30** — `-S` float parity with the MC path verified (84/84 battery). Remaining `-S` gaps, if any, show up as `# UNKNOWN:` comments in the output.
 
 ---
 

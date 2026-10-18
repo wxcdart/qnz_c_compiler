@@ -262,9 +262,10 @@ static void x86_emit_vloadsd(ZeroCCCompiler *c, int dst, int base, int32_t offse
 static void x86_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offset) {
     const int scratch = 7;
     if (scratch != src) {
-        /* movdqa xmm7, xmm_src */
-        x86_rex(c, 0, 1, 0, (src >> 3) & 1);
+        /* movdqa xmm7, xmm_src (0x66 before REX: gas order; REX.R=0 -
+         * dst is xmm7; only REX.B can be set, for src >= xmm8) */
         me_emit_u8(c, 0x66);
+        x86_rex(c, 0, 0, 0, (src >> 3) & 1);
         me_emit_u8(c, 0x0F);
         me_emit_u8(c, 0x6F);  /* movdqa */
         x86_modrm(c, 3, 7 & 7, src & 7);
@@ -639,9 +640,12 @@ static void x86_emit_cmp(ZeroCCCompiler *c, int src1, int src2) {
 static void x86_emit_setcc(ZeroCCCompiler *c, int dst_reg, uint8_t cond_byte);
 
 static void x86_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
-    /* setcc dst based on condition code (flags set by previous cmp) */
-    static const uint8_t setcc_codes[] = {0x9C, 0x9E, 0x9F, 0x9D, 0x94, 0x95};  /* LT, LE, GT, GE, EQ, NE */
-    if (cond >= 0 && cond <= 5) {
+    /* setcc dst based on condition code (flags set by previous cmp).
+     * 6-9 are the float-safe CF/ZF-only variants (C12 remap):
+     * 6=setb, 7=setbe, 8=seta, 9=setae. */
+    static const uint8_t setcc_codes[] =
+        {0x9C, 0x9E, 0x9F, 0x9D, 0x94, 0x95, 0x92, 0x96, 0x97, 0x93};
+    if (cond >= 0 && cond <= 9) {
         x86_emit_setcc(c, dst, setcc_codes[cond]);
     }
 }
@@ -1027,8 +1031,9 @@ static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
     /* xorps with sign bit mask: xorpd dst, [mask] */
     /* First move src to dst if different */
     if (dst != src) {
-        x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+        /* movsd dst, src (0xF2 before REX: gas order) */
         me_emit_u8(c, 0xF2);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
         me_emit_u8(c, 0x0F);
         me_emit_u8(c, 0x10);  /* movsd */
         x86_modrm(c, 3, dst & 7, src & 7);
@@ -1052,8 +1057,13 @@ static void x86_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
 }
 
 static void x86_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
-    x86_rex(c, 0, 0, 0, (src1 >> 3) | ((src2 >> 3) << 1));
+    /* ucomisd xmm1, xmm2/m64: reg=src1 (first operand), rm=src2.
+     * C13: src1/src2 may be the FP scratch regs (xmm14/15) when the value
+     * was spilled - REX.R/REX.B must encode the high bits separately, and
+     * REX must be emitted AFTER the 0x66 operand prefix (gas order:
+     * 66 44 0F 2F) or the CPU ignores the extension bits. */
     me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (src1 >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x2F);  /* ucomisd */
     x86_modrm(c, 3, src1 & 7, src2 & 7);
