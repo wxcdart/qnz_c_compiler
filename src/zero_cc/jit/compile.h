@@ -72,8 +72,22 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_enum(c, c->tokens[c->token_pos].str_val);
-        if (tdef) fn_ret_type = *tdef;
-        c->token_pos++;
+        if (tdef) {
+            fn_ret_type = *tdef;
+            c->token_pos++;
+        } else if (c->token_pos + 1 < c->token_count &&
+                   c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+            /* C89-style implicit-int function definition: `main(){ ... }`.
+             * The identifier is the function name, not a type; the return
+             * type defaults to int. C99 6.7p6 requires an explicit type
+             * specifier — gcc accepts this with -Wimplicit-int, so we warn
+             * and keep compiling (fn_ret_type stays int, token not consumed). */
+            fprintf(stderr, "warning: return type of '%s' defaults to 'int' (C99 requires an explicit return type)\n",
+                    c->tokens[c->token_pos].str_val);
+        } else {
+            /* Unknown type name: legacy lenient behavior (default int, skip). */
+            c->token_pos++;
+        }
     } else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) {
         fn_ret_type = zero_cc_type_float();
         c->token_pos++;

@@ -246,8 +246,31 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
         }
 
+        /* C89-style implicit-int function definition: an unknown identifier
+         * directly followed by '(' (`main(){ ... }`, `static f(x){ ... }`) is
+         * a function with a defaulted return type, not a variable declaration.
+         * Look past storage-class prefixes so both forms are detected. Let the
+         * function parser handle it (it warns, per gcc's -Wimplicit-int). */
+        bool bare_fn_ident = false;
+        {
+            size_t probe = c->token_pos;
+            while (probe < c->token_count &&
+                   (c->tokens[probe].type == TK_STATIC ||
+                    c->tokens[probe].type == TK_INLINE ||
+                    c->tokens[probe].type == TK_CONST ||
+                    c->tokens[probe].type == TK_VOLATILE ||
+                    c->tokens[probe].type == TK_NORETURN)) probe++;
+            bare_fn_ident = (probe + 1 < c->token_count &&
+                c->tokens[probe].type == TK_IDENT &&
+                c->tokens[probe + 1].type == TK_LPAREN &&
+                !zero_cc_find_typedef(c, c->tokens[probe].str_val) &&
+                !zero_cc_find_struct(c, c->tokens[probe].str_val) &&
+                !zero_cc_find_enum(c, c->tokens[probe].str_val));
+        }
+
         /* Global variable declarations */
-        if (c->tokens[c->token_pos].type == TK_STATIC ||
+        if (!bare_fn_ident && (
+            c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_INLINE ||
             c->tokens[c->token_pos].type == TK_CONST ||
             c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -259,7 +282,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
             c->tokens[c->token_pos].type == TK_ENUM ||
-            c->tokens[c->token_pos].type == TK_IDENT) {
+            c->tokens[c->token_pos].type == TK_IDENT)) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
             /* Check for static / inline keywords */
