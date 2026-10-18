@@ -215,9 +215,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_flexible = false;
                     m->is_bitfield = false;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
-                    if (!is_ptr) {
-                        m->base = zero_cc_type_alloc_base(&inner_type);
-                    }
+                    /* Pointer members also record the pointee (C5): `t *p`
+                     * members need m->base so `o.p->field` resolves. */
+                    m->base = zero_cc_type_alloc_base(&inner_type);
                     if (m->size > max_size) max_size = m->size;
                 }
             } else {
@@ -232,9 +232,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_flexible = is_flexible;
                     m->is_bitfield = false;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
-                    if (!is_ptr) {
-                        m->base = zero_cc_type_alloc_base(&inner_type);
-                    }
+                    /* Pointer members also record the pointee (C5). */
+                    m->base = zero_cc_type_alloc_base(&inner_type);
                     if (!is_flexible) {
                         current_offset += m->size;
                     }
@@ -418,21 +417,26 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (!td) td = zero_cc_find_struct(c, type_ident);
                         if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                         else m->tag = TYPE_STRUCT;
-                        if (td && !is_ptr) {
+                        /* By-value member: base = the struct itself. Pointer
+                         * member (`t *p`): base = the pointee (C5) so the
+                         * named struct's fields are available. */
+                        if (td) {
                             m->base = zero_cc_type_alloc_base(td);
                         }
                     }
                     else m->tag = TYPE_INT32;
                     if (is_ptr) {
-                        ZeroCCType dummy;
-                        memset(&dummy, 0, sizeof(dummy));
-                        dummy.tag = m->tag;
-                        dummy.size = base_size;
-                        dummy.align = base_align;
-                        dummy.is_const = member_is_const;
-                        dummy.is_volatile = member_is_volatile;
+                        if (!m->base) {
+                            ZeroCCType dummy;
+                            memset(&dummy, 0, sizeof(dummy));
+                            dummy.tag = m->tag;
+                            dummy.size = base_size;
+                            dummy.align = base_align;
+                            dummy.is_const = member_is_const;
+                            dummy.is_volatile = member_is_volatile;
+                            m->base = zero_cc_type_alloc_base(&dummy);
+                        }
                         m->tag = TYPE_PTR;
-                        m->base = zero_cc_type_alloc_base(&dummy);
                     } else if (!is_bitfield && (elem_count > 1 || is_flexible)) {
                         ZeroCCType elem_t;
                         if (m->base) {
@@ -554,21 +558,25 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (!td) td = zero_cc_find_struct(c, type_ident);
                             if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                             else m->tag = TYPE_STRUCT;
-                            if (td && !is_ptr) {
+                            /* By-value member: base = the struct itself. Pointer
+                             * member (`t *p`): base = the pointee (C5). */
+                            if (td) {
                                 m->base = zero_cc_type_alloc_base(td);
                             }
                         }
                         else m->tag = TYPE_INT32;
                         if (is_ptr) {
-                            ZeroCCType dummy;
-                            memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = m->tag;
-                            dummy.size = base_size;
-                            dummy.align = base_align;
-                            dummy.is_const = member_is_const;
-                            dummy.is_volatile = member_is_volatile;
+                            if (!m->base) {
+                                ZeroCCType dummy;
+                                memset(&dummy, 0, sizeof(dummy));
+                                dummy.tag = m->tag;
+                                dummy.size = base_size;
+                                dummy.align = base_align;
+                                dummy.is_const = member_is_const;
+                                dummy.is_volatile = member_is_volatile;
+                                m->base = zero_cc_type_alloc_base(&dummy);
+                            }
                             m->tag = TYPE_PTR;
-                            m->base = zero_cc_type_alloc_base(&dummy);
                         } else if (elem_count > 1 || is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {

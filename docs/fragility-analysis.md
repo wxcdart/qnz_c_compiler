@@ -38,9 +38,9 @@ Original report: 230 `int` locals OK, 232 → hang, 400+ → segfault. **Refined
 
 - After C2b: 231/300/400/700 locals all pass. True boundary re-measured: **757 OK / 758** → the scope's `zero_flatten_tpht` capacity (64 primary + 61 overflow blocks × 8 slots), which already emits a clean `error: failed to insert symbol 'l757' into scope` (rc=1, no binary). No silent miscompilation, no hang - acceptable behavior at an extreme limit; raising it means growing the tpht (M-tier, not C).
 
-### C5. Member chains through pointer members fail to resolve
+### C5. Member chains through pointer members fail to resolve — **RESOLVED**
 
-`b.p->v` (local struct) and `b->p->v` (param) both → `error: member reference base is not a structure or union`, even for the minimal 2-segment chain. Multi-level `->`/`.` chains (lists, trees) are unusable; single-segment access works.
+`b.p->v` (local struct), `b->p->v` (param), and deeper multi-segment `->`/`.` chains (including nested pointers, floats, and compound assignments like `o.p->f += 0.5f`) now lower correctly via `lower_member_chain_addr`. Pointer dereference store width is also type-sized (1/2/4/8 bytes) to avoid adjacent struct field clobbering. All 21 checks in `/tmp/frag/c5/c5_all.c` pass in both AOT (`-o`) and JIT (`--run`).
 
 ### C6. Float locals broken in the AOT `-S` path (pre-existing, all ISAs) — **OPEN**
 
@@ -68,6 +68,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 | M2 | globals ≤ **256** | 257th silently dropped (`add_global_var` returns -1, ignored) | `p3` 260 globals "passes" (only checked first 13) |
 | M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | `p4` |
 | M4 | IR dump shows `imm` (int16) not `imm64` | large immediates displayed truncated (e.g. `2000000000` shown as `-27648`); **emission is correct** (uses `imm64`) — misleading for debugging only | `p11` IR dump |
+| M5 | locals ≤ **~758 per scope** (was C4) | clean fatal `failed to insert symbol` diagnostic, no binary (reclassified from C in Sprint 24 - the original hang was C2 in disguise) | `locals` 757 OK / 758 COMPILE-ERR |
 
 ---
 
@@ -77,6 +78,23 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 - **`-S` path** lacks `.data` section emission (AOT `-o` fine).
 - Computed-size VLA, flexible-array `offsetof` (C99 audit leftovers).
 - `>>` lowers to logical shift (implementation-defined for signed).
+
+---
+
+## Comparison vs gcc (Sprint 25 measurement)
+
+The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure caps*; gcc's data structures for the same dimensions are dynamic and effectively unbounded. Measured (host gcc 13.3.0, `-O0`, same probes):
+
+| Dimension | gcc | ZeroCC | Gap class |
+|---|---|---|---|
+| Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | 757 OK / 758 clean diagnostic (scope TPHT: 64+61 blocks × 8 slots) | M5 - capability, not correctness |
+| Switch cases | unbounded (jump tables) | ~32k cap (16-bit labels, O(n) dispatch) - 1500 verified | capability (no practical C code approaches this) |
+| Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`, silent truncation) | M1 - the one remaining *silent* cap; should become an error |
+| Globals per TU | unbounded | 256 (silent drop) | M2 |
+| Struct members | unbounded | 64 (silent drop) | M3 |
+| Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
+
+Key distinction after Sprints 22–24: every former **C-tier** bug was a cap that *silently miscompiled*; every remaining limit now *fails clean* (diagnostic, no binary) except M1/M2/M3 which still truncate/drop silently — those are the top candidates if more conformance headroom is wanted. C5 (pointer-member chains) and C6 (float locals in `-S` asm) are the open C-tier items.
 
 ---
 

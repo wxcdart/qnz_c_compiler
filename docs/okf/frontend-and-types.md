@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-17T23:46:19Z
+timestamp: 2026-10-18T04:39:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -57,6 +57,10 @@ All C int types carry an explicit signedness tag end-to-end, and every narrow-in
   - `zero_cc_stmt_typedef_struct` (`src/zero_cc/parser/definitions.h`) supports opaque forward struct typedefs (`typedef struct FILE FILE;`) and copies the alias name into `st.struct_name` for anonymous `typedef struct { ... } Alias;`.
   - File-scope `extern` declarations (`src/zero_cc/jit/compile_unit.h`) support comma-separated declarators (`extern FILE *stdin, *stdout, *stderr;`) and register `is_external` symbols as `SYMBOL_VAR` in `global_scope_root`.
   - `__builtin_va_arg(ap, Type)` (`src/zero_cc/parser/ast_expr.h`, `src/zero_cc/semantic/expr.c`) parses arbitrary type names (including typedefs and structs) via `zero_cc_parse_type_name(c)`.
+- **Multi-Segment Member Chains & Pointer Dereference Stores (C5)**:
+  - Multi-segment member chains (`chain_depth >= 2` such as `o.p->v`, `a.b.c`, `p->a->b`, `(*pp)->w`) resolve via `lower_member_chain_addr` in `src/zero_cc/ir/ast_lowering_expr.c`. Instead of a flat stack-offset sum that cannot dereference intermediate pointers, lowering recursively computes the pointer/struct base and traverses member offsets and pointer dereferences.
+  - Assignment through pointers (`*ptr = val` in `NODE_UNOP`) and member stores inspect the target `TypeInfo` size and emit width-specific stores (`store_byte`, `store_16`, `store_32`, `store_64`, `vstoress`, `vstoresd`) to avoid clobbering adjacent struct fields.
+  - Compound assignment on member expressions (`o.p->f += 0.5f`) preserves and loads float LHS values via `vloadss`/`vloadsd`, converts integer RHS if necessary, and dispatches float arithmetic opcodes before storing.
 - `#pragma pack(push, N)` and `#pragma pack(pop)` adjust field alignment and total struct padding (`src/zero_cc/core/pragma_state.c`).
 - Local variables allocated via `zero_cc_add_local()` (`src/zero_cc/types/symbol_mgmt.h`) align `c->current_stack_frame` to `max(type.align, 8)` and increment by `alloc_sz = max(type.size, 8)`.
   - **Important Rule**: Do **not** round `alloc_sz` up to a multiple of 8 for all structs in `zero_cc_add_local`, as compound literal and designated initializer offset math in `test/jit/designated_init_test.c` relies on exact `sym->stack_offset` placement. Instead, use size-aware tail chunk loads/stores (`32`/`16`/`8`-bit) when copying structs whose size is not a multiple of 8.

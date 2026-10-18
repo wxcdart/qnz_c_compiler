@@ -93,6 +93,14 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     mt.array_len = (t.members[i].base && t.members[i].base->size > 0)
                                        ? (t.members[i].size / t.members[i].base->size)
                                        : 0;
+                } else if (t.members[i].tag == TYPE_PTR) {
+                    /* Pointer member: the member's own type is the pointer
+                     * (C5). m->base is the pointee (may be NULL → ptr→void). */
+                    memset(&mt, 0, sizeof(mt));
+                    mt.tag = TYPE_PTR;
+                    mt.size = t.members[i].size ? t.members[i].size : 8;
+                    mt.align = t.members[i].align ? t.members[i].align : 8;
+                    mt.base = t.members[i].base;
                 } else if (t.members[i].base) {
                     mt = *t.members[i].base;
                 } else {
