@@ -174,6 +174,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     bool has_double = false;
     bool has_fp = false;
     bool has_call = false;   /* C11: calls/returns in the body make it non-vectorizable */
+    bool has_mid_body_cond = false;  /* Vectorizer hardening: conditional branches inside the loop body (not the backedge) make it non-vectorizable */
     
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
@@ -187,6 +188,20 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
          * vec_width iterations, dropping loop iterations. Reject such loops. */
         if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT || instr->op == OP_RET) {
             has_call = true;
+            continue;
+        }
+        
+        /* Vectorizer hardening (residual C11): detect mid-body conditional branches.
+         * A conditional jump (JE, JNE, JL, JLE, JG, JGE) inside the loop body
+         * that is NOT the backedge jump means the loop has data-dependent control
+         * flow - the body doesn't execute uniformly across all iterations, so
+         * vectorization would be incorrect. The backedge jump is at loop->exit_idx.
+         * We only flag OTHER conditional jumps as mid-body conditionals. */
+        int is_cond_jump = (instr->op == OP_JE || instr->op == OP_JNE ||
+                            instr->op == OP_JL || instr->op == OP_JLE ||
+                            instr->op == OP_JG || instr->op == OP_JCOND);
+        if (is_cond_jump && idx != loop->exit_idx) {
+            has_mid_body_cond = true;
             continue;
         }
         
@@ -234,8 +249,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      * - At least 1 array store (write result inside the loop body)
      * - At least 1 arithmetic operation
      * - No function calls or complex side effects (C11: actually enforced via has_call)
+     * - No mid-body conditional branches (vectorizer hardening)
      */
-    if (!has_call && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
+    if (!has_call && !has_mid_body_cond && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
         vinfo->is_vectorizable = true;
         vinfo->is_double = has_double;
         vinfo->is_int32 = !has_fp && !has_double;
@@ -402,15 +418,18 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     
     /* Guard: Only vectorize if loop has scalar increment (i += 1) */
     bool found_scalar_increment = false;
+    int loop_var_temp = -1;
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         if (instr->op == OP_ADD) {
             if (instr->imm == 1) {
                 found_scalar_increment = true;
+                loop_var_temp = instr->temp_src1;
                 break;
             } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
                 found_scalar_increment = true;
+                loop_var_temp = instr->temp_src1;
                 break;
             }
         }
@@ -420,17 +439,17 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         return false;
     }
     
+    /* Store the loop variable temp for use in the increment rewrite below */
+    vinfo->loop_var_temp = loop_var_temp;
+    
     /* Change loop increment from i += 1 to i += vec_width (e.g. 4)
-     * This is correct because:
-     * 1. Address calculation scales i by sizeof(elem) = i * 4 (e.g. via shl 2)
-     * 2. When i advances by vec_width (4), address advances by 16 bytes (4 floats)
-     * 3. VLOAD/VSTORE load/store 4 elements (16 bytes) at a time
-     */
+     * Only rewrite the SPECIFIC loop counter increment (matching loop_var_temp),
+     * not any other ADD with constant 1 (which could be a non-counter increment). */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         
-        if (instr->op == OP_ADD) {
+        if (instr->op == OP_ADD && instr->temp_src1 == loop_var_temp) {
             if (instr->imm == 1) {
                 instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
             } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
