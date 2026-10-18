@@ -134,3 +134,8 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - Full `switch`/`case` jump-table / branch-chain lowering in `lower_stmt_switch`
 - 128-bit integer (`__int128`) and `long double` support
 - Full SSA-form φ-node construction for cross-block `mem2reg` and GVN
+
+### 5. zero_rt — Self-Contained Cross-Platform Runtime (T3)
+- **Plan**: [`docs/zero-rt-plan.md`](./zero-rt-plan.md) — minimal ZeroCC-owned runtime (heap, minimal stdio, string builtins, exit) with no musl dependency, targeting Linux/Windows/macOS via a portable core + per-OS backends (same shape as `ZeroCCISABackend`).
+- **Phases**: Phase 0 Linux (first customer of the T2 ELF linker) → Phase 1 Windows (PE/COFF writer + Win64 ABI vtable) → Phase 2 macOS (Mach-O writer; compiler ABI already compatible).
+- musl remains vendored pristine as an optional full-stdio library on Linux; float formatting (`%f`/`%e`/`%g`) via vendored Ryū (MIT).

@@ -46,6 +46,8 @@ Original report: 230 `int` locals OK, 232 → hang, 400+ → segfault. **Refined
 
 Float/double locals lowering to `OP_FLOAD`/`OP_FSTORE` (float stack access) are now implemented across all three ISA assembly backends (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) via `emit_load_fp_asm` and `emit_store_fp_asm` vtable callbacks. Float call arguments in `x86_emit_call_asm`, `aarch64_emit_call_asm`, and `riscv_emit_call_asm` now also resolve their source register names from `fp_regs` rather than GPR tables. Verified with `-S` output roundtrip assembled and linked via `gas`/`gcc` with exact results.
 
+*Closure verification (Sprint 25+) surfaced two adjacent, pre-existing `-S`-only gaps (the `-o` ELF path is unaffected): (1) the asm emitter never emits a `.data` section, so any program with a global fails to link from `-S` output (all ISAs); (2) `CVTSI2SD` (int→double) is unimplemented in all three asm emitters (`# UNKNOWN:`). Both are tracked in `docs/zero-rt-plan.md` §9 as T2/AOT-asm completeness items.*
+
 ---
 
 ## HIGH
