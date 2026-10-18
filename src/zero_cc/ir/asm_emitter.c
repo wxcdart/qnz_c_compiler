@@ -283,8 +283,12 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_ZEXT8:
         case OP_ZEXT16:
         case OP_ZEXT32: {
-            int width = (instr->op >= OP_ZEXT8) ? ((instr->op - OP_ZEXT8) / 2 + 1) : ((instr->op - OP_SEXT8) / 2 + 1);
-            int sign = (instr->op < OP_ZEXT8) ? 1 : 0;
+            /* Width from the opcode (same mapping as the MC path in
+             * ast_lowering_mc.c - the opcodes are consecutive, not
+             * interleaved, so no /2). */
+            int width = (instr->op == OP_SEXT16 || instr->op == OP_ZEXT16) ? 2
+                         : (instr->op == OP_SEXT32 || instr->op == OP_ZEXT32) ? 4 : 1;
+            int sign = (instr->op >= OP_SEXT8 && instr->op <= OP_SEXT32) ? 1 : 0;
             if (BE(c)->emit_extend_asm) {
                 BE(c)->emit_extend_asm(c, phys_dst, phys_src1, width, sign, out);
             }
@@ -819,9 +823,9 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     }
 
     /* Get physical registers */
-    int phys_dst = instr->temp_dest == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_dest);
-    int phys_src1 = instr->temp_src1 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src1);
-    int phys_src2 = instr->temp_src2 == 0xFF ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src2);
+    int phys_dst = instr->temp_dest== TEMP_NONE ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_dest);
+    int phys_src1 = instr->temp_src1== TEMP_NONE ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src1);
+    int phys_src2 = instr->temp_src2== TEMP_NONE ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, instr->temp_src2);
 
     /* Check for spilled temps that need reloading / storing */
     int32_t spill_base_offset = c->regalloc.spill_base_offset;

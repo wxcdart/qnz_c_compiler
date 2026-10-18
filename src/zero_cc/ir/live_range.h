@@ -130,7 +130,9 @@ static void live_range_mark_clobber(LiveRangeAnalyzer *lra, size_t instr_index, 
 /* Add a temp use/def */
 static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int temp_id, bool is_def) __attribute__((unused));
 static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int temp_id, bool is_def) {
-    if (!lra || temp_id < 0 || temp_id >= 256) return;
+    /* C2b: temp ids are 16-bit (up to 65534); the per-temp arrays below
+     * realloc-grow to fit, so no fixed cap. */
+    if (!lra || temp_id < 0) return;
     
     /* Expand uses array if needed */
     if (lra->use_count >= lra->use_capacity) {
@@ -319,25 +321,20 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 continue;
             }
             int arg_count = instr->temp_dest;
-            if (arg_count > 0 && instr->temp_src1 != 0xFF) {
+            /* C2b: only src1/src2 are reliable in the instruction itself
+             * (the 8-bit imm packing of args 2/3 was removed); the full
+             * list is always in the side table above. */
+            if (arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src1, false);
             }
-            if (arg_count > 1 && instr->temp_src2 != 0xFF) {
+            if (arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src2, false);
-            }
-            if (arg_count > 2) {
-                int t2 = (int)((instr->imm >> 0) & 0xFF);
-                live_range_add_use(lra, i, t2, false);
-            }
-            if (arg_count > 3) {
-                int t3 = (int)((instr->imm >> 8) & 0xFF);
-                live_range_add_use(lra, i, t3, false);
             }
             continue;
         }
 
         /* Record destination temp (definition) - skip 0xFF (no temp) */
-        if (instr->temp_dest != 0xFF) {
+        if (instr->temp_dest!= TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_dest, true);
             /* Set register class based on the defining instruction's opcode */
             if ((size_t)instr->temp_dest < lra->temp_capacity) {
@@ -353,7 +350,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         }
         
         /* Record source temps (uses) - skip 0xFF (no temp) */
-        if (instr->temp_src1 != 0xFF) {
+        if (instr->temp_src1!= TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_src1, false);
             if ((size_t)instr->temp_src1 < lra->temp_capacity) {
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
@@ -369,7 +366,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 }
             }
         }
-        if (instr->temp_src2 != 0xFF) {
+        if (instr->temp_src2!= TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_src2, false);
             if ((size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
@@ -402,7 +399,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         }
 
         if (instr->op == OP_ATOMIC_CMPXCHG || instr->op == OP_ATOMIC_CMPXCHG_BOOL) {
-            if (instr->label_idx != 0xFF) {
+            if (instr->label_idx != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->label_idx, false);
             }
             live_range_add_use(lra, i, 0, false);

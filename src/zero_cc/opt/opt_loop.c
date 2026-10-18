@@ -133,7 +133,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     if (!instr) return false;
     
     /* Only hoist pure, deterministic operations that define a destination temp */
-    if (instr->temp_dest == 0xFF) return false;
+    if (instr->temp_dest== TEMP_NONE) return false;
     
     switch (instr->op) {
         case OP_MOV_IMM:
@@ -160,7 +160,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     }
     
     /* Verify src1 */
-    if (instr->temp_src1 != 0xFF) {
+    if (instr->temp_src1!= TEMP_NONE) {
         bool src1_defined_in_loop = false;
         bool src1_invariant = false;
         for (int i = 0; i < body_count; i++) {
@@ -178,7 +178,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     }
     
     /* Verify src2 */
-    if (instr->temp_src2 != 0xFF) {
+    if (instr->temp_src2!= TEMP_NONE) {
         bool src2_defined_in_loop = false;
         bool src2_invariant = false;
         for (int i = 0; i < body_count; i++) {
@@ -389,9 +389,9 @@ void opt_licm(ZeroCCCompiler *c) {
             /* Replace original in-loop instruction with OP_NOP */
             Instr nop_instr = {
                 .op = OP_NOP,
-                .temp_dest = 0xFF,
-                .temp_src1 = 0xFF,
-                .temp_src2 = 0xFF,
+                .temp_dest= TEMP_NONE,
+                .temp_src1= TEMP_NONE,
+                .temp_src2= TEMP_NONE,
                 .cond = 0,
                 .flags_out = 0xFF,
                 .flags_in = 0xFF,
@@ -445,14 +445,14 @@ void opt_strength_reduction(ZeroCCCompiler *c) {
         if (!instr) continue;
         
         // Look for multiplication patterns
-        if (instr->op == OP_MUL && instr->temp_dest != 0xFF && instr->temp_dest != 0) {
+        if (instr->op == OP_MUL && instr->temp_dest!= TEMP_NONE && instr->temp_dest != 0) {
             // Check if one operand is a constant power of 2
             // For now, we'd need to track which temp holds the constant
             // This is a simplified placeholder
         }
         
         // Check for shift patterns that could be optimized
-        if (instr->op == OP_SHL && instr->temp_dest != 0xFF && instr->temp_dest != 0) {
+        if (instr->op == OP_SHL && instr->temp_dest!= TEMP_NONE && instr->temp_dest != 0) {
             // Already a shift, nothing to do
         }
     }

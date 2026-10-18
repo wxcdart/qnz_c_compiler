@@ -150,7 +150,7 @@ static void replace_with_cse_copy(int instr_idx, int src_temp) {
     
     instr->op = OP_MOV_REG;
     instr->temp_src1 = src_temp;
-    instr->temp_src2 = 0xFF;
+    instr->temp_src2= TEMP_NONE;
     instr->imm = 0;
     instr->label_idx = 0;
 }
@@ -186,9 +186,9 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         }
         
         /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
-        if (instr->temp_dest == 0xFF || instr->temp_dest < 16 ||
-            (instr->temp_src1 != 0xFF && instr->temp_src1 < 16) ||
-            (instr->temp_src2 != 0xFF && instr->temp_src2 < 16)) {
+        if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
+            (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
+            (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
             continue;
         }
         

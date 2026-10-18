@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-18T01:38:08Z
+timestamp: 2026-10-18T02:20:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -18,16 +18,17 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 
 Each `Instr` in `c->ir_arena` has:
 - `op` (`Opcode`): One of 51 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, scalar FP, and 128-bit SIMD vector ops).
-- `temp_dest`, `temp_src1`, `temp_src2` (`uint8_t`): Virtual register IDs, `0xFF` when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFF` is the no-temp sentinel (see Temp-Id Space below).
+- `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
 
-## Temp-Id Space & the C2a Exhaustion Guard
+## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 
-- Temp IDs are allocated per function from `c->next_temp_id` (reset to `VREG_USER_START` = 16 in `zero_cc_lower_ast`), stored in the **8-bit** `Instr` temp fields. IDs are *not* recycled: every expression in a function draws new IDs, so a long flat function exhausts the space even when few temps are simultaneously live.
-- **Exhaustion was silent miscompilation (C2)**: id 255 aliases the `0xFF` sentinel (LRA records no live interval; `regalloc_get_reg_for_temp` returns the default register) and 256+ truncate into `0..15`, colliding with the real ABI vregs. The compiler then *finished successfully* and the generated program segfaulted or infinite-looped.
-- **C2a guard** (`ast_lowering.c`, after `lower_node`): if a function's temp IDs reached 255, compilation fails with `function '<fn>' uses <N> temporaries; max is 239 per function (8-bit temp ids, 0xFF = no-temp sentinel). Split the function into smaller helper functions ...`. Verified boundary: a function with 240 temps (e.g. 116 nested calls) still compiles; 241+ gets the diagnostic (no binary emitted). Note the workaround is splitting into *functions*, not *statements* — temp IDs never reset mid-function.
-- **C2b (pending permanent fix)**: widen the three temp fields to `uint16_t` and move the sentinel to `TEMP_NONE` (`0xFFFF`); measured blast radius is 152 sentinel sites across 16 files, with LRA/arena already width-safe (`realloc` + `sizeof(Instr)`).
+- Temp IDs are allocated per function from `c->next_temp_id` (reset to `VREG_USER_START` = 16 in `zero_cc_lower_ast`), stored in the **16-bit** `Instr` temp fields (C2b, Sprint 24). IDs are *not* recycled: every expression in a function draws new IDs, so a long flat function exhausts the space even when few temps are simultaneously live.
+- **Why 16-bit**: the 8-bit era (C2) had id 255 aliasing the `0xFF` sentinel (LRA recorded no live interval; `regalloc_get_reg_for_temp` returned the default register) and 256+ truncating into `0..15`, colliding with the real ABI vregs - the compiler *finished successfully* and the generated program segfaulted or infinite-looped (silent miscompilation). C2b widened the three temp fields, `IRCallArgs.temps[]`, and the sentinel (`TEMP_NONE` = 0xFFFF) at 140+ sites, removed the LRA's legacy 256-temp cap, and widened/guarded the per-temp optimizer tables (DCE live table and GVN tables → 65536; copy-prop keeps a 256-entry map, skipping higher temps as a missed optimization only).
+- **C2a guard** (`ast_lowering.c`, after `lower_node`) now bounds at the 16-bit edge: `function '<fn>' uses <N> temporaries; max is 65534 per function (16-bit temp ids, 0xFFFF = no-temp sentinel). Split the function ...` - a safety net, not a practical limit (verified: 400+-temp functions work; 190 nested calls work; the practical ceiling for nested *expressions* is the H1 parser stack at ~depth 200).
+- **Base-register marker convention**: `OP_FLOAD`/`OP_FSTORE` (float stack access) and `OP_LEA` (stack address) take a base-register temp operand; the "frame-pointer base" marker is `TEMP_NONE` (0xFFFF) - **not** a real temp id. Pre-C2b the marker was 0xFF, identical to the no-temp sentinel; the C2b sweep would have routed it through `regalloc_get_reg_for_temp(255)` → garbage register (this silently broke float locals in JIT mode until the markers were moved to `TEMP_NONE`).
+- **`OP_CALL` args**: the legacy 8-bit-immediate packing of args 2/3 into `instr->imm` was removed with C2b (unrecoverable at 16 bits); the `IRCallArgs` side table is the single source of truth for all 16 args.
 
 ## Call Argument Tracking (`IRCallArgsArena`)
 

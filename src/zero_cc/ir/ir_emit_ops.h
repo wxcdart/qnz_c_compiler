@@ -18,9 +18,9 @@ static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_MOV_MEM,
-        .temp_dest = 0xFF,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,  /* Frame pointer marker */
+        .temp_dest= TEMP_NONE,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,  /* Frame pointer marker */
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -35,9 +35,9 @@ static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_MOV,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,  /* Frame pointer marker */
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,  /* Frame pointer marker */
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -51,9 +51,9 @@ static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
 static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_MOV_REG,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -72,9 +72,9 @@ static inline void ir_emit_sext(int temp, int width) {
     Opcode op = (width == 4) ? OP_SEXT32 : (width == 2) ? OP_SEXT16 : OP_SEXT8;
     ir_emit((Instr){
         .op = op,
-        .temp_dest = (uint8_t)temp,
-        .temp_src1 = (uint8_t)temp,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp,
+        .temp_src1 = (uint16_t)temp,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,
         .flags_in = 0xFF,
@@ -88,9 +88,9 @@ static inline void ir_emit_zext(int temp, int width) {
     Opcode op = (width == 4) ? OP_ZEXT32 : (width == 2) ? OP_ZEXT16 : OP_ZEXT8;
     ir_emit((Instr){
         .op = op,
-        .temp_dest = (uint8_t)temp,
-        .temp_src1 = (uint8_t)temp,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp,
+        .temp_src1 = (uint16_t)temp,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,
         .flags_in = 0xFF,
@@ -105,9 +105,9 @@ static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
     ir_emit((Instr){
         .op = OP_LEA,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -125,9 +125,9 @@ static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
 static inline void ir_emit_add_imm(int temp_dest, int16_t imm) {
     ir_emit((Instr){
         .op = OP_ADD_IMM,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -142,9 +142,9 @@ static inline void ir_emit_add_imm(int temp_dest, int16_t imm) {
 static inline void ir_emit_sub_imm(int temp_dest, int16_t imm) {
     ir_emit((Instr){
         .op = OP_SUB_IMM,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -158,9 +158,9 @@ static inline void ir_emit_sub_imm(int temp_dest, int16_t imm) {
 static inline void ir_emit_div(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_DIV,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -174,9 +174,9 @@ static inline void ir_emit_div(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_mod(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_MOD,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -190,9 +190,9 @@ static inline void ir_emit_mod(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_neg(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_NEG,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -206,9 +206,9 @@ static inline void ir_emit_neg(int temp_dest, int temp_src) {
 static inline void ir_emit_inc(int temp_dest) {
     ir_emit((Instr){
         .op = OP_INC,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -222,9 +222,9 @@ static inline void ir_emit_inc(int temp_dest) {
 static inline void ir_emit_dec(int temp_dest) {
     ir_emit((Instr){
         .op = OP_DEC,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -242,9 +242,9 @@ static inline void ir_emit_dec(int temp_dest) {
 static inline void ir_emit_and(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_AND,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -258,9 +258,9 @@ static inline void ir_emit_and(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_or(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_OR,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -274,9 +274,9 @@ static inline void ir_emit_or(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_xor(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_XOR,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -290,9 +290,9 @@ static inline void ir_emit_xor(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_shl(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_SHL,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -306,9 +306,9 @@ static inline void ir_emit_shl(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_shr(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_SHR,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -322,9 +322,9 @@ static inline void ir_emit_shr(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_sar(int temp_dest, int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_SAR,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -342,9 +342,9 @@ static inline void ir_emit_sar(int temp_dest, int temp_src1, int temp_src2) {
 static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
     ir_emit((Instr){
         .op = OP_CMP,
-        .temp_dest = 0xFF,
-        .temp_src1 = (uint8_t)temp_src1,
-        .temp_src2 = (uint8_t)temp_src2,
+        .temp_dest= TEMP_NONE,
+        .temp_src1 = (uint16_t)temp_src1,
+        .temp_src2 = (uint16_t)temp_src2,
         .cond = 0,
         .flags_out = REG_FLAGS,  /* Explicitly sets flags */
         .flags_in = 0xFF,         /* Doesn't read flags */
@@ -358,9 +358,9 @@ static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
 static inline void ir_emit_cond_set(int temp_dest, int cond) {
     ir_emit((Instr){
         .op = OP_COND_SET,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = 0xFF,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1= TEMP_NONE,
+        .temp_src2= TEMP_NONE,
         .cond = (uint8_t)cond,
         .flags_out = 0xFF,        /* Doesn't set flags */
         .flags_in = REG_FLAGS,     /* Explicitly reads flags */
@@ -374,9 +374,9 @@ static inline void ir_emit_cond_set(int temp_dest, int cond) {
 static inline void ir_emit_deref(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_DEREF,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -390,9 +390,9 @@ static inline void ir_emit_deref(int temp_dest, int temp_src) {
 static inline void ir_emit_load_byte(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_LOAD_BYTE,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -406,9 +406,9 @@ static inline void ir_emit_load_byte(int temp_dest, int temp_src) {
 static inline void ir_emit_cmp_zero(int temp_src) {
     ir_emit((Instr){
         .op = OP_CMP_ZERO,
-        .temp_dest = 0xFF,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest= TEMP_NONE,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = REG_FLAGS,  /* Explicitly sets flags */
         .flags_in = 0xFF,         /* Doesn't read flags */
@@ -422,9 +422,9 @@ static inline void ir_emit_cmp_zero(int temp_src) {
 static inline void ir_emit_not(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_NOT,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
@@ -438,9 +438,9 @@ static inline void ir_emit_not(int temp_dest, int temp_src) {
 static inline void ir_emit_lnot(int temp_dest, int temp_src) {
     ir_emit((Instr){
         .op = OP_LNOT,
-        .temp_dest = (uint8_t)temp_dest,
-        .temp_src1 = (uint8_t)temp_src,
-        .temp_src2 = 0xFF,
+        .temp_dest = (uint16_t)temp_dest,
+        .temp_src1 = (uint16_t)temp_src,
+        .temp_src2= TEMP_NONE,
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */

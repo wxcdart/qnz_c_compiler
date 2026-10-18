@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 24] - 2026-10-18 - C2b: 16-bit Temp Ids, C3 Switch Case Cap Removed, AOT-Asm Extend-Width Fix
+
+### Added
+- **C2b - 16-bit temp ids** (`ir/ir.h` + tree-wide): `Instr.temp_dest/src1/src2` widened `uint8_t` → `uint16_t` (packed struct 19→24 B, in-memory only), no-temp sentinel moved `0xFF` → `TEMP_NONE` (0xFFFF) at all 140+ sites; `IRCallArgs.temps[]` widened too; all 115 truncating `(uint8_t)temp*` casts → `(uint16_t)`. The C2a guard now bounds at the 16-bit edge (65534 temps) as a safety net. 117 and 190 nested calls compile and run correctly in both modes (previously: silent miscompilation at 117+).
+- **Dual sentinel for float/LEA stack access**: `OP_FLOAD/OP_FSTORE/OP_LEA` take a base-register operand whose "frame-pointer base" marker was the old 0xFF no-temp value. The marker is now `TEMP_NONE` at all 35 call sites (the sentinel sweep alone would have routed the marker through `regalloc_get_reg_for_temp(255)` → garbage register; this is what broke trivial float programs in JIT mode after the sweep).
+
+### Fixed
+- **C3 - switch >128 cases** (`ir/ast_lowering_stmt.c`): the dispatch loop's `n_cases < 128` cap silently dropped cases 129+ (no labels, unreachable code, no diagnostic). Cap removed - dispatch is O(n) CMP/JNE, and the per-function temp guard bounds the case count (~2 temps/case → ~32k, under the 16-bit label space). 129/500/1000/1500-case switches now pass JIT+AOT (128 OK / 129 WRONG before).
+- **AOT-asm extend width** (`ir/asm_emitter.c`): the `-S` path computed SEXT/ZEXT width as `(op - OP_SEXT8)/2 + 1` - the opcodes are consecutive, not interleaved, so SEXT16 emitted width 1 and SEXT32 emitted width 2 (`movswl` instead of `movslq`). `int y = 2000000000 + 2000000000` round-tripped through GNU `as` returned +10240 instead of -294967296. Pre-existing (byte-identical asm on the pre-C2b baseline) but masked because Sprint 22's roundtrip test only exercised width-1 extends. Now uses the same explicit opcode→width mapping as the MC path.
+- **LRA 256-temp hard cap** (`ir/live_range.h`): `live_range_add_use` rejected `temp_id >= 256` even though its arrays realloc-grow - would have silently dropped all widened temps. Cap removed.
+- **Temp-indexed optimizer tables**: `opt_dce.c` live table 4096 → 65536 (was misreporting temps ≥4096 as dead → DCE could drop their definitions); `opt_gvn.c` `result_temp` widened + both per-temp tables → 65536; `opt_copy_prop.c` kept its 256-entry map with explicit `>= 256` guards (missed optimization only); `ir.c` restrict alias-group tagging and `ast_lowering_expr.c` keep their 256-entry tables with `< 256` guards (higher ids stay unconstrained).
+- **OP_CALL legacy imm packing removed**: args 2/3 were packed 8-bits-each into `imm`; with 16-bit ids that packing is unrecoverable. The `IRCallArgs` side table is always recorded (all consumers read it first), so the fallback now uses only the widened src1/src2 fields.
+
+### Documented (fragility-analysis.md)
+- **C2: RESOLVED** (C2a guard + C2b widening). **C3: RESOLVED** (cap removed). **C4 reclassified**: the 232–400-locals hang was C2 in disguise (each `int l=0;` consumes a temp); the true boundary is **757/758 locals** = the scope `zero_flatten_tpht` capacity (64+61 blocks × 8), which already emits a clean `failed to insert symbol` diagnostic - no silent miscompilation, no hang.
+- **New finding (float AOT-asm gap)**: float locals in the `-S` path lower to `OP_FLOAD/OP_FSTORE`, which none of the three asm emitters implements (`# UNKNOWN:`) - pre-existing on baseline, all ISAs; the JIT/AOT-ELF paths are unaffected.
+
+### Verification
+- `make test`: 140/140 (18 float tests regressed mid-sprint by the sentinel sweep's base-marker alias; fixed by the TEMP_NONE marker change; 0.38s steady state). `sret_verifier.py`: 6/6. C1 battery 29/29. Signedness matrix 39/39. C99 spot probes OK (t2_structs/t3_pointers diffs re-verified pre-existing on baseline).
+- Probe boundaries re-measured: nest-calls 117 & 190 OK both modes (parser H1 ~200-depth is the new ceiling, pre-existing); switch-cases 129/500/1000/1500 OK; locals 757 OK / 758 clean diagnostic; wide-temps probe (400+ temps, shallow parse depth) OK all modes, gcc-matched.
+- x86-64 `-S` → GNU `as` → host gcc link → runs correct (wrap + narrow params); aarch64/riscv64 `-S` int-only: 0 UNKNOWN opcodes.
+
 ## [Sprint 23] - 2026-10-18 - C2a: Temp-Id Exhaustion Guard (Silent Miscompilation → Clean Diagnostic)
 
 ### Added

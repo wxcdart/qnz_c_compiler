@@ -212,7 +212,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (instr->op == OP_ADD) {
             if (instr->imm == 1) {
                 loop_var = instr->temp_src1;
-            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
                 loop_var = instr->temp_src1;
             }
         }
@@ -398,7 +398,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             if (instr->imm == 1) {
                 found_scalar_increment = true;
                 break;
-            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
                 found_scalar_increment = true;
                 break;
             }
@@ -422,7 +422,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         if (instr->op == OP_ADD) {
             if (instr->imm == 1) {
                 instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
-            } else if (instr->temp_src2 != 0xFF && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
+            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
                 /* Update the constant definition to vec_width */
                 for (int j = 0; j < i; j++) {
                     Instr *prev = ir_get(j);
@@ -455,7 +455,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             /* Replace with VLOAD */
             instr->op = OP_VLOAD;
             instr->temp_dest = vec_temp;
-            instr->temp_src2 = 0xFF;
+            instr->temp_src2= TEMP_NONE;
             /* Leave instr->imm unchanged (preserves stack displacement) */
             instr->imm64 = 0;
             instr->label_idx = 0;
@@ -522,7 +522,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             
             /* Replace with VSTORE [addr], vec_value */
             instr->op = OP_VSTORE;
-            instr->temp_dest = 0xFF;
+            instr->temp_dest= TEMP_NONE;
             instr->temp_src1 = scalar_addr_temp;
             instr->temp_src2 = vec_value;
             /* Leave instr->imm unchanged */

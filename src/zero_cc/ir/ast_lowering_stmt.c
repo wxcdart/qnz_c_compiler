@@ -120,18 +120,18 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 if (!c->last_expr_is_float) {
                     /* Convert int to float via IR */
                     float_temp = c->next_temp_id++;
-                    ir_emit_cvtsi2sd((uint8_t)float_temp, (uint8_t)result_temp);
+                    ir_emit_cvtsi2sd((uint16_t)float_temp, (uint16_t)result_temp);
                 }
                 /* Float assignment: store via IR */
-                ir_emit_fstore((uint8_t)float_temp, 0xFF, -sym->stack_offset);
+                ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
                 c->last_expr_is_float = 1;
                 return;
             } else {
                 if (c->last_expr_is_float) {
                     /* Convert float to int via IR */
                     int int_temp = c->next_temp_id++;
-                    ir_emit_cvttsd2si((uint8_t)int_temp, (uint8_t)result_temp);
-                    ir_emit_store((uint8_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    ir_emit_cvttsd2si((uint16_t)int_temp, (uint16_t)result_temp);
+                    ir_emit_store((uint16_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
                     c->last_expr_is_float = 0;
                     return;
                 } else {
@@ -173,17 +173,17 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     } else if (rem >= 4) {
                                         ir_emit_load_32(chunk_temp, addr_temp);
                                         int dst_addr = c->next_temp_id++;
-                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                         ir_emit_store_32(chunk_temp, dst_addr);
                                     } else if (rem >= 2) {
                                         ir_emit_load_16(chunk_temp, addr_temp);
                                         int dst_addr = c->next_temp_id++;
-                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                         ir_emit_store_16(chunk_temp, dst_addr);
                                     } else {
                                         ir_emit_load_byte(chunk_temp, addr_temp);
                                         int dst_addr = c->next_temp_id++;
-                                        ir_emit_lea(dst_addr, 0xFF, dst_off);
+                                        ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                         ir_emit_store_byte(chunk_temp, dst_addr);
                                     }
                                 }
@@ -271,17 +271,17 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         ir_emit_store_64(chunk_temp, addr_temp);
                     } else if (rem >= 4) {
                         int src_addr = c->next_temp_id++;
-                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_lea(src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_32(chunk_temp, src_addr);
                         ir_emit_store_32(chunk_temp, addr_temp);
                     } else if (rem >= 2) {
                         int src_addr = c->next_temp_id++;
-                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_lea(src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_16(chunk_temp, src_addr);
                         ir_emit_store_16(chunk_temp, addr_temp);
                     } else {
                         int src_addr = c->next_temp_id++;
-                        ir_emit_lea(src_addr, 0xFF, chunk_stack_off);
+                        ir_emit_lea(src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_byte(chunk_temp, src_addr);
                         ir_emit_store_byte(chunk_temp, addr_temp);
                     }
@@ -367,7 +367,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             /* If function returns float/double, convert int to float */
             if (fn_ret_type.tag == TYPE_FLOAT || fn_ret_type.tag == TYPE_DOUBLE) {
                 final_float_temp = c->next_temp_id++;
-                ir_emit_cvtsi2sd((uint8_t)final_float_temp, (uint8_t)result_temp);
+                ir_emit_cvtsi2sd((uint16_t)final_float_temp, (uint16_t)result_temp);
                 c->last_expr_is_float = 1;
             }
         }
@@ -376,7 +376,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
          * emitters treat as the FP return register, so move the result there
          * when the computed value lives in another FP temp. */
         if (c->last_expr_is_float && final_float_temp != VREG_F0) {
-            ir_emit_fmov((uint8_t)VREG_F0, (uint8_t)final_float_temp);
+            ir_emit_fmov((uint8_t)VREG_F0, (uint16_t)final_float_temp);
         }
     }
     ir_emit_jmp(c->lowering.epilogue_label);
@@ -392,7 +392,7 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
     int cond_temp = lower_expr(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
-    ir_emit_je((uint8_t)cond_temp, else_label);
+    ir_emit_je((uint16_t)cond_temp, else_label);
     lower_node(c, arena, node->right);
     ir_emit_jmp(end_label);
     ir_emit_label(else_label);
@@ -412,7 +412,7 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_start);
     ir_emit_label(loop_start);
     int cond_temp = lower_expr(c, arena, node->left);
-    ir_emit_je((uint8_t)cond_temp, loop_exit);
+    ir_emit_je((uint16_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
@@ -434,7 +434,7 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     lower_node(c, arena, node->right);
     ir_emit_label(loop_cond);
     int cond_temp = lower_expr(c, arena, node->left);
-    ir_emit_jne((uint8_t)cond_temp, loop_start);
+    ir_emit_jne((uint16_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
     
@@ -456,7 +456,7 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
         int cond_temp = lower_expr(c, arena, node->right);
-        ir_emit_je((uint8_t)cond_temp, loop_exit);
+        ir_emit_je((uint16_t)cond_temp, loop_exit);
     }
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
@@ -492,11 +492,13 @@ void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
 
     /* Dispatch: for each case, compare the switch value against the case
      * constant and jump to the case's label (emitted when the case node
-     * itself is lowered below). The labels are stored in aux.alt. */
+     * itself is lowered below). The labels are stored in aux.alt.
+     * C3 fix: no case cap - dispatch is O(n) CMP/JNE and the per-function
+     * temp guard (C2b, 65534 temps) bounds the case count (~2 temps per
+     * case -> ~32k cases), which stays under the 16-bit label space. */
     uint16_t default_label = 0;
     ASTRef s = first;
-    int n_cases = 0;
-    while (s != AST_NULL && n_cases < 128) {
+    while (s != AST_NULL) {
         ZeroCCASTNode *sn = zero_cc_ast_get(arena, s);
         if (!sn) break;
         if (sn->tag == NODE_CASE) {
@@ -506,8 +508,7 @@ void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_cond_set(flag_temp, CC_EQ);
             sn->aux.alt = c->ir_next_label++;
             /* JE = jump-if-zero, so take the case when the flag is non-zero */
-            ir_emit_jne((uint8_t)flag_temp, (uint16_t)sn->aux.alt);
-            n_cases++;
+            ir_emit_jne((uint16_t)flag_temp, (uint16_t)sn->aux.alt);
         } else if (sn->tag == NODE_DEFAULT) {
             sn->aux.alt = c->ir_next_label++;
             default_label = (uint16_t)sn->aux.alt;

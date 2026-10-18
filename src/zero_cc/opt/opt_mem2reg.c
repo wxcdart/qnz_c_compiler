@@ -115,7 +115,7 @@ static int instr_is_stack_store(Instr *instr) {
  * Check if instruction is a load from a stack slot
  */
 static int instr_is_stack_load(Instr *instr) {
-    return (instr->op == OP_MOV && instr->temp_src1 == 0xFF);
+    return (instr->op == OP_MOV && instr->temp_src1== TEMP_NONE);
 }
 
 /**
@@ -180,7 +180,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         }
         
         /* Invalidate any slot holding a temp that is redefined as a destination */
-        if (instr->temp_dest != 0xFF) {
+        if (instr->temp_dest!= TEMP_NONE) {
             for (int s = 0; s < MAX_STACK_SLOTS; s++) {
                 if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
                     state.slot_valid[s] = false;
@@ -220,11 +220,11 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                 int known_temp = state.slot_to_temp[slot];
                 
                 /* Check if the known temp is still valid (not overwritten) */
-                if (known_temp != 0xFF) {
+                if (known_temp != TEMP_NONE) {
                     /* Replace load with MOV from known temp */
                     instr->op = OP_MOV_REG;
                     instr->temp_src1 = known_temp;
-                    instr->temp_src2 = 0xFF;
+                    instr->temp_src2= TEMP_NONE;
                     instr->imm = 0;
                     instr->imm64 = 0;
                     instr->label_idx = 0;

@@ -65,7 +65,7 @@ void opt_flag_dce(ZeroCCCompiler *c) {
 /**
  * Liveness tracking
  */
-#define MAX_VREGS 4096
+#define MAX_VREGS 65536  /* C2b: full 16-bit temp-id space */
 static bool g_live_temp[MAX_VREGS];
 
 /**
@@ -157,10 +157,10 @@ static void mark_call_args_live(Instr *instr) {
     int arg_count = instr->temp_dest;
     
     // Args 1-2 from temp_src1/temp_src2
-    if (arg_count > 0 && instr->temp_src1 != 0xFF) {
+    if (arg_count > 0 && instr->temp_src1!= TEMP_NONE) {
         mark_live(instr->temp_src1);
     }
-    if (arg_count > 1 && instr->temp_src2 != 0xFF) {
+    if (arg_count > 1 && instr->temp_src2!= TEMP_NONE) {
         mark_live(instr->temp_src2);
     }
     
@@ -188,7 +188,7 @@ static void mark_call_args_live(Instr *instr) {
                 // This is a call arg entry for this instruction
                 for (int a = 0; a < entry->count; a++) {
                     int arg_temp = entry->temps[a];
-                    if (arg_temp != 0xFF) {
+                    if (arg_temp != TEMP_NONE) {
                         mark_live(arg_temp);
                     }
                 }
@@ -211,14 +211,14 @@ static void mark_uses(Instr *instr) {
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
             // Atomic compare-and-exchange uses label_idx as the expected operand temp
-            if (instr->temp_src1 != 0xFF) {
+            if (instr->temp_src1!= TEMP_NONE) {
                 mark_live(instr->temp_src1);
             }
-            if (instr->temp_src2 != 0xFF) {
+            if (instr->temp_src2!= TEMP_NONE) {
                 mark_live(instr->temp_src2);
             }
             // label_idx holds the expected temp (not a label!)
-            if (instr->label_idx != 0xFF) {
+            if (instr->label_idx != TEMP_NONE) {
                 mark_live(instr->label_idx);
             }
             return;
@@ -226,10 +226,10 @@ static void mark_uses(Instr *instr) {
         default:
             // Standard handling for most instructions
             // Note: temp 0 (VREG_0/rax) is valid, only 0xFF means "no temp"
-            if (instr->temp_src1 != 0xFF) {
+            if (instr->temp_src1!= TEMP_NONE) {
                 mark_live(instr->temp_src1);
             }
-            if (instr->temp_src2 != 0xFF) {
+            if (instr->temp_src2!= TEMP_NONE) {
                 mark_live(instr->temp_src2);
             }
             return;
@@ -262,7 +262,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         if (!instr) continue;
         
         // Look for float-producing instructions before the epilogue
-        if (instr->temp_dest != 0xFF && 
+        if (instr->temp_dest!= TEMP_NONE && 
             (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op) || instr->op == OP_CVTSI2SD)) {
             mark_live(instr->temp_dest);
             break;
@@ -284,7 +284,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         }
         
         // If instruction produces a result, mark it live if used OR has side effects
-        if (instr->temp_dest != 0xFF) {
+        if (instr->temp_dest!= TEMP_NONE) {
             if (is_live(instr->temp_dest) || has_side_effects) {
                 // Result is used OR instruction must execute for its side effects:
                 // mark all its source operands as live!

@@ -36,9 +36,9 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
  * Returns: temp ID containing the result
  */
 static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
-    if (ref == AST_NULL) return 0xFF;
+    if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
-    if (!node) return 0xFF;
+    if (!node) return TEMP_NONE;
     
     switch (node->tag) {
         case NODE_INT: {
@@ -152,7 +152,7 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         
         default:
             /* Unsupported node type, return invalid temp */
-            return 0xFF;
+            return TEMP_NONE;
     }
 }
 
@@ -162,7 +162,7 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
  */
 static void lower_expr_to_vreg0(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     int result_temp = lower_expr_ir(c, arena, ref);
-    if (result_temp != 0xFF) {
+    if (result_temp != TEMP_NONE) {
         /* Move result temp to VREG_0 for return */
         BE(c)->emit_mov_reg(c, VREG_0, result_temp);
     }

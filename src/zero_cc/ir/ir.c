@@ -112,20 +112,24 @@ void ir_emit(Instr instr) {
     /* restrict alias-group tagging: loads/stores inherit the group of their
      * address temp; pointer arithmetic propagates the group to its result. */
     if (g_compiler) {
+        /* C2b: the alias-group table is 256 entries - higher temp ids simply
+         * stay unconstrained (group 0), matching the guard in ast_lowering_expr.c. */
         uint8_t *tg = g_compiler->lowering.temp_alias_group;
         switch (instr.op) {
             case OP_DEREF: case OP_LOAD_BYTE: case OP_LOAD_16: case OP_LOAD_32:
-                if (instr.temp_src1 != 0xFF) instr.alias_group = tg[instr.temp_src1];
+                if (instr.temp_src1 != TEMP_NONE && instr.temp_src1 < 256) instr.alias_group = tg[instr.temp_src1];
                 break;
             case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
-                if (instr.temp_src2 != 0xFF) instr.alias_group = tg[instr.temp_src2];
+                if (instr.temp_src2 != TEMP_NONE && instr.temp_src2 < 256) instr.alias_group = tg[instr.temp_src2];
                 break;
             case OP_MOV_REG: case OP_ADD_IMM: case OP_SUB_IMM:
-                if (instr.temp_dest != 0xFF && instr.temp_src1 != 0xFF)
+                if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE &&
+                    instr.temp_dest < 256 && instr.temp_src1 < 256)
                     tg[instr.temp_dest] = tg[instr.temp_src1];
                 break;
             case OP_ADD: case OP_SUB:
-                if (instr.temp_dest != 0xFF && instr.temp_src1 != 0xFF && instr.temp_src2 != 0xFF) {
+                if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE && instr.temp_src2 != TEMP_NONE &&
+                    instr.temp_dest < 256 && instr.temp_src1 < 256 && instr.temp_src2 < 256) {
                     uint8_t g1 = tg[instr.temp_src1], g2 = tg[instr.temp_src2];
                     tg[instr.temp_dest] = (g1 && g2 && g1 != g2) ? 0 : (g1 ? g1 : g2);
                 }
@@ -143,32 +147,32 @@ void ir_emit(Instr instr) {
 }
 
 void ir_emit_label(uint16_t label_idx) {
-    Instr instr = {.op = OP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+    Instr instr = {.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
 void ir_emit_jmp(uint16_t label_idx) {
-    Instr instr = {.op = OP_JMP, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+    Instr instr = {.op = OP_JMP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
-void ir_emit_je(uint8_t temp_cond, uint16_t label_idx) {
-    Instr instr = {.op = OP_JE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+void ir_emit_je(uint16_t temp_cond, uint16_t label_idx) {
+    Instr instr = {.op = OP_JE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
-void ir_emit_jcond(uint8_t temp_cond, uint16_t label_idx) {
-    Instr instr = {.op = OP_JCOND, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .cond = temp_cond, .flags_out = 0xFF, .flags_in = REG_FLAGS, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+void ir_emit_jcond(uint16_t temp_cond, uint16_t label_idx) {
+    Instr instr = {.op = OP_JCOND, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = REG_FLAGS, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
-void ir_emit_jne(uint8_t temp_cond, uint16_t label_idx) {
-    Instr instr = {.op = OP_JNE, .temp_dest = 0xFF, .temp_src1 = temp_cond, .temp_src2 = 0xFF, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+void ir_emit_jne(uint16_t temp_cond, uint16_t label_idx) {
+    Instr instr = {.op = OP_JNE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
 void ir_emit_jmp_label(uint16_t label_idx) {
-    Instr instr = {.op = OP_JMP_LABEL, .temp_dest = 0xFF, .temp_src1 = 0xFF, .temp_src2 = 0xFF, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
+    Instr instr = {.op = OP_JMP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(instr);
 }
 
@@ -200,7 +204,7 @@ void ir_dump(FILE *f) {
         /* Print instruction */
         switch (instr->op) {
             case OP_MOV: 
-                         if (instr->temp_src1 == 0xFF) {
+                         if (instr->temp_src1== TEMP_NONE) {
                              fprintf(f, "LOAD r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
                          } else {
                              fprintf(f, "MOV r%u, ", instr->temp_dest);

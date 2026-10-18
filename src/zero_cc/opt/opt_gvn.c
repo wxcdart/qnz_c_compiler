@@ -22,14 +22,15 @@ typedef struct {
     uint8_t src1;
     uint8_t src2;
     int16_t imm;
-    uint8_t result_temp;
+    uint16_t result_temp;  /* C2b: 16-bit temp id */
 } ValueEntry;
 
 static ValueEntry g_values[4096];
 static int g_value_count;
 static HashTable32 *g_value_map;
-static uint8_t g_temp_has_value[256];
-static uint8_t g_temp_value_num[256];
+/* C2b: full 16-bit temp-id space */
+static uint8_t g_temp_has_value[65536];
+static uint16_t g_temp_value_num[65536];
 
 /**
  * Initialize GVN system
@@ -131,7 +132,7 @@ static void replace_with_gvn_copy(int instr_idx, uint8_t src_temp) {
     
     instr->op = OP_MOV_REG;
     instr->temp_src1 = src_temp;
-    instr->temp_src2 = 0xFF;
+    instr->temp_src2= TEMP_NONE;
     instr->imm = 0;
     instr->label_idx = 0;
 }
@@ -231,12 +232,12 @@ static void opt_restrict_memory_forward(void) {
         }
 
         /* Redefinition of a temp invalidates anything that referenced it */
-        if (in->temp_dest != 0xFF) {
+        if (in->temp_dest!= TEMP_NONE) {
             mf_forget_temp(in->temp_dest);
             g_canon[in->temp_dest] = in->temp_dest;
         }
 
-        if (in->op == OP_MOV && in->temp_src1 == 0xFF && in->temp_dest != 0xFF) {
+        if (in->op == OP_MOV && in->temp_src1== TEMP_NONE && in->temp_dest!= TEMP_NONE) {
             /* Stack slot load: same unmodified slot => same value => same canonical temp */
             int found = -1;
             for (int s = 0; s < g_slot_n; s++) {
@@ -257,12 +258,12 @@ static void opt_restrict_memory_forward(void) {
             continue;
         }
 
-        if (in->op == OP_MOV_REG && in->temp_dest != 0xFF && in->temp_src1 != 0xFF) {
+        if (in->op == OP_MOV_REG && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
             g_canon[in->temp_dest] = g_canon[in->temp_src1];
             continue;
         }
 
-        if (mf_is_load(in->op) && in->temp_dest != 0xFF && in->temp_src1 != 0xFF) {
+        if (mf_is_load(in->op) && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
             uint8_t addr = g_canon[in->temp_src1];
             int hit = -1;
             for (int e = 0; e < g_mf_n; e++) {
@@ -272,7 +273,7 @@ static void opt_restrict_memory_forward(void) {
                 uint8_t val = g_mf[hit].val;
                 in->op = OP_MOV_REG;
                 in->temp_src1 = val;
-                in->temp_src2 = 0xFF;
+                in->temp_src2= TEMP_NONE;
                 in->imm = 0;
                 in->imm64 = 0;
                 in->label_idx = 0;
@@ -300,7 +301,7 @@ static void opt_restrict_memory_forward(void) {
                 mf_remove_if_group(in->alias_group);
             }
             /* A 64-bit store forwards its value to later 64-bit loads of the same address */
-            if (in->op == OP_STORE_64 && in->temp_src1 != 0xFF && in->temp_src2 != 0xFF &&
+            if (in->op == OP_STORE_64 && in->temp_src1!= TEMP_NONE && in->temp_src2!= TEMP_NONE &&
                 g_mf_n < MF_MAX_ENTRIES) {
                 g_mf[g_mf_n].op = OP_DEREF;
                 g_mf[g_mf_n].addr = g_canon[in->temp_src2];
@@ -339,9 +340,9 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
         }
         
         /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
-        if (instr->temp_dest == 0xFF || instr->temp_dest < 16 ||
-            (instr->temp_src1 != 0xFF && instr->temp_src1 < 16) ||
-            (instr->temp_src2 != 0xFF && instr->temp_src2 < 16)) {
+        if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
+            (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
+            (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
             continue;
         }
         
@@ -355,14 +356,14 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
             
             /* Update: this temp now holds the same value as the existing one */
             g_temp_has_value[instr->temp_dest] = 1;
-            g_temp_value_num[instr->temp_dest] = (uint8_t)existing;
+            g_temp_value_num[instr->temp_dest] = (uint16_t)existing;
         } else {
             /* New computation - record it */
             if (g_value_count < 4096) {
                 int val_num = g_value_count++;
                 gvn_add(instr, val_num);
                 g_temp_has_value[instr->temp_dest] = 1;
-                g_temp_value_num[instr->temp_dest] = (uint8_t)val_num;
+                g_temp_value_num[instr->temp_dest] = (uint16_t)val_num;
             }
         }
     }

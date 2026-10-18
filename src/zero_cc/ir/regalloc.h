@@ -769,7 +769,7 @@ static int regalloc_idx_to_vreg(int idx) {
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     int def_ret_reg = (ra && (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32)) ? 10 : 0;
-    if (!ra || temp_id == 0xFF) return def_ret_reg;
+    if (!ra || temp_id == TEMP_NONE) return def_ret_reg;
     
     /* VREG_0 (rax / x0 / a0) is a fixed register for return values */
     if (temp_id == VREG_0) {
@@ -804,7 +804,7 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
 /* Check if a temporary is spilled, returning its spill slot (or -1 if not spilled) */
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
-    if (!ra || temp_id == 0xFF || temp_id == VREG_0 || temp_id == VREG_2) return -1;
+    if (!ra || temp_id == TEMP_NONE || temp_id == VREG_0 || temp_id == VREG_2) return -1;
     for (size_t i = 0; i < ra->interval_count; i++) {
         if (ra->intervals[i].temp_id == temp_id) {
             if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
@@ -819,7 +819,7 @@ static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
 /* Get register class for a temporary variable */
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) {
-    if (!ra || temp_id == 0xFF) return REG_CLASS_GPR;
+    if (!ra || temp_id == TEMP_NONE) return REG_CLASS_GPR;
     for (size_t i = 0; i < ra->interval_count; i++) {
         if (ra->intervals[i].temp_id == temp_id) {
             return ra->intervals[i].reg_class;

@@ -43,9 +43,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
 
         /* Frame pointer (0xFF) should NOT be allocated - use actual FP register */
-        int phys_dst = (instr->temp_dest == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
-        int phys_src1 = (instr->temp_src1 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
-        int phys_src2 = (instr->temp_src2 == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
+        int phys_dst = (instr->temp_dest== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
+        int phys_src1 = (instr->temp_src1== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
+        int phys_src2 = (instr->temp_src2== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
 
         /* Check for spilled temps that need reloading / storing */
         int spill_src1 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
@@ -286,7 +286,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_ATOMIC_CMPXCHG: {
-                int phys_expected = (instr->label_idx == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                int phys_expected = (instr->label_idx == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
                 if (BE(c)->emit_atomic_cmpxchg) {
                     BE(c)->emit_atomic_cmpxchg(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
                 }
@@ -294,7 +294,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             }
 
             case OP_ATOMIC_CMPXCHG_BOOL: {
-                int phys_expected = (instr->label_idx == 0xFF) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                int phys_expected = (instr->label_idx == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
                 if (BE(c)->emit_atomic_cmpxchg_bool) {
                     BE(c)->emit_atomic_cmpxchg_bool(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
                 }
@@ -687,14 +687,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     arg_count = int_c;
                 } else {
-                    if (arg_count > 4) arg_count = 4;
+                    /* C2b fallback (side table missing - should not happen):
+                     * only args 0/1 are recoverable from the instruction. */
+                    if (arg_count > 2) arg_count = 2;
                     if (arg_count > 0) arg_temps[0] = instr->temp_src1;
                     if (arg_count > 1) arg_temps[1] = instr->temp_src2;
-                    if (arg_count > 2) {
-                        /* Unpack remaining temps from imm (16-bit) */
-                        arg_temps[2] = (int)((instr->imm >> 0) & 0xFF);
-                        if (arg_count > 3) arg_temps[3] = (int)((instr->imm >> 8) & 0xFF);
-                    }
                 }
                 
                 /* If indirect call, save callee register into scratch_reg2 before argument setup */
@@ -990,7 +987,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         /* C99 width semantics: if the op produced a narrow-int result,
          * extend it to full 64-bit width now (sign or zero per the mark),
          * before any spill-back so the stored value is the extended one. */
-        if (instr->width != 0 && instr->temp_dest != 0xFF && BE(c)->emit_extend) {
+        if (instr->width != 0 && instr->temp_dest!= TEMP_NONE && BE(c)->emit_extend) {
             BE(c)->emit_extend(c, phys_dst, phys_dst,
                                (int)(instr->width & 7), (instr->width < 8) ? 1 : 0);
         }

@@ -129,8 +129,8 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 instr->temp_dest = dest;
                 instr->imm = (int16_t)result;      // 16-bit for compatibility
                 instr->imm64 = result;              // 64-bit for emitter
-                instr->temp_src1 = 0xFF;
-                instr->temp_src2 = 0xFF;
+                instr->temp_src1= TEMP_NONE;
+                instr->temp_src2= TEMP_NONE;
                 instr->label_idx = 0;
                 
                 // Mark the result as constant for future folding
