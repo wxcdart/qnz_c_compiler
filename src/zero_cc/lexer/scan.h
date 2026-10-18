@@ -445,9 +445,18 @@ static int zero_cc_scan_identifier(ZeroCCLexer *lx, ZeroCCToken *tok) {
     const char *s = lx->cur;
     size_t il = 0;
 
-    while ((isalnum((unsigned char)*s) || *s == '_') && il < sizeof(tok->str_val) - 1) {
-        tok->str_val[il++] = *s++;
-        offset++; col++;
+    while (isalnum((unsigned char)*s) || *s == '_') {
+        if (il < sizeof(tok->str_val) - 1) {
+            tok->str_val[il++] = *s;
+        } else {
+            il++;
+        }
+        s++; offset++; col++;
+    }
+    if (il >= sizeof(tok->str_val)) {
+        lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
+        snprintf(lx->err_msg, sizeof(lx->err_msg), "identifier exceeds maximum length of 127 characters (got %zu)", il);
+        return -1;
     }
     tok->str_val[il] = '\0';
 

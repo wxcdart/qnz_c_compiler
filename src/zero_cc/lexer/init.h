@@ -13,6 +13,7 @@ static inline void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, con
     lx->line = 1;
     lx->col = 1;
     lx->offset = 0;
+    lx->err_msg[0] = '\0';
 }
 
 /* Initialize lexer with source only */

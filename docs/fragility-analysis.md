@@ -73,7 +73,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 
 | # | Limit | Behavior past limit | Probe |
 |---|-------|--------------------|-------|
-| M1 | identifiers ≤ **127** chars | name truncated → **collision**, silently wrong code (error diagnostics fire on the split token) | `id.c`: 127 OK, 128 fails |
+| M1 | identifiers ≤ **127** chars | clean fatal diagnostic: `identifier exceeds maximum length of 127 characters` | **RESOLVED**: error diagnosed, no truncation |
 | M2 | globals ≤ **256** | 257th silently dropped (`add_global_var` returns -1, ignored) | `p3` 260 globals "passes" (only checked first 13) |
 | M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | `p4` |
 | M4 | IR dump shows `imm` (int16) not `imm64` | large immediates displayed truncated (e.g. `2000000000` shown as `-27648`); **emission is correct** (uses `imm64`) — misleading for debugging only | `p11` IR dump |
@@ -125,5 +125,5 @@ Key distinction after Sprints 22–24: every former **C-tier** bug was a cap tha
 5. **C5** multi-segment member chain type resolution.
 6. **C6** implement `OP_FLOAD/OP_FSTORE` in the three asm emitters (float locals in `-S` output).
 7. **H2** make diagnostics fatal by default.
-8. **M1** error (not truncate) on identifiers >127.
+8. **M1** ~~error (not truncate) on identifiers >127~~ — **Fixed**: emit clean fatal diagnostic on identifiers exceeding 127 chars.
 9. **H1** raise parser stack or iterate the expression recursion.

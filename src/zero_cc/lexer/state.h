@@ -13,6 +13,7 @@ typedef struct {
     size_t      line;     /* 1-based */
     size_t      col;      /* 1-based */
     size_t      offset;   /* byte offset from src start */
+    char        err_msg[256]; /* specific error message if ret == -1 */
 } ZeroCCLexer;
 
 #endif /* ZERO_CC_LEXER_STATE_H */

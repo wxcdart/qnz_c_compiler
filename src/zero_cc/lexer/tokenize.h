@@ -56,7 +56,11 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
         }
         if (ret == -1) {      /* Error */
             c->had_error = 1;
-            snprintf(c->error_msg, sizeof(c->error_msg), "Lexer error at line %zu, col %zu", lx.line, lx.col);
+            if (lx.err_msg[0]) {
+                snprintf(c->error_msg, sizeof(c->error_msg), "%s", lx.err_msg);
+            } else {
+                snprintf(c->error_msg, sizeof(c->error_msg), "Lexer error at line %zu, col %zu", lx.line, lx.col);
+            }
             const char *file = c->diag_buf.default_file ? c->diag_buf.default_file : "<stdin>";
             if (c->diag_buf.tmp_arena) {
                 diag_report_error_file(&c->diag_buf, file, (uint32_t)lx.line, (uint32_t)lx.col, NULL, "%s", c->error_msg);

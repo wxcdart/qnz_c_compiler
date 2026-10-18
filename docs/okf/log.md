@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-18T11:44:28Z
+timestamp: 2026-10-18T12:04:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -119,3 +119,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-18 — Updated `architecture-pipeline.md`
 - Resolve H2: ensure compiler diagnostics and syntax errors halt compilation cleanly across JIT and AOT modes
+
+## 2026-10-18 — Updated `frontend-and-types.md`
+- Enforce 127-char identifier limit with clean fatal diagnostic (M1 resolved)

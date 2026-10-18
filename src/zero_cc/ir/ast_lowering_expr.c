@@ -714,9 +714,25 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             int result_temp = c->next_temp_id++;
             
             switch (node->aux.op) {
-                case TK_STAR:  /* Dereference */
-                    ir_emit_deref(result_temp, operand_temp);
+                case TK_STAR: { /* Dereference */
+                    size_t p_size = 0;
+                    TypeInfo *ti = ast_node_get_typeinfo(c, node);
+                    if (ti) p_size = type_size(ti);
+                    else {
+                        ZeroCCASTNode *inner = zero_cc_ast_get(arena, node->left);
+                        if (inner && inner->tag == NODE_IDENT) {
+                            ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                            if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
+                                p_size = ptr_sym->type.base->size;
+                            }
+                        }
+                    }
+                    if (p_size == 1) ir_emit_load_byte(result_temp, operand_temp);
+                    else if (p_size == 2) ir_emit_load_16(result_temp, operand_temp);
+                    else if (p_size == 4) ir_emit_load_32(result_temp, operand_temp);
+                    else ir_emit_deref(result_temp, operand_temp);
                     break;
+                }
                 case TK_MINUS:  /* Negation */
                     if (c->last_expr_is_float) {
                         /* Float negation as (0.0 - x). An integer NEG on the
