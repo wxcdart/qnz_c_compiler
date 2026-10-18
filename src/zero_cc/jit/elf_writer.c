@@ -110,6 +110,24 @@ bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine) {
     ctx->output_capacity = 0;
     ctx->has_error = false;
 
+    // Allocate dynamic tables (symbols, relocations, symbol-name strtab)
+    ctx->symbols = (ElfWriterSymbol *)calloc(ELF_INITIAL_SYMBOLS, sizeof(ElfWriterSymbol));
+    ctx->symbol_capacity = ctx->symbols ? ELF_INITIAL_SYMBOLS : 0;
+    ctx->strtab = (char *)calloc(ELF_MAX_STRING_LEN, 1);
+    ctx->strtab_capacity = ctx->strtab ? ELF_MAX_STRING_LEN : 0;
+    ctx->reloc_offsets = (uint64_t *)calloc(ELF_INITIAL_RELOCATIONS, sizeof(uint64_t));
+    ctx->reloc_symbol_indices = (uint16_t *)calloc(ELF_INITIAL_RELOCATIONS, sizeof(uint16_t));
+    ctx->reloc_types = (uint32_t *)calloc(ELF_INITIAL_RELOCATIONS, sizeof(uint32_t));
+    ctx->reloc_addends = (int64_t *)calloc(ELF_INITIAL_RELOCATIONS, sizeof(int64_t));
+    ctx->reloc_section_indices = (uint16_t *)calloc(ELF_INITIAL_RELOCATIONS, sizeof(uint16_t));
+    ctx->reloc_capacity = (ctx->reloc_offsets && ctx->reloc_symbol_indices &&
+                           ctx->reloc_types && ctx->reloc_addends &&
+                           ctx->reloc_section_indices) ? ELF_INITIAL_RELOCATIONS : 0;
+    if (!ctx->symbols || !ctx->strtab || ctx->reloc_capacity == 0) {
+        set_error(ctx, "Out of memory initializing ELF writer");
+        return false;
+    }
+
     // Initialize section count to 0 (null section will be added first)
     ctx->section_count = 0;
 
@@ -159,27 +177,37 @@ bool elf_writer_add_symbol(ElfWriterCtx* ctx, const char* name,
         return false;
     }
 
-    if (ctx->symbol_count >= ELF_MAX_SYMBOLS) {
-        set_error(ctx, "Symbol table full");
-        return false;
+    if (ctx->symbol_count >= ctx->symbol_capacity) {
+        int new_cap = ctx->symbol_capacity ? ctx->symbol_capacity * 2 : ELF_INITIAL_SYMBOLS;
+        ElfWriterSymbol *grown = (ElfWriterSymbol *)realloc(ctx->symbols, (size_t)new_cap * sizeof(ElfWriterSymbol));
+        if (!grown) {
+            set_error(ctx, "Out of memory growing symbol table");
+            return false;
+        }
+        ctx->symbols = grown;
+        ctx->symbol_capacity = new_cap;
     }
 
-    // Find or create section index
-    int sec_idx = section_idx;
-    if (section_idx == 0 && strcmp(name, ".text") == 0) {
-        sec_idx = 1;  // First real section
-    }
-
-    // Add symbol name to strtab
-    int name_idx = add_string(ctx->strtab, &ctx->strtab_size,
-                              sizeof(ctx->strtab), name);
+    // Add symbol name to strtab (growing the table if needed)
+    int name_idx = add_string(ctx->strtab, &ctx->strtab_size, ctx->strtab_capacity, name);
     if (name_idx < 0) {
-        set_error(ctx, "String table overflow");
-        return false;
+        size_t new_cap = ctx->strtab_capacity * 2;
+        char *grown = (char *)realloc(ctx->strtab, new_cap);
+        if (!grown) {
+            set_error(ctx, "Out of memory growing string table");
+            return false;
+        }
+        ctx->strtab = grown;
+        ctx->strtab_capacity = new_cap;
+        name_idx = add_string(ctx->strtab, &ctx->strtab_size, ctx->strtab_capacity, name);
+        if (name_idx < 0) {
+            set_error(ctx, "String table overflow");
+            return false;
+        }
     }
 
     ElfWriterSymbol* sym = &ctx->symbols[ctx->symbol_count++];
-    sym->name = ctx->strtab + name_idx;
+    sym->name_offset = (uint32_t)name_idx;
     sym->section_idx = section_idx;
     sym->value = value;
     sym->size = size;
@@ -196,9 +224,28 @@ bool elf_writer_add_relocation(ElfWriterCtx* ctx, uint16_t section_idx,
         return false;
     }
     
-    if (ctx->relocation_count >= ELF_MAX_RELOCATIONS) {
-        set_error(ctx, "Too many relocation entries");
-        return false;
+    if (ctx->relocation_count >= ctx->reloc_capacity) {
+        int new_cap = ctx->reloc_capacity ? ctx->reloc_capacity * 2 : ELF_INITIAL_RELOCATIONS;
+        uint64_t *o = (uint64_t *)realloc(ctx->reloc_offsets, (size_t)new_cap * sizeof(uint64_t));
+        uint16_t *si = (uint16_t *)realloc(ctx->reloc_symbol_indices, (size_t)new_cap * sizeof(uint16_t));
+        uint32_t *t = (uint32_t *)realloc(ctx->reloc_types, (size_t)new_cap * sizeof(uint32_t));
+        int64_t *a = (int64_t *)realloc(ctx->reloc_addends, (size_t)new_cap * sizeof(int64_t));
+        uint16_t *s = (uint16_t *)realloc(ctx->reloc_section_indices, (size_t)new_cap * sizeof(uint16_t));
+        if (!o || !si || !t || !a || !s) {
+            if (o) ctx->reloc_offsets = o;
+            if (si) ctx->reloc_symbol_indices = si;
+            if (t) ctx->reloc_types = t;
+            if (a) ctx->reloc_addends = a;
+            if (s) ctx->reloc_section_indices = s;
+            set_error(ctx, "Out of memory growing relocation table");
+            return false;
+        }
+        ctx->reloc_offsets = o;
+        ctx->reloc_symbol_indices = si;
+        ctx->reloc_types = t;
+        ctx->reloc_addends = a;
+        ctx->reloc_section_indices = s;
+        ctx->reloc_capacity = new_cap;
     }
     
     ctx->reloc_offsets[ctx->relocation_count] = offset;
@@ -419,8 +466,11 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
 
     // Add symbols - local symbols first, then global symbols
     ElfWriterSymbol* symtab_start = symtab;
-    uint16_t sym_remap[ELF_MAX_SYMBOLS + 1];
-    memset(sym_remap, 0, sizeof(sym_remap));
+    uint16_t *sym_remap = (uint16_t *)calloc((size_t)ctx->symbol_count + 2, sizeof(uint16_t));
+    if (!sym_remap) {
+        set_error(ctx, "Out of memory building symbol remap");
+        return false;
+    }
     uint16_t cur_symtab_idx = 1;
     
     // First pass: add local symbols
@@ -428,31 +478,31 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         ElfWriterSymbol* sym = &ctx->symbols[i];
         int binding = (sym->info >> 4) & 0xF;
         if (binding == ELF_STB_LOCAL) {
-            symtab->st_name = (uint32_t)(sym->name - ctx->strtab);
+            symtab->st_name = sym->name_offset;
             symtab->st_info = sym->info;
             symtab->st_other = sym->other;
             symtab->st_shndx = sym->section_idx;
             symtab->st_value = sym->value;
             symtab->st_size = sym->size;
             symtab++;
-            if (i + 1 <= ELF_MAX_SYMBOLS) sym_remap[i + 1] = cur_symtab_idx;
+            sym_remap[i + 1] = cur_symtab_idx;
             cur_symtab_idx++;
         }
     }
-    
+
     // Second pass: add global symbols
     for (int i = 0; i < ctx->symbol_count; i++) {
         ElfWriterSymbol* sym = &ctx->symbols[i];
         int binding = (sym->info >> 4) & 0xF;
         if (binding != ELF_STB_LOCAL) {
-            symtab->st_name = (uint32_t)(sym->name - ctx->strtab);
+            symtab->st_name = sym->name_offset;
             symtab->st_info = sym->info;
             symtab->st_other = sym->other;
             symtab->st_shndx = sym->section_idx;
             symtab->st_value = sym->value;
             symtab->st_size = sym->size;
             symtab++;
-            if (i + 1 <= ELF_MAX_SYMBOLS) sym_remap[i + 1] = cur_symtab_idx;
+            sym_remap[i + 1] = cur_symtab_idx;
             cur_symtab_idx++;
         }
     }
@@ -478,7 +528,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
                 if (ctx->reloc_section_indices[i] != rela_groups[g]) continue;
                 rela->r_offset = ctx->reloc_offsets[i];
                 uint16_t raw_sym_idx = ctx->reloc_symbol_indices[i];
-                uint16_t mapped_sym_idx = (raw_sym_idx <= ELF_MAX_SYMBOLS && sym_remap[raw_sym_idx] != 0)
+                uint16_t mapped_sym_idx = (sym_remap[raw_sym_idx] != 0)
                                               ? sym_remap[raw_sym_idx]
                                               : raw_sym_idx;
                 // r_info = (symbol_index << 32) | relocation_type
@@ -491,6 +541,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     }
 
     // Section name string table (.shstrtab)
+    free(sym_remap);  // last use of the remap table
     // First, add the section names for .strtab, .symtab, .shstrtab
     size_t strtab_name_idx = ctx->shstrtab_size;
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".strtab");
@@ -721,6 +772,24 @@ void elf_writer_cleanup(ElfWriterCtx* ctx) {
             ctx->sections[i].data = NULL;
         }
     }
+
+    free(ctx->symbols);
+    ctx->symbols = NULL;
+    free(ctx->strtab);
+    ctx->strtab = NULL;
+    free(ctx->reloc_offsets);
+    ctx->reloc_symbol_indices = NULL;
+    free(ctx->reloc_symbol_indices);
+    free(ctx->reloc_types);
+    free(ctx->reloc_addends);
+    free(ctx->reloc_section_indices);
+    ctx->reloc_offsets = ctx->reloc_symbol_indices = NULL;
+    ctx->reloc_types = NULL;
+    ctx->reloc_addends = NULL;
+    ctx->reloc_section_indices = NULL;
+    ctx->symbol_capacity = 0;
+    ctx->strtab_capacity = 0;
+    ctx->reloc_capacity = 0;
 
     if (ctx->output) {
         free(ctx->output);

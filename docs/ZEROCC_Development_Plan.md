@@ -11,6 +11,15 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 26: M2 Dynamic Global Table & ELF Writer Tables, Scope TPHT Growth ✅
+- **Status**: COMPLETE
+- **Achievement**: Removed the three stacked caps behind "globals ≤ 256 silently dropped": the global variable table, the scope two-phase hash table (64+61 → 256+247 blocks), and the ELF writer's symbol/strtab/relocation tables are all dynamically growing. 3000 globals verified in JIT + AOT (previously: silent drop at 257, AOT runtime segfault past ~1100 from dangling symbol indices). The TPHT growth also raised M5 (locals per scope) from ~758 to ~3000.
+- **Key Deliverables**:
+  - `types/global_vars.h`: heap-backed `global_vars` (doubles on demand); `add_global_var` callers in `jit/compile_unit.h` now report allocation failure as a clean fatal diagnostic.
+  - `semantic/scope.c` + `common/zero_tpht.h`: `SCOPE_TPHT_BLOCK_COUNT` 64 → 256; overflow block count scales with the primary (odd, ~95%).
+  - `jit/elf_writer.{h,c}`: dynamic `symbols`/`reloc_*`/`strtab` (256 initial, doubling); `ElfWriterSymbol.name` → stable `name_offset` into the strtab (realloc-safe); heap-sized `sym_remap`; `elf_writer_cleanup` frees the new tables.
+- **Result**: `make test` **140/140**, sret **6/6**, C5 battery rc=0 JIT+AOT, 1000 locals OK (was 758), 1500-case switch OK, c1-wrap OK.
+
 ### Sprint 25: C5 Pointer-Member Chains, C6 AOT-Asm Float, H1/H2, M1 & zero_rt Plan ✅
 - **Status**: COMPLETE
 - **Achievement**: Multi-segment member chains through pointer members (`o.p->v`, `(*pp)->w`, `geto()->p->f`) with width-safe deref stores and float compound assignment through chains; float locals in the AOT `-S` path on all three ISAs; fatal diagnostics (H2); parser recursion guard + 64 MB stack (H1); identifier-length diagnostic (M1); and the zero_rt cross-platform runtime plan.
@@ -130,7 +139,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
 - **CRITICAL tier — ALL RESOLVED**: C1 (S22), C2 (S23 guard + S24 16-bit temps), C3 (S24), C4 (reclassified → M5), C5 (S25), C6 (S25)
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
-- **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 (globals 256) and M3 (struct members 64) still truncate/drop silently — top conformance candidates**; M4 is debug-dump only; M5 (locals ~758) fails clean
+- **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
 - **AOT `-S` completeness gaps** (pre-existing, `-o` ELF path unaffected): `.data` section never emitted; `CVTSI2SD` (int→double) unimplemented — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
 
 ---
@@ -203,7 +212,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - Remaining asm-emitter opcodes (`CVTSI2SD` int→double and any others surfaced by roundtrips) — tracked in [`docs/zero-rt-plan.md`](./zero-rt-plan.md) §9
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
-- M2: globals >256 currently silently dropped → clean diagnostic (minimum) or dynamic table
-- M3: struct members >64 currently silently dropped → clean diagnostic (minimum) or dynamic array
-- M5 (optional): raise the ~758-locals-per-scope cap (scope TPHT 64+61 blocks × 8)
+- ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT
+- M3: struct members >64 currently silently dropped → clean diagnostic (minimum) or dynamic array — the last silent cap
+- ~~M5 (optional): raise the ~758-locals-per-scope cap~~ — **done (Sprint 26)** via the same scope TPHT growth (~3000 now); raise further only if needed
 - H1 (optional): raise the expression-depth guard above 150 if the 64 MB stack headroom justifies it

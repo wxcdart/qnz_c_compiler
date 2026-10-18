@@ -588,7 +588,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             /* Register this declarator before parsing the next */
                             ZeroCCType reg_type = gtype;
                             if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
-                            add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer);
+                            if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
+                                diag_report_error_at_token(c, "out of memory registering global variable");
+                            }
                             c->token_pos++;
                             if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
                                 /* malformed: skip to end of declaration */
@@ -603,7 +605,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         {
                             ZeroCCType reg_type = gtype;
                             if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
-                            add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer);
+                            if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
+                                diag_report_error_at_token(c, "out of memory registering global variable");
+                            }
                         }
                         break; /* done with this declaration statement */
                     } while (1);

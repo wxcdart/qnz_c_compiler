@@ -1,5 +1,22 @@
 # ZeroCC Changelog
 
+## [Sprint 26] - 2026-10-18 - M2: Dynamic Global Table, Dynamic ELF Writer Tables, Scope TPHT Growth
+
+### Fixed
+- **M2 - globals >256 silently dropped**: three stacked fixed caps were found and removed, all verified to 3000 globals in both JIT (`--run`) and AOT (`-o`) with gcc cross-check:
+  - **Global variable table** (`types/global_vars.h`): fixed `global_vars[256]` → heap table that doubles on demand (initial 64); `add_global_var` now only fails on allocation failure, and both callers in `jit/compile_unit.h` report it as a clean diagnostic (sets `had_error` via `diag_report_error_at_token`) instead of ignoring the `-1`.
+  - **Scope symbol table** (`semantic/scope.c`, `common/zero_tpht.h`): the flat two-phase hash table was fixed at 64 primary + 61 overflow blocks (≈758 usable symbols, hash-dependent clean `use of undeclared identifier` failures past that — non-monotonic by name). Primary grown 64 → 256 blocks and the overflow now scales with the primary (`block_count - (block_count >> 5) - 1`; 64→61 unchanged, 256→247). This simultaneously raised **M5** (locals per scope) from ~758 to ~3000; beyond that it still fails clean.
+  - **ELF writer tables** (`jit/elf_writer.{h,c}`): `symbols[1024]` / `strtab[4096]` / `relocs[512]` fixed arrays → dynamic (256 initial, doubling). `ElfWriterSymbol.name` changed from a `const char*` into the strtab to a stable `uint32_t name_offset` (realloc of the strtab would otherwise dangle every previously stored name pointer); the `sym_remap[]` stack array in `elf_writer_write` is now heap-sized to the actual symbol count; `elf_writer_cleanup` frees the new tables. Before: AOT objects with >~1100 globals dropped symbols past the cap while relocations still referenced them → linked binary **segfaulted at runtime** (silent miscompile-class, now impossible).
+
+### Verification
+- 300/1200/2000/3000 globals (incl. `int *p = &gN` data-reloc init) pass JIT + AOT; gcc cross-check rc=0
+- `locals` probe: 1000 locals now pass (was 757 OK / 758 clean error)
+- `make test`: 140/140 · sret 6/6 · C5 battery (c5_all, h14) rc=0 JIT+AOT · c1-wrap OK · `globals 300` probe OK · 1500-case switch OK
+
+### Documented
+- `docs/fragility-analysis.md`: M2 **RESOLVED**, M5 boundary updated (~3000, clean-fail beyond), gcc-comparison table and fix-order updated.
+- `docs/ZEROCC_Development_Plan.md`: fragility status + roadmap §8 updated (M3 is now the only remaining silent cap).
+
 ## [Sprint 25] - 2026-10-18 - C5 Pointer-Member Chains, C6 AOT-Asm Float, H2 Diagnostics, M1 Identifier Length, zero_rt Plan
 
 ### Fixed

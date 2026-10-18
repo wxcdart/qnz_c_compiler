@@ -102,10 +102,10 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 
 | Dimension | gcc | ZeroCC | Gap class |
 |---|---|---|---|
-| Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | 757 OK / 758 clean diagnostic (scope TPHT: 64+61 blocks × 8 slots) | M5 - capability, not correctness |
+| Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | ~3000 (Sprint 26: scope TPHT 256+247 blocks × 8 slots; clean diagnostic beyond) | M5 - capability, not correctness |
 | Switch cases | unbounded (jump tables) | ~32k cap (16-bit labels, O(n) dispatch) - 1500 verified | capability (no practical C code approaches this) |
 | Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`) — clean fatal diagnostic since Sprint 25 | M1 - **RESOLVED** (Sprint 25) |
-| Globals per TU | unbounded | 256 (silent drop) | M2 |
+| Globals per TU | unbounded | dynamic (verified 3000) | M2 - **RESOLVED** (Sprint 26) |
 | Struct members | unbounded | 64 (silent drop) | M3 |
 | Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
 

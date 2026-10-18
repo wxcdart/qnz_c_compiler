@@ -1,7 +1,7 @@
 #include "scope.h"
 #include <string.h>
 
-#define SCOPE_TPHT_BLOCK_COUNT 64
+#define SCOPE_TPHT_BLOCK_COUNT 256
 
 /* 64-bit FNV-1a hash function for strings */
 static uint64_t hash_str(const char *str) {

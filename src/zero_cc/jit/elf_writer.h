@@ -188,7 +188,7 @@ typedef enum {
 // ============================================================================
 
 typedef struct {
-    const char* name;
+    uint32_t name_offset;   /* Offset into ctx->strtab (stable across realloc) */
     uint16_t section_idx;
     uint64_t value;
     uint64_t size;
@@ -203,8 +203,8 @@ typedef struct {
 // ============================================================================
 
 #define ELF_MAX_SECTIONS    32
-#define ELF_MAX_SYMBOLS     1024
-#define ELF_MAX_RELOCATIONS 512
+#define ELF_INITIAL_SYMBOLS     256
+#define ELF_INITIAL_RELOCATIONS 256
 #define ELF_MAX_STRING_LEN  4096
 
 typedef struct {
@@ -216,20 +216,23 @@ typedef struct {
     ElfWriterSection sections[ELF_MAX_SECTIONS];
     int section_count;
 
-    // Symbol table
-    ElfWriterSymbol symbols[ELF_MAX_SYMBOLS];
+    // Symbol table (dynamically growing)
+    ElfWriterSymbol *symbols;
+    int symbol_capacity;
     int symbol_count;
 
-    // Relocation entries
-    uint64_t reloc_offsets[ELF_MAX_RELOCATIONS];
-    uint16_t reloc_symbol_indices[ELF_MAX_RELOCATIONS];
-    uint32_t reloc_types[ELF_MAX_RELOCATIONS];
-    int64_t reloc_addends[ELF_MAX_RELOCATIONS];
-    uint16_t reloc_section_indices[ELF_MAX_RELOCATIONS];
+    // Relocation entries (dynamically growing)
+    uint64_t *reloc_offsets;
+    uint16_t *reloc_symbol_indices;
+    uint32_t *reloc_types;
+    int64_t *reloc_addends;
+    uint16_t *reloc_section_indices;
+    int reloc_capacity;
     int relocation_count;
 
     // String tables
-    char strtab[ELF_MAX_STRING_LEN];      // Symbol names
+    char *strtab;                        // Symbol names (dynamically growing)
+    size_t strtab_capacity;
     size_t strtab_size;
     char shstrtab[ELF_MAX_STRING_LEN];    // Section names
     size_t shstrtab_size;

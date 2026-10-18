@@ -1,6 +1,9 @@
 #ifndef ZERO_CC_TYPES_GLOBAL_VARS_H
 #define ZERO_CC_TYPES_GLOBAL_VARS_H
 
+#include <stdlib.h>
+#include <string.h>
+
 /* Global Variable Declaration */
 typedef struct {
     char name[128];
@@ -11,26 +14,34 @@ typedef struct {
     bool has_initializer;     /* Has = expression */
 } ZeroCCGlobalVar;
 
-/* Global variable storage */
-#define ZERO_CC_MAX_GLOBALS 256
+/* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
+#define ZERO_CC_GLOBALS_INITIAL_CAPACITY 64
 
 #ifdef ZERO_CC_GLOBAL_VARS_IMPL
-ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
+ZeroCCGlobalVar *global_vars = NULL;
+size_t global_var_capacity = 0;
 size_t global_var_count = 0;
 #else
-extern ZeroCCGlobalVar global_vars[ZERO_CC_MAX_GLOBALS];
+extern ZeroCCGlobalVar *global_vars;
+extern size_t global_var_capacity;
 extern size_t global_var_count;
 #endif
 
-/* Reset global variable state at compilation start */
+/* Reset global variable state at compilation start (table kept for reuse) */
 static inline void reset_global_vars(void) {
     global_var_count = 0;
 }
 
-/* Add global variable, return index or -1 on error */
+/* Add global variable, return index or -1 on allocation failure */
 static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) __attribute__((unused));
 static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) {
-    if (global_var_count >= ZERO_CC_MAX_GLOBALS) return -1;
+    if (global_var_count >= global_var_capacity) {
+        size_t new_cap = global_var_capacity ? global_var_capacity * 2 : ZERO_CC_GLOBALS_INITIAL_CAPACITY;
+        ZeroCCGlobalVar *grown = (ZeroCCGlobalVar *)realloc(global_vars, new_cap * sizeof(ZeroCCGlobalVar));
+        if (!grown) return -1; /* allocation failure only */
+        global_vars = grown;
+        global_var_capacity = new_cap;
+    }
     ZeroCCGlobalVar *gv = &global_vars[global_var_count++];
     strncpy(gv->name, name, sizeof(gv->name) - 1);
     gv->name[sizeof(gv->name) - 1] = '\0';

@@ -45,7 +45,9 @@ static inline void zero_flatten_tpht_init_overflow(ZeroFlattenTpht *tpht) {
     if (!tpht || tpht->overflow_table) return;
     ZeroFlattenTpht *overflow = (ZeroFlattenTpht *)zero_posix_calloc(1, sizeof(ZeroFlattenTpht));
     if (!overflow) return;
-    size_t overflow_blocks = 61; // Prime number, different from primary's 64
+    /* Overflow sized ~95% of the primary (odd count, different size decorrelates
+     * the two probe spaces; 64 -> 61 as before, 256 -> 247). */
+    size_t overflow_blocks = tpht->block_count - (tpht->block_count >> 5) - 1;
     if (overflow_blocks == 0) overflow_blocks = 1;
     if (zero_flatten_tpht_init(overflow, overflow_blocks) == 0) {
         tpht->overflow_table = overflow;

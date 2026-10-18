@@ -740,7 +740,7 @@ static int compile_object(CompileOptions *opts) {
         ZeroCCReloc *r = &comp->relocs[i];
         int symbol_idx = 0;
         for (int j = 0; j < elf_ctx.symbol_count; j++) {
-            if (strcmp(elf_ctx.symbols[j].name, r->target_symbol) == 0) {
+            if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, r->target_symbol) == 0) {
                 symbol_idx = j + 1;
                 break;
             }
@@ -791,7 +791,7 @@ static int compile_object(CompileOptions *opts) {
                 const char *tname = global_vars[dr->target_global_idx].name;
                 int sym_idx = 0;
                 for (int j = 0; j < elf_ctx.symbol_count; j++) {
-                    if (strcmp(elf_ctx.symbols[j].name, tname) == 0) { sym_idx = j + 1; break; }
+                    if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, tname) == 0) { sym_idx = j + 1; break; }
                 }
                 if (sym_idx > 0) {
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
