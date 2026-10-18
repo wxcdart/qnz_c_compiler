@@ -42,9 +42,9 @@ Original report: 230 `int` locals OK, 232 → hang, 400+ → segfault. **Refined
 
 `b.p->v` (local struct), `b->p->v` (param), and deeper multi-segment `->`/`.` chains (including nested pointers, floats, and compound assignments like `o.p->f += 0.5f`) now lower correctly via `lower_member_chain_addr`. Pointer dereference store width is also type-sized (1/2/4/8 bytes) to avoid adjacent struct field clobbering. All 21 checks in `/tmp/frag/c5/c5_all.c` pass in both AOT (`-o`) and JIT (`--run`).
 
-### C6. Float locals broken in the AOT `-S` path (pre-existing, all ISAs) — **OPEN**
+### C6. Float locals broken in the AOT `-S` path (pre-existing, all ISAs) — **RESOLVED**
 
-Float/double locals lower to `OP_FLOAD`/`OP_FSTORE` (float stack access). The three ISA **asm** emitters (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) never implemented them: the `-S` output contains literal `# UNKNOWN: FLOAD/FSTORE` comment lines and the computed value is garbage. Pre-existing on the pre-C2b baseline (byte-identical `-S`); the JIT and AOT-ELF (`-o`) paths implement the ops via the MC backend and work correctly. Discovered during C2b `-S` roundtrip verification (which also uncovered the extend-width bug in `asm_emitter.c`, now fixed).
+Float/double locals lowering to `OP_FLOAD`/`OP_FSTORE` (float stack access) are now implemented across all three ISA assembly backends (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) via `emit_load_fp_asm` and `emit_store_fp_asm` vtable callbacks. Float call arguments in `x86_emit_call_asm`, `aarch64_emit_call_asm`, and `riscv_emit_call_asm` now also resolve their source register names from `fp_regs` rather than GPR tables. Verified with `-S` output roundtrip assembled and linked via `gas`/`gcc` with exact results.
 
 ---
 
@@ -54,9 +54,18 @@ Float/double locals lower to `OP_FLOAD`/`OP_FSTORE` (float stack access). The th
 
 **Refined (Sprint 23)**: the original ~115 boundary was C2 in disguise (temp exhaustion at ~118-deep `+0` chains). The *real* H1 is a **parser stack overflow**: recursive-descent expression parsing uses ~18 stack frames per nesting level, so the default 8 MB main-thread stack exhausts near depth 200 (backtrace: 3600+ frames of `parse_primary_ast` → `parse_assignment_ast` cycles; non-deterministic segfault/hang depending where the overflow lands). Verified: with `ulimit -s 65536`, depth-200 parses fine and reaches the C2a temp guard. Pre-existing; independent of C2. gcc handles 120 (and far more) trivially.
 
-### H2. Diagnostics do not stop compilation
+### H2. Diagnostics do not stop compilation — **RESOLVED**
 
-Errors such as `undefined local variable`, `failed to insert symbol`, `use of undeclared identifier` are printed, but compilation **continues and produces a binary** (often with wrong semantics, rc=0). Broken builds pass silently.
+Errors such as `undefined local variable`, `failed to insert symbol`, `use of undeclared identifier`, or syntax errors in declarations and statements were previously printed, but compilation could continue and produce an invalid binary or execute partial JIT code.
+
+**Resolution**:
+1. **Immediate Error Propagation**: Whenever semantic analysis fails in `zero_cc_compile_function()`, `c->had_error` is immediately asserted (`c->had_error = 1`), preventing subsequent function compilation or code emission from continuing with broken state.
+2. **JIT Execution Gate**: `zero_cc_execute_jit()` now explicitly guards `if (!c || c->had_error || c->text_section.length == 0) return -1;`, guaranteeing that no partially generated code is executed when diagnostics have fired.
+3. **Fatal Syntax Errors**: Top-level declaration parser now reports diagnostics (`diag_report_error_at_token()`) and halts on unconsumed file-scope tokens, syntax errors in `extern`, `_Thread_local`, or global variable declarations, and `void` typed variables.
+4. **Statement Synchronization Diagnostic**: Unparseable statements inside compound blocks now log an error diagnostic before synchronization, ensuring silent syntax errors cannot pass undetected.
+5. **Lexer Error Propagation**: Tokenization errors now immediately set `c->had_error = 1` and record a diagnostic error.
+6. **No Duplicate Diagnostics**: Removed duplicate diagnostic printing between `zero_cc_compile_function()` and `compile_unit.h` end-of-TU diagnostic sync.
+7. **Complete Verification**: 140/140 tests pass in `make test`, SRET ABI verifier 6/6 pass, and invalid syntax/semantics reliably fail compilation with exit code 1 in both AOT and JIT modes.
 
 ---
 

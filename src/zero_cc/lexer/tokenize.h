@@ -55,8 +55,14 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
             break;  /* EOF */
         }
         if (ret == -1) {      /* Error */
+            c->had_error = 1;
+            snprintf(c->error_msg, sizeof(c->error_msg), "Lexer error at line %zu, col %zu", lx.line, lx.col);
             const char *file = c->diag_buf.default_file ? c->diag_buf.default_file : "<stdin>";
-            diag_report_error_file(&c->diag_buf, file, lx.line, lx.col, NULL, "Lexer error");
+            if (c->diag_buf.tmp_arena) {
+                diag_report_error_file(&c->diag_buf, file, (uint32_t)lx.line, (uint32_t)lx.col, NULL, "%s", c->error_msg);
+            } else {
+                fprintf(stderr, "%s:%zu:%zu: error: %s\n", file, lx.line, lx.col, c->error_msg);
+            }
             break;
         }
 
@@ -90,6 +96,13 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
                         c->pack_ev_val[c->pack_ev_n++] = cur_pack;
                     }
                     lx.cur = eol; /* newline handled by the lexer */
+                    lx.offset += (size_t)(eol - tok->src);
+                    continue;
+                } else {
+                    /* Any other pragma forwarded from preprocessor is dropped */
+                    const char *eol = q;
+                    while (*eol && *eol != '\n') eol++;
+                    lx.cur = eol;
                     lx.offset += (size_t)(eol - tok->src);
                     continue;
                 }

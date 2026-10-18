@@ -458,6 +458,18 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
             
         /* Floating Point */
+        case OP_FLOAD:
+            if (BE(c)->emit_load_fp_asm) {
+                BE(c)->emit_load_fp_asm(c, phys_dst, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_FSTORE:
+            if (BE(c)->emit_store_fp_asm) {
+                BE(c)->emit_store_fp_asm(c, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
         case OP_FADD:
             if (BE(c)->emit_fp_add_asm) {
                 BE(c)->emit_fp_add_asm(c, phys_dst, phys_src1, phys_src2, out);

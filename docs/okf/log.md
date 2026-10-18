@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-18T04:39:58Z
+timestamp: 2026-10-18T11:44:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -113,3 +113,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-18 — Updated `frontend-and-types.md`
 - Resolve C5 multi-segment member chains through pointer members and width-safe pointer deref stores
+
+## 2026-10-18 — Updated `scalar-float-x86.md`
+- Resolve C6 scalar float stack load/store (OP_FLOAD/OP_FSTORE) and FP call arg emission in AOT -S path across x86-64, AArch64, and RISC-V
+
+## 2026-10-18 — Updated `architecture-pipeline.md`
+- Resolve H2: ensure compiler diagnostics and syntax errors halt compilation cleanly across JIT and AOT modes

@@ -399,7 +399,9 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
-        const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+        const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
+                                   ? BE(c)->regs->fp_regs[phys_reg]
+                                   : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         if (arg_is_fp == 1 && fp_arg_idx < 8) {
             fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
@@ -515,6 +517,20 @@ static void x86_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
 /* JGE */
 static void x86_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
     fprintf(out, "\tjge\t%s\n", label);
+}
+
+/* FP LOAD: movsd offset(%base), %xmm */
+static void x86_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    const char *dst_name = BE(c)->regs->fp_regs[dst];
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tmovsd\t%d(%%%s),%%%s\n", offset, base_name, dst_name);
+}
+
+/* FP STORE: movsd %xmm, offset(%base) */
+static void x86_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    const char *src_name = BE(c)->regs->fp_regs[src];
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tmovsd\t%%%s,%d(%%%s)\n", src_name, offset, base_name);
 }
 
 /* FP ADD */
@@ -875,6 +891,8 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_jle_asm = x86_emit_jle_asm;
     be->emit_jgt_asm = x86_emit_jgt_asm;
     be->emit_jge_asm = x86_emit_jge_asm;
+    be->emit_load_fp_asm = x86_emit_load_fp_asm;
+    be->emit_store_fp_asm = x86_emit_store_fp_asm;
     be->emit_fp_add_asm = x86_emit_fp_add_asm;
     be->emit_fp_sub_asm = x86_emit_fp_sub_asm;
     be->emit_fp_mul_asm = x86_emit_fp_mul_asm;

@@ -425,8 +425,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
              * are executed inside zero_cc_lower_ast(). */
         } else {
-            if (ctx->diags) semantic_print_diagnostics(ctx->diags, stderr);
-            /* Error already reported via semantic_print_diagnostics */
+            c->had_error = 1;
+            /* Errors are recorded in ctx->diags and merged into c->diag_buf at TU end */
         }
 
         // Restore scope and return type after analysis

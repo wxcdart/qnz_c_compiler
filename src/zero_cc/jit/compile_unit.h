@@ -239,7 +239,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                 continue;
             } else {
-                /* Syntax error: skip until semicolon */
+                /* Syntax error: report error and skip until semicolon */
+                diag_report_error_at_token(c, "expected identifier in extern declaration");
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                 continue;
@@ -282,6 +283,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
             c->tokens[c->token_pos].type == TK_ENUM ||
+            c->tokens[c->token_pos].type == TK_ATOMIC ||
             c->tokens[c->token_pos].type == TK_IDENT)) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
@@ -320,6 +322,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     c->token_pos = global_start;
                 } else {
                     /* This is a variable declaration (may declare several names: int a, b = 3;) */
+                    if (gtype.tag == TYPE_VOID) {
+                        diag_report_error_at_token(c, "variable declared with void type");
+                        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                        continue;
+                    }
                     size_t elem_size = gtype.size > 0 ? gtype.size : 8;
                     size_t elem_align = gtype.align > 0 ? gtype.align : 8;
                     if (elem_align < 8) elem_align = 8;
@@ -602,7 +610,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     continue; /* Skip function parser for variables */
                 }
             } else {
-                /* Syntax error: skip until semicolon */
+                /* Syntax error: report error and skip until semicolon */
+                diag_report_error_at_token(c, "expected identifier in declaration");
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                 continue;
@@ -634,7 +643,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     c->tls_backend->declare(c, var_name, &vtype, init_val);
                 }
             } else {
-                // Syntax error: skip until semicolon
+                // Syntax error: report error and skip until semicolon
+                diag_report_error_at_token(c, "expected identifier in _Thread_local declaration");
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
             }
@@ -648,8 +658,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         }
         /* Top level functions */
         zero_cc_compile_function(c, &shared_ctx, perm);
-        if (c->had_error) break;
         if (c->token_pos == prev_pos) {
+            diag_report_error_at_token(c, "unexpected token at file scope");
             c->token_pos++;
         }
     }

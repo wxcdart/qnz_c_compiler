@@ -142,8 +142,10 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
                 }
             } else {
-                /* If statement failed to parse or did not advance token position, synchronize */
+                /* If statement failed to parse or did not advance token position, report error and synchronize */
                 if (c->token_pos == entry_pos) {
+                    diag_report_error_at_token(c, "unexpected token '%s' in statement",
+                                               c->tokens[c->token_pos].str_val[0] ? c->tokens[c->token_pos].str_val : "unknown");
                     zero_cc_synchronize_ast(c);
                 }
             }

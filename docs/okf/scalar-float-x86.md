@@ -4,7 +4,7 @@ title: Scalar Float Pipeline (x86-64) & WSL2 RX-Page 128-Byte Read Limitation
 description: ZeroCC's scalar FP model (all float/double values live in 64-bit double form), the VLOADSS/SD and VSTORESS/SD emitters (movss/movsd + widen/narrow), the XMM-vs-VEC register-class rule for scalar V loads, and the WSL2 general-protection-fault limitation for 128-bit memory reads from RX pages.
 resource: backend/scalar-float-x86
 tags: [backend, x86_64, floating-point, xmm, wsl2, register-allocation, movss, movsd]
-timestamp: 2026-10-17T20:53:11Z
+timestamp: 2026-10-18T10:55:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -96,6 +96,14 @@ while 32/64-bit reads from the same page work fine. ZeroCC's JIT maps
 - **Global float/double compound assignment** (`g += 0.5f`): uses
   `VLOADSS/SD` + `FADD/FSUB/FMUL/FDIV` + `VSTORESS/SD`; integer bit-pattern
   arithmetic on the IEEE-754 value is wrong.
+
+## 6. AOT Assembly Path (`-S`) Float Stack Load/Store & Call Args (C6)
+
+In the AOT assembly emitter path (`src/zero_cc/ir/asm_emitter.c`), scalar float stack accesses (`OP_FLOAD` and `OP_FSTORE`) are handled via target-specific vtable hooks `emit_load_fp_asm` and `emit_store_fp_asm`:
+- **x86-64** (`x86_64_asm.c`): `movsd offset(%base), %xmm` and `movsd %xmm, offset(%base)`.
+- **AArch64** (`aarch64_asm.c`): `ldr dN, [base, #offset]` and `str dN, [base, #offset]` (with `#offset < -256` or large offset expansion via `x9`).
+- **RISC-V** (`riscv_asm.c`): `fld fa, offset(base)` and `fsd fa, offset(base)`.
+- **Function call argument register lookup**: In `x86_emit_call_asm`, `aarch64_emit_call_asm`, and `riscv_emit_call_asm`, float arguments (`is_fp[i] == 1`) query `BE(c)->regs->fp_regs` rather than the general-purpose register array (`get_hw_reg_name`), ensuring valid FP register operands are emitted.
 
 ## Related Concepts
 

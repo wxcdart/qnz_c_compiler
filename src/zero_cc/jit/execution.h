@@ -21,7 +21,7 @@
 #include "../common/mmap_adapter.h"
 
 static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
-    if (!c || c->text_section.length == 0) return -1;
+    if (!c || c->had_error || c->text_section.length == 0) return -1;
 
 #if defined(__linux__) || defined(__APPLE__) || defined(__unix__) || defined(__posix) || defined(__MACH__) || defined(_WIN32)
     size_t page_sz = zero_get_page_size();

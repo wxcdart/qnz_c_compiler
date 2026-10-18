@@ -297,7 +297,9 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
-        const char *reg_name = BE(c)->get_hw_reg_name(phys_reg);
+        const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
+                                   ? BE(c)->regs->fp_regs[phys_reg]
+                                   : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         
         if (arg_is_fp == 2) {
@@ -419,6 +421,20 @@ static void riscv_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 /* JGE: bge t0, zero, label */
 static void riscv_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
     fprintf(out, "\tbge\tt0, zero, %s\n", label);
+}
+
+/* FP LOAD: fld fa, offset(base) */
+static void riscv_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    const char *dst_name = BE(c)->regs->fp_regs[dst];
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tfld\t%s, %d(%s)\n", dst_name, offset, base_name);
+}
+
+/* FP STORE: fsd fa, offset(base) */
+static void riscv_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    const char *src_name = BE(c)->regs->fp_regs[src];
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tfsd\t%s, %d(%s)\n", src_name, offset, base_name);
 }
 
 /* FP ADD: fadd.s/d dst, src1, src2 */
@@ -781,6 +797,8 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_jle_asm = riscv_emit_jle_asm;
     be->emit_jgt_asm = riscv_emit_jgt_asm;
     be->emit_jge_asm = riscv_emit_jge_asm;
+    be->emit_load_fp_asm = riscv_emit_load_fp_asm;
+    be->emit_store_fp_asm = riscv_emit_store_fp_asm;
     be->emit_fp_add_asm = riscv_emit_fp_add_asm;
     be->emit_fp_sub_asm = riscv_emit_fp_sub_asm;
     be->emit_fp_mul_asm = riscv_emit_fp_mul_asm;
