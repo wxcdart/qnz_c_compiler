@@ -1191,7 +1191,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 
                 int32_t total_offset = base_stack_offset + member_offset;
-                
+                                
                 if (left_node->flags & NODE_MEMBER_IS_BITFIELD) {
                     uint8_t bit_offset = (uint8_t)(left_node->aux.step & 0xFF);
                     uint8_t bit_width = (uint8_t)((left_node->aux.step >> 8) & 0xFF);

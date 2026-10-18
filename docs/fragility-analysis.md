@@ -121,7 +121,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 |---|-------|--------------------|-------|
 | M1 | identifiers ≤ **127** chars | clean fatal diagnostic: `identifier exceeds maximum length of 127 characters` | **RESOLVED**: error diagnosed, no truncation |
 | M2 | globals ≤ **256** | **RESOLVED (Sprint 27)**: global table is heap-allocated and grows (init 64, doubles); verified 3000 globals JIT+AOT with data-reloc inits | `globals` 3000 OK both modes |
-| M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | `p4` |
+| M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | **FIXED (Sprint 31)** — `ZeroCCType.members` → heap table, grows on demand; OOM = clean fatal diagnostic |
 | M4 | IR dump shows `imm` (int16) not `imm64` | large immediates displayed truncated (e.g. `2000000000` shown as `-27648`); **emission is correct** (uses `imm64`) — misleading for debugging only | `p11` IR dump |
 | M5 | locals ≤ **~3000 per scope** (was C4) | clean fatal `failed to insert symbol` diagnostic, no binary (scope TPHT raised 64→256 blocks in Sprint 27; was ~758) | `locals` 1000 OK / ~3000 clean COMPILE-ERR |
 
@@ -146,7 +146,7 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 | Switch cases | unbounded (jump tables) | ~32k cap (16-bit labels, O(n) dispatch) - 1500 verified | capability (no practical C code approaches this) |
 | Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`) — clean fatal diagnostic since Sprint 25 | M1 - **RESOLVED** (Sprint 25) |
 | Globals per TU | unbounded | dynamic (verified 3000) | M2 - **RESOLVED** (Sprint 26) |
-| Struct members | unbounded | 64 (silent drop) | M3 |
+| Struct members | unbounded | 64 (silent drop) | M3 - **RESOLVED (Sprint 31)** |
 | Nested-expression parse depth | very deep (gcc's recursive descent survives far more than ~200 on an 8MB stack) | ~200 (parser stack overflow, H1) | H1 - fix = bigger stack or iterative descent |
 
 Key distinction after Sprints 22–29: every former **C-tier** correctness bug was a cap or liveness bug that *silently miscompiled*; the remaining limits now *fail clean* (diagnostic, no binary) except M3 which still drops silently (top candidate if more conformance headroom is wanted). **All C-tier items C1–C11 and both H-tier items (H1/H2) are RESOLVED** (C9/C11 fixed and C10 reclassified in Sprint 29).

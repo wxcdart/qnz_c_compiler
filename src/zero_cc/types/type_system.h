@@ -2,6 +2,8 @@
 #define ZERO_CC_TYPES_TYPE_SYSTEM_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
 
 typedef enum {
     TYPE_VOID,
@@ -54,7 +56,8 @@ typedef struct ZeroCCType {
     size_t align;
     struct ZeroCCType *base;              /* For PTR and ARRAY */
     size_t array_len;                     /* For ARRAY */
-    ZeroCCStructMember members[64];       /* For STRUCT */
+    ZeroCCStructMember *members;     /* For STRUCT/UNION (heap; NULL when none) */
+    size_t members_cap;              /* capacity of the heap members array */
     bool is_atomic;                       /* For _Atomic */
     bool is_const;
     bool is_volatile;
@@ -64,6 +67,26 @@ typedef struct ZeroCCType {
 
     size_t member_count;
 } ZeroCCType;
+
+/* Grow the (heap) member table of a struct/union type on demand (M3: the
+ * fixed 64-member array silently dropped members beyond the cap). The array
+ * is only mutated while the struct body is being parsed, before the type is
+ * registered/shared, so all copies of a ZeroCCType may share it read-only. */
+static inline bool zero_cc_type_reserve_members(ZeroCCType *t, size_t need) {
+    if (need <= t->members_cap) return true;
+    size_t old_cap = t->members_cap;
+    size_t cap = old_cap ? old_cap : 8;
+    while (cap < need) cap *= 2;
+    ZeroCCStructMember *nm = (ZeroCCStructMember *)realloc(t->members, cap * sizeof(*nm));
+    if (!nm) return false;
+    /* Newly grown capacity must be zeroed: member write sites set fields
+     * individually and rely on the rest (e.g. .base for scalars) being 0 -
+     * the same invariant the old inline (zero-initialized) array provided. */
+    if (cap > old_cap) memset(nm + old_cap, 0, (cap - old_cap) * sizeof(*nm));
+    t->members = nm;
+    t->members_cap = cap;
+    return true;
+}
 
 /* Type Definitions & Struct Registry */
 typedef struct {

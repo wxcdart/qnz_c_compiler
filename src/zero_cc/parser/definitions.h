@@ -8,6 +8,15 @@
 /* Forward declaration */
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union);
 
+/* M3: the struct/union member table is heap-backed (it was a fixed 64-entry
+ * array and the 65th+ member was silently dropped). Reserve one slot for the
+ * next member; on OOM report a clean fatal diagnostic (had_error => no binary). */
+static inline bool struct_member_room(ZeroCCCompiler *c, ZeroCCType *st) {
+    if (zero_cc_type_reserve_members(st, st->member_count + 1)) return true;
+    diag_report_error_at_token(c, "out of memory adding struct member");
+    return false;
+}
+
 /* Parse struct or union body { ... } */
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     ZeroCCType st; memset(&st, 0, sizeof(st));
@@ -157,7 +166,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
                 /* Flatten inner members into current struct/union */
                 for (size_t i = 0; i < inner_type.member_count; i++) {
-                    if (st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                    if (struct_member_room(c, &st)) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         *m = inner_type.members[i];
                         m->offset += anon_offset;
@@ -206,7 +215,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             if (effective_align > st.align) st.align = effective_align;
 
             if (is_union) {
-                if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                if (mname[0] != '\0' && struct_member_room(c, &st)) {
                     ZeroCCStructMember *m = &st.members[st.member_count++];
                     snprintf(m->name, sizeof(m->name), "%s", mname);
                     m->offset = 0;
@@ -223,7 +232,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             } else {
                 /* Align offset based on effective_align (already pack-capped) */
                 current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
-                if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                if (mname[0] != '\0' && struct_member_room(c, &st)) {
                     ZeroCCStructMember *m = &st.members[st.member_count++];
                     snprintf(m->name, sizeof(m->name), "%s", mname);
                     m->offset = current_offset;
@@ -392,7 +401,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
 
             if (is_union) {
-                if (st.member_count < sizeof(st.members)/sizeof(st.members[0]) && mname[0] != '\0') {
+                if (struct_member_room(c, &st) && mname[0] != '\0') {
                     ZeroCCStructMember *m = &st.members[st.member_count++];
                     snprintf(m->name, sizeof(m->name), "%s", mname);
                     m->offset = 0;
@@ -470,7 +479,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             size_t m_offset = bitfield_storage_offset;
                             uint8_t m_bit_off = (uint8_t)bitfield_bit_offset;
                             bitfield_bit_offset += bit_width;
-                            if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                            if (mname[0] != '\0' && struct_member_room(c, &st)) {
                                 ZeroCCStructMember *m = &st.members[st.member_count++];
                                 snprintf(m->name, sizeof(m->name), "%s", mname);
                                 m->offset = m_offset;
@@ -502,7 +511,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             bitfield_storage_size = base_size;
                             bitfield_bit_offset = bit_width;
                             in_bitfield = true;
-                            if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                            if (mname[0] != '\0' && struct_member_room(c, &st)) {
                                 ZeroCCStructMember *m = &st.members[st.member_count++];
                                 snprintf(m->name, sizeof(m->name), "%s", mname);
                                 m->offset = bitfield_storage_offset;
@@ -533,7 +542,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         in_bitfield = false;
                     }
                     current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
-                    if (mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                    if (mname[0] != '\0' && struct_member_room(c, &st)) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", mname);
                         m->offset = current_offset;
@@ -652,7 +661,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 }
 
                 if (is_union) {
-                    if (st.member_count < sizeof(st.members)/sizeof(st.members[0]) && c_mname[0] != '\0') {
+                    if (struct_member_room(c, &st) && c_mname[0] != '\0') {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", c_mname);
                         m->offset = 0;
@@ -715,7 +724,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         in_bitfield = false;
                     }
                     current_offset = (current_offset + c_effective_align - 1) & ~(c_effective_align - 1);
-                    if (c_mname[0] != '\0' && st.member_count < sizeof(st.members)/sizeof(st.members[0])) {
+                    if (c_mname[0] != '\0' && struct_member_room(c, &st)) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", c_mname);
                         m->offset = current_offset;
