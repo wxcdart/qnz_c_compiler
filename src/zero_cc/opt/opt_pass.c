@@ -27,17 +27,17 @@ static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
 // Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> GVN -> LICM -> strength reduction -> branch simplify -> auto-vectorize
 // Note: mem2reg now enabled with safe VLA handling
 static const OptPass g_opt_passes[] = {
-    { "constant_fold", opt_pass_constant_fold, 1, 10 },
-    { "flag_dce", opt_pass_flag_dce, 1, 20 },
-    { "dce", opt_pass_dce, 1, 30 },
-    { "copy_prop", opt_pass_copy_prop, 1, 35 },  /* Enabled: conservative implementation */
-    { "mem2reg", opt_pass_mem2reg, 1, 40 },  /* Enabled for testing */
-    { "cse", opt_pass_cse, 1, 45 },
-    { "gvn", opt_pass_gvn, 1, 50 },  /* Enabled: basic block GVN */
-    { "licm", opt_pass_licm, 1, 50 },
-    { "strength_reduction", opt_pass_strength_reduction, 1, 60 },
-    { "branch_simplify", opt_pass_branch_simplify, 1, 70 },
-    { "auto_vectorize", opt_pass_auto_vectorize, 1, 80 },
+    { "constant_fold", opt_pass_constant_fold, 1, 10, OPT_LEVEL_O1 },
+    { "flag_dce", opt_pass_flag_dce, 1, 20, OPT_LEVEL_O1 },
+    { "dce", opt_pass_dce, 1, 30, OPT_LEVEL_O1 },
+    { "copy_prop", opt_pass_copy_prop, 1, 35, OPT_LEVEL_O2 },
+    { "mem2reg", opt_pass_mem2reg, 1, 40, OPT_LEVEL_O2 },
+    { "cse", opt_pass_cse, 1, 45, OPT_LEVEL_O2 },
+    { "gvn", opt_pass_gvn, 1, 50, OPT_LEVEL_O2 },
+    { "licm", opt_pass_licm, 1, 55, OPT_LEVEL_O3 },
+    { "strength_reduction", opt_pass_strength_reduction, 1, 60, OPT_LEVEL_O3 },
+    { "branch_simplify", opt_pass_branch_simplify, 1, 65, OPT_LEVEL_O3 },
+    { "auto_vectorize", opt_pass_auto_vectorize, 1, 70, OPT_LEVEL_O3 },
 };
 
 #define OPT_PASS_COUNT (sizeof(g_opt_passes) / sizeof(g_opt_passes[0]))
@@ -62,6 +62,9 @@ void opt_run_passes(ZeroCCCompiler *c) {
             const OptPass *pass = &g_opt_passes[i];
             int enabled = pass->enabled_by_default;
             if (!enabled) continue;
+
+            /* Check if this pass is enabled at the current optimization level */
+            if (!opt_is_enabled(pass->min_level)) continue;
 
             int before_count = (int)ir_get_count();
             pass->run(c);

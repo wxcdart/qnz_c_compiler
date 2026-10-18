@@ -24,6 +24,7 @@ typedef struct OptPass {
     void (*run)(ZeroCCCompiler *c);
     int enabled_by_default;
     int priority;  // Lower = run first
+    OptLevel min_level;  // Minimum optimization level required
 } OptPass;
 
 /**

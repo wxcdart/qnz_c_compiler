@@ -319,6 +319,9 @@ static int compile_jit(CompileOptions *opts) {
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+
+    /* Store optimization level in compiler for use by ast_lowering */
+    comp->opt_level = (OptLevel)opts->opt_level;
     
     /* Preprocess */
     char *prep = zero_cc_preprocess(source, NULL);
@@ -332,15 +335,6 @@ static int compile_jit(CompileOptions *opts) {
     /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
-    
-    /* Initialize optimization level */
-    if (opts->opt_level >= 2) {
-        opt_init(OPT_LEVEL_O2);
-    } else if (opts->opt_level >= 1) {
-        opt_init(OPT_LEVEL_O1);
-    } else {
-        opt_init(OPT_LEVEL_NONE);
-    }
     
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
@@ -496,6 +490,9 @@ static int compile_object(CompileOptions *opts) {
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+
+    /* Store optimization level in compiler for use by ast_lowering */
+    comp->opt_level = (OptLevel)opts->opt_level;
     
     /* Preprocess */
     char *prep = zero_cc_preprocess(source, NULL);
@@ -509,15 +506,6 @@ static int compile_object(CompileOptions *opts) {
     /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
-    
-    /* Initialize optimization */
-    if (opts->opt_level >= 2) {
-        opt_init(OPT_LEVEL_O2);
-    } else if (opts->opt_level >= 1) {
-        opt_init(OPT_LEVEL_O1);
-    } else {
-        opt_init(OPT_LEVEL_NONE);
-    }
     
     /* Enable IR dump if requested */
     if (opts->dump_ir) {

@@ -15,6 +15,7 @@
 #include "../ir/lowering_state.h"
 #include "../ir/label_patcher.h"
 #include "../ir/ir_arena.h"
+#include "../opt/opt_pass.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
@@ -109,6 +110,9 @@ typedef struct ZeroCCCompiler {
     bool dump_ir;  /* Dump IR after lowering */
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
+
+    /* Optimization level (from -O flag) */
+    OptLevel opt_level;
 
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */

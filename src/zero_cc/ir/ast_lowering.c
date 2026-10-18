@@ -132,7 +132,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
     
     /* 1. Run IR optimization passes FIRST (before register allocation) */
-    opt_init(OPT_LEVEL_O1);
+    opt_init(c->opt_level);
     opt_run_passes(c);
     opt_shutdown();
     
