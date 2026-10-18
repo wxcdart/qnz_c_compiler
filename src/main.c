@@ -9,6 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+#include <sys/resource.h>
+#endif
 
 #include "zero_cc.h"
 #include "zero_cc/opt/opt_pass.h"
@@ -836,6 +839,16 @@ static int compile_and_link(CompileOptions *opts) {
 }
 
 int main(int argc, char **argv) {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_STACK, &rl) == 0) {
+        rlim_t target = 64 * 1024 * 1024;
+        if (rl.rlim_cur < target) {
+            rl.rlim_cur = (rl.rlim_max != RLIM_INFINITY && target > rl.rlim_max) ? rl.rlim_max : target;
+            setrlimit(RLIMIT_STACK, &rl);
+        }
+    }
+#endif
     CompileOptions opts;
     
     int ret = parse_args(argc, argv, &opts);

@@ -84,6 +84,7 @@ typedef struct ZeroCCCompiler {
     const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
     int had_error;
     char error_msg[256];
+    int expr_depth;                       /* Expression parser recursion depth counter */
 
     /* Rich diagnostics system */
     DiagBuf diag_buf;

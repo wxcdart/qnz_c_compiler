@@ -50,9 +50,13 @@ Float/double locals lowering to `OP_FLOAD`/`OP_FSTORE` (float stack access) are 
 
 ## HIGH
 
-### H1. ~200 nested expression depth → parser stack overflow (segfault/hang at compile time)
+### H1. ~200 nested expression depth → parser stack overflow (segfault/hang at compile time) — **RESOLVED**
 
-**Refined (Sprint 23)**: the original ~115 boundary was C2 in disguise (temp exhaustion at ~118-deep `+0` chains). The *real* H1 is a **parser stack overflow**: recursive-descent expression parsing uses ~18 stack frames per nesting level, so the default 8 MB main-thread stack exhausts near depth 200 (backtrace: 3600+ frames of `parse_primary_ast` → `parse_assignment_ast` cycles; non-deterministic segfault/hang depending where the overflow lands). Verified: with `ulimit -s 65536`, depth-200 parses fine and reaches the C2a temp guard. Pre-existing; independent of C2. gcc handles 120 (and far more) trivially.
+**Refined (Sprint 23)**: the original ~115 boundary was C2 in disguise (temp exhaustion at ~118-deep `+0` chains). The *real* H1 was a **parser stack overflow**: recursive-descent expression parsing used ~18 stack frames per nesting level, so the default 8 MB main-thread stack exhausted near depth 200 (backtrace: 3600+ frames of `parse_primary_ast` → `parse_assignment_ast` cycles; non-deterministic segfault/hang depending where the overflow lands).
+- **Resolution**:
+  1. Raised process stack limit (`RLIMIT_STACK`) automatically in `main()` to 64 MB when permitted by OS limits.
+  2. Added an explicit recursion guard in `parse_primary_ast()` that tracks `c->expr_depth` and cleanly diagnoses `expression nesting depth exceeds parser limit` if depth exceeds 150 before thread stack exhaustion can crash.
+  3. Probes verify `expr-depth 150` passes JIT & AOT, and `151` cleanly errors (`COMPILE-ERR(rc=1)`) instead of crashing/hanging.
 
 ### H2. Diagnostics do not stop compilation — **RESOLVED**
 
@@ -126,4 +130,4 @@ Key distinction after Sprints 22–24: every former **C-tier** bug was a cap tha
 6. **C6** implement `OP_FLOAD/OP_FSTORE` in the three asm emitters (float locals in `-S` output).
 7. **H2** make diagnostics fatal by default.
 8. **M1** ~~error (not truncate) on identifiers >127~~ — **Fixed**: emit clean fatal diagnostic on identifiers exceeding 127 chars.
-9. **H1** raise parser stack or iterate the expression recursion.
+9. **H1** ~~raise parser stack or iterate the expression recursion~~ — **Fixed**: raised stack to 64MB and added expression depth guard (clean error at 151+).

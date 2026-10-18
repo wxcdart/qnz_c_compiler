@@ -433,9 +433,17 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             }
             c->token_pos = cast_start;
         }
+        if (c->expr_depth >= 150) {
+            diag_report_error_at_token(c, "expression nesting depth exceeds parser limit");
+            c->had_error = 1;
+            c->token_pos++;
+            return AST_NULL;
+        }
 
         c->token_pos++;
+        c->expr_depth++;
         ASTRef inner = parse_expr_ast_internal(c, arena);
+        c->expr_depth--;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
             c->token_pos++;
         }
