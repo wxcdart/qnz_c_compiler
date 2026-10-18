@@ -106,7 +106,96 @@ def probe_name_len(n):
     return "int %s=1;\nint %s=2;\nint main(void){return %s==1&&%s==2?0:1;}\n" % (a, b, a, b)
 
 
+# C1 is a *correctness* bug (silent wrong values), not a quantity boundary:
+# there is no N at which a correct compiler starts failing. The probe is an
+# ordered regression battery; N = how many assertions to enable, and a
+# failure returns the 1-based index of the first broken assertion, so
+# WRONG(rc=k) identifies the regression directly. --bisect is not meaningful
+# for this family (a correct compiler passes every N).
+#
+# NOTE: gcc 13.3 misattributes a bogus "no semicolon at end of struct or
+# union" warning to the struct definition whenever ANY function body in the
+# TU has a local declaration (the generated code is strictly conforming;
+# the warning is a gcc position bug and does not affect the rc cross-check).
+C1_CHECKS = [
+    ("int add overflow",          "int a=2000000000;int b=a+a",                 "b!=-294967296"),
+    ("int inc to INT_MIN",        "int x=2147483647;x++",                       "x!=-2147483648"),
+    ("int dec to INT_MIN",        "int x=-2147483647;x--",                      "x!=-2147483648"),
+    ("char 127+1 wraps",          "char c=127;c++",                             "c!=-128"),
+    ("uchar 255+1 wraps to 0",    "unsigned char uc=255;uc++",                  "uc!=0"),
+    ("schar -128-1 wraps",        "signed char sc=-128;sc--",                   "sc!=127"),
+    ("short 32767+1 wraps",       "short s=32767;s++",                          "s!=-32768"),
+    ("ushort 65535+1 wraps",      "unsigned short us=65535;us++",               "us!=0"),
+    ("short -32768-1 wraps",      "short s=-32768;s--",                         "s!=32767"),
+    ("int 1<<31",                 "int x=1",                                    "(x<<31)!=-2147483648"),
+    ("INT_MIN>>1 arithmetic",     "int x=-2147483648",                          "(x>>1)!=-1073741824"),
+    ("uint 1u<<31",               "unsigned u=1u",                              "(u<<31)!=2147483648u"),
+    ("-16>>2 arithmetic",         "int x=-16",                                  "(x>>2)!=-4"),
+    ("int add across INT_MAX",    "int x=2147483647;int y=x+100",               "y!=-2147483549"),
+    ("uint 2^32-1 +1 wraps",      "unsigned u=4294967295u;u++",                 "u!=0"),
+    ("cast u32->int narrows",     "unsigned u=4000000000u;int i=(int)u",        "i!=-294967296"),
+    ("cast int->uchar",           "int x=-5;unsigned char uc=(unsigned char)x","uc!=251"),
+    ("cast int->char",            "int x=300;char c=(char)x",                   "c!=44"),
+    ("param passing narrow mix",  "",                                           "__PARAM__"),
+    ("return uchar value",        "",                                           "__RET_UCHAR__"),
+    ("return schar value",        "",                                           "__RET_SCHAR__"),
+    ("global narrow assign",      "char gc;unsigned char guc;gc=127;guc=255",   "gc!=127||guc!=255"),
+    ("global narrow init",        "",                                           "__GINIT__"),
+    ("local struct narrow mem",   "",                                           "__LSM__"),
+    ("global struct narrow mem",  "",                                           "__GSM__"),
+    ("int compound += wrap",      "int x=2147483640;x+=100",                    "x!=-2147483556"),
+    ("~ on narrow int",           "unsigned char uc=(unsigned char)~0x7f",      "uc!=0x80"),
+    ("mixed uchar+ushort add",    "",                                           "__MIXED__"),
+    ("long long 64-bit range",    "long long ll=4000000000000000000LL",         "!(ll>0)"),
+]
+
+# Assertions that need helper functions / file-scope objects, keyed above.
+def _c1_helpers():
+    return ("static int c1_param(int a,unsigned b,short c,unsigned char d){"
+            "return (a==2000000000&&b==4294967295u&&c==-32768&&d==255)?0:1;}\n"
+            "static int c1_ruchar(void){unsigned char x=255;return x;}\n"
+            "static int c1_rschar(void){signed char x=-128;return x;}\n"
+            "char c1_gc=127;unsigned char c1_guc=255;short c1_gs=-32768;\n"
+            "struct C1S{short a;unsigned char b;unsigned short c;int d};\n"
+            "static struct C1S c1_gs_s;\n"
+            "static int c1_mixed(unsigned char a,unsigned short b){"
+            "int s=(int)a+(int)b;return s==320?0:1;}\n")
+
+_C1_SPECIAL = {
+    "__PARAM__":     "c1_param(2000000000,4294967295u,-32768,255)!=0",
+    "__RET_UCHAR__": "c1_ruchar()!=255",
+    "__RET_SCHAR__": "c1_rschar()!=-128",
+    "__GINIT__":     "c1_gc!=127||c1_guc!=255||c1_gs!=-32768",
+    "__LSM__":       "(c1_local_ok()!=0)",
+    "__GSM__":       "(c1_global_ok()!=0)",
+    "__MIXED__":     "c1_mixed(160,160)!=0",
+}
+_C1_LOCAL_HELPERS = (
+    "static int c1_local_ok(void){struct C1S s;s.a=-32768;s.b=255;"
+    "s.c=65535;s.d=2000000000;"
+    "return (s.a==-32768&&s.b==255&&s.c==65535&&s.d==2000000000)?0:1;}\n"
+    "static int c1_global_ok(void){c1_gs_s.a=-32768;c1_gs_s.b=255;"
+    "c1_gs_s.c=65535;c1_gs_s.d=2000000000;"
+    "return (c1_gs_s.a==-32768&&c1_gs_s.b==255&&c1_gs_s.c==65535"
+    "&&c1_gs_s.d==2000000000)?0:1;}\n")
+
+
+def probe_c1_wrap(n):
+    """C1: narrow-int wraparound/signedness regression battery (see C1_CHECKS)."""
+    k = min(max(n, 0), len(C1_CHECKS))
+    blocks = []
+    for i, (label, decls, cond) in enumerate(C1_CHECKS[:k], 1):
+        c = _C1_SPECIAL.get(cond, cond)
+        if decls:
+            blocks.append("  {%s; if(%s) return %d; /* %s */ }" % (decls, c, i, label))
+        else:
+            blocks.append("  {if(%s) return %d; /* %s */ }" % (c, i, label))
+    return (_c1_helpers() + _C1_LOCAL_HELPERS + "int main(void){\n"
+            + "\n".join(blocks) + "\n  return 0;\n}\n")
+
+
 PROBES = {
+    "c1-wrap":        (probe_c1_wrap,        "C1  int wraparound/signedness battery (rc = failing check #)"),
     "nest-calls":     (probe_nest_calls,     "C2  nested calls (temp-id exhaustion)"),
     "expr-depth":     (probe_expr_depth,     "H1  expression depth"),
     "locals":         (probe_locals,         "C4  locals per function"),
