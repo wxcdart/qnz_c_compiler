@@ -214,6 +214,20 @@ void lower_stmt_static_assert(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCAS
 }
 
 void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    /* If currently expanding an inlined function call, redirect return to the target temp and jump to exit label */
+    if (c->lowering.inlining.active_depth > 0) {
+        if (node && node->left != AST_NULL) {
+            int res = lower_expr(c, arena, node->left);
+            if (c->lowering.inlining.return_target_temp >= 0 && res != c->lowering.inlining.return_target_temp) {
+                ir_emit_mov_reg(c->lowering.inlining.return_target_temp, res);
+            }
+        }
+        if (c->lowering.inlining.return_target_label != 0) {
+            ir_emit_jmp(c->lowering.inlining.return_target_label);
+        }
+        return;
+    }
+
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;

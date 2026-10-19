@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 typedef struct SemContext SemContext;
@@ -112,6 +113,9 @@ void zero_cc_ast_arena_init(ZeroCCASTArena *arena, size_t initial_cap);
 void zero_cc_ast_arena_free(ZeroCCASTArena *arena);
 void zero_cc_ast_arena_reset(ZeroCCASTArena *arena);
 ASTRef zero_cc_ast_alloc_node(ZeroCCASTArena *arena, ZeroCCASTTag tag);
+size_t zero_cc_ast_node_count(ZeroCCASTArena *arena, ASTRef root);
+ASTRef zero_cc_ast_clone(ZeroCCASTArena *src_arena, ASTRef root, ZeroCCASTArena *dst_arena);
+bool zero_cc_ast_has_call(ZeroCCASTArena *arena, ASTRef root, const char *target_name);
 static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) {
     if (!arena || ref == AST_NULL || ref >= arena->count) return NULL;
     size_t chunk_idx = ref >> ZERO_CC_AST_CHUNK_BITS;

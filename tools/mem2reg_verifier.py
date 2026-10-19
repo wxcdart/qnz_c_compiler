@@ -245,6 +245,52 @@ int main(void) {
 """,
         "loop_fn": "compute_loop",
     },
+    "inline_leaf_call": {
+        "desc": "Small static inline function call in loop (eliminated OP_CALL)",
+        "code": """
+#include <stdio.h>
+static inline int add3(int a, int b, int c) {
+    return a + b + c;
+}
+int loop_inline(int n) {
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum = add3(sum, i, 1);
+    }
+    return sum;
+}
+int main(void) {
+    int res = loop_inline(10); /* (0+1+...+9) + 10 = 55 */
+    if (res != 55) return 1;
+    printf("OK: inline_leaf_call res=%d\\n", res);
+    return 0;
+}
+""",
+        "loop_fn": "loop_inline",
+    },
+    "inline_min_loop": {
+        "desc": "Inline helper with ternary expression inside compute loop",
+        "code": """
+#include <stdio.h>
+static inline int min_val(int a, int b) {
+    return (a < b) ? a : b;
+}
+int min_loop(int n) {
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += min_val(i & 1, 1);
+    }
+    return sum;
+}
+int main(void) {
+    int res = min_loop(100); /* 50 */
+    if (res != 50) return 1;
+    printf("OK: inline_min_loop res=%d\\n", res);
+    return 0;
+}
+""",
+        "loop_fn": "min_loop",
+    },
 }
 
 def run_cmd(cmd: List[str], timeout: int = 15) -> Tuple[int, str, str]:

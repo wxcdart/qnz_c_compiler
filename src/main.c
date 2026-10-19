@@ -475,6 +475,11 @@ static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
         free(comp->local_hash_next);
         comp->local_hash_next = NULL;
     }
+    if (comp->tu_ast_arena) {
+        zero_cc_ast_arena_free((ZeroCCASTArena *)comp->tu_ast_arena);
+        free(comp->tu_ast_arena);
+        comp->tu_ast_arena = NULL;
+    }
     
     free(comp);
 }

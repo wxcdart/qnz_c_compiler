@@ -56,6 +56,16 @@ typedef struct {
     
     /* Alias group tracking for restrict pointers (temp -> alias_group ID) */
     uint8_t temp_alias_group[256];
+
+    /* Function Inlining State */
+    struct {
+        int active_depth;              /* Current inlining recursion depth */
+        int return_target_temp;        /* Destination temp for inlined returns */
+        uint16_t return_target_label;  /* Exit label for inlined returns (0 = none) */
+        int param_count;               /* Number of inlined parameters */
+        const char *param_names[8];    /* Parameter names */
+        int param_temps[8];            /* Evaluated argument temps */
+    } inlining;
 } LoweringState;
 
 #endif /* ZERO_CC_PARSER_LOWERING_STATE_H */

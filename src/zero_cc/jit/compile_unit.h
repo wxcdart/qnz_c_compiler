@@ -155,6 +155,15 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         }
     }
 
+    /* Initialize translation-unit AST arena for inlinable functions */
+    if (!c->tu_ast_arena) {
+        ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)malloc(sizeof(ZeroCCASTArena));
+        if (tu_arena) {
+            zero_cc_ast_arena_init(tu_arena, 1024);
+            c->tu_ast_arena = tu_arena;
+        }
+    }
+
     /* Create shared semantic context for all functions */
     DiagBuf shared_diags;
     diag_init(&shared_diags, tmp);

@@ -122,6 +122,9 @@ typedef struct ZeroCCCompiler {
     IRArena ir_arena;              /* IR instruction arena */
     IRCallArgsArena ir_call_args;  /* Call argument tracking arena */
 
+    /* Translation-unit level AST arena for inlinable functions */
+    void *tu_ast_arena;
+
     /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;
     

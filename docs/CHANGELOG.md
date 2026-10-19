@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Sprint 34] - 2026-10-19 - Small Function Inlining (-O2/-O3) & LICM Multi-Def Safety
+
+### Added
+- **Small Function Inlining (`ast_lowering_expr.c` / `jit/compile.h`)**:
+  - Implemented automatic call-site inlining for small `static` and `inline` helper/leaf functions ($N \le 35$ AST nodes, non-variadic, no struct return $>8$B, non-recursive) enabled at `-O2`/`-O3` with call depth up to 2.
+  - Implemented TU-level AST arena retention (`tu_ast_arena`) and AST cloning utilities (`zero_cc_ast_clone`, `zero_cc_ast_node_count`, `zero_cc_ast_has_call`) in `parser/ast_arena.h`.
+  - Added inlined parameter substitution and return value redirection in `ir/ast_lowering_expr.c` and `ir/ast_lowering_stmt.c`.
+  - Eliminates function call setup (`OP_CALL`), argument spills, frame creation, and callee register save/restore overhead in inner compute loops.
+
+### Fixed
+- **LICM Multiple-Definition Safety Invariant (`opt/opt_loop.c`)**:
+  - Fixed pre-existing invariant violation in `instr_is_invariant()`: previously, instructions whose destination virtual register had multiple definitions in a loop (such as inlined conditional branches or ternary operators) were incorrectly hoisted.
+  - Added strict guard ensuring hoisted destination temporaries have exactly 1 definition in the loop and all definition sources are verified invariant.
+
+### Verification
+- `tools/mem2reg_verifier.py --verify-all`: **12/12 passed** (+2 new inlining tests: `inline_leaf_call`, `inline_min_loop`).
+- `tools/mem2reg_verifier.py --count-stack-ops`: `inline_leaf_call` reduced stack ops from 14/5 to 7/1 (-7 loads, -4 stores); `inline_min_loop` from 13/4 to 7/1 (-6 loads, -3 stores).
+- Benchmark: 100M loop calling `min_val(i & 1, 1)` executed in **143.36 ms** (2.65x faster than un-inlined -O0 at 380.43 ms). 100M loop counter runs in **102.51 ms** (975.5M iters/sec, matching GCC -O0).
+- `make test` **140/140 passed in 0.40s** · `sret_verifier.py` **6/6 passed** · OKF lint PASS.
+
 ## [Sprint 33] - 2026-10-19 - Cross-Block mem2reg & LICM Invariant Load Hoisting
 
 ### Optimized

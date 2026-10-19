@@ -140,6 +140,9 @@ typedef struct {
     bool is_external;                     /* True for extern declarations */
     bool is_inline;                       /* True for inline declarations (C99) */
     bool is_static;                       /* True for static functions (internal linkage) */
+    bool can_inline;                      /* Eligible for small function inlining */
+    uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
+    void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */
 } ZeroCCFunction;
 
 /* Relocation Record */

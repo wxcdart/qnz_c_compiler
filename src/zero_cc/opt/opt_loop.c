@@ -198,40 +198,35 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
         default:
             return false;
     }
-    
-    /* Verify src1 */
-    if (instr->temp_src1!= TEMP_NONE) {
-        bool src1_defined_in_loop = false;
-        bool src1_invariant = false;
+
+    /* The destination temp must not be modified elsewhere in the loop (must have a single definition) */
+    int def_dest_count = 0;
+    for (int i = 0; i < body_count; i++) {
+        Instr *other = ir_get(loop_body[i]);
+        if (other && other->temp_dest == instr->temp_dest) {
+            def_dest_count++;
+        }
+    }
+    if (def_dest_count > 1) return false;
+
+    /* Verify src1: every definition in the loop must be invariant */
+    if (instr->temp_src1 != TEMP_NONE) {
         for (int i = 0; i < body_count; i++) {
             Instr *def = ir_get(loop_body[i]);
             if (def && def->temp_dest == instr->temp_src1) {
-                src1_defined_in_loop = true;
-                if (invariant_map[loop_body[i]]) {
-                    src1_invariant = true;
-                }
-                break;
+                if (!invariant_map[loop_body[i]]) return false;
             }
         }
-        /* If defined in loop and not invariant, this instruction is not invariant */
-        if (src1_defined_in_loop && !src1_invariant) return false;
     }
     
-    /* Verify src2 */
-    if (instr->temp_src2!= TEMP_NONE) {
-        bool src2_defined_in_loop = false;
-        bool src2_invariant = false;
+    /* Verify src2: every definition in the loop must be invariant */
+    if (instr->temp_src2 != TEMP_NONE) {
         for (int i = 0; i < body_count; i++) {
             Instr *def = ir_get(loop_body[i]);
             if (def && def->temp_dest == instr->temp_src2) {
-                src2_defined_in_loop = true;
-                if (invariant_map[loop_body[i]]) {
-                    src2_invariant = true;
-                }
-                break;
+                if (!invariant_map[loop_body[i]]) return false;
             }
         }
-        if (src2_defined_in_loop && !src2_invariant) return false;
     }
     
     return true;

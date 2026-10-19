@@ -427,6 +427,22 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
              * are executed inside zero_cc_lower_ast(). */
+
+            /* Record small static/inline function body in translation-unit arena for inlining */
+            if (c->tu_ast_arena && (fn_inline || fn_static) && !fn->is_variadic &&
+                !fn->returns_struct && fn->ret_struct_sz <= 8) {
+                ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
+                size_t node_count = zero_cc_ast_node_count(&arena, body);
+                /* Small leaf or non-recursive helper function (<= 35 nodes, no self-calls) */
+                if (node_count > 0 && node_count <= 35 && !zero_cc_ast_has_call(&arena, body, fn->name)) {
+                    ASTRef cloned_body = zero_cc_ast_clone(&arena, body, tu_arena);
+                    if (cloned_body != AST_NULL) {
+                        fn->can_inline = true;
+                        fn->inline_body = cloned_body;
+                        fn->ast_arena = tu_arena;
+                    }
+                }
+            }
         } else {
             c->had_error = 1;
             /* Errors are recorded in ctx->diags and merged into c->diag_buf at TU end */

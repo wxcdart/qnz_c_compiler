@@ -271,6 +271,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return temp;
             }
             
+            /* Inlined function parameter substitution */
+            if (c->lowering.inlining.active_depth > 0) {
+                for (int p = 0; p < c->lowering.inlining.param_count; p++) {
+                    if (c->lowering.inlining.param_names[p] &&
+                        strcmp(name, c->lowering.inlining.param_names[p]) == 0) {
+                        int p_temp = c->lowering.inlining.param_temps[p];
+                        c->last_expr_is_float = 0;
+                        return p_temp;
+                    }
+                }
+            }
+
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
@@ -2429,6 +2441,76 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
                 ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
                 bool is_indirect_call = (callee_fn == NULL && callee_sym != NULL);
+
+                /* Small Function Inlining: Expand candidate body directly at call site */
+                if (callee_fn && callee_fn->can_inline && callee_fn->inline_body != AST_NULL &&
+                    c->lowering.inlining.active_depth < 2 &&
+                    (c->opt_level >= OPT_LEVEL_O2)) {
+                    ZeroCCASTArena *callee_arena = (ZeroCCASTArena *)callee_fn->ast_arena;
+                    if (callee_arena) {
+                        /* 1. Evaluate arguments */
+                        int inlined_param_temps[8];
+                        int p_idx = 0;
+                        ASTRef a_ref = node->right;
+                        while (a_ref != AST_NULL && p_idx < (int)callee_fn->param_count && p_idx < 8) {
+                            int a_temp = lower_expr(c, arena, a_ref);
+                            /* Extend integer argument if narrow */
+                            if (!c->last_expr_is_float) {
+                                zero_cc_emit_int_extend(c, a_temp, &callee_fn->param_types[p_idx]);
+                            }
+                            inlined_param_temps[p_idx++] = a_temp;
+                            ZeroCCASTNode *an = zero_cc_ast_get(arena, a_ref);
+                            a_ref = an ? an->next : AST_NULL;
+                        }
+
+                        /* 2. Clone callee body AST into caller's current arena */
+                        ASTRef cloned_body = zero_cc_ast_clone(callee_arena, (ASTRef)callee_fn->inline_body, arena);
+                        if (cloned_body != AST_NULL) {
+                            int inline_res_temp = c->next_temp_id++;
+                            uint16_t inline_exit_label = c->ir_next_label++;
+
+                            /* Save previous inlining context */
+                            int prev_depth = c->lowering.inlining.active_depth;
+                            int prev_ret_temp = c->lowering.inlining.return_target_temp;
+                            uint16_t prev_ret_label = c->lowering.inlining.return_target_label;
+                            int prev_param_count = c->lowering.inlining.param_count;
+                            const char *prev_param_names[8];
+                            int prev_param_temps[8];
+                            for (int p = 0; p < 8; p++) {
+                                prev_param_names[p] = c->lowering.inlining.param_names[p];
+                                prev_param_temps[p] = c->lowering.inlining.param_temps[p];
+                            }
+
+                            /* Setup new inlining context */
+                            c->lowering.inlining.active_depth = prev_depth + 1;
+                            c->lowering.inlining.return_target_temp = inline_res_temp;
+                            c->lowering.inlining.return_target_label = inline_exit_label;
+                            c->lowering.inlining.param_count = (int)callee_fn->param_count;
+                            for (int p = 0; p < (int)callee_fn->param_count && p < 8; p++) {
+                                c->lowering.inlining.param_names[p] = callee_fn->param_names[p];
+                                c->lowering.inlining.param_temps[p] = inlined_param_temps[p];
+                            }
+
+                            /* Lower inlined body statements into IR */
+                            lower_node(c, arena, cloned_body);
+                            ir_emit_label(inline_exit_label);
+
+                            /* Restore previous inlining context */
+                            c->lowering.inlining.active_depth = prev_depth;
+                            c->lowering.inlining.return_target_temp = prev_ret_temp;
+                            c->lowering.inlining.return_target_label = prev_ret_label;
+                            c->lowering.inlining.param_count = prev_param_count;
+                            for (int p = 0; p < 8; p++) {
+                                c->lowering.inlining.param_names[p] = prev_param_names[p];
+                                c->lowering.inlining.param_temps[p] = prev_param_temps[p];
+                            }
+
+                            c->last_expr_is_float = (callee_fn->return_type.tag == TYPE_FLOAT ||
+                                                     callee_fn->return_type.tag == TYPE_DOUBLE);
+                            return inline_res_temp;
+                        }
+                    }
+                }
 
                 /* Determine return type of the call */
                 ZeroCCType call_ret_type;
