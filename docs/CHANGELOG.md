@@ -1,5 +1,32 @@
 # ZeroCC Changelog
 
+## [Sprint 35 Phase 0] - 2026-10-20 - Sprint 33 Regression Fixes & Optimizer Sweep Harness
+
+### Added
+- **Optimizer regression sweep (`tools/opt_sweep.py`, `make test-opt`)**:
+  - Compiles and runs every standalone test in `test/{jit,aot,licm}` with zerocc itself at `-O0/-O1/-O2/-O3`, in **both** JIT (`--run`) and AOT (`-o`) modes.
+  - Compares each level's `(exit code, stdout)` against the `-O0` baseline; informational `gcc -O2` differential; per-test timeout; `NONDET`/skip flagging for timing-sensitive tests (e.g. `profile_demo`).
+  - Wired into the Makefile (`make test-opt`) and the `AGENTS.md` verification rules as the mandatory gate for any optimizer/pass/regalloc change.
+
+### Fixed (Sprint 33 `15588aa` regressions — all verified by `make test-opt` 88/88)
+- **x86-64 extend encoding (`src/zero_cc/isa/x86_64.c` `x86_emit_extend`)**:
+  - `MOVSXD`/`MOV r64, r/m32` put the destination in both the reg and r/m ModRM fields; for `dst != src` (or `dst >= 8`) the wrong source register was extended (e.g. `movslq %esp, %r12` instead of `movslq %r12d, %r12`), silently corrupting values. Source now in r/m, destination in reg.
+- **x86-64 `-S` setcc/extend encodings (`src/zero_cc/isa/x86_64_asm.c`)**:
+  - `x86_emit_cond_set_asm` hardcoded `setcc %al` + `movzbq %al,<dst>`, clobbering live RAX whenever the condition temp was not `r0`; now uses the destination's low byte.
+  - `x86_emit_extend_asm` ignored `src` and assumed in-place extension; now emits the real source register for 8/16/32-bit widths.
+- **LICM shared-header invariant loss (`src/zero_cc/opt/opt_loop.c`)**:
+  - `detect_loops` can produce several natural loops sharing one header (multiple backedges). The two-pass rebuild emitted only the first matching loop's invariants before the header, while NOP'ing in-loop copies for all of them — losing definitions (e.g. `MOV_IMM r51, 1` in `break_continue.c`). Rebuild now emits the union of all shared-header loops' invariants (deduplicated).
+  - `instr_is_invariant` now rejects candidates whose source operand is defined anywhere in the loop body (including after the candidate — it feeds back through the backedge) unless that definition is itself invariant. Previously a loop-dependent `ADD i_new, i, 1` (after copy propagation) was hoisted and `i` frozen, turning finite loops infinite.
+- **DCE liveness soundness (`src/zero_cc/opt/opt_dce.c`)**:
+  - A single backward liveness sweep mis-declares loop-carried values dead at their backedge write-back (definition processed before the top-of-loop use), so DCE deleted loop updates and created infinite loops once the fixed-point pipeline re-ran it after `-O2` passes. Liveness is now computed to a fixpoint (monotonic live set, bounded sweeps; on non-convergence DCE deletes nothing).
+- **mem2reg loop promotion audit (`src/zero_cc/opt/opt_mem2reg.c` `opt_promote_loop_carried`)**:
+  - A slot is promoted only if the whole function is auditable: exactly one in-loop load and one in-loop store, exactly one out-of-loop store (the preheader init, before the header), and all remaining loads strictly after the loop exit.
+  - All post-loop loads (until `RET`/epilogue or a same-slot store) are forwarded to the head temp; previously forwarding stopped at the next label, leaving stale stack loads after `break`/`continue` exits.
+
+### Verification
+- `make test-opt` (`tools/opt_sweep.py`): **88/88 passed** at `-O0..-O3`, JIT and AOT (pre-fix: 9 failing tests — `break_continue`, `goto_loop`, `loops_conditionals`, all five `test/licm/*.c`, `profile_demo` timeout).
+- `make test` **141/141** (incl. new `test/jit/goto_into_loop.c`) · `tools/mem2reg_verifier.py --verify-all` **12/12** · `tools/sret_verifier.py --verify-all` **6/6** · OKF lint/index PASS.
+
 ## [Sprint 34] - 2026-10-19 - Small Function Inlining (-O2/-O3) & LICM Multi-Def Safety
 
 ### Added

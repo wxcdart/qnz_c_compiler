@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-19T02:24:18Z
+timestamp: 2026-10-19T23:13:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 51 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, scalar FP, and 128-bit SIMD vector ops).
+- `op` (`Opcode`): One of 127 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, scalar FP, and 128-bit SIMD vector ops).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
@@ -76,6 +76,12 @@ ZeroCC intentionally uses Poletto & Sarkar's Linear-Scan Register Allocation alg
    - Modern 64-bit architectures have ample physical registers (14 allocatable GPRs on x86-64, 30 on AArch64, 32 on RISC-V).
    - In production compiler design, the register allocator is not meant to rescue poor intermediate representation. Hot inner loops typically require only 3 to 6 simultaneously live variables (induction variables, accumulators, loop bounds).
    - The responsibility of keeping loop variables off the stack belongs to the **frontend and IR optimization passes** (`mem2reg`, `licm`). Once `mem2reg` promotes stack slots into virtual register temporaries, the linear-scan allocator naturally places them into physical registers with zero spills.
+
+## Known Limitations & Planned Direction (Sprint 35 plan)
+
+The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`OP_JMP`), no basic blocks/CFG/dominators, temps assigned more than once (ternaries, inlined branches, loop-carried `OP_MOV_REG`), physical registers 0-15 living in the temp namespace, no type tag, and call arguments in an `instr_index`-keyed side table. Each pass re-derives control-flow facts itself (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span matching in the vectorizer); this is the shared root of the LICM multi-definition bug and the vectorizer residuals.
+
+**Decision (2026-10-19): add a lazily-built CFG view over the `Instr` array first; defer SSA.** Plan and phases: [Development Plan §10](../ZEROCC_Development_Plan.md). Unmeasured claims (e.g. JIT-vs-GCC compile speed) must be re-measured before being relied on.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

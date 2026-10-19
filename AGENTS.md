@@ -11,7 +11,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
 - **Concept Nodes**:
   - [`docs/okf/architecture-pipeline.md`](docs/okf/architecture-pipeline.md) — Pipeline stages & source file map
   - [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) — `ZeroCCType` vs `TypeInfo`, structs, function pointers (`is_func_ptr`)
-  - [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) — 51-opcode `Instr` IR, `IRCallArgs`, reserved physical registers
+  - [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) — 127-opcode `Instr` IR, `IRCallArgs`, reserved physical registers
   - [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) — Active IR passes (`mem2reg`, `licm`, `auto_vectorize`, etc.) & safety invariants
   - [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) — System V AMD64 ABI, by-value structs, `sret` (`>16B` struct returns)
   - [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) — `ZeroCCISABackend` vtable, JIT vs AOT emission, relocations
@@ -28,9 +28,11 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
 - **Regression Suite & Verifiers**:
   ```bash
   make test
+  make test-opt            # optimizer sweep: -O0..-O3, JIT + AOT, via zerocc itself
   python3 tools/sret_verifier.py --verify-all
   python3 tools/okf.py lint
   ```
+- **Optimizer Changes Require the Sweep**: `make test` compiles test binaries with the host `gcc`, so it does **not** exercise zerocc's optimizer. Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt` (which runs every test at `-O0/-O1/-O2/-O3` in both JIT and AOT and compares against the `-O0` baseline). A `-O1` pass is not sufficient: later passes (CSE/GVN/LICM at `-O2`, strength reduction at `-O3`) can transform `-O1` output into something none of the earlier passes saw.
 
 ## 3. Maintaining the OKF Knowledge Bundle
 

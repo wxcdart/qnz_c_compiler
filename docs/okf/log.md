@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-19T03:43:50Z
+timestamp: 2026-10-19T23:25:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -152,3 +152,24 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-19 — Updated `optimization-passes.md`
 - feat(opt): small function inlining at -O2/-O3 and LICM multi-def safety invariant
+
+## 2026-10-19 — Updated `ir-and-regalloc.md`
+- docs(ir): record IR limitations and CFG-first decision (Sprint 35 plan)
+
+## 2026-10-19 — Updated `optimization-passes.md`
+- docs(opt): correct stale vectorizer residuals, document -O levels, record Sprint 33 regressions
+
+## 2026-10-19 — Updated `optimization-passes.md`
+- Sprint 35 Phase 0: resolved Sprint 33 regressions - LICM shared-header union emission + in-loop source-def invariant, DCE fixpoint liveness, mem2reg conservative slot audit & full post-loop forwarding; make test-opt 87/87
+
+## 2026-10-19 — Updated `build-and-verification.md`
+- Documented make test-opt / tools/opt_sweep.py as the mandatory optimizer regression gate
+
+## 2026-10-19 — Updated `isa-backends.md`
+- Documented x86 ModRM source/destination placement invariants (setcc dest in r/m; cross-register extend src in r/m) from Sprint 35 Phase 0 fixes
+
+## 2026-10-19 — Updated `ir-and-regalloc.md`
+- Corrected opcode count 51 -> 127
+
+## 2026-10-19 — Updated `optimization-passes.md`
+- Added loop entry-cleanness guard note (goto_into_loop.c regression test); sweep count 88/88

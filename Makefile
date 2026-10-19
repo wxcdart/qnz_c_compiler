@@ -144,6 +144,14 @@ $(TEST_BIN_DIR)/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
 test: all
 	@python3 tools/test_runner.py
 
+# Optimizer sweep: compile & run every test at -O0/-O1/-O2/-O3 in BOTH JIT
+# and AOT modes with the zerocc compiler itself, comparing exit code + stdout
+# against the -O0 baseline. This is the definitive optimizer regression gate
+# (the normal test suite compiles test binaries with the host compiler, so it
+# never exercises zerocc's optimization passes).
+test-opt: all
+	@python3 tools/opt_sweep.py
+
 asan: CFLAGS += -fsanitize=address,undefined -g
 asan: LDFLAGS += -fsanitize=address,undefined
 asan: all

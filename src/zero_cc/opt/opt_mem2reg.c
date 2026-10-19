@@ -132,6 +132,22 @@ static int get_frame_offset(Instr *instr) {
 /**
  * Promote loop-carried variables (induction variables and accumulators)
  * across loop boundaries directly into virtual registers.
+ *
+ * A slot s is eligible for a loop L = [hdr, back] when ALL of the hold:
+ *  - the loop is safe (no calls, VLA, or indirect/atomic stores),
+ *  - s has exactly one stack load and one stack store inside L,
+ *  - there is a store to s in the straight-line preheader (the init),
+ *  - no OTHER stack load of s exists between the init and the loop exit,
+ *  - no OTHER stack store to s exists anywhere else in the function.
+ *
+ * The last two conditions guarantee that after the rewrite (init store and
+ * in-loop store become register copies, in-loop load becomes a NOP) every
+ * remaining load of s is a post-loop load, and that the register copy
+ * mirrors the slot on every path from the init onward.  All post-loop
+ * loads are then rewritten to read the register.  Without these checks a
+ * post-loop load beyond the first label after the exit would keep reading
+ * the now-dead stack slot (stale value) - the Sprint 35 Phase 0 regression
+ * in test/jit/break_continue.c.
  */
 static void opt_promote_loop_carried(void) {
     size_t count = ir_get_count();
@@ -200,15 +216,46 @@ static void opt_promote_loop_carried(void) {
         }
         if (!safe_loop) continue;
 
-        /* Find exit branch from loop condition (e.g., JE exit_label) */
-        int exit_label = -1;
+        /* No jump from OUTSIDE the loop range may target a label inside it
+         * (including the header label): such an entry would skip the
+         * preheader init, leaving the promoted head_temp uninitialised on
+         * that path where the original in-loop load would have read the
+         * slot's pre-loop value (well-defined C, e.g. `x=10; ... goto h;`).
+         * Disqualify the whole loop. */
+        bool loop_entry_clean = true;
+        for (size_t k = 0; k < count && loop_entry_clean; k++) {
+            if (k >= hdr_idx && k <= back_idx) continue;
+            Instr *j = ir_get(k);
+            if (!j) continue;
+            if (j->op != OP_JMP && j->op != OP_JE && j->op != OP_JNE &&
+                j->op != OP_JL && j->op != OP_JLE && j->op != OP_JG &&
+                j->op != OP_JCOND) continue;
+            int t = (int)j->label_idx;
+            if (t < 0 || t > max_label) continue;
+            int tp = label_to_pos[t];
+            if (tp >= (int)hdr_idx && tp <= (int)back_idx) {
+                loop_entry_clean = false;
+            }
+        }
+        if (!loop_entry_clean) continue;
+
+        /* Find the earliest exit target: any branch or unconditional jump
+         * inside the loop whose label lies after the backedge (loop exits
+         * may be conditional (loop condition) or unconditional (break)). */
+        int first_exit = -1;
         for (size_t k = hdr_idx; k <= back_idx; k++) {
             Instr *loop_ins = ir_get(k);
-            if (loop_ins && (loop_ins->op == OP_JE || loop_ins->op == OP_JNE ||
-                             loop_ins->op == OP_JL || loop_ins->op == OP_JLE ||
-                             loop_ins->op == OP_JG)) {
-                exit_label = (int)loop_ins->label_idx;
-                break;
+            if (!loop_ins) continue;
+            if (loop_ins->op == OP_JE || loop_ins->op == OP_JNE ||
+                loop_ins->op == OP_JL || loop_ins->op == OP_JLE ||
+                loop_ins->op == OP_JG || loop_ins->op == OP_JCOND ||
+                loop_ins->op == OP_JMP) {
+                int t = (int)loop_ins->label_idx;
+                if (t < 0 || t > max_label) continue;
+                int tp = label_to_pos[t];
+                if (tp > (int)back_idx && (first_exit < 0 || tp < first_exit)) {
+                    first_exit = tp;
+                }
             }
         }
 
@@ -216,99 +263,118 @@ static void opt_promote_loop_carried(void) {
         for (int s = 0; s < MAX_STACK_SLOTS; s++) {
             if (slot_addr_taken[s]) continue;
 
-            /* Count loads and stores of slot s in loop */
+            /* Count loads and stores of slot s in loop, and audit the rest
+             * of the function: only the in-loop load/store and the preheader
+             * init may touch the slot; every other load must be post-loop
+             * (after first_exit) and there must be no other store at all. */
             int loop_loads = 0;
             int loop_stores = 0;
             int load_idx = -1;
             int store_idx = -1;
+            int other_stores = 0;
+            int bad_loads = 0;
 
-            for (size_t k = hdr_idx; k <= back_idx; k++) {
-                Instr *loop_ins = ir_get(k);
-                if (!loop_ins) continue;
-                if (instr_is_stack_load(loop_ins)) {
-                    if (slot_from_offset(get_frame_offset(loop_ins)) == s) {
+            for (size_t k = 0; k < count; k++) {
+                Instr *f_ins = ir_get(k);
+                if (!f_ins) continue;
+                bool in_loop = (k >= (size_t)hdr_idx && k <= back_idx);
+                if (instr_is_stack_load(f_ins)) {
+                    if (slot_from_offset(get_frame_offset(f_ins)) != s) continue;
+                    if (in_loop) {
                         loop_loads++;
                         if (load_idx < 0) load_idx = (int)k;
+                    } else if (first_exit >= 0 && (int)k > first_exit) {
+                        /* post-loop load - will be forwarded */
+                    } else {
+                        bad_loads++;  /* load before the loop or in a dead zone */
                     }
-                } else if (instr_is_stack_store(loop_ins)) {
-                    if (slot_from_offset(get_frame_offset(loop_ins)) == s) {
+                } else if (instr_is_stack_store(f_ins)) {
+                    if (slot_from_offset(get_frame_offset(f_ins)) != s) continue;
+                    if (in_loop) {
                         loop_stores++;
                         store_idx = (int)k;
+                    } else {
+                        other_stores++;  /* may be the preheader init; checked below */
                     }
                 }
             }
 
-            /* Candidate: exactly 1 load and 1 store in loop */
-            if (loop_loads == 1 && loop_stores == 1 && load_idx >= 0 && store_idx >= 0) {
-                Instr *load_ins = ir_get(load_idx);
-                Instr *store_ins = ir_get(store_idx);
-                if (!load_ins || !store_ins) continue;
+            /* Candidate: exactly 1 load and 1 store in loop, no other loads
+             * before the exit, no stores outside the loop except the init. */
+            if (loop_loads != 1 || loop_stores != 1 || bad_loads > 0 ||
+                other_stores != 1) continue;
+            if (load_idx < 0 || store_idx < 0) continue;
 
-                int head_temp = load_ins->temp_dest;
-                int update_temp = store_ins->temp_src1;
-                if (head_temp < 16 || update_temp < 16) continue;
+            Instr *load_ins = ir_get(load_idx);
+            Instr *store_ins = ir_get(store_idx);
+            if (!load_ins || !store_ins) continue;
 
-                /* Find the initialization store before hdr_idx */
-                int init_store_idx = -1;
-                for (int k = hdr_idx - 1; k >= 0; k--) {
-                    Instr *pre_ins = ir_get(k);
-                    if (!pre_ins) continue;
-                    if (pre_ins->op == OP_LABEL) break; /* don't cross prior labels */
-                    if (instr_is_stack_store(pre_ins)) {
-                        if (slot_from_offset(get_frame_offset(pre_ins)) == s) {
-                            init_store_idx = k;
-                            break;
-                        }
-                    }
+            int head_temp = load_ins->temp_dest;
+            int update_temp = store_ins->temp_src1;
+            if (head_temp < 16 || update_temp < 16) continue;
+
+            /* Find the initialization store: the single out-of-loop store
+             * found above.  It must lie before the loop header (a store to
+             * the slot after the loop would leave head_temp uninitialised). */
+            int init_store_idx = -1;
+            for (int k = 0; k < (int)count; k++) {
+                if (k >= hdr_idx && (size_t)k <= back_idx) continue;
+                Instr *pre_ins = ir_get(k);
+                if (pre_ins && instr_is_stack_store(pre_ins) &&
+                    slot_from_offset(get_frame_offset(pre_ins)) == s) {
+                    init_store_idx = k;
+                    break;
                 }
+            }
+            if (init_store_idx < 0 || init_store_idx >= hdr_idx) continue;
+            if (first_exit < 0) continue; /* no reachable exit: nothing to forward */
 
-                if (init_store_idx >= 0) {
-                    Instr *init_ins = ir_get(init_store_idx);
-                    int init_temp = init_ins->temp_src1;
-                    if (init_temp >= 16) {
-                        /* Transformation:
-                         * 1. Change preheader store: init_temp -> head_temp
-                         * 2. Remove loop load: load_ins becomes OP_NOP
-                         * 3. Change loop store: store_ins becomes OP_MOV_REG head_temp, update_temp */
-                        init_ins->op = OP_MOV_REG;
-                        init_ins->temp_dest = head_temp;
-                        init_ins->temp_src1 = init_temp;
-                        init_ins->temp_src2 = TEMP_NONE;
-                        init_ins->imm = 0;
-                        init_ins->imm64 = 0;
+            Instr *init_ins = ir_get(init_store_idx);
+            int init_temp = init_ins->temp_src1;
+            if (init_temp < 16) continue;
 
-                        load_ins->op = OP_NOP;
-                        load_ins->temp_dest = TEMP_NONE;
-                        load_ins->temp_src1 = TEMP_NONE;
-                        load_ins->temp_src2 = TEMP_NONE;
+            /* Transformation:
+             * 1. Change preheader store: init_temp -> head_temp
+             * 2. Remove loop load: load_ins becomes OP_NOP
+             * 3. Change loop store: store_ins becomes OP_MOV_REG head_temp, update_temp
+             * 4. Forward ALL post-loop loads of the slot to head_temp.
+             *    Safe: head_temp mirrors the slot on every path from the init
+             *    onward (same init, same update paths), no other store to
+             *    the slot exists, and its address was never taken. */
+            init_ins->op = OP_MOV_REG;
+            init_ins->temp_dest = head_temp;
+            init_ins->temp_src1 = init_temp;
+            init_ins->temp_src2 = TEMP_NONE;
+            init_ins->imm = 0;
+            init_ins->imm64 = 0;
 
-                        store_ins->op = OP_MOV_REG;
-                        store_ins->temp_dest = head_temp;
-                        store_ins->temp_src1 = update_temp;
-                        store_ins->temp_src2 = TEMP_NONE;
-                        store_ins->imm = 0;
-                        store_ins->imm64 = 0;
+            load_ins->op = OP_NOP;
+            load_ins->temp_dest = TEMP_NONE;
+            load_ins->temp_src1 = TEMP_NONE;
+            load_ins->temp_src2 = TEMP_NONE;
 
-                        /* Forward to post-loop loads if reached from exit_label */
-                        if (exit_label >= 0 && exit_label <= max_label) {
-                            int exit_pos = label_to_pos[exit_label];
-                            if (exit_pos >= 0 && (size_t)exit_pos > back_idx) {
-                                for (size_t p = exit_pos; p < count; p++) {
-                                    Instr *post_ins = ir_get(p);
-                                    if (!post_ins) continue;
-                                    if (post_ins->op == OP_LABEL && p > (size_t)exit_pos) break;
-                                    if (instr_is_stack_load(post_ins)) {
-                                        if (slot_from_offset(get_frame_offset(post_ins)) == s) {
-                                            post_ins->op = OP_MOV_REG;
-                                            post_ins->temp_src1 = head_temp;
-                                            post_ins->temp_src2 = TEMP_NONE;
-                                            post_ins->imm = 0;
-                                            post_ins->imm64 = 0;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+            store_ins->op = OP_MOV_REG;
+            store_ins->temp_dest = head_temp;
+            store_ins->temp_src1 = update_temp;
+            store_ins->temp_src2 = TEMP_NONE;
+            store_ins->imm = 0;
+            store_ins->imm64 = 0;
+
+            for (size_t p = first_exit; p < count; p++) {
+                Instr *post_ins = ir_get(p);
+                if (!post_ins) continue;
+                if (post_ins->op == OP_RET || post_ins->op == OP_EPILOGUE) break;
+                if (instr_is_stack_store(post_ins) &&
+                    slot_from_offset(get_frame_offset(post_ins)) == s) {
+                    break; /* slot re-synced: later loads must read memory */
+                }
+                if (instr_is_stack_load(post_ins)) {
+                    if (slot_from_offset(get_frame_offset(post_ins)) == s) {
+                        post_ins->op = OP_MOV_REG;
+                        post_ins->temp_src1 = head_temp;
+                        post_ins->temp_src2 = TEMP_NONE;
+                        post_ins->imm = 0;
+                        post_ins->imm64 = 0;
                     }
                 }
             }

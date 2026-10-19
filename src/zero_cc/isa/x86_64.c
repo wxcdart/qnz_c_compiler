@@ -688,14 +688,19 @@ static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src) {
 static void x86_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
     if (width == 4) {
         if (sign) {
+            /* MOVSXD r64, r/m32: destination in the REG field, source in the
+             * RM field. Using dst for the RM field mis-encodes whenever
+             * dst >= 8 and src < 8 (REX.B stays clear but the rm nibble comes
+             * from dst) - e.g. r12 <- sext(rdx) emitted as "movslq %esp,%r12". */
             x86_rex(c, 1, (dst >> 3) & 1, 0, (src >> 3) & 1);
             me_emit_u8(c, 0x63);
-            x86_modrm(c, 3, dst, dst);
-        } else {
-            /* mov r32, r32 (in-place: clears upper 32 bits) */
-            x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
-            me_emit_u8(c, 0x89);
             x86_modrm(c, 3, dst, src);
+        } else {
+            /* MOV r/m32, r32 (clears upper 32 bits of dst): destination in
+             * the RM field, source in the REG field. */
+            x86_rex(c, 0, (src >> 3) & 1, 0, (dst >> 3) & 1);
+            me_emit_u8(c, 0x89);
+            x86_modrm(c, 3, src, dst);
         }
         return;
     }
@@ -732,11 +737,11 @@ static void x86_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int 
     }
     /* width 2 */
     if (!sign) {
-        /* movzx r64, r/m16 - single instruction */
+        /* movzx r64, r/m16 - single instruction (dest = REG, src = RM) */
         x86_rex(c, 1, (dst >> 3) & 1, 0, (src >> 3) & 1);
         me_emit_u8(c, 0x0F);
         me_emit_u8(c, 0xB7);
-        x86_modrm(c, 3, dst, dst);
+        x86_modrm(c, 3, dst, src);
         return;
     }
     /* sext8/16: movsx r32, src then movsxd r64, r32.

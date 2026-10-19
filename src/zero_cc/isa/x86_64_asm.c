@@ -307,21 +307,23 @@ static const char *x86_reg32_name(int r) {
     return (r >= 0 && r < 16) ? names[r] : "eax";
 }
 
+/* Width extension. src is the value register, dst the destination;
+ * they coincide only for in-place extensions. */
 static void x86_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     if (width == 4) {
-        if (sign) fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
-        else fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
+        if (sign) fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(src), dst_name);
+        else fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(src), x86_reg32_name(dst));
         return;
     }
     if (width == 1) {
         if (sign) {
-            fprintf(out, "\tmovsbl\t%%%s,%%%s\n", x86_reg8_name(dst), x86_reg32_name(dst));
+            fprintf(out, "\tmovsbl\t%%%s,%%%s\n", x86_reg8_name(src), x86_reg32_name(dst));
             fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
         } else {
             /* No 64-bit-destination form of movzbl is accepted by GAS; use a
              * 32-bit destination (which zeroes the upper half). */
-            fprintf(out, "\tmovzbl\t%%%s,%%%s\n", x86_reg8_name(dst), x86_reg32_name(dst));
+            fprintf(out, "\tmovzbl\t%%%s,%%%s\n", x86_reg8_name(src), x86_reg32_name(dst));
             fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
         }
         return;
@@ -330,11 +332,11 @@ static void x86_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, 
     if (!sign) {
         /* No 64-bit-destination form exists for movzwl; use two 32-bit ops
          * (the 32-bit write clears the upper half). */
-        fprintf(out, "\tmovzwl\t%%%s,%%%s\n", x86_reg16_name(dst), x86_reg32_name(dst));
+        fprintf(out, "\tmovzwl\t%%%s,%%%s\n", x86_reg16_name(src), x86_reg32_name(dst));
         fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(dst), x86_reg32_name(dst));
         return;
     }
-    fprintf(out, "\tmovswl\t%%%s,%%%s\n", x86_reg16_name(dst), x86_reg32_name(dst));
+    fprintf(out, "\tmovswl\t%%%s,%%%s\n", x86_reg16_name(src), x86_reg32_name(dst));
     fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(dst), dst_name);
 }
 
@@ -345,13 +347,16 @@ static void x86_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
     fprintf(out, "\tcmpq\t%%%s,%%%s\n", src2_name, src1_name);
 }
 
-/* COND_SET */
+/* COND_SET: setcc into the low byte of the destination register itself,
+ * then zero-extend. Using a fixed scratch (e.g. %al) corrupts any live
+ * value held in the scratch register (e.g. a LICM-hoisted operand in RAX). */
 static void x86_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *dst8_name = x86_reg8_name(dst);
     const char *cc[] = {"l", "le", "g", "ge", "e", "ne", "b", "be", "a", "ae"};
     if (cond < 0 || cond > 9) return;
-    fprintf(out, "\tset%s\t%%al\n", cc[cond]);
-    fprintf(out, "\tmovzbq\t%%al,%%%s\n", dst_name);
+    fprintf(out, "\tset%s\t%%%s\n", cc[cond], dst8_name);
+    fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
 }
 
 /* NEG */

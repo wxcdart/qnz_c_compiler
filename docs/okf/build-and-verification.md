@@ -1,10 +1,10 @@
 ---
 type: Guide
 title: Build, Test & Verification Guide for Agents
-description: Practical commands and rules for building ZeroCC, running the 140-test suite, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
+description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
-tags: [build, testing, verification, makefile, sret, c11, vla, okf]
-timestamp: 2026-10-17T11:51:06Z
+tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
+timestamp: 2026-10-19T23:13:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -42,6 +42,23 @@ make test-semantic
 make test-unit
 ```
 
+### Optimizer regression sweep (`make test-opt`)
+
+The normal suite compiles the `test/abi`/`test/semantic`/`test/unit` binaries with the host `gcc`, so it **never** exercises zerocc's optimization pipeline. `make test-opt` closes that gap with `tools/opt_sweep.py`: it compiles and runs every standalone test at `-O0/-O1/-O2/-O3` **using `./build/bin/zerocc` itself**, in **both JIT (`--run`) and AOT (`-o`)** modes, and compares each level's `(exit code, stdout)` against the `-O0` baseline. It also (informationally) diffs against `gcc -O2` when the host compiler can build the test.
+
+```bash
+# Full optimizer sweep (the definitive gate for any optimizer/pass change)
+make test-opt
+
+# Targeted runs
+python3 tools/opt_sweep.py --only break_continue
+python3 tools/opt_sweep.py --jit-only
+python3 tools/opt_sweep.py --aot-only --no-gcc
+python3 tools/opt_sweep.py --timeout 20 --json > /tmp/sweep.json
+```
+
+Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt`. A `-O1`-only pass is not sufficient: later passes at `-O2`/`-O3` transform `-O1` output into code none of the earlier passes saw. Tests that are timing- or nondeterminism-sensitive are flagged `NONDET`/`skipped` rather than hard-failed.
+
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
 Note that `build/test/abi/*` binaries built by `make all` are compiled by the host `$(CC)` (`gcc`), whereas `test/jit/*` and `tools/sret_verifier.py` invoke `./build/bin/zerocc`. **Always test new ABI features directly with `./build/bin/zerocc` in both AOT and JIT modes**:
@@ -62,6 +79,9 @@ Note that `build/test/abi/*` binaries built by `make all` are compiled by the ho
 Active verification suites live at the top level of `tools/` (historical one-off debugging scripts are archived in `tools/archive/`):
 
 ```bash
+# Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (88 tests)
+make test-opt
+
 # Run C11 feature & concurrency verification suite (11/11 tests: _Alignas, _Alignof, anonymous structs/unions, _Generic, _Static_assert, atomics, <threads.h>)
 python3 tools/c11/test_c11.py --verbose
 

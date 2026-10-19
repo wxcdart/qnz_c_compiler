@@ -66,7 +66,9 @@ void opt_flag_dce(ZeroCCCompiler *c) {
  * Liveness tracking
  */
 #define MAX_VREGS 65536  /* C2b: full 16-bit temp-id space */
+#define LIVENESS_MAX_SWEEPS 10
 static bool g_live_temp[MAX_VREGS];
+static bool g_live_prev[MAX_VREGS];
 
 /**
  * Clear liveness tracking
@@ -237,6 +239,75 @@ static void mark_uses(Instr *instr) {
 }
 
 /**
+ * Run one backward liveness sweep (returns 1 on success).
+ * Fills g_live_temp; caller manages clearing/re-marking roots.
+ */
+static int liveness_backward_sweep(int count) {
+    for (int i = count - 1; i >= 0; i--) {
+        Instr *instr = ir_get(i);
+        if (!instr || instr->op == OP_DEAD) continue;
+
+        /* Special handling for OP_CALL: temp_dest holds arg_count, not a temp ID
+         * Always mark call arguments as live because calls have side effects */
+        if (instr->op == OP_CALL) {
+            mark_uses(instr);
+            continue;
+        }
+
+        /* If the instruction's result is live at this point (or the
+         * instruction must execute for its side effects), its sources are
+         * live too. */
+        if (instr->temp_dest != TEMP_NONE) {
+            if (is_live(instr->temp_dest) || instr_has_side_effects(instr)) {
+                mark_uses(instr);
+            }
+        } else {
+            mark_uses(instr);
+        }
+    }
+    return 1;
+}
+
+/**
+ * Compute liveness to a fixpoint.
+ *
+ * A single backward sweep is NOT sufficient in the presence of loops: a
+ * temp defined at the bottom of a loop (loop-carried value, e.g. an
+ * induction variable promoted by mem2reg) and used at the top of the loop
+ * appears dead at its definition on the first sweep, so DCE would delete
+ * the update and turn the loop infinite.  Each additional backward sweep
+ * propagates liveness one more backedge, so iterate until the live set
+ * stops growing.  If it does not converge within the bound, give up on
+ * liveness entirely (mark everything live) - DCE must stay conservative.
+ * Returns 1 if liveness is valid, 0 if DCE should skip deletion.
+ */
+static int compute_liveness_fixpoint(int count) {
+    clear_liveness();
+    /* Return values are live at function exit */
+    mark_live(VREG_0);
+    mark_live(VREG_2);
+    for (int sweep = 0; sweep < LIVENESS_MAX_SWEEPS; sweep++) {
+        /* Mark the float/double return value (xmm0) live at exit */
+        for (int i = count - 1; i >= 0; i--) {
+            Instr *instr = ir_get(i);
+            if (!instr) continue;
+            if (instr->temp_dest != TEMP_NONE &&
+                (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op) ||
+                 instr->op == OP_CVTSI2SD)) {
+                mark_live(instr->temp_dest);
+                break;
+            }
+        }
+        liveness_backward_sweep(count);
+        if (sweep > 0 && memcmp(g_live_prev, g_live_temp, sizeof(g_live_temp)) == 0) {
+            return 1; /* converged */
+        }
+        memcpy(g_live_prev, g_live_temp, sizeof(g_live_temp));
+    }
+    return 0; /* did not converge: too deeply nested loop-carried values */
+}
+
+/**
  * Dead code elimination pass
  */
 void opt_eliminate_dead_code(ZeroCCCompiler *c) {
@@ -247,56 +318,23 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         return;
     }
     
-    clear_liveness();
-    
-    // Mark return value temps as live
-    // VREG_0 = rax (integer return)
-    // VREG_2 = rdx (upper 8 bytes for 9-16 byte struct return)
-    mark_live(VREG_0);
-    mark_live(VREG_2);
-    
-    // For float/double return functions, find the last float-producing instruction
-    // and mark its destination as live (the return value in xmm0)
-    for (int i = count - 1; i >= 0; i--) {
-        Instr *instr = ir_get(i);
-        if (!instr) continue;
-        
-        // Look for float-producing instructions before the epilogue
-        if (instr->temp_dest!= TEMP_NONE && 
-            (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op) || instr->op == OP_CVTSI2SD)) {
-            mark_live(instr->temp_dest);
-            break;
-        }
+    /* Phase 1: liveness to a fixpoint (see compute_liveness_fixpoint). */
+    if (!compute_liveness_fixpoint(count)) {
+        /* Non-convergent liveness: mark everything live so that nothing
+         * is deleted.  DCE is an optimization; it must never delete a
+         * live instruction. */
+        memset(g_live_temp, 1, sizeof(g_live_temp));
     }
     
-    // Backward pass: compute liveness
-    for (int i = count - 1; i >= 0; i--) {
+    /* Phase 2: mark instructions whose result is dead and which have no
+     * side effects. */
+    for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
-        if (!instr) continue;
-        
-        bool has_side_effects = instr_has_side_effects(instr);
-        
-        // Special handling for OP_CALL: temp_dest holds arg_count, not a temp ID
-        // Always mark call arguments as live because calls have side effects
-        if (instr->op == OP_CALL) {
-            mark_uses(instr);
-            continue;
-        }
-        
-        // If instruction produces a result, mark it live if used OR has side effects
-        if (instr->temp_dest!= TEMP_NONE) {
-            if (is_live(instr->temp_dest) || has_side_effects) {
-                // Result is used OR instruction must execute for its side effects:
-                // mark all its source operands as live!
-                mark_uses(instr);
-            } else {
-                // Result not used and no side effects - mark as dead
-                instr->op = OP_DEAD;
-            }
-        } else {
-            // No destination (e.g., stores, jumps, calls, fences), mark uses as live
-            mark_uses(instr);
-        }
+        if (!instr || instr->op == OP_DEAD) continue;
+        if (instr->op == OP_CALL) continue; /* calls always kept */
+        if (instr->temp_dest == TEMP_NONE) continue; /* no result to be dead */
+        if (is_live(instr->temp_dest) || instr_has_side_effects(instr)) continue;
+        instr->op = OP_DEAD;
     }
     
     // Forward pass: compact IR (remove dead instructions)

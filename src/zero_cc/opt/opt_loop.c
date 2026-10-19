@@ -156,8 +156,11 @@ static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body
  * An instruction is invariant if:
  * 1. It is a pure computational operation (or read-only stack load)
  * 2. Every source operand is either defined outside the loop body or marked invariant.
+ * 3. Every source operand defined outside the loop body is defined BEFORE the
+ *    loop header (hoisting must not create a use-before-def for sources
+ *    defined after the backedge, e.g. via gotos into the loop).
  */
-static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body, int body_count) {
+static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body, int body_count, int header_idx) {
     if (!instr) return false;
     
     /* Only hoist pure, deterministic operations that define a destination temp */
@@ -209,23 +212,62 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     }
     if (def_dest_count > 1) return false;
 
-    /* Verify src1: every definition in the loop must be invariant */
-    if (instr->temp_src1 != TEMP_NONE) {
+    /* In-place self-reference (src == dest, e.g. SEXT32 r, r) reads the
+     * pre-loop value of dest.  Hoisting it is sound ONLY for idempotent
+     * pure conversions of a value that is constant across the loop (the
+     * dest single-definition check above already guarantees no other
+     * in-body definition).  In-place BINARY arithmetic (e.g. ADD r, r, 1)
+     * is self-referential and loop-dependent: it must NOT be exempted -
+     * the source checks below reject it correctly, because its only
+     * in-body definition is itself, which is not marked invariant. */
+    int opc = (int)instr->op;
+    bool is_conversion =
+        (opc == OP_SEXT8 || opc == OP_SEXT16 || opc == OP_SEXT32 ||
+         opc == OP_ZEXT8 || opc == OP_ZEXT16 || opc == OP_ZEXT32 ||
+         opc == OP_NOT || opc == OP_LNOT ||
+         opc == OP_CVTTSD2SI || opc == OP_CVTSI2SD);
+    bool self_ref_exempt = is_conversion && instr->temp_src1 == instr->temp_dest;
+    bool self_ref_exempt2 = is_conversion && instr->temp_src2 == instr->temp_dest;
+
+    /* Verify src1: every definition in the loop must be invariant, and a
+     * definition outside the loop must lie before the header. */
+    if (instr->temp_src1 != TEMP_NONE && !self_ref_exempt) {
+        int def_pos = -1;
         for (int i = 0; i < body_count; i++) {
             Instr *def = ir_get(loop_body[i]);
             if (def && def->temp_dest == instr->temp_src1) {
                 if (!invariant_map[loop_body[i]]) return false;
+                if (def_pos < 0) def_pos = loop_body[i];
             }
+        }
+        if (def_pos < 0) {
+            int fc = (int)ir_get_count();
+            for (int i = 0; i < fc; i++) {
+                Instr *def = ir_get(i);
+                if (def && def->temp_dest == instr->temp_src1) { def_pos = i; break; }
+            }
+            if (def_pos < 0 || def_pos >= header_idx) return false;
         }
     }
     
-    /* Verify src2: every definition in the loop must be invariant */
-    if (instr->temp_src2 != TEMP_NONE) {
+    /* Verify src2: every definition in the loop must be invariant, and a
+     * definition outside the loop must lie before the header. */
+    if (instr->temp_src2 != TEMP_NONE && !self_ref_exempt2) {
+        int def_pos = -1;
         for (int i = 0; i < body_count; i++) {
             Instr *def = ir_get(loop_body[i]);
             if (def && def->temp_dest == instr->temp_src2) {
                 if (!invariant_map[loop_body[i]]) return false;
+                if (def_pos < 0) def_pos = loop_body[i];
             }
+        }
+        if (def_pos < 0) {
+            int fc = (int)ir_get_count();
+            for (int i = 0; i < fc; i++) {
+                Instr *def = ir_get(i);
+                if (def && def->temp_dest == instr->temp_src2) { def_pos = i; break; }
+            }
+            if (def_pos < 0 || def_pos >= header_idx) return false;
         }
     }
     
@@ -347,7 +389,7 @@ void opt_licm(ZeroCCCompiler *c) {
                 Instr *instr = ir_get(idx);
                 if (!instr) continue;
                 
-                if (instr_is_invariant(instr, invariant, loop->body_indices, loop->body_count)) {
+                if (instr_is_invariant(instr, invariant, loop->body_indices, loop->body_count, loop->header_idx)) {
                     if (!instr_has_moving_side_effects(instr)) {
                         invariant[idx] = true;
                         changed = true;
@@ -395,24 +437,31 @@ void opt_licm(ZeroCCCompiler *c) {
     }
     for (int i = 0; i < ir_count; i++) old_to_new[i] = -1;
     
-    /* For each loop header, collect instructions to hoist before it */
+    /* For each loop header, collect instructions to hoist before it.
+     * Multiple natural loops can share one header (multiple backedges into
+     * the same label, e.g. `continue` plus the main backedge).  The union of
+     * ALL such loops' invariants must be emitted at the header: an invariant
+     * marked for hoisting by any of them is NOP'd in place, so failing to
+     * emit it here loses the definition (Sprint 35 Phase 0 regression:
+     * `MOV_IMM r51, 1` in test/jit/break_continue.c was NOP'd but never
+     * hoisted, leaving r51 undefined). */
+    bool *emitted_at_header = calloc(ir_count, sizeof(bool));
     for (int i = 0; i < ir_count; i++) {
-        /* Check if i is a loop header */
+        /* Emit all invariant instructions belonging to any loop whose
+         * header is at i, deduplicated across loops. */
         for (int l = 0; l < state.loop_count; l++) {
             LoopInfo *loop = &state.loops[l];
-            if (loop->header_idx == i) {
-                /* Emit all invariant instructions belonging to this loop before the header */
-                for (int b = 0; b < loop->body_count; b++) {
-                    int b_idx = loop->body_indices[b];
-                    if (loop->is_invariant[b_idx]) {
-                        Instr *inv_instr = ir_get(b_idx);
-                        if (inv_instr) {
-                            ir_arena_emit(&new_arena, *inv_instr);
-                            opt_profile_count_licm_moved();
-                        }
+            if (loop->header_idx != i) continue;
+            for (int b = 0; b < loop->body_count; b++) {
+                int b_idx = loop->body_indices[b];
+                if (loop->is_invariant[b_idx] && !emitted_at_header[b_idx]) {
+                    Instr *inv_instr = ir_get(b_idx);
+                    if (inv_instr) {
+                        ir_arena_emit(&new_arena, *inv_instr);
+                        emitted_at_header[b_idx] = true;
+                        opt_profile_count_licm_moved();
                     }
                 }
-                break;
             }
         }
         
@@ -462,6 +511,7 @@ void opt_licm(ZeroCCCompiler *c) {
     }
     
     free(old_to_new);
+    free(emitted_at_header);
     free(global_hoist);
     loop_analysis_free(&state);
 }

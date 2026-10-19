@@ -11,6 +11,22 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 34: Small Function Inlining (`-O2`/`-O3`) & LICM Multi-Def Safety ⚠️ (landed with open risks)
+- **Status**: COMMITTED (`0272a2a`) — feature works on targeted cases, but **see "Open Regressions" in Current Status**; it was validated only by `mem2reg_verifier.py` and `make test`, and `make test` does not exercise zerocc codegen for most tests (see Test Coverage).
+- **Achievement**: AST-level call-site inlining of small `static`/`inline` leaf functions (≤35 AST nodes, non-variadic, non-recursive, no struct return >8B, no calls in body) with TU-level AST retention/cloning. Fixed a pre-existing LICM bug that hoisted instructions whose destination temp had multiple definitions in the loop.
+- **Key Deliverables**: `parser/ast_arena.h` (`zero_cc_ast_clone`/`_node_count`/`_has_call`), `jit/compile.h` (candidate detection), `ir/ast_lowering_expr.c` + `ast_lowering_stmt.c` (param substitution, return redirection), `opt/opt_loop.c` (multi-def guard).
+- **Measured**: 100M-iteration helper-call loop 380 ms (`-O0`, no inlining) → 143 ms (`-O2` JIT). Single benchmark; not a general claim.
+- **Unaudited risks (Sprint 35 Phase 1)**: parameter mutation / `&param`, argument and return type conversion at the inline boundary, float params/returns, static locals and labels in inlined bodies.
+
+### Sprint 33: Cross-Block mem2reg & LICM Invariant Load Hoisting ⚠️ (introduced regressions — fixed in Sprint 35 Phase 0)
+- **Status**: COMMITTED (`15588aa`) but **regressed correctness**. Verified by building `d0f3f54` (pre-Sprint 33, all pass) vs `15588aa` (fail): `test/jit/break_continue.c` (wrong result at `-O1`, the default level), `test/jit/goto_loop.c` and `test/aot/loops_conditionals.c` (wrong rc at `-O2`), and all five `test/licm/*.c` (segfault, rc 139, at `-O2`/`-O3`; they are correct at `-O0`/`-O1`). These were not caught because the reported `make test` 140/140 does not run those cases through zerocc at the affected levels.
+- **Intended achievement**: `opt_promote_loop_carried()` promotes induction variables/accumulators to virtual registers; straight-line mem2reg preserved across fallthrough branches/labels; LICM hoists read-only stack loads and extensions. `mem2reg`/`copy_prop` promoted to `-O1` (the default), `licm` to `-O2`. 100M-iteration loop 251 ms → 160 ms (measured on one benchmark).
+- **Suspects**: `opt_promote_loop_carried` (loop promotion with `break`/`continue`/`goto` exits and multiple backedges) for the `-O1` failure; LICM stack-load/extension hoisting for the `-O2` segfaults.
+
+### Interim hardening commits (between Sprint 31 and Sprint 32) ✅
+- **`8781592` — `-O` level gating**: `OptPass.min_level`, `comp->opt_level`; passes tagged O1/O2/O3; `-O0` is now plain codegen. **Default level is `-O1`** (`src/main.c`).
+- **`5766bee` — Vectorizer hardening**: `analyze_loop_for_vectorization_full` now rejects loops with mid-body conditional branches (`has_mid_body_cond`, any `OP_JE/JNE/JL/JLE/JG/JCOND` that is not the backedge at `loop->exit_idx`), and the increment rewrite only matches the loop counter (`loop_var_temp`). This **resolves both C11 residuals** that `fragility-analysis.md`, `CHANGELOG.md` and the OKF `optimization-passes.md` still list as open.
+
 ### Sprint 32: M5 Dynamic Scope Hash Table, Dynamic Locals Array & Segmented AST Arena ✅
 - **Status**: COMPLETE
 - **Achievement**: Replaced the fixed Two-Phase Hash Table (`ZeroFlattenTpht`) with a dynamically resizing separate-chaining bucket hash table in `Scope`. Converted `c->locals` in `ZeroCCCompiler` to a dynamically doubling array with an $O(1)$ hash table for variable lookup, eliminating the $O(N^2)$ compilation bottleneck. Converted `ZeroCCASTArena` to 1,024-node fixed chunks to eliminate dangling pointers on expansion. Added stack probing for frames >4KB. Verified up to 25,000 local declarations in both JIT and AOT.
@@ -166,19 +182,46 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
   - `<threads.h>` (`thrd_t`, `mtx_t`) mapped to pthreads & `_Thread_local` (`__thread`) storage
 - **IR & Optimization Pipeline (`opt_pass.c`)**:
   - 51-opcode `Instr` IR with `IRCallArgsArena` side table
-  - Active passes: Constant Folding, Copy Propagation, CSE, GVN, Local Mem2Reg, LICM (Two-Pass Rebuild with call-spanning guard), SIMD Auto-Vectorization, and Dead Code Elimination
+  - Optimization levels (`-O0`..`-O3`, **default `-O1`**; `src/main.c`). Registered passes (`g_opt_passes` in `opt_pass.c`, priority order, each tagged with `min_level`):
+    - **`-O1`**: `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` (local + cross-block loop-carried promotion)
+    - **`-O2`**: `cse`, `gvn`, `licm` (Two-Pass Rebuild, call-spanning guard, multi-def guard, stack-load hoisting); plus AST-level small-function inlining (`ast_lowering_expr.c`, checks `c->opt_level >= OPT_LEVEL_O2`)
+    - **`-O3`**: `strength_reduction`, `branch_simplify`, `auto_vectorize` (call and mid-body-conditional guards; counter-only increment rewrite)
+    - `-O0` is plain codegen (no passes, no inlining)
+  - IR shape: flat, non-SSA linear `Instr` array with implicit control flow (labels/jumps); no CFG, basic blocks or dominators (see Sprint 35 plan)
 - **Multi-ISA Codegen & ABI**:
   - **x86-64**, **AArch64**, and **RISC-V (RV64GC)** backends
   - Full struct by-value parameter passing and struct returns (`<=8B`, `9-16B`, and `>16B` `sret` hidden pointer across direct and indirect function pointer calls)
   - Direct ELF64 relocatable object writer (`elf_writer.c`) and `W^X` in-memory JIT (`execution.h`)
 
 ### 📊 Test & Verification Coverage
-- **Main Regression Suite (`make test`)**: **140/140 passing (100%)** in ~0.37s
+- **Main Regression Suite (`make test`)**: 140/140 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
+- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate).
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
 - **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
-- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **10/10 pages valid**, links & graph reachability verified
+- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **11 files valid** (10 concept pages + `log.md`), links & graph reachability verified
+
+### ✅ Former Open Regressions — FIXED (Sprint 35 Phase 0, 2026-10-20; verified by `make test-opt` 88/88)
+Introduced by Sprint 33 (`15588aa`); zerocc `--run`, same results in AOT where checked. All resolved; the table is retained for the record:
+
+| Test | Expected (rc) | Pre-Sprint 33 | HEAD (pre-fix) | Root cause & fix |
+| :--- | :--- | :--- | :--- | :--- |
+| `test/jit/break_continue.c` | 0 | pass at `-O0..-O2` | **failed at `-O1`/`-O2`/`-O3`** (wrong sum: 2 at `-O1`) | x86 `setcc`/extend ModRM source-operand encoding (REX-extended registers) + LICM shared-header invariant loss |
+| `test/jit/goto_loop.c` | 0 | pass | **failed at `-O2`/`-O3`** (rc 1) | x86 `setcc %al` hardcoded dest clobbered live RAX; `x86_emit_extend_asm` ignored `src` |
+| `test/aot/loops_conditionals.c` | 0 | pass | **failed at `-O2`/`-O3`** (rc 1 / SIGSEGV AOT) | same x86 extend/setcc encoding bugs |
+| `test/licm/*.c` (5 files) | 45/13/45/60/42 | pass | **segfault/hang (rc 139) at `-O2`/`-O3`** | LICM hoisted a loop-dependent `ADD` (missing in-loop source-def check) + DCE single-sweep liveness deleted the backedge write-back → infinite loop |
+
+`test/jit/profile_demo.c` was the reported timeout: it is **timing/nondeterminism-sensitive** (wall-clock output); the sweep flags it `NONDET` rather than hard-failing it.
+
+**Root causes fixed in Sprint 35 Phase 0** (bisected to Sprint 33 `15588aa`; pre-Sprint-33 `d0f3f54` was clean on the same sweep except a latent `-O3` `break_continue` case also covered by the emitter fixes):
+1. `src/zero_cc/isa/x86_64.c` `x86_emit_extend` — `MOVSXD`/`MOV` put the destination in both the reg and r/m ModRM fields; now source in r/m, dest in reg.
+2. `src/zero_cc/isa/x86_64_asm.c` — `x86_emit_cond_set_asm` hardcoded `setcc %al`/`movzbq %al,…` (clobbered live RAX); now uses the destination's low byte. `x86_emit_extend_asm` ignored `src` (assumed in-place); now emits the real source register.
+3. `src/zero_cc/opt/opt_loop.c` — (a) multiple natural loops can share one header; the two-pass rebuild now emits the **union** of all shared-header loops' invariants (dedup `emitted_at_header`) instead of only the first loop's, so an invariant NOP'd by one loop is never lost; (b) `instr_is_invariant` now rejects any candidate whose source operand is defined anywhere in the loop body (including after the candidate — it feeds back through the backedge), unless the def is itself invariant; in-place self-refs stay hoistable.
+4. `src/zero_cc/opt/opt_dce.c` — liveness is now computed to a **fixpoint** (monotonic live set, ≤10 backward sweeps; bail-out marks everything live). A single backward sweep mis-declares loop-carried values dead at their backedge definition.
+5. `src/zero_cc/opt/opt_mem2reg.c` — `opt_promote_loop_carried` now fully audits the slot (one in-loop load+store, one preheader init, all other loads strictly post-exit) and forwards **all** post-loop loads, not just up to the next label.
+
+**New gate**: `make test-opt` (`tools/opt_sweep.py`) — compiles & runs every standalone test at `-O0..-O3` in **both** JIT and AOT with zerocc itself, comparing `(rc, stdout)` to the `-O0` baseline. **88/88 pass** after the fixes. `make test` (141/141), `mem2reg_verifier.py` (12/12) and `sret_verifier.py` (6/6) also pass.
 
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
 - **CRITICAL tier**: C1–C11 **ALL RESOLVED** (C8 Sprint 28; C9 cast lowering + C11 vectorizer call-guard Sprint 29; C10 resolved as C11 in disguise). No open C-tier items.
@@ -201,7 +244,7 @@ Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
 AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 51-opcode Instr)
     ↓
-Optimization Pipeline (src/zero_cc/opt/opt_*.c: ConstantFold, CopyProp, CSE, GVN, Mem2Reg, LICM, Vectorize, DCE)
+Optimization Pipeline (src/zero_cc/opt/opt_*.c; -O0 none, default -O1: ConstantFold/FlagDCE/DCE/CopyProp/Mem2Reg, -O2: +CSE/GVN/LICM/inlining, -O3: +StrengthReduction/BranchSimplify/Vectorize)
     ↓
 Live Range Analysis & Linear Scan RegAlloc (src/zero_cc/ir/live_range.h, regalloc.h)
     ↓
@@ -237,7 +280,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ### 4. Extended Language & Backend Features
 - 128-bit integer (`__int128`) and `long double` support
-- Full SSA-form φ-node construction for cross-block `mem2reg` and GVN
+- Full SSA-form φ-node construction for cross-block `mem2reg` and GVN — **deferred**; decision and prerequisites (CFG first) in §10
 - ~~Full `switch`/`case` lowering~~ — done (Sprint 20); the >128-case cap was removed in Sprint 24
 
 ### 5. zero_rt — Self-Contained Cross-Platform Runtime (T3)
@@ -259,7 +302,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 ### 7a. Conformance residuals from Sprints 28/29 (all resolved; watch-items only)
 - ~~**C9**~~ — inline int→float cast dropped in call-argument position — **fixed (Sprint 29)** via the `NODE_CAST` float-target branch
 - ~~**C10**~~ — float local as call argument inside a loop — **fixed (Sprint 29)** (was C11 in disguise)
-- ~~**C11**~~ — auto-vectorizer vectorized loops containing calls (loop counter widened to `k += 4`) — **fixed (Sprint 29)** via the `has_call` guard; residuals documented in [`docs/fragility-analysis.md`](./fragility-analysis.md) §C11 (mid-body branches, increment-rewrite breadth)
+- ~~**C11**~~ — auto-vectorizer vectorized loops containing calls (loop counter widened to `k += 4`) — **fixed (Sprint 29)** via the `has_call` guard; the two documented residuals (mid-body conditional branches, increment-rewrite breadth) were **fixed in `5766bee`** (`has_mid_body_cond` + counter-only increment rewrite). `docs/fragility-analysis.md` §C11 and the OKF page still list them as open and need updating (Sprint 35 Phase 4).
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
 - ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT
@@ -268,5 +311,53 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - H1 (optional): raise the expression-depth guard above 150 if the 64 MB stack headroom justifies it
 
 ### 9. Optimization Passes & GCC Performance Parity
-- **Cross-Block `mem2reg`**: Generalize `opt_mem2reg.c` across basic blocks / loops so induction variables and accumulators stay in virtual registers across loop iterations rather than reloading/storing to `-XX(%rbp)` on every cycle.
-- **Function Inlining**: Implement inlining for small leaf / static functions during AST lowering or early IR optimization at `-O2`/`-O3` to eliminate `OP_CALL` overhead in tight compute loops.
+- **Cross-Block `mem2reg`** — implemented (Sprint 33) and **correctness restored (Sprint 35 Phase 0)**: conservative slot audit + full post-loop load forwarding; passes `make test-opt` at `-O0..-O3` (JIT + AOT).
+- **Function Inlining** — implemented (Sprint 34): AST-level, leaf-only; audit tracked in Sprint 35 Phase 1.
+- ~~**Vectorizer residuals** (mid-body conditionals, increment-rewrite breadth)~~ — **done** (`5766bee`).
+
+### 10. Sprint 35 (PLANNED): Correctness Recovery, Inline Audit, CFG Layer, Pass Migration
+
+**Motivation.** (1) Sprint 33 regressed correctness (see Open Regressions) and `make test` could not detect it, so the first job is to fix it and build a harness that can. (2) The IR is a flat, non-SSA, linear `Instr` array with implicit control flow. Passes each re-derive control-flow facts (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span pattern-matching in the vectorizer), which is the common root of the LICM multi-def bug and the Sprint 33 loop-promotion regressions. Sprint 34 inlining produces branchy multi-definition code and raises the exposure. Decision (2026-10-19): **add a CFG now; defer SSA** until CFG-based passes demonstrably hit a wall.
+
+**Guiding constraints**
+- The CFG is a *view* over the existing `Instr` array (blocks = index ranges); no new IR, no copying, no change to regalloc input.
+- Built lazily, cached, invalidated only by passes that change control flow. Not built at `-O0` (JIT fast path unchanged).
+- Dominators computed on demand only (Cooper–Harvey–Kennedy).
+- No performance or "done" claim without a direct-zerocc measurement/verification at the affected `-O` levels. `make test` alone is not evidence. The "~78× faster than GCC" figure in the docs has no recorded methodology and must be re-measured or reworded (Phase 4).
+
+**Phase 0 — Fix Sprint 33 regressions & add an `-O` sweep harness (blocks everything else) — ✅ DONE (2026-10-20)**
+1. ~~Add `tools/opt_sweep.py` …~~ — **done**: `tools/opt_sweep.py` sweeps every standalone test in `test/{jit,aot,licm}` at `-O0/-O1/-O2/-O3` in JIT (`--run`) and AOT (`-o`), comparing `(rc, stdout)` to the `-O0` baseline (plus an informational `gcc -O2` diff), with per-test timeouts and `NONDET`/skip flagging (e.g. `profile_demo`). Wired into `make test-opt` and the `AGENTS.md` Verification Rules.
+2. ~~Root-cause and fix each regression …~~ — **done**: the five root causes are fixed (x86 extend/setcc ModRM encoding ×3, LICM shared-header invariant loss, LICM in-loop source-def check, DCE fixpoint liveness, mem2reg conservative slot audit + full post-loop forwarding). See the "Former Open Regressions — FIXED" table above for the per-test mapping. The fix went beyond the originally planned "conservative guard": each pass was corrected rather than disabled, so `-O2`/`-O3` still perform loop promotion + LICM hoisting.
+3. ~~Triage `profile_demo` …~~ — **done**: it is timing/nondeterminism-sensitive (wall-clock output); the sweep flags it `NONDET` and does not hard-fail.
+- **Exit (met)**: `make test-opt` **88/88** across all four levels, JIT and AOT; `mem2reg_verifier.py --verify-all` 12/12; `sret_verifier.py` 6/6; `make test` 141/141.
+
+**Phase 1 — Inlining audit**
+1. Adversarial differential tests vs `gcc -O2`, JIT + AOT at `-O2`/`-O3`: param mutation, `&param`, narrowing/widening args and returns, float/double params and returns, static locals, labels/goto, multiple returns, same callee inlined twice in one expression, nested inline depth 2.
+2. For each failure add a conservative candidate filter in `jit/compile.h` (reject address-taken/assigned params, static locals, labels, float signatures if conversion is not handled) rather than extending lowering.
+3. Add the passing cases to the `opt_sweep.py` corpus.
+- **Exit**: all adversarial tests match GCC at every level.
+
+**Phase 2 — CFG layer** (`opt/cfg.{h,c}`)
+1. Build basic blocks (leaders: labels, instruction after jump/ret), successor/predecessor lists, reachability; helpers for loop headers/back-edges.
+2. Lazy cache on `ZeroCCCompiler` with explicit invalidate API.
+3. `-dump-cfg` flag (in `main.c`, alongside `-dump-ir`) emitting a stable plain-text format, one line per block, e.g. `fn main` / `bb3: [12..18] succ=bb4,bb7 pred=bb1 loop_header=0`, plus a `loops:` section listing back-edges (`bb7->bb3`).
+4. `tools/cfg_verifier.py` (stdlib-only, same conventions as `mem2reg_verifier.py`; no networkx/Graphviz dependency). Parses `-dump-cfg` output over the test corpus and checks: every block reachable from entry; every jump target is a block start; blocks tile the instruction range exactly once with no overlap; pred/succ lists mutually consistent. Independently computes dominators and natural loops in Python and compares them to the C-reported loops (cross-check, not shared code). Modes: `--verify-all`, `--file <test.c>`. Optional `--dot` text export for visualization.
+5. Unit tests (compiled with `-dump-cfg`): straight-line, if/else, nested loops, `goto`, `switch`, inlined ternary in loop.
+- **Exit**: `cfg_verifier.py --verify-all` passes on every standalone program in the `opt_sweep.py` corpus (no unreachable/ill-formed blocks; Python and C loop sets agree).
+
+**Phase 3 — Pass migration (known-fragile passes first)**
+1. Mem2reg loop promotion (`opt_promote_loop_carried`): replace the jump-target pre-scan and its loop heuristics with CFG predecessors/back-edges; require a single-entry natural loop (the Sprint 33 failure class).
+2. LICM: replace `label_to_idx` loop detection with CFG back-edges; keep the multi-def invariant and the call-spanning guard.
+3. Vectorizer: replace the span-based mid-body-conditional check (`5766bee`) with a CFG "single basic-block body" check.
+- **Exit**: `opt_sweep.py` zero diffs at `-O0..-O3` (JIT + AOT), `mem2reg_verifier.py --verify-all`, `sret_verifier.py --verify-all`, `licm_verifier.py`, no output regressions.
+
+**Phase 4 — Measurement & docs**
+1. `--profile-opts` before/after on a large synthetic function: per-pass and total compile time at `-O0/-O1/-O2`.
+2. Re-measure and correct the JIT-vs-GCC compile-time claim (state workload, GCC invocation, and what is timed).
+3. Update OKF (`ir-and-regalloc.md`, `optimization-passes.md`, incl. removing the stale vectorizer-residual text), `fragility-analysis.md` §C11, CHANGELOG (add the missing entries for `8781592`, `5766bee`, and the Sprint 33 regression); `okf.py lint && index`.
+
+**Deferred (revisit after Phase 4)**
+- Promotable-slot SSA (phis for non-address-taken stack slots only) replacing `opt_promote_loop_carried`; requires dominators and out-of-SSA with coalescing.
+- Full SSA over all temps (rewrite-scale; only if multi-def reasoning in GVN/CSE blocks further passes).
+- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG.
+- IR cleanups: call args into the instruction stream (remove `instr_index`-keyed side table), move physical regs out of the temp namespace, add type tag.

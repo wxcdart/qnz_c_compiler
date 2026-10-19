@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-18T12:34:36Z
+timestamp: 2026-10-19T23:13:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -79,6 +79,15 @@ In-place width-extension opcodes (`OP_SEXT8/16/32`, `OP_ZEXT8/16/32`, appended a
 - **RISC-V**: `slli`+`srai` (sext), `andi 0xff/0xffff` or `slli/srli 32` (zext); the `slli` operand must carry `rs1 = src` (a missing field silently extends zero).
 
 The `-S` asm emitters mirror the binary encodings but must stay **GAS-legal**: `movzbl`/`movzwl` have no accepted 64-bit-destination syntax, so the x86 asm path emits 32-bit-destination forms (which zero the upper half) plus a follow-up `movl` where a 64-bit dest is required.
+
+## x86 ModRM Source/Destination Placement (`setcc`, cross-register extend)
+
+The Sprint 35 Phase 0 regression sweep (`make test-opt`) exposed two ModRM operand-placement bugs that only misfire when the relevant register index is >= 8 (REX-extended) or differs from the hardcoded default:
+
+- **`setcc` destination is in the r/m field, not the reg field**: `0F 90-9F` (`SETcc r/m8`) encodes the destination register in **r/m**, with the reg field = 000. `x86_emit_setcc` must emit `x86_modrm(c, 3, 0, dst & 7)` with the REX **B** bit (not R) when `dst >= 8`. The `-S` path (`x86_emit_cond_set_asm`) had the same class of bug a different way: it hardcoded `setcc %al` + `movzbq %al,<dst>`, which **clobbers live RAX** whenever the condition result belonged to another temp (e.g. a loop bound loaded into `r19` while `r0`/rax held a live value). It must use the destination's low byte (`%al`/`%cl`/`%r12b`...) as the `setcc` target, then zero-extend into the destination.
+- **Cross-register extend must put `src` in r/m**: `MOVSXD r64, r/m32` and `MOV r64, r/m32` take the **source** in the r/m field and the destination in the reg field. `x86_emit_extend` (MC path) and `x86_emit_extend_asm` (text path) previously ignored `src` and/or swapped the fields, so for `dst != src` (or `dst >= 8`) they extended the wrong register (e.g. `movslq %esp, %r12` instead of `movslq %r12d, %r12`), silently corrupting the value. In-place extends (`src == dst`) hid the bug; the loop-promotion mem2reg pass (Sprint 33) started producing cross-register extends, which is when it detonated.
+
+Rule of thumb when adding an x86 emitter: write the instruction, verify the ModRM reg/rm assignment against the Intel manual for that opcode, and test with a register >= 8 as an operand - the in-register-index-0-7 path rarely catches field swaps.
 
 ## Multi-ISA SIMD / Vector Emission (SSE, NEON, RVV 1.0)
 
