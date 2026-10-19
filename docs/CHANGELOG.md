@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 33] - 2026-10-19 - Cross-Block mem2reg & LICM Invariant Load Hoisting
+
+### Optimized
+- **Cross-Block Loop Induction & Accumulator Promotion (`opt/opt_mem2reg.c`)**:
+  - Implemented `opt_promote_loop_carried()` to detect natural loops with non-address-taken loop induction variables and accumulators.
+  - Rewrites preheader stores and backedge stores into virtual register transfers (`OP_MOV_REG`), eliminating in-loop stack loads and stores.
+  - Loop simple stack stores inside the loop body dropped from 2 down to 0; nested loops dropped from 16 to 7 loads.
+- **Straight-Line & Fallthrough mem2reg Enhancements (`opt/opt_mem2reg.c`)**:
+  - Preserved slot tracking across conditional branches (`OP_JE`, `OP_JNE`, `OP_JL`, `OP_JLE`, `OP_JG`, `OP_JCOND`) along the straight-line fallthrough path.
+  - Added pre-pass jump target scanning to preserve slot tracking across unreferenced fallthrough labels (such as `loop_step` in for-loops without `continue`).
+  - Added load-after-load forwarding within basic blocks: subsequent loads from the same stack slot reuse the loaded temp.
+  - Preserved slot tracking across in-place sign/zero extensions (`OP_SEXT32`/`OP_ZEXT32`).
+- **Loop-Invariant Stack Load & Sign Extension Hoisting (`opt/opt_loop.c`)**:
+  - Extended LICM to detect read-only stack slots (e.g. loop bound `n`) and downstream `OP_SEXT`/`OP_ZEXT` instructions, hoisting them to the loop preheader.
+- **Pass Level Reclassification (`opt/opt_pass.c`)**:
+  - Promoted `mem2reg` and `copy_prop` to `OPT_LEVEL_O1` so default optimization benefits from stack-to-register promotion.
+  - Promoted `licm` to `OPT_LEVEL_O2`.
+
+### Verification
+- `tools/mem2reg_verifier.py --verify-all`: **10/10 passed** (JIT -O0, JIT -O1, AOT -O1 vs GCC -O2).
+- `tools/mem2reg_verifier.py --count-stack-ops`: `loop_simple` dropped from 11/2 to 5/0; `nested_loops` from 16/4 to 7/1; `branch_in_loop` from 15/3 to 8/1.
+- `tools/mem2reg_verifier.py --benchmark`: 100M loop iterations down from 251ms to 160ms (faster than GCC -O0).
+- `make test` **140/140** · `sret_verifier.py` **6/6** · OKF lint PASS.
+
 ## [Sprint 32] - 2026-10-19 - M5 Resolved: Dynamic Scope Hash Table, Dynamic Locals Array, Segmented Chunked AST Arena
 
 ### Fixed

@@ -408,6 +408,10 @@ def run_benchmark():
     run_cmd([ZEROCC_BIN, "-O1", src_path, "-o", bin_aot_o1])
     configs.append(("ZeroCC AOT -O1", [bin_aot_o1]))
 
+    bin_aot_o2 = src_path + ".zc.o2"
+    run_cmd([ZEROCC_BIN, "-O2", src_path, "-o", bin_aot_o2])
+    configs.append(("ZeroCC AOT -O2", [bin_aot_o2]))
+
     bin_gcc_o0 = src_path + ".gcc.o0"
     run_cmd([GCC_BIN, "-O0", src_path, "-o", bin_gcc_o0])
     configs.append(("GCC -O0", [bin_gcc_o0]))
@@ -447,7 +451,7 @@ def run_benchmark():
             print(f"  Gap (ZeroCC -O1 vs GCC -O2): {ratio:.2f}x slower")
             print("  Target with cross-block mem2reg: close gap to ~1.0x - 1.3x")
 
-    for p in [src_path, bin_aot_o1, bin_gcc_o0, bin_gcc_o2]:
+    for p in [src_path, bin_aot_o1, bin_aot_o2, bin_gcc_o0, bin_gcc_o2]:
         if os.path.exists(p):
             os.remove(p)
 
@@ -470,20 +474,20 @@ def main():
         return
 
     if args.count_stack_ops:
-        print("=" * 70)
+        print("=" * 80)
         print("Loop Body Stack Traffic Analysis (-XX(%rbp) Loads and Stores)")
-        print("=" * 70)
-        print(f"{'Test Case':<22} | {'-O0 Loads':<10} | {'-O0 Stores':<10} | {'-O1 Loads':<10} | {'-O1 Stores':<10}")
-        print("-" * 70)
+        print("=" * 80)
+        print(f"{'Test Case':<20} | {'-O0 L/S':<10} | {'-O1 L/S':<10} | {'-O2 L/S':<10} | {'Reduction'}")
+        print("-" * 80)
         for name, test_def in TEST_CASES.items():
             if not test_def.get("loop_fn"):
                 continue
             l0, s0 = count_loop_stack_ops(name, test_def, "-O0")
             l1, s1 = count_loop_stack_ops(name, test_def, "-O1")
-            print(f"{name:<22} | {l0:<10} | {s0:<10} | {l1:<10} | {s1:<10}")
-        print("-" * 70)
-        print("Note: Currently -O1 has identical stack traffic to -O0 in loops because")
-        print("      mem2reg invalidates all slots at OP_LABEL/control flow boundaries.")
+            l2, s2 = count_loop_stack_ops(name, test_def, "-O2")
+            diff = f"-{l0 - l2} loads, -{s0 - s2} stores" if (l0 > l2 or s0 > s2) else "baseline"
+            print(f"{name:<20} | {f'{l0}/{s0}':<10} | {f'{l1}/{s1}':<10} | {f'{l2}/{s2}':<10} | {diff}")
+        print("-" * 80)
         return
 
     # Default or --verify-all

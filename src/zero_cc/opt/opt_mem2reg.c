@@ -51,10 +51,15 @@ static int slot_from_offset(int offset) {
  * Check if instruction invalidates all slot mappings
  * Function calls, control flow, and block boundaries clobber / reset local slot tracking.
  */
-static int instr_invalidates_slots(Instr *instr) {
+static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int max_label) {
     switch (instr->op) {
         /* Block boundaries */
         case OP_LABEL:
+            if (label_targeted && (int)instr->label_idx <= max_label && !label_targeted[instr->label_idx]) {
+                /* Pure fallthrough label (no jumps target this label): straight-line execution continues */
+                return 0;
+            }
+            return 1;
         case OP_RET:
         case OP_EPILOGUE:
             return 1;
@@ -64,16 +69,14 @@ static int instr_invalidates_slots(Instr *instr) {
         case OP_CALL_INDIRECT:
             return 1;
         
-        /* Control flow */
+        /* Unconditional control flow leaves the basic block */
         case OP_JMP:
         case OP_JMP_LABEL:
-        case OP_JE:
-        case OP_JNE:
-        case OP_JL:
-        case OP_JLE:
-        case OP_JG:
-        case OP_JCOND:
             return 1;
+        
+        /* Conditional branches (OP_JE, OP_JNE, OP_JL, OP_JLE, OP_JG, OP_JCOND):
+         * The fallthrough path continues straight-line execution without touching memory.
+         * The branch target block will be invalidated when its OP_LABEL is encountered. */
         
         /* Any indirect memory write or other store may alias local stack slots */
         case OP_STORE_BYTE:
@@ -127,6 +130,195 @@ static int get_frame_offset(Instr *instr) {
 }
 
 /**
+ * Promote loop-carried variables (induction variables and accumulators)
+ * across loop boundaries directly into virtual registers.
+ */
+static void opt_promote_loop_carried(void) {
+    size_t count = ir_get_count();
+    if (count == 0) return;
+
+    /* 1. Track address-taken slots anywhere in the function */
+    bool slot_addr_taken[MAX_STACK_SLOTS];
+    memset(slot_addr_taken, 0, sizeof(slot_addr_taken));
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(i);
+        if (ins && ins->op == OP_LEA) {
+            int slot = slot_from_offset(get_frame_offset(ins));
+            if (slot >= 0 && slot < MAX_STACK_SLOTS) slot_addr_taken[slot] = true;
+        }
+    }
+
+    /* 2. Build label to instruction index map */
+    int max_label = -1;
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(i);
+        if (ins && ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
+            max_label = (int)ins->label_idx;
+        }
+    }
+    if (max_label < 0) return;
+
+    int *label_to_pos = (int *)malloc((max_label + 1) * sizeof(int));
+    if (!label_to_pos) return;
+    for (int i = 0; i <= max_label; i++) label_to_pos[i] = -1;
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(i);
+        if (ins && ins->op == OP_LABEL) {
+            label_to_pos[ins->label_idx] = (int)i;
+        }
+    }
+
+    /* 3. Detect natural loops: look for backedge jumps */
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(i);
+        if (!ins) continue;
+        if (ins->op != OP_JMP) continue;
+
+        int lbl = (int)ins->label_idx;
+        if (lbl < 0 || lbl > max_label) continue;
+        int hdr_idx = label_to_pos[lbl];
+        if (hdr_idx < 0 || (size_t)hdr_idx >= i) continue;
+
+        size_t back_idx = i;
+
+        /* Verify loop safety: no calls, no VLA, no indirect stores */
+        bool safe_loop = true;
+        for (size_t k = hdr_idx; k <= back_idx; k++) {
+            Instr *loop_ins = ir_get(k);
+            if (!loop_ins) continue;
+            if (loop_ins->op == OP_CALL || loop_ins->op == OP_CALL_INDIRECT ||
+                loop_ins->op == OP_VLA_ALLOC || loop_ins->op == OP_STORE_BYTE ||
+                loop_ins->op == OP_STORE_16 || loop_ins->op == OP_STORE_32 ||
+                loop_ins->op == OP_STORE_64 || loop_ins->op == OP_FSTORE ||
+                loop_ins->op == OP_VSTORE || loop_ins->op == OP_VSTORESS ||
+                loop_ins->op == OP_VSTORESD || loop_ins->op == OP_ATOMIC_XADD ||
+                loop_ins->op == OP_ATOMIC_CMPXCHG || loop_ins->op == OP_ATOMIC_CMPXCHG_BOOL ||
+                loop_ins->op == OP_ATOMIC_XCHG) {
+                safe_loop = false;
+                break;
+            }
+        }
+        if (!safe_loop) continue;
+
+        /* Find exit branch from loop condition (e.g., JE exit_label) */
+        int exit_label = -1;
+        for (size_t k = hdr_idx; k <= back_idx; k++) {
+            Instr *loop_ins = ir_get(k);
+            if (loop_ins && (loop_ins->op == OP_JE || loop_ins->op == OP_JNE ||
+                             loop_ins->op == OP_JL || loop_ins->op == OP_JLE ||
+                             loop_ins->op == OP_JG)) {
+                exit_label = (int)loop_ins->label_idx;
+                break;
+            }
+        }
+
+        /* 4. Find candidate slots for loop promotion */
+        for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+            if (slot_addr_taken[s]) continue;
+
+            /* Count loads and stores of slot s in loop */
+            int loop_loads = 0;
+            int loop_stores = 0;
+            int load_idx = -1;
+            int store_idx = -1;
+
+            for (size_t k = hdr_idx; k <= back_idx; k++) {
+                Instr *loop_ins = ir_get(k);
+                if (!loop_ins) continue;
+                if (instr_is_stack_load(loop_ins)) {
+                    if (slot_from_offset(get_frame_offset(loop_ins)) == s) {
+                        loop_loads++;
+                        if (load_idx < 0) load_idx = (int)k;
+                    }
+                } else if (instr_is_stack_store(loop_ins)) {
+                    if (slot_from_offset(get_frame_offset(loop_ins)) == s) {
+                        loop_stores++;
+                        store_idx = (int)k;
+                    }
+                }
+            }
+
+            /* Candidate: exactly 1 load and 1 store in loop */
+            if (loop_loads == 1 && loop_stores == 1 && load_idx >= 0 && store_idx >= 0) {
+                Instr *load_ins = ir_get(load_idx);
+                Instr *store_ins = ir_get(store_idx);
+                if (!load_ins || !store_ins) continue;
+
+                int head_temp = load_ins->temp_dest;
+                int update_temp = store_ins->temp_src1;
+                if (head_temp < 16 || update_temp < 16) continue;
+
+                /* Find the initialization store before hdr_idx */
+                int init_store_idx = -1;
+                for (int k = hdr_idx - 1; k >= 0; k--) {
+                    Instr *pre_ins = ir_get(k);
+                    if (!pre_ins) continue;
+                    if (pre_ins->op == OP_LABEL) break; /* don't cross prior labels */
+                    if (instr_is_stack_store(pre_ins)) {
+                        if (slot_from_offset(get_frame_offset(pre_ins)) == s) {
+                            init_store_idx = k;
+                            break;
+                        }
+                    }
+                }
+
+                if (init_store_idx >= 0) {
+                    Instr *init_ins = ir_get(init_store_idx);
+                    int init_temp = init_ins->temp_src1;
+                    if (init_temp >= 16) {
+                        /* Transformation:
+                         * 1. Change preheader store: init_temp -> head_temp
+                         * 2. Remove loop load: load_ins becomes OP_NOP
+                         * 3. Change loop store: store_ins becomes OP_MOV_REG head_temp, update_temp */
+                        init_ins->op = OP_MOV_REG;
+                        init_ins->temp_dest = head_temp;
+                        init_ins->temp_src1 = init_temp;
+                        init_ins->temp_src2 = TEMP_NONE;
+                        init_ins->imm = 0;
+                        init_ins->imm64 = 0;
+
+                        load_ins->op = OP_NOP;
+                        load_ins->temp_dest = TEMP_NONE;
+                        load_ins->temp_src1 = TEMP_NONE;
+                        load_ins->temp_src2 = TEMP_NONE;
+
+                        store_ins->op = OP_MOV_REG;
+                        store_ins->temp_dest = head_temp;
+                        store_ins->temp_src1 = update_temp;
+                        store_ins->temp_src2 = TEMP_NONE;
+                        store_ins->imm = 0;
+                        store_ins->imm64 = 0;
+
+                        /* Forward to post-loop loads if reached from exit_label */
+                        if (exit_label >= 0 && exit_label <= max_label) {
+                            int exit_pos = label_to_pos[exit_label];
+                            if (exit_pos >= 0 && (size_t)exit_pos > back_idx) {
+                                for (size_t p = exit_pos; p < count; p++) {
+                                    Instr *post_ins = ir_get(p);
+                                    if (!post_ins) continue;
+                                    if (post_ins->op == OP_LABEL && p > (size_t)exit_pos) break;
+                                    if (instr_is_stack_load(post_ins)) {
+                                        if (slot_from_offset(get_frame_offset(post_ins)) == s) {
+                                            post_ins->op = OP_MOV_REG;
+                                            post_ins->temp_src1 = head_temp;
+                                            post_ins->temp_src2 = TEMP_NONE;
+                                            post_ins->imm = 0;
+                                            post_ins->imm64 = 0;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    free(label_to_pos);
+}
+
+/**
  * Local Memory-to-Register Promotion pass (safe version)
  * 
  * This pass exploits the SSA-like property that expression temps are
@@ -139,6 +331,9 @@ static int get_frame_offset(Instr *instr) {
  */
 void opt_promote_mem2reg(ZeroCCCompiler *c) {
     (void)c;
+    
+    /* First promote loop-carried variables across loop boundaries */
+    opt_promote_loop_carried();
     
     Mem2RegState state;
     memset(&state, 0, sizeof(state));
@@ -153,6 +348,34 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     }
     
     size_t count = ir_get_count();
+    
+    /* Pre-pass: scan for max label index and record all jump targets */
+    int max_label = -1;
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(i);
+        if (!ins) continue;
+        if (ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
+            max_label = (int)ins->label_idx;
+        }
+    }
+    
+    bool *label_targeted = NULL;
+    if (max_label >= 0) {
+        label_targeted = (bool *)calloc(max_label + 1, sizeof(bool));
+        if (label_targeted) {
+            for (size_t i = 0; i < count; i++) {
+                Instr *ins = ir_get(i);
+                if (!ins) continue;
+                if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
+                    ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG ||
+                    ins->op == OP_JCOND || ins->op == OP_JMP_LABEL) {
+                    if ((int)ins->label_idx <= max_label) {
+                        label_targeted[ins->label_idx] = true;
+                    }
+                }
+            }
+        }
+    }
     
     for (size_t i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
@@ -173,18 +396,24 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         }
         
         /* Check for invalidation points (control flow, calls, stores through pointers, etc.) */
-        if (instr_invalidates_slots(instr)) {
+        if (instr_invalidates_slots(instr, label_targeted, max_label)) {
             for (int s = 0; s < MAX_STACK_SLOTS; s++) {
                 state.slot_valid[s] = false;
             }
             continue;
         }
         
-        /* Invalidate any slot holding a temp that is redefined as a destination */
-        if (instr->temp_dest!= TEMP_NONE) {
-            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-                if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
-                    state.slot_valid[s] = false;
+        /* Invalidate any slot holding a temp that is redefined as a destination
+         * (unless it's an in-place sign/zero extension of the same temp) */
+        if (instr->temp_dest != TEMP_NONE) {
+            bool in_place_ext = (instr->op == OP_SEXT8 || instr->op == OP_SEXT16 || instr->op == OP_SEXT32 ||
+                                 instr->op == OP_ZEXT8 || instr->op == OP_ZEXT16 || instr->op == OP_ZEXT32) &&
+                                (instr->temp_dest == instr->temp_src1);
+            if (!in_place_ext) {
+                for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+                    if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
+                        state.slot_valid[s] = false;
+                    }
                 }
             }
         }
@@ -217,23 +446,31 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             int offset = get_frame_offset(instr);
             int slot = slot_from_offset(offset);
             
-            if (slot >= 0 && slot < MAX_STACK_SLOTS && state.slot_valid[slot]) {
-                int known_temp = state.slot_to_temp[slot];
-                
-                /* Check if the known temp is still valid (not overwritten) */
-                if (known_temp != TEMP_NONE) {
-                    /* Replace load with MOV from known temp */
-                    instr->op = OP_MOV_REG;
-                    instr->temp_src1 = known_temp;
-                    instr->temp_src2= TEMP_NONE;
-                    instr->imm = 0;
-                    instr->imm64 = 0;
-                    instr->label_idx = 0;
-                    instr->cond = 0;
-                    instr->flags_out = 0xFF;
-                    instr->flags_in = 0xFF;
+            if (slot >= 0 && slot < MAX_STACK_SLOTS) {
+                if (state.slot_valid[slot]) {
+                    int known_temp = state.slot_to_temp[slot];
+                    /* Check if the known temp is still valid (not overwritten) */
+                    if (known_temp != TEMP_NONE) {
+                        /* Replace load with MOV from known temp */
+                        instr->op = OP_MOV_REG;
+                        instr->temp_src1 = known_temp;
+                        instr->temp_src2= TEMP_NONE;
+                        instr->imm = 0;
+                        instr->imm64 = 0;
+                        instr->label_idx = 0;
+                        instr->cond = 0;
+                        instr->flags_out = 0xFF;
+                        instr->flags_in = 0xFF;
+                    }
+                } else if (instr->temp_dest >= 16) {
+                    /* Slot wasn't tracked, but this load puts its value into temp_dest.
+                     * Any subsequent load from this slot can reuse temp_dest! */
+                    state.slot_to_temp[slot] = instr->temp_dest;
+                    state.slot_valid[slot] = true;
                 }
             }
         }
     }
+    
+    if (label_targeted) free(label_targeted);
 }

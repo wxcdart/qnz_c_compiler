@@ -123,10 +123,38 @@ static void detect_loops(LoopAnalysisState *state) {
     free(label_to_idx);
 }
 
+static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body_count) {
+    int ir_count = (int)ir_get_count();
+    /* If the address of this stack slot is taken anywhere in the function, it can be modified through pointers */
+    for (int i = 0; i < ir_count; i++) {
+        Instr *ins = ir_get(i);
+        if (ins && ins->op == OP_LEA && (int)ins->imm64 == offset) {
+            return false;
+        }
+    }
+    /* Check if any instruction in the loop stores to this stack offset, or performs an indirect store */
+    for (int i = 0; i < body_count; i++) {
+        Instr *ins = ir_get(loop_body[i]);
+        if (!ins) continue;
+        if (ins->op == OP_MOV_MEM && (int)ins->imm64 == offset) {
+            return false;
+        }
+        if (ins->op == OP_STORE_BYTE || ins->op == OP_STORE_16 ||
+            ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
+            ins->op == OP_FSTORE || ins->op == OP_VSTORE ||
+            ins->op == OP_VSTORESS || ins->op == OP_VSTORESD ||
+            ins->op == OP_ATOMIC_XADD || ins->op == OP_ATOMIC_CMPXCHG ||
+            ins->op == OP_ATOMIC_CMPXCHG_BOOL || ins->op == OP_ATOMIC_XCHG) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * Check if an instruction is loop-invariant
  * An instruction is invariant if:
- * 1. It is a pure computational operation (no memory accesses, jumps, calls, etc.)
+ * 1. It is a pure computational operation (or read-only stack load)
  * 2. Every source operand is either defined outside the loop body or marked invariant.
  */
 static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body, int body_count) {
@@ -138,6 +166,12 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     switch (instr->op) {
         case OP_MOV_IMM:
             return true;
+        case OP_MOV:
+            /* Stack load: invariant if the stack slot is never modified in the loop and never address-taken */
+            if (instr->temp_src1 == TEMP_NONE) {
+                return stack_slot_is_invariant_in_loop((int)instr->imm64, loop_body, body_count);
+            }
+            return false;
         case OP_MOV_REG:
         case OP_ADD_IMM:
         case OP_SUB_IMM:
@@ -152,6 +186,12 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
         case OP_SHL:
         case OP_SHR:
         case OP_SAR:
+        case OP_SEXT8:
+        case OP_SEXT16:
+        case OP_SEXT32:
+        case OP_ZEXT8:
+        case OP_ZEXT16:
+        case OP_ZEXT32:
         case OP_CVTTSD2SI:
         case OP_CVTSI2SD:
             break;
