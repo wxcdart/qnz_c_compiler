@@ -69,19 +69,19 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             
         case OP_MOV:  /* Load from stack */
             if (BE(c)->emit_load_asm) {
-                BE(c)->emit_load_asm(c, phys_dst, BE(c)->fp_reg, instr->imm, out);
+                BE(c)->emit_load_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
             
         case OP_MOV_MEM:  /* Store to stack */
             if (BE(c)->emit_store_asm) {
-                BE(c)->emit_store_asm(c, phys_src1, BE(c)->fp_reg, instr->imm, out);
+                BE(c)->emit_store_asm(c, phys_src1, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
             
         case OP_LEA:
             if (BE(c)->emit_lea_asm) {
-                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->fp_reg, instr->imm, out);
+                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
             
@@ -477,13 +477,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         /* Floating Point */
         case OP_FLOAD:
             if (BE(c)->emit_load_fp_asm) {
-                BE(c)->emit_load_fp_asm(c, phys_dst, phys_src1, instr->imm, out);
+                BE(c)->emit_load_fp_asm(c, phys_dst, phys_src1, (int32_t)instr->imm64, out);
             }
             return;
 
         case OP_FSTORE:
             if (BE(c)->emit_store_fp_asm) {
-                BE(c)->emit_store_fp_asm(c, phys_src1, phys_src2, instr->imm, out);
+                BE(c)->emit_store_fp_asm(c, phys_src1, phys_src2, (int32_t)instr->imm64, out);
             }
             return;
 

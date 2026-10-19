@@ -123,7 +123,7 @@ Errors such as `undefined local variable`, `failed to insert symbol`, `use of un
 | M2 | globals ≤ **256** | **RESOLVED (Sprint 27)**: global table is heap-allocated and grows (init 64, doubles); verified 3000 globals JIT+AOT with data-reloc inits | `globals` 3000 OK both modes |
 | M3 | struct members ≤ **64** | 65th silently dropped (bounds-checked array, no diagnostic) | **FIXED (Sprint 31)** — `ZeroCCType.members` → heap table, grows on demand; OOM = clean fatal diagnostic |
 | M4 | IR dump shows `imm` (int16) not `imm64` | large immediates displayed truncated (e.g. `2000000000` shown as `-27648`); **emission is correct** (uses `imm64`) — misleading for debugging only | `p11` IR dump |
-| M5 | locals ≤ **~3000 per scope** (was C4) | clean fatal `failed to insert symbol` diagnostic, no binary (scope TPHT raised 64→256 blocks in Sprint 27; was ~758) | `locals` 1000 OK / ~3000 clean COMPILE-ERR |
+| M5 | locals ≤ **~3000 per scope** (was C4) | **RESOLVED**: Scope TPHT replaced with dynamic hash table and compiler `c->locals` made dynamic heap array (grows on demand, init 64, doubles); verified 20,000 locals JIT+AOT | `locals` 20000 OK both modes |
 
 ---
 
@@ -142,7 +142,7 @@ The remaining ZeroCC limits (M1–M5, H1) are *clean-failing fixed-structure cap
 
 | Dimension | gcc | ZeroCC | Gap class |
 |---|---|---|---|
-| Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | ~3000 (Sprint 26: scope TPHT 256+247 blocks × 8 slots; clean diagnostic beyond) | M5 - capability, not correctness |
+| Locals per function | **200,000 compile & run rc=0** (frame only 4KB - unused `=0` locals are never allocated; symbol tables grow on demand) | **20,000+ compile & run rc=0** (Dynamic scope hash table + dynamic `c->locals` array) | **RESOLVED (M5)** |
 | Switch cases | unbounded (jump tables) | ~32k cap (16-bit labels, O(n) dispatch) - 1500 verified | capability (no practical C code approaches this) |
 | Identifier length | unbounded (dynamic strings) | 127 (fixed `char name[128]`) — clean fatal diagnostic since Sprint 25 | M1 - **RESOLVED** (Sprint 25) |
 | Globals per TU | unbounded | dynamic (verified 3000) | M2 - **RESOLVED** (Sprint 26) |

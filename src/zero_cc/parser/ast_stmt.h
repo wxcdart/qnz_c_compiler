@@ -167,7 +167,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         rn->col = col;
 
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) {
-            rn->left = parse_expr_ast_internal(c, arena);
+            ASTRef expr = parse_expr_ast_internal(c, arena);
+            rn = zero_cc_ast_get(arena, ret_ref);
+            if (rn) rn->left = expr;
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
             c->token_pos++;
@@ -967,6 +969,10 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 /* Derive canonical TypeInfo* directly from decl_type */
                 TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
                 ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
+                if (!sym) {
+                    diag_report_error_at_token(c, "out of memory allocating local variable '%s'", vname);
+                    return AST_NULL;
+                }
 
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                 ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
@@ -1060,7 +1066,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
 
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
-                    (void)zero_cc_add_local(c, next_vname, next_type);
+                    ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);
+                    if (!next_sym) {
+                        diag_report_error_at_token(c, "out of memory allocating local variable '%s'", next_vname);
+                        return AST_NULL;
+                    }
 
                     ASTRef next_decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                     ZeroCCASTNode *next_dn = zero_cc_ast_get(arena, next_decl_ref);

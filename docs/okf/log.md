@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-18T14:16:44Z
+timestamp: 2026-10-19T00:42:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -137,3 +137,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-18 — Updated `scalar-float-x86.md`
 - Sprint 30: -S float parity (VLOADSS/VSTORESS width, 3-operand FP, ucomisd compares, CMP_ZERO); C12 ucomisd flag mapping; C13 REX-before-prefix invariant
+
+## 2026-10-19 — Updated `frontend-and-types.md`
+- Replace Scope TPHT with dynamically resizing separate-chaining hash table, eliminating scope symbol limits

@@ -95,11 +95,16 @@ typedef struct ZeroCCASTNode {
     };
 } ZeroCCASTNode;
 
-/* Contiguous Arena for AST Nodes */
+#define ZERO_CC_AST_CHUNK_BITS 10
+#define ZERO_CC_AST_CHUNK_SIZE (1 << ZERO_CC_AST_CHUNK_BITS) /* 1024 nodes per chunk */
+#define ZERO_CC_AST_CHUNK_MASK (ZERO_CC_AST_CHUNK_SIZE - 1)
+
+/* Segmented Chunk Arena for AST Nodes: pointers never dangle on growth */
 typedef struct {
-    ZeroCCASTNode *nodes;
+    ZeroCCASTNode **chunks;
+    size_t chunk_count;
+    size_t chunk_capacity;
     size_t count;
-    size_t capacity;
 } ZeroCCASTArena;
 
 /* Arena Lifecycle */
@@ -109,7 +114,9 @@ void zero_cc_ast_arena_reset(ZeroCCASTArena *arena);
 ASTRef zero_cc_ast_alloc_node(ZeroCCASTArena *arena, ZeroCCASTTag tag);
 static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) {
     if (!arena || ref == AST_NULL || ref >= arena->count) return NULL;
-    return &arena->nodes[ref];
+    size_t chunk_idx = ref >> ZERO_CC_AST_CHUNK_BITS;
+    size_t node_idx  = ref & ZERO_CC_AST_CHUNK_MASK;
+    return &arena->chunks[chunk_idx][node_idx];
 }
 
 /* Parser Functions using 32-bit AST Arena */

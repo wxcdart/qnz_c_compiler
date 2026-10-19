@@ -42,6 +42,16 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     
     fprintf(out, "\tpushq\t%%rbp\n");
     fprintf(out, "\tmovq\t%%rsp, %%rbp\n");
+    /* Stack probing for frames > 4KB (Linux guard page): touch every page,
+     * deepest first, before lowering RSP. RAX is scratch (caller-saved). */
+    if (stack_size > 4096) {
+        size_t top_page = (stack_size - 1) / 4096;
+        for (size_t k = top_page; k >= 1; k--) {
+            fprintf(out, "\tmovq\t%%rsp, %%rax\n");
+            fprintf(out, "\tsubq\t$%zu, %%rax\n", k * 4096);
+            fprintf(out, "\tcmpb\t$0, (%%rax)\n");
+        }
+    }
     fprintf(out, "\tsubq\t$%zu, %%rsp\n", stack_size);
     
     /* Save callee-saved registers */

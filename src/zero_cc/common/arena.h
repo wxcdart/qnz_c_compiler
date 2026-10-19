@@ -4,32 +4,48 @@
 #include <stdint.h>
 
 /**
- * Simple bump‑allocator arena used by the ZeroCC compiler.
+ * Segmented bump-allocator arena used by the ZeroCC compiler.
  *
- * The arena owns a contiguous byte buffer. Allocation is linear and fast;
- * `arena_reset` clears the arena without freeing the underlying memory, which
- * is ideal for the temporary arena used during a single compilation unit.
+ * The arena owns a *chain* of malloc'd blocks. Allocation is linear within
+ * the current block; when it fills, a larger block is appended and
+ * allocation continues there. Crucially, **existing pointers stay valid
+ * across growth** (the classic single-buffer arena invalidated every
+ * pointer on realloc - e.g. a raw TypeInfo* held across an initializer
+ * evaluation once the symbol arena grew past ~8k declarations).
+ *
+ * `arena_reset` rewinds to the first block without freeing memory, which
+ * is ideal for the temporary arena reused between functions.
+ *
+ * Indexes (`arena_index_of` / `arena_index_to_ptr`) are byte offsets in
+ * block order; because blocks are only ever appended, the index of an
+ * existing allocation is stable.
  */
 
+typedef struct ArenaBlock {
+    size_t        size;   // bytes in this block
+    uint8_t      *data;   // block storage
+    struct ArenaBlock *next;
+} ArenaBlock;
+
 typedef struct {
-    uint8_t *buffer;   // base of the arena memory
-    size_t   capacity; // total size of the buffer in bytes
-    size_t   offset;   // current allocation offset (bytes used)
+    ArenaBlock *first;    // head of the block chain
+    ArenaBlock *cur;      // block currently being filled
+    size_t      cur_off;  // bytes used in the current block
 } Arena;
 
-/** Create a new arena with at least `capacity` bytes. Returns NULL on OOM. */
+/** Create a new arena with an initial block of at least `capacity` bytes. Returns NULL on OOM. */
 Arena *arena_create(size_t capacity);
 
-/** Destroy an arena, freeing its underlying buffer. */
+/** Destroy the arena, freeing all blocks. */
 void arena_destroy(Arena *arena);
 
 /** Allocate `size` bytes from the arena, returned pointer is 8‑byte aligned. */
 void *arena_alloc(Arena *arena, size_t size);
 
-/** Reset the arena to empty (offset = 0) without freeing the buffer. */
+/** Reset the arena to empty (reuse existing blocks) without freeing memory. */
 void arena_reset(Arena *arena);
 
-/** Return the arena‑relative byte index for a pointer previously returned by `arena_alloc`. */
+/** Return the stable arena-wide byte index for a pointer previously returned by `arena_alloc`. */
 size_t arena_index_of(const Arena *arena, const void *ptr);
 
 /** Convert a previously‑saved index back into a pointer. Returns NULL if out of bounds. */

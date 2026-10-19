@@ -11,6 +11,20 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 32: M5 Dynamic Scope Hash Table, Dynamic Locals Array & Segmented AST Arena ✅
+- **Status**: COMPLETE
+- **Achievement**: Replaced the fixed Two-Phase Hash Table (`ZeroFlattenTpht`) with a dynamically resizing separate-chaining bucket hash table in `Scope`. Converted `c->locals` in `ZeroCCCompiler` to a dynamically doubling array with an $O(1)$ hash table for variable lookup, eliminating the $O(N^2)$ compilation bottleneck. Converted `ZeroCCASTArena` to 1,024-node fixed chunks to eliminate dangling pointers on expansion. Added stack probing for frames >4KB. Verified up to 25,000 local declarations in both JIT and AOT.
+- **Key Deliverables**:
+  - `semantic/scope.{h,c}`: Dynamic separate-chaining hash table with 75% load factor auto-resizing.
+  - `types/symbols.h`, `types/symbol_mgmt.h`, `main.c`, `jit/compile.h`: Dynamic `c->locals` array and $O(1)$ bucket table.
+  - `parser/ast_arena.h`, `parser/ast_stmt.h`, `parser/parser.h`: Chunked 1,024-node segmented AST arena.
+  - `isa/x86_64.c`, `isa/x86_64_asm.c`, `ir/ir.h`, `ir/ir_emit_ops.h`, `opt/opt_mem2reg.c`: Frame offsets >32KB and stack probe loop for large frames.
+- **Result**: Tested 1,000 to 25,000 local variables (JIT + AOT rc=0); `make test` **140/140**, sret **6/6**, OKF lint PASS.
+
+### Sprint 31: M3 Dynamic Struct Members Table ✅
+- **Status**: COMPLETE
+- **Achievement**: Converted `ZeroCCType.members` from a fixed 64-element inline array to a dynamically resizing heap table, removing the silent struct member cap.
+
 ### Sprint 30: `-S` Float Emit Completeness (+ C12 comisd flags, C13 REX ordering) ✅
 - **Status**: COMPLETE
 - **Achievement**: The `-S` text path now has float parity with the MC path: 3-operand FP arithmetic aliasing, `ucomisd`/`fcmp` compares via a new `emit_fp_cmp_asm` vtable slot, `movsd` for 8-byte rodata doubles, `VLOADSS` widen / `VSTORESS` narrow through the FP scratch (`xmm15`/`s15`/`fcvt.s.d`), and `OP_CMP_ZERO` (`testq`). Two MC-path bugs fell out: **C12** — `ucomisd` only defines ZF/PF/CF, so signed `setl/setle/setg/setge` after FP compares were wrong; new `CC_FLT_LT/LE/GT/GE` (6–9) → `setb/setbe/seta/setae` with a post-regalloc remap (x86). **C13** — `x86_emit_fp_cmp` built REX wrong and emitted it before the `0x66` prefix (CPU drops it); same ordering fixed in `vstoress`/`fp_neg`.
@@ -169,7 +183,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 ### 🛡️ Fragility Audit Status ([`docs/fragility-analysis.md`](./fragility-analysis.md))
 - **CRITICAL tier**: C1–C11 **ALL RESOLVED** (C8 Sprint 28; C9 cast lowering + C11 vectorizer call-guard Sprint 29; C10 resolved as C11 in disguise). No open C-tier items.
 - **HIGH tier — ALL RESOLVED**: H1 (64 MB stack + depth-150 guard), H2 (fatal diagnostics)
-- **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 (struct members 64) is now the only remaining silent cap**; M4 is debug-dump only; M5 (locals) raised to ~3000 per scope by the Sprint 26 TPHT growth, still fails clean beyond
+- **MEDIUM tier**: M1 resolved (identifier >127 → clean error); **M2 resolved (Sprint 26: dynamic global table + dynamic ELF symbol/reloc/strtab tables + scope TPHT 256 blocks)**; **M3 resolved (Sprint 31: dynamic struct members heap table)**; M4 is debug-dump only; **M5 resolved (Sprint 32: dynamic scope bucket hash table + dynamic locals array + segmented chunked AST arena, verified to 25k+ locals)**
 - **AOT `-S` completeness**: `.data` emission and `CVTSI2SD`/`CVTTSD2SI` **resolved in `b0975fc`**; float constant width, FP compares, 3-operand FP arithmetic, `VLOADSS`/`VSTORESS` width, and `OP_CMP_ZERO` **resolved in Sprint 30** — `-S` float parity with the MC path verified (84/84 battery). Remaining `-S` gaps, if any, show up as `# UNKNOWN:` comments in the output.
 
 ---
@@ -249,6 +263,10 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ### 8. Conformance Headroom (M-tier, [`docs/fragility-analysis.md`](./fragility-analysis.md))
 - ~~M2: globals >256 silently dropped~~ — **done (Sprint 26)**: global table, scope TPHT (256+247 blocks), and ELF symbol/reloc/strtab tables all dynamically growing; 3000 globals verified JIT + AOT
-- M3: struct members >64 currently silently dropped → clean diagnostic (minimum) or dynamic array — the last silent cap
-- ~~M5 (optional): raise the ~758-locals-per-scope cap~~ — **done (Sprint 26)** via the same scope TPHT growth (~3000 now); raise further only if needed
+- ~~M3: struct members >64 currently silently dropped~~ — **done (Sprint 31)**: dynamically resizing heap table for struct members
+- ~~M5: raise the ~758-locals-per-scope cap~~ — **done (Sprint 32)**: dynamic scope separate-chaining hash table, dynamic `c->locals` array with O(1) hash lookup, segmented chunked AST arena; verified to 25,000+ locals
 - H1 (optional): raise the expression-depth guard above 150 if the 64 MB stack headroom justifies it
+
+### 9. Optimization Passes & GCC Performance Parity
+- **Cross-Block `mem2reg`**: Generalize `opt_mem2reg.c` across basic blocks / loops so induction variables and accumulators stay in virtual registers across loop iterations rather than reloading/storing to `-XX(%rbp)` on every cycle.
+- **Function Inlining**: Implement inlining for small leaf / static functions during AST lowering or early IR optimization at `-O2`/`-O3` to eliminate `OP_CALL` overhead in tight compute loops.

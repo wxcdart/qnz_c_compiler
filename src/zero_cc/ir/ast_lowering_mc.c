@@ -116,11 +116,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             
             case OP_MOV_MEM:
-                BE(c)->emit_store(c, phys_src1, phys_src2, instr->imm);
+                BE(c)->emit_store(c, phys_src1, phys_src2, (int32_t)instr->imm64);
                 break;
             
             case OP_MOV:
-                BE(c)->emit_load(c, phys_dst, phys_src1, instr->imm);
+                BE(c)->emit_load(c, phys_dst, phys_src1, (int32_t)instr->imm64);
                 break;
             
             case OP_MOV_REG:
@@ -130,7 +130,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             
             case OP_LEA:
-                BE(c)->emit_lea(c, phys_dst, phys_src1, instr->imm);
+                BE(c)->emit_lea(c, phys_dst, phys_src1, (int32_t)instr->imm64);
                 break;
             
             case OP_ADD:
@@ -344,13 +344,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
             case OP_FLOAD:
                 if (BE(c)->emit_load_fp) {
-                    BE(c)->emit_load_fp(c, phys_dst, phys_src1, instr->imm);
+                    BE(c)->emit_load_fp(c, phys_dst, phys_src1, (int32_t)instr->imm64);
                 }
                 break;
 
             case OP_FSTORE:
                 if (BE(c)->emit_store_fp) {
-                    BE(c)->emit_store_fp(c, phys_src1, phys_src2, instr->imm);
+                    BE(c)->emit_store_fp(c, phys_src1, phys_src2, (int32_t)instr->imm64);
                 }
                 break;
 

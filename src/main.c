@@ -463,6 +463,18 @@ static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
     /* Free IR arenas */
     ir_arena_free(&comp->ir_arena);
     ir_call_args_arena_free(&comp->ir_call_args);
+    if (comp->locals) {
+        free(comp->locals);
+        comp->locals = NULL;
+    }
+    if (comp->local_hash_buckets) {
+        free(comp->local_hash_buckets);
+        comp->local_hash_buckets = NULL;
+    }
+    if (comp->local_hash_next) {
+        free(comp->local_hash_next);
+        comp->local_hash_next = NULL;
+    }
     
     free(comp);
 }

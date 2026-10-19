@@ -24,8 +24,8 @@ static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
-        .imm = offset,
-        .imm64 = 0,
+        .imm = (int16_t)offset,
+        .imm64 = offset,
         .label_idx = 0
     });
 }
@@ -41,8 +41,8 @@ static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
-        .imm = offset,
-        .imm64 = 0,
+        .imm = (int16_t)offset,
+        .imm64 = offset,
         .label_idx = 0
     });
 }
@@ -111,8 +111,8 @@ static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
         .cond = 0,
         .flags_out = 0xFF,  /* Doesn't set flags */
         .flags_in = 0xFF,   /* Doesn't read flags */
-        .imm = offset,
-        .imm64 = 0,
+        .imm = (int16_t)offset,
+        .imm64 = offset,
         .label_idx = 0
     });
 }

@@ -4,8 +4,32 @@
 #include <stdbool.h>
 #include <dlfcn.h>
 
-/* Symbol & Scope Management */
+/* High-speed FNV-1a 32-bit string hashing for local symbols */
+static inline uint32_t zero_cc_local_hash(const char *str) {
+    uint32_t h = 2166136261U;
+    if (!str) return h;
+    while (*str) {
+        h ^= (uint8_t)(*str++);
+        h *= 16777619U;
+    }
+    return h;
+}
+
+/* Symbol & Scope Management: O(1) hashed lookup */
 static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name) {
+    if (!c || !name || !c->locals || c->local_count == 0) return NULL;
+    if (c->local_hash_buckets && c->local_hash_bucket_count > 0 && c->local_hash_next) {
+        uint32_t h = zero_cc_local_hash(name);
+        size_t b_idx = (size_t)(h & (c->local_hash_bucket_count - 1));
+        int32_t idx = c->local_hash_buckets[b_idx];
+        while (idx >= 0 && (size_t)idx < c->local_count) {
+            if (strcmp(c->locals[idx].name, name) == 0) {
+                return &c->locals[idx];
+            }
+            idx = c->local_hash_next[idx];
+        }
+        return NULL;
+    }
     for (size_t i = 0; i < c->local_count; i++) {
         if (strcmp(c->locals[i].name, name) == 0) {
             return &c->locals[i];
@@ -24,11 +48,60 @@ static inline void *zero_cc_find_tls(ZeroCCCompiler *c, const char *name) {
     return NULL;
 }
 
+static inline void zero_cc_local_hash_rehash(ZeroCCCompiler *c, size_t new_bucket_count) {
+    int32_t *new_buckets = (int32_t *)malloc(new_bucket_count * sizeof(int32_t));
+    if (!new_buckets) return;
+    for (size_t b = 0; b < new_bucket_count; b++) new_buckets[b] = -1;
+
+    for (size_t i = 0; i < c->local_count; i++) {
+        uint32_t h = zero_cc_local_hash(c->locals[i].name);
+        size_t b_idx = (size_t)(h & (new_bucket_count - 1));
+        c->local_hash_next[i] = new_buckets[b_idx];
+        new_buckets[b_idx] = (int32_t)i;
+    }
+
+    if (c->local_hash_buckets) free(c->local_hash_buckets);
+    c->local_hash_buckets = new_buckets;
+    c->local_hash_bucket_count = new_bucket_count;
+}
+
 static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
-    if (c->local_count >= ZERO_CC_MAX_LOCALS) return NULL;
-    ZeroCCSym *sym = &c->locals[c->local_count++];
+    if (!c->locals || c->local_count >= c->local_capacity) {
+        size_t new_cap = c->local_capacity ? c->local_capacity * 2 : 64;
+        ZeroCCSym *new_locals = (ZeroCCSym *)realloc(c->locals, new_cap * sizeof(ZeroCCSym));
+        if (!new_locals) return NULL;
+        c->locals = new_locals;
+
+        int32_t *new_next = (int32_t *)realloc(c->local_hash_next, new_cap * sizeof(int32_t));
+        if (!new_next) return NULL;
+        c->local_hash_next = new_next;
+        c->local_capacity = new_cap;
+    }
+
+    /* Initialize or grow hash bucket table if needed */
+    if (!c->local_hash_buckets || c->local_hash_bucket_count == 0) {
+        c->local_hash_bucket_count = 64;
+        c->local_hash_buckets = (int32_t *)malloc(c->local_hash_bucket_count * sizeof(int32_t));
+        if (c->local_hash_buckets) {
+            for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
+        }
+    } else if (c->local_count >= (c->local_hash_bucket_count * 3) / 4) {
+        zero_cc_local_hash_rehash(c, c->local_hash_bucket_count * 2);
+    }
+
+    size_t new_idx = c->local_count++;
+    ZeroCCSym *sym = &c->locals[new_idx];
     snprintf(sym->name, sizeof(sym->name), "%s", name);
     sym->type = type;
+
+    /* Link into hash table bucket */
+    if (c->local_hash_buckets && c->local_hash_next) {
+        uint32_t h = zero_cc_local_hash(name);
+        size_t b_idx = (size_t)(h & (c->local_hash_bucket_count - 1));
+        c->local_hash_next[new_idx] = c->local_hash_buckets[b_idx];
+        c->local_hash_buckets[b_idx] = (int32_t)new_idx;
+    }
+
     size_t alignment = type.align ? type.align : 8;
     if (alignment < 8) alignment = 8;
     if (decl_align_spec > 0) {

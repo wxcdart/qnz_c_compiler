@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "../common/arena.h"
-#include "../common/zero_tpht.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,6 +11,7 @@ extern "C" {
 
 /* Forward declarations */
 typedef struct TypeInfo TypeInfo;
+typedef struct ScopeBucket ScopeBucket;
 
 /* Symbol kinds supported in symbol table */
 typedef enum SymbolKind {
@@ -28,14 +28,16 @@ typedef struct Symbol {
     TypeInfo   *type;
     uint32_t    flags;
     void       *node;   /* optional AST node or definition pointer */
+    struct Symbol *next_in_bucket; /* chained in hash bucket */
 } Symbol;
 
 /* Scope representation */
 typedef struct Scope {
-    ZeroFlattenTpht tpht;       /* underlying TPHT instance */
-    struct Scope   *parent;     /* lexical nesting chain */
-    Arena          *perm_arena; /* arena for symbol and scope allocations */
-    size_t          count;      /* number of symbols in this scope */
+    Symbol        **buckets;     /* dynamic hash table buckets (calloc'd) */
+    size_t          bucket_count;/* number of buckets (power of two) */
+    size_t          count;       /* number of symbols in this scope */
+    struct Scope   *parent;      /* lexical nesting chain */
+    Arena          *perm_arena;  /* arena for symbol and scope allocations */
 } Scope;
 
 /**

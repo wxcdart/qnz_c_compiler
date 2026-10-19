@@ -24,8 +24,12 @@ typedef struct ZeroCCCompiler {
     size_t token_pos;
     int last_expr_is_float;
 
-    ZeroCCSym locals[ZERO_CC_MAX_LOCALS];
+    ZeroCCSym *locals;
     size_t local_count;
+    size_t local_capacity;
+    int32_t *local_hash_buckets;
+    size_t   local_hash_bucket_count;
+    int32_t *local_hash_next;
     int32_t current_stack_frame;
 
     ZeroCCTypedef typedefs[ZERO_CC_MAX_TYPEDEFS];

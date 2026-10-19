@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-18T12:04:35Z
+timestamp: 2026-10-19T00:42:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -19,6 +19,7 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
    - Tracks `tag` (`TYPE_INT32`, `TYPE_PTR`, `TYPE_STRUCT`, `TYPE_UNION`, `TYPE_ARRAY`, etc.), `size`, `align`, `base` pointer, `members` array, qualifiers (`is_const`, `is_volatile`, `is_restrict`, `is_atomic`), and `is_func_ptr`.
 2. **`TypeInfo` (`src/zero_cc/semantic/type.h`, bridged via `src/zero_cc/jit/type_info.h`)**:
    - Used by the semantic analysis pass (`src/zero_cc/semantic/`) to validate expressions and annotate `ZeroCCASTNode`.
+   - **Scope Symbol Table (`src/zero_cc/semantic/scope.c`)**: Uses a dynamically resizing separate-chaining hash table with power-of-two bucket count (starts at 64 buckets, doubles when load factor exceeds 75%). Symbols and duplicated names are allocated in the compilation permanent arena (`perm_arena`), while bucket pointers are freed on `scope_leave()`. This completely replaced the fixed-capacity TPHT (Two-Phase Hash Table) in the semantic analyzer, removing the fixed ~3,000 / ~8,000 symbols-per-scope cap (M5) and eliminating TPHT collision insertion failures.
 3. **Canonical Type Bridge & AST Accessors (`src/zero_cc/jit/type_info.h`)**:
    - `zero_cc_resolve_base_type(c, type_tok, type_name)`: Single source of truth for resolving base declaration, parameter, and return types (primitives, structs, unions, enums, and typedefs).
    - `zero_cc_type_to_typeinfo(perm, t)` and `typeinfo_to_zero_cc_type(ti)`: Bidirectional conversion between `ZeroCCType` and `TypeInfo *`, preserving pointers, function pointers (`is_func_ptr`), multi-dimensional arrays/VLAs, structs/unions, enums, and qualifiers (`const`, `volatile`, `restrict`, `_Atomic`). The parser constructs `ZeroCCType` once per declarator and derives `TypeInfo *` via `zero_cc_type_to_typeinfo()` rather than building parallel type trees.

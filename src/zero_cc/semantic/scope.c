@@ -1,7 +1,8 @@
 #include "scope.h"
 #include <string.h>
+#include <stdlib.h>
 
-#define SCOPE_TPHT_BLOCK_COUNT 256
+#define SCOPE_INITIAL_BUCKETS 64
 
 /* 64-bit FNV-1a hash function for strings */
 static uint64_t hash_str(const char *str) {
@@ -22,10 +23,9 @@ Scope *scope_enter(Scope **cur, Arena *perm) {
     s->parent = cur ? *cur : NULL;
     s->perm_arena = perm;
     s->count = 0;
-
-    if (zero_flatten_tpht_init(&s->tpht, SCOPE_TPHT_BLOCK_COUNT) != 0) {
-        return NULL;
-    }
+    s->bucket_count = SCOPE_INITIAL_BUCKETS;
+    s->buckets = (Symbol **)calloc(s->bucket_count, sizeof(Symbol *));
+    if (!s->buckets) return NULL;
 
     if (cur) {
         *cur = s;
@@ -37,15 +37,47 @@ void scope_leave(Scope **cur) {
     if (!cur || !*cur) return;
     Scope *s = *cur;
     *cur = s->parent;
-    zero_flatten_tpht_destroy(&s->tpht);
+    if (s->buckets) {
+        free(s->buckets);
+        s->buckets = NULL;
+    }
+    s->bucket_count = 0;
+    s->count = 0;
+}
+
+static void scope_grow(Scope *s) {
+    size_t new_cap = s->bucket_count * 2;
+    if (new_cap < SCOPE_INITIAL_BUCKETS) new_cap = SCOPE_INITIAL_BUCKETS;
+    Symbol **new_buckets = (Symbol **)calloc(new_cap, sizeof(Symbol *));
+    if (!new_buckets) return; /* OOM: keep old table working */
+
+    for (size_t i = 0; i < s->bucket_count; i++) {
+        Symbol *curr = s->buckets[i];
+        while (curr) {
+            Symbol *next = curr->next_in_bucket;
+            size_t idx = (size_t)(hash_str(curr->name) & (new_cap - 1));
+            curr->next_in_bucket = new_buckets[idx];
+            new_buckets[idx] = curr;
+            curr = next;
+        }
+    }
+
+    free(s->buckets);
+    s->buckets = new_buckets;
+    s->bucket_count = new_cap;
 }
 
 Symbol *scope_put_symbol(Scope *s, const char *name, SymbolKind kind, TypeInfo *type) {
-    if (!s || !name || !s->perm_arena) return NULL;
+    if (!s || !name || !s->perm_arena || !s->buckets) return NULL;
 
     /* Check for duplicate in the current scope */
     if (scope_lookup_current(s, name) != NULL) {
         return NULL;
+    }
+
+    /* Grow if load factor exceeds 75% */
+    if (s->count >= (s->bucket_count * 3) / 4) {
+        scope_grow(s);
     }
 
     /* Allocate Symbol in the permanent arena */
@@ -64,13 +96,9 @@ Symbol *scope_put_symbol(Scope *s, const char *name, SymbolKind kind, TypeInfo *
     sym->flags = 0;
     sym->node = NULL;
 
-    /* Get arena index thin-pointer for Symbol */
-    size_t idx = arena_index_of(s->perm_arena, sym);
-    uint64_t key = hash_str(name);
-
-    if (zero_flatten_tpht_put(&s->tpht, key, (uint32_t)idx) != 0) {
-        return NULL;
-    }
+    size_t idx = (size_t)(hash_str(name) & (s->bucket_count - 1));
+    sym->next_in_bucket = s->buckets[idx];
+    s->buckets[idx] = sym;
 
     s->count++;
     return sym;
@@ -82,23 +110,15 @@ int scope_put(Scope *s, const char *name, TypeInfo *type) {
 }
 
 Symbol *scope_lookup_current(const Scope *s, const char *name) {
-    if (!s || !name || !s->perm_arena) return NULL;
+    if (!s || !name || !s->buckets || s->bucket_count == 0) return NULL;
 
-    uint64_t key = hash_str(name);
-    uint32_t val = 0;
-    if (zero_flatten_tpht_get(&s->tpht, key, &val) != 0) {
-        return NULL;
+    size_t idx = (size_t)(hash_str(name) & (s->bucket_count - 1));
+    for (Symbol *curr = s->buckets[idx]; curr != NULL; curr = curr->next_in_bucket) {
+        if (strcmp(curr->name, name) == 0) {
+            return curr;
+        }
     }
-
-    Symbol *sym = (Symbol *)arena_index_to_ptr(s->perm_arena, (size_t)val);
-    if (!sym || !sym->name) return NULL;
-
-    /* Verify key collision */
-    if (strcmp(sym->name, name) != 0) {
-        return NULL;
-    }
-
-    return sym;
+    return NULL;
 }
 
 Symbol *scope_lookup(const Scope *s, const char *name) {

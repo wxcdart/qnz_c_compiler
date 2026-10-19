@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /* Global pragma state - defined in pragma_state.c */
 extern int zero_cc_global_pack;

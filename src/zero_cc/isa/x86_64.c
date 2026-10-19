@@ -129,6 +129,26 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
     me_emit_u8(c, 0x48);
     me_emit_u8(c, 0x89);
     me_emit_u8(c, 0xe5);
+    /* Stack probing (Linux guard page): a bare `sub rsp, N` for N > 4KB
+     * lands RSP across the guard page and SIGSEGVs. Touch every page of
+     * the frame, deepest first, before lowering RSP. RAX is scratch
+     * (caller-saved and not a SysV argument register at entry). */
+    if (stack_size > 4096) {
+        size_t top_page = (stack_size - 1) / 4096;
+        for (size_t k = top_page; k >= 1; k--) {
+            size_t off = k * 4096;
+            /* mov rax, rsp */
+            me_emit_u8(c, 0x48); me_emit_u8(c, 0x89); me_emit_u8(c, 0xE0);
+            /* sub rax, off */
+            me_emit_u8(c, 0x48); me_emit_u8(c, 0x81); me_emit_u8(c, 0xE8);
+            me_emit_u32(c, (uint32_t)off);
+            /* cmpb $0, (rax) - via x86_rm (hand-rolled ModRM 0x78 was
+             * mod=01/disp8 form and swallowed the next REX byte). REX.W is
+             * ignored by the CPU on the 8-bit 0x80 opcode. */
+            x86_rm(c, 0x80, 0, X86_RAX, 0);
+            me_emit_u8(c, 0);
+        }
+    }
     /* sub rsp, stack_size (align to 16 bytes) */
     if (stack_size > 0) {
         me_emit_u8(c, 0x48);

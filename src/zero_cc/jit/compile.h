@@ -316,6 +316,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
 
         c->local_count = 0;
+        if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
+            for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
+        }
         c->current_stack_frame = BE(c)->callee_save_frame_reserve; /* Reserve top of frame for callee-saves */
 
         /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI.

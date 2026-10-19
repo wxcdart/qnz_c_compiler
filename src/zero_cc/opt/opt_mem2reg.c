@@ -119,10 +119,11 @@ static int instr_is_stack_load(Instr *instr) {
 }
 
 /**
- * Get frame offset from instruction
+ * Get frame offset from instruction (imm64 holds the full-width value;
+ * .imm is int16_t and truncates offsets beyond 32767 in large frames)
  */
 static int get_frame_offset(Instr *instr) {
-    return (int)instr->imm;
+    return (int)instr->imm64;
 }
 
 /**

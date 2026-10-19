@@ -205,16 +205,16 @@ void ir_dump(FILE *f) {
         switch (instr->op) {
             case OP_MOV: 
                          if (instr->temp_src1== TEMP_NONE) {
-                             fprintf(f, "LOAD r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
+                             fprintf(f, "LOAD r%u, [fp%+lld]", instr->temp_dest, (long long)instr->imm64);
                          } else {
                              fprintf(f, "MOV r%u, ", instr->temp_dest);
                              if (instr->flags_in == REG_FLAGS) fprintf(f, "[flags] ");
                              fprintf(f, "r%u", instr->temp_src1);
                          }
                          break;
-            case OP_MOV_IMM: fprintf(f, "MOV_IMM r%u, %d", instr->temp_dest, (int)instr->imm);
+            case OP_MOV_IMM: fprintf(f, "MOV_IMM r%u, %lld", instr->temp_dest, (long long)instr->imm64);
                              break;
-            case OP_MOV_MEM: fprintf(f, "MOV_MEM [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
+            case OP_MOV_MEM: fprintf(f, "MOV_MEM [fp%+lld], r%u", (long long)instr->imm64, instr->temp_src1);
                              break;
             case OP_ADD: fprintf(f, "ADD r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
@@ -270,11 +270,11 @@ void ir_dump(FILE *f) {
                          break;
             case OP_CALL: fprintf(f, "CALL fn_%u", (unsigned)instr->imm);
                           break;
-            case OP_LEA: fprintf(f, "LEA r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
+            case OP_LEA: fprintf(f, "LEA r%u, [fp%+lld]", instr->temp_dest, (long long)instr->imm64);
                          break;
-            case OP_FLOAD: fprintf(f, "FLOAD xmm%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
+            case OP_FLOAD: fprintf(f, "FLOAD xmm%u, [fp%+lld]", instr->temp_dest, (long long)instr->imm64);
                            break;
-            case OP_FSTORE: fprintf(f, "FSTORE [fp%+d], xmm%u", (int)instr->imm, instr->temp_src1);
+            case OP_FSTORE: fprintf(f, "FSTORE [fp%+lld], xmm%u", (long long)instr->imm64, instr->temp_src1);
                             break;
             case OP_FADD: fprintf(f, "FADD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                           break;
@@ -365,7 +365,7 @@ void ir_dump(FILE *f) {
                             break;
             case OP_LABEL: fprintf(f, "L%u:", instr->label_idx);
                            break;
-            case OP_PROLOGUE: fprintf(f, "PROLOGUE %u", (unsigned)instr->imm);
+            case OP_PROLOGUE: fprintf(f, "PROLOGUE %lld", (long long)instr->imm64);
                               break;
             case OP_EPILOGUE: fprintf(f, "EPILOGUE");
                               break;
@@ -379,15 +379,15 @@ void ir_dump(FILE *f) {
                                 break;
             case OP_VLA_ALLOC: fprintf(f, "VLA_ALLOC r%u, r%u", instr->temp_dest, instr->temp_src1);
                                break;
-            case OP_CALLEE_SAVE_STORES: fprintf(f, "CALLEE_SAVE_STORES mask=0x%x", (unsigned)instr->imm);
+            case OP_CALLEE_SAVE_STORES: fprintf(f, "CALLEE_SAVE_STORES mask=0x%llx", (unsigned long long)instr->imm64);
                                        break;
-            case OP_CALLEE_SAVE_LOADS: fprintf(f, "CALLEE_SAVE_LOADS mask=0x%x", (unsigned)instr->imm);
+            case OP_CALLEE_SAVE_LOADS: fprintf(f, "CALLEE_SAVE_LOADS mask=0x%llx", (unsigned long long)instr->imm64);
                                        break;
-            case OP_PARAM_SAVE_INT: fprintf(f, "PARAM_SAVE_INT reg=%d offset=%d", (int)instr->imm, (int)instr->imm64);
+            case OP_PARAM_SAVE_INT: fprintf(f, "PARAM_SAVE_INT reg=%d offset=%lld", (int)instr->imm, (long long)instr->imm64);
                                     break;
-            case OP_PARAM_SAVE_FP: fprintf(f, "PARAM_SAVE_FP reg=%d offset=%d", (int)instr->imm, (int)instr->imm64);
+            case OP_PARAM_SAVE_FP: fprintf(f, "PARAM_SAVE_FP reg=%d offset=%lld", (int)instr->imm, (long long)instr->imm64);
                                    break;
-            case OP_VARIADIC_SPILL: fprintf(f, "VARIADIC_SPILL param_count=%d base_offset=%d", (int)instr->imm, (int)instr->imm64);
+            case OP_VARIADIC_SPILL: fprintf(f, "VARIADIC_SPILL param_count=%d base_offset=%lld", (int)instr->imm, (long long)instr->imm64);
                                     break;
             case OP_ATOMIC_XADD: fprintf(f, "ATOMIC_XADD r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                                  break;

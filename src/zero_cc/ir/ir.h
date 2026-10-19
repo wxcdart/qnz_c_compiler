@@ -599,14 +599,14 @@ static inline void ir_emit_fmov_imm(uint16_t temp_dest, int64_t rodata_offset) {
     ir_emit((Instr){.op = OP_FMOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
 }
 
-/* Float load from stack */
-static inline void ir_emit_fload(uint16_t temp_dest, uint16_t temp_base, int16_t offset) {
-    ir_emit((Instr){.op = OP_FLOAD, .temp_dest = temp_dest, .temp_src1 = temp_base, .temp_src2= TEMP_NONE, .imm = offset, .label_idx = 0});
+/* Float load from stack (offset may exceed int16 range for large frames) */
+static inline void ir_emit_fload(uint16_t temp_dest, uint16_t temp_base, int offset) {
+    ir_emit((Instr){.op = OP_FLOAD, .temp_dest = temp_dest, .temp_src1 = temp_base, .temp_src2= TEMP_NONE, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
 }
 
-/* Float store to stack */
-static inline void ir_emit_fstore(uint16_t temp_src, uint16_t temp_base, int16_t offset) {
-    ir_emit((Instr){.op = OP_FSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = offset, .label_idx = 0});
+/* Float store to stack (offset may exceed int16 range for large frames) */
+static inline void ir_emit_fstore(uint16_t temp_src, uint16_t temp_base, int offset) {
+    ir_emit((Instr){.op = OP_FSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
 }
 
 /* Float add: dest = src1 + src2 */
