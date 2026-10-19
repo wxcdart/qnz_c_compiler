@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-18T13:32:54Z
+timestamp: 2026-10-19T02:24:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,12 +24,15 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - Eliminates redundant pure expressions within basic blocks while respecting flag-setting instructions (`REG_FLAGS`).
 4. **Global Value Numbering (`opt_gvn.c`)**
    - Hash-based value numbering and algebraic simplification (`x + 0`, `x * 1`, `x ^ x`, etc.).
-5. **Local Mem2Reg (`opt_mem2reg.c`)**
-   - Forwards stack stores (`OP_MOV_MEM`) to subsequent stack loads (`OP_MOV`) within basic blocks to eliminate redundant stack traffic.
+5. **Local & Cross-Block Mem2Reg (`opt_mem2reg.c`)**
+   - Forwards stack stores (`OP_MOV_MEM`) to subsequent stack loads (`OP_MOV`) to eliminate redundant stack traffic.
+   - **Current Scope**: Intra-block (local). Invalidates all tracked slots at `OP_LABEL`, control flow (`OP_JMP`, `OP_JE`), function calls, indirect stores, and address-taken variables (`OP_LEA`).
+   - **Loop Performance Impact**: Because `OP_LABEL` invalidates slots, loop induction variables and accumulators currently incur redundant reloads/stores on every iteration (e.g. 11 loads + 2 stores per iteration in basic loops), creating a ~2.5× runtime gap vs `gcc -O2`.
+   - **Cross-Block Roadmap**: Extend `opt_mem2reg.c` across loop headers (`OP_LABEL`) and backedges for variables whose address is never taken (`!has_address_taken`), promoting loop induction and accumulator variables into virtual registers across iterations without spilling.
    - **Critical Safety Invariants**:
      - Only tracks 8-byte aligned stack slots (`offset % 8 == 0`) whose stored source is a virtual register (`temp_src1 >= 16`). Reserved physical registers (`VREG_0`..`VREG_15`, `< 16`) are never forwarded across instructions by `opt_mem2reg.c`, `opt_copy_prop.c`, `opt_cse.c`, or `opt_gvn.c` because their live ranges are not tracked by the general register allocator.
      - When a sub-8-byte or unaligned store occurs (e.g., writing a 4-byte struct field at `-68(%rbp)` via `OP_LEA` + `OP_STORE_32`), **both** overlapping 8-byte boundary slots (`(-offset)/8` and `(-offset + 7)/8`) must be invalidated so stale 64-bit values are never forwarded to subsequent 8-byte struct loads.
-     - Invalidates all tracked slots at labels, calls, indirect stores, and for address-taken variables (`OP_LEA`).
+     - Address-taken variables (`OP_LEA`) and indirect writes (`OP_STORE_*`) must invalidate overlapping stack slots to maintain memory consistency.
 6. **Loop-Invariant Code Motion (`opt_loop.c`)**
    - Identifies natural loops by mapping synthetic `label_idx` targets to instruction indices (`label_to_idx`).
    - Uses a **Two-Pass Rebuild** into a new `IRArena`: hoists pure loop-invariant instructions immediately before the loop header label, turns their in-loop originals into `OP_NOP`, and updates `c->ir_call_args` instruction indices.

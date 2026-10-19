@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-19T00:42:58Z
+timestamp: 2026-10-19T02:24:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -140,3 +140,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-19 — Updated `frontend-and-types.md`
 - Replace Scope TPHT with dynamically resizing separate-chaining hash table, eliminating scope symbol limits
+
+## 2026-10-19 — Updated `ir-and-regalloc.md`
+- Document spill philosophy: linear-scan speed vs graph-coloring trade-offs, scratch registers, and mem2reg division of labor
+
+## 2026-10-19 — Updated `optimization-passes.md`
+- Document mem2reg loop stack traffic impact and cross-block optimization roadmap
