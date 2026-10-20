@@ -701,7 +701,11 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
 
 static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const char *filename, bool is_system,
                                                  char *out_path, size_t out_cap) {
-    char path[1024];
+    /* A resolved include is a filesystem path, bounded by PATH_MAX. The
+     * +64 leaves room for the "/filename" component appended below; a
+     * result that still overflows is an invalid (too-long) path that
+     * access() rejects, and snprintf truncates safely either way. */
+    char path[PATH_MAX + 64];
     /* 1. First check virtual freestanding system headers */
     char *vhdr = zero_cc_cpp_get_virtual_header(filename);
     if (vhdr) {

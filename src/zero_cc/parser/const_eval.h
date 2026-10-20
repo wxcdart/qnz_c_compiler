@@ -48,8 +48,9 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     }
     if (t == TK_IDENT) {
         const char *name = c->tokens[pos].str_val;
-        return (zero_cc_find_typedef(c, name) || zero_cc_find_struct(c, name) ||
-                zero_cc_find_enum(c, name)) != NULL;
+        return zero_cc_find_typedef(c, name) != NULL ||
+               zero_cc_find_struct(c, name) != NULL ||
+               zero_cc_find_enum(c, name) != NULL;
     }
     return false;
 }
