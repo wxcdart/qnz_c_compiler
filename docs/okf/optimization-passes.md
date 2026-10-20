@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-20T01:05:51Z
+timestamp: 2026-10-20T02:28:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -23,7 +23,9 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
 3. **Common Subexpression Elimination (`opt_cse.c`)**
    - Eliminates redundant pure expressions within basic blocks while respecting flag-setting instructions (`REG_FLAGS`).
 4. **Global Value Numbering (`opt_gvn.c`)**
-   - Hash-based value numbering and algebraic simplification (`x + 0`, `x * 1`, `x ^ x`, etc.).
+   - Block-scoped hash-based value numbering: duplicate numberable expressions (`ADD/SUB/MUL/AND/OR/XOR/SHL/SHR/NEG/NOT/MOV_REG/MOV_IMM`) in a block are replaced with copies of the first occurrence; the value table resets at every `OP_LABEL`.
+   - A second scan does **restrict-aware redundant-load elimination / store-to-load forwarding** (`opt_restrict_memory_forward`): loads are keyed on (width, canonical address temp); loads from the same unmodified stack slot share a canonical temp; untagged stores clobber all pending entries, `restrict`-grouped stores only their own group; a 64-bit store forwards its value to later 64-bit loads of the same address.
+   - **O(1) block reset (Sprint 38)**: the canonical-temp table (`g_canon`, full 16-bit temp-id space) uses **generation stamps** — `mf_reset()` bumps a generation counter instead of rewriting all 65536 slots (the rewrite ran at *every* block boundary — 447× per large function — and measured ~60 ms per function of the ~65 ms GVN total; now ~2.3 ms total per function at `-O2/-O3` on `synth_large.c`).
 5. **Small Function Inlining (`ast_lowering_expr.c` / `jit/compile.h`)**
    - Automatically inlines static and `inline` leaf/helper functions ($N \le 35$ AST nodes, non-variadic, no struct returns $>8$B, non-recursive) at `-O2`/`-O3` (up to depth 2).
    - Candidate function bodies are cloned from function-local AST arenas into TU-level `tu_ast_arena`.

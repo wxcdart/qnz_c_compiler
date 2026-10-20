@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T02:08:16Z
+timestamp: 2026-10-20T02:28:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -203,3 +203,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `ir-and-regalloc.md`
 - Sprint 37: epilogue hazard note - allocator temps may map onto the return register after return materialization; shield VREG_0 through the frame
+
+## 2026-10-20 — Updated `optimization-passes.md`
+- Sprint 38: GVN generation-stamped canonical table (O(1) block reset); corrected pass description
+
+## 2026-10-20 — Updated `perf-measurements.md`
+- Sprint 38: GVN resolved (200ms -> 2.3ms); next hotspot LICM

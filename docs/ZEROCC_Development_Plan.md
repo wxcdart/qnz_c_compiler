@@ -369,7 +369,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 **Deferred (revisit after Phase 4)**
 - Promotable-slot SSA (phis for non-address-taken stack slots only) replacing `opt_promote_loop_carried`; requires dominators and out-of-SSA with coalescing.
 - Full SSA over all temps (rewrite-scale; only if multi-def reasoning in GVN/CSE blocks further passes).
-- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG. (Sprint 38 should pick ONE of these.)
+- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG. (Sprint 39 picks ONE of these — cmov-select first as the smallest transform.)
 - IR cleanups: call args into the instruction stream (remove `instr_index`-keyed side table), move physical regs out of the temp namespace, add type tag. (The Sprint 37 epilogue hazard — allocator temps assignable to the return register after return materialization — is the concrete cost of "physical regs in the temp namespace"; the frame-slot `VREG_0` shield is the interim fix.)
 
 ### 11. Sprint 36 (DONE 2026-10-20): mem2reg Loop-Promotion Cost
@@ -385,3 +385,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - Epilogue mirror-out is wrapped in a frame-slot save/restore of `VREG_0` (reserved `static_local_rt_off`) because allocator temps there may map onto the return register. (Discovery: IR operands 0–15 are *virtual* registers that the allocator itself assigns — there is no "use physical r10 directly" escape hatch; the reserved scratch regs are the only non-allocatable ones.)
 - **Bonus fixes**: postfix `++`/`--` on locals returned the NEW value (`ast_lowering_expr.c` ignored `node->flags`); `zero_cc_add_local` could hand out a stale slot (previous function's `is_static_local` bit) — slot now zeroed.
 - Verification: `make test-opt` 105/105 (incl. `10_static_local.c` at `-O0..-O3` JIT+AOT), `make test` 141/141, all verifiers green; edge battery (multi static locals, float/char/long, negative literals, sret struct returns, double returns, void fallthrough, persistence across calls) matches `gcc -O0`.
+
+### 13. Sprint 38 (DONE 2026-10-20): GVN Cost — ~200 ms → ~2.3 ms
+
+Chosen over the CFG opt first: perf-only change with a byte-identical-IR gate (near-zero risk), and it keeps the mandatory sweep fast while the Sprint 40 `-I` work doubles the corpus. **Root cause (measured, hypothesis corrected)**: not the value-numbering loop (0.5 ms) but `opt_restrict_memory_forward`'s `mf_reset()` rewriting the entire 65536-entry canonical-temp table at every block boundary (447× per large function, 80-180 µs each → ~60 ms/function). Fix: generation-stamped table, O(1) reset. Measured: gvn 184-210→**2.3 ms** @-O2/-O3, total passes-only @-O2 ~275→~134 ms; `-dump-ir` byte-identical at `-O2`/`-O3`; all gates green (105/105, 141/141, 12/12, 6/6, 5/5, 0 failed). **Next hotspot: LICM** (~103 ms @-O2) — tracked; a byte-identical-IR proof is not available there (structural rebuilds), so it gets its own risk budget.

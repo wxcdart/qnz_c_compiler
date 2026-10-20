@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 38] - 2026-10-20 - GVN Cost: ~200 ms → ~2.3 ms (Generation-Stamped Canonical Table)
+
+### Changed
+- **`opt/opt_gvn.c` (`opt_restrict_memory_forward`)**: the mf state (redundant-load elimination / store-to-load forwarding) re-establishes at every basic-block boundary — every `OP_LABEL`, jump, call, ... — and each reset rewrote the entire 65536-entry canonical-temp table (`g_canon[i] = i`, 80-180 µs). A large function has ~447 such boundaries, so one rewrite × 447 dominated the pass: **~60 ms per function of the ~65 ms GVN total** (the Sprint 36 "hash-table re-init churn" hypothesis was pointed at the wrong half — the value-numbering loop itself is 0.5 ms).
+- Fix: **generation stamps**. `g_canon` is now `CanonSlot { uint32_t gen; uint16_t val }[65536]`; a read is `gen == current ? val : identity`, a write stamps the current generation, and `mf_reset()` is a single counter bump (O(1)). A 32-bit wraparound guard (full clear) is kept for completeness — unreachable in practice (one file per process, ~10⁴ resets).
+
+### Measured (median of 5 `--profile-opts` runs, `test/bench/synth_large.c`)
+| Pass | Before @-O2 | After @-O2 | Before @-O3 | After @-O3 |
+|---|---|---|---|---|
+| gvn | ~184-210 ms | **2.3 ms** | ~293 ms | **2.3 ms** |
+| total passes-only | ~275 ms | **~134 ms** | ~300 ms | ~140 ms |
+
+- **Correctness**: `-dump-ir` **byte-identical** at `-O2` and `-O3` pre/post; `make test-opt` **105/105**, `make test` **141/141**, `mem2reg_verifier` **12/12**, `sret_verifier` **6/6**, `licm_test_suite` **5/5**, `cfg_verifier` **0 failed**.
+- **Next dominant pass identified**: LICM (~103 ms @-O2) — tracked, not touched here (separate risk budget; LICM does structural IR rebuilds, so a byte-identical-IR proof is not available the way it was for GVN/mem2reg).
+- **Spike methodology** (kept for the record): temporary per-phase `CLOCK_MONOTONIC` timing inside the pass (`main loop` vs `memory-forward` vs per-reset) + per-branch counters. The counters showed the mf inner loops did ~4K total iterations per function while the loop over 6K instructions took 60 ms — the cost was in the uncounted per-boundary `mf_reset()`, not in any per-instruction work.
+
 ## [Sprint 37] - 2026-10-20 - Block-Scope `static` Locals (data section + per-call stack mirror)
 
 ### Added

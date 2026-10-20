@@ -148,6 +148,15 @@ static void replace_with_gvn_copy(int instr_idx, uint16_t src_temp) {
  * (set during lowering). A store through restrict group G can only conflict
  * with entries of group G (or untagged entries); entries of other restrict
  * groups survive. Untagged stores conservatively clobber everything.
+ *
+ * Canonicalization table (Sprint 38): `g_canon` is a full 16-bit temp-id
+ * space (Sprint 35 P4) with an O(1) *generation-stamp* reset. The mf
+ * state is re-established at every basic-block boundary (each OP_LABEL,
+ * jump, call, ...), so the previous per-reset `for (i < 65536) g_canon[i]
+ * = i` rewrite (~80-180 us) cost 447 times per large function — measured
+ * ~60 ms per function of the ~65 ms total GVN time. Each slot now carries
+ * the generation it was written in; an unread (stale) slot defaults to
+ * the identity mapping, and `mf_reset()` just bumps the generation.
  * ========================================================================= */
 #define MF_MAX_ENTRIES 128
 #define MF_MAX_SLOTS   64
@@ -164,15 +173,36 @@ static int g_mf_n;
 static int16_t g_slot_off[MF_MAX_SLOTS];
 static uint16_t g_slot_can[MF_MAX_SLOTS];  /* Sprint 35 P4: 16-bit temp ids */
 static int g_slot_n;
-/* Sprint 35 P4: full 16-bit temp-id space. The old [256] table went OOB for
- * functions with >256 temps (temp ids start at VREG_USER_START=16 and are
- * unbounded), silently corrupting adjacent globals. */
-static uint16_t g_canon[65536];
+
+/* Sprint 38: generation-stamped canonical temp table (replaces the
+ * 65536-entry rewrite at every block boundary). A slot's stamp equals the
+ * current generation iff it was written since the last mf_reset(); any
+ * other stamp means "default to the identity mapping". Reset is O(1).
+ * (The 32-bit stamp matches the generation exactly; the final guard only
+ * matters past 2^32 resets in one process, which is unreachable.) */
+typedef struct {
+    uint32_t gen;  /* generation this slot was written in (0 = never) */
+    uint16_t val;  /* canonical temp */
+} CanonSlot;
+static CanonSlot g_canon[65536];
+static uint32_t g_canon_gen = 1;
+
+static inline uint16_t canon_get(uint16_t t) {
+    return (g_canon[t].gen == g_canon_gen) ? g_canon[t].val : (uint16_t)t;
+}
+static inline void canon_set(uint16_t t, uint16_t v) {
+    g_canon[t].gen = g_canon_gen;
+    g_canon[t].val = v;
+}
 
 static void mf_reset(void) {
     g_mf_n = 0;
     g_slot_n = 0;
-    for (int i = 0; i < 65536; i++) g_canon[i] = (uint16_t)i;
+    g_canon_gen++;
+    if (g_canon_gen == 0) {  /* 32-bit generation wraparound: clear stamps */
+        for (int i = 0; i < 65536; i++) g_canon[i].gen = 0;
+        g_canon_gen = 1;
+    }
 }
 
 static void mf_remove_if_group(int only_group) {
@@ -237,7 +267,7 @@ static void opt_restrict_memory_forward(void) {
         /* Redefinition of a temp invalidates anything that referenced it */
         if (in->temp_dest!= TEMP_NONE) {
             mf_forget_temp(in->temp_dest);
-            g_canon[in->temp_dest] = in->temp_dest;
+            canon_set(in->temp_dest, in->temp_dest);
         }
 
         if (in->op == OP_MOV && in->temp_src1== TEMP_NONE && in->temp_dest!= TEMP_NONE) {
@@ -247,7 +277,7 @@ static void opt_restrict_memory_forward(void) {
                 if (g_slot_off[s] == in->imm) { found = s; break; }
             }
             if (found >= 0) {
-                g_canon[in->temp_dest] = g_slot_can[found];
+                canon_set(in->temp_dest, g_slot_can[found]);
             } else if (g_slot_n < MF_MAX_SLOTS) {
                 g_slot_off[g_slot_n] = in->imm;
                 g_slot_can[g_slot_n] = in->temp_dest;
@@ -262,12 +292,12 @@ static void opt_restrict_memory_forward(void) {
         }
 
         if (in->op == OP_MOV_REG && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
-            g_canon[in->temp_dest] = g_canon[in->temp_src1];
+            canon_set(in->temp_dest, canon_get(in->temp_src1));
             continue;
         }
 
         if (mf_is_load(in->op) && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
-            uint16_t addr = g_canon[in->temp_src1];
+            uint16_t addr = canon_get(in->temp_src1);
             int hit = -1;
             for (int e = 0; e < g_mf_n; e++) {
                 if (g_mf[e].op == in->op && g_mf[e].addr == addr) { hit = e; break; }
@@ -281,7 +311,7 @@ static void opt_restrict_memory_forward(void) {
                 in->imm64 = 0;
                 in->label_idx = 0;
                 in->alias_group = 0;
-                g_canon[in->temp_dest] = g_canon[val];
+                canon_set(in->temp_dest, canon_get(val));
                 opt_profile_count_gvn_eliminated();
             } else if (g_mf_n < MF_MAX_ENTRIES) {
                 g_mf[g_mf_n].op = in->op;
@@ -307,7 +337,7 @@ static void opt_restrict_memory_forward(void) {
             if (in->op == OP_STORE_64 && in->temp_src1!= TEMP_NONE && in->temp_src2!= TEMP_NONE &&
                 g_mf_n < MF_MAX_ENTRIES) {
                 g_mf[g_mf_n].op = OP_DEREF;
-                g_mf[g_mf_n].addr = g_canon[in->temp_src2];
+                g_mf[g_mf_n].addr = canon_get(in->temp_src2);
                 g_mf[g_mf_n].val = in->temp_src1;
                 g_mf[g_mf_n].group = in->alias_group;
                 g_mf_n++;

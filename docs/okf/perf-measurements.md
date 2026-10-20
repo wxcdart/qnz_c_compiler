@@ -4,7 +4,7 @@ title: Performance Measurements & the JIT-vs-GCC Claim
 description: Measured per-pass optimizer costs (--profile-opts) before/after the Sprint 35 CFG migration, the re-measured JIT-vs-GCC compile-time comparison (the old "~78x faster than GCC" figure is retracted), the dominant mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 resource: concepts/perf-measurements
 tags: [performance, profiling, jit, gcc, benchmark, opt-profile, mem2reg, temp-id]
-timestamp: 2026-10-20T01:47:55Z
+timestamp: 2026-10-20T02:28:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -88,8 +88,21 @@ address-taken pre-audit records `max_slot_used` to bound the candidate
 iteration). Measured (median of 5, `synth_large.c`): mem2reg 1088→3.2 ms @-O1,
 3374→13.8 ms @-O2, 4536→15.9 ms @-O3; total passes-only @-O2 3688→~275 ms
 (~13×). The `-O1` `-dump-ir` output is byte-identical pre/post (promotion
-decisions unchanged). **New dominant pass: GVN** (~184-210 ms @-O2/-O3;
-per-block hash-table re-init churn) — tracked as the next optimization target.
+decisions unchanged).
+
+**New dominant pass: GVN** (~184-210 ms @-O2/-O3; per-block hash-table
+re-init churn) — tracked as the next optimization target. —
+**RESOLVED in Sprint 38**, with a *corrected* root cause: the churn was not in
+the value-numbering loop (0.5 ms) but in `opt_restrict_memory_forward`'s
+block-boundary `mf_reset()`, which rewrote the entire 65536-entry
+canonical-temp table at **every** label/jump/call (447× per large function,
+80-180 µs per rewrite → ~60 ms per function). Fixed with a
+generation-stamped table (`CanonSlot {uint32_t gen; uint16_t val}`, reset =
+generation bump, O(1)). Measured (median of 5, `synth_large.c`): gvn
+184-210→**2.3 ms** @-O2/-O3 (~80×); total passes-only @-O2 ~275→~134 ms.
+`-dump-ir` byte-identical at `-O2` and `-O3` pre/post. **New dominant pass:
+LICM** (~103 ms @-O2) — tracked as the next optimization target if/when it
+matters.
 
 **Measurement methodology**: wall times on the project host swing ±50% under
 variable load (4 cores, load avg up to ~1.3); the per-pass profile
