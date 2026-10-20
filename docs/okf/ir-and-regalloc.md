@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-20T01:35:56Z
+timestamp: 2026-10-20T02:08:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -45,6 +45,7 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
 - **Fixed ABI Return Virtual Registers**:
   - `VREG_0` (`0`) maps to `%rax` (`x0`/`a0`) for primary return values and `sret` pointers.
   - `VREG_2` (`2`) maps to `%rdx` for the upper 8 bytes of 9–16 byte struct returns on x86-64.
+  - **Epilogue hazard (Sprint 37)**: the return value sits in `VREG_0` from its materialization in the body until `ret`, but the allocator has no liveness for that physical register, so any code inserted *after* return materialization (e.g. the static-local mirror-out in the shared epilogue block) may have its temps allocated onto the return register and silently clobber it (observed: program exit status = `(uintptr_t)&static_var & 0xFF`). Such code must either shield `VREG_0` through a dedicated frame slot (`lowering.static_local_rt_off`, see the static-local section of `frontend-and-types.md`) or use only the reserved backend scratch registers.
 - **Reserved x86-64 Physical Registers (Never Allocatable to General Temps)**:
   - `%rsp` (`4`) and `%rbp` (`5`): Stack and frame pointers.
   - `%rcx` (`1`): Reserved for variable shift counts (`shl`, `shr`, `sar`).

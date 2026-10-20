@@ -32,6 +32,7 @@ typedef struct ZeroCCCompiler {
     size_t   local_hash_bucket_count;
     int32_t *local_hash_next;
     int32_t current_stack_frame;
+    size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
 
     ZeroCCTypedef typedefs[ZERO_CC_MAX_TYPEDEFS];
     size_t typedef_count;

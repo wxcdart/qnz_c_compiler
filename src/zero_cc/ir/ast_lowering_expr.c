@@ -600,7 +600,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_store(res_temp, BE(c)->fp_reg, -sym->stack_offset);
 
                         c->last_expr_is_float = 0;
-                        return res_temp;
+                        /* Postfix x++ / x-- yields the OLD value; prefix
+                         * ++x / --x yields the new value (node->flags == 1
+                         * marks postfix, matching the global/atomic paths
+                         * below). Pre-fix the local path always returned the
+                         * new value, miscompiling `return x++;` etc. */
+                        return (node->flags == 1) ? val_temp : res_temp;
                     }
                     ZeroCCGlobalVar *gv = find_global_var(var);
                     if (gv) {

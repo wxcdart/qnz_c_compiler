@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-19T00:42:58Z
+timestamp: 2026-10-20T02:08:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -95,6 +95,16 @@ ZeroCC supports C11 core language features and standard concurrency primitives v
   - `_Atomic` qualifiers and `__sync_*` / `__atomic_*` builtins lower to hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`).
   - `include/threads.h` maps C11 thread (`thrd_t`, `thrd_create`, `thrd_join`) and mutex (`mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, `mtx_destroy`) primitives to POSIX threads (`-lpthread`).
   - Global variables (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/ir/ir.c`) emit `ELF_STT_OBJECT` symbols in `.data` and support address-of (`&g`), scalar value loads, assignments, and increments (`g++`).
+
+## Block-Scope `static` Locals (Sprint 37)
+
+Block-scope `static` locals (C99 6.9.2) are implemented as **data-section objects with a per-call stack mirror**:
+- At parse time (`src/zero_cc/parser/ast_stmt.h`), each `static` local is registered in the global-var table under a mangled name `__sl_<seq>` (`c->static_local_seq`) at an 8-byte-aligned `data_section` offset; the local symbol keeps a normal frame slot as a per-call mirror (`ZeroCCSym.is_static_local`, `.static_data_offset`, `.static_global_name`).
+- Initializers must be constant literals (int/float/char, optional sign); the bytes are patched into `data_section` at parse time and the initializer is deliberately **not** attached to the AST, so it never re-runs per call. Complex initializers and multi-declarator `static` lists are rejected with diagnostics; `static` + VLA is an error.
+- Lowering (`src/zero_cc/ir/ast_lowering.c`) emits `data → slot` chunked 8-byte copies in the prologue (before the body) and `slot → data` in the shared epilogue block (every return jumps to the epilogue label, natural fallthrough reaches it). All existing frame-relative access sites are unchanged.
+- **Return-value protection**: the epilogue mirror-out runs *after* the return value is materialized in `VREG_0`, and its allocator temps may be mapped onto the return register. Therefore, when a function has ≥1 static local, an extra 8-byte frame slot (`lowering.static_local_rt_off`, reserved before the frame size is computed) saves/restores `VREG_0` around the mirror-out. FP results live in XMM registers, which the integer-only mirror-out cannot touch.
+- A function containing a static local always declares a local, so the inliner's local-decl filter already excludes it — no duplicated data objects across inlined copies are possible.
+- Regression guard: `test/inline_audit/10_static_local.c` (counter must read 100/101/102 across three calls). This test is **standalone**, so `opt_sweep.py` compiles it directly with zerocc at `-O0..-O3` in JIT and AOT; it failed at every `-O` level before Sprint 37 (statics were lowered as plain stack locals and re-initialized every call — the `TK_STATIC` specifier was silently discarded by the parser).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

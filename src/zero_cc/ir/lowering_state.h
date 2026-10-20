@@ -46,6 +46,9 @@ typedef struct {
 typedef struct {
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
+    int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
+                                          protects VREG_0 across the epilogue
+                                          static-local mirror-out; 0 = unused */
     
     /* CMP operand tracking for RISC-V backend (flags materialization) */
     int cmp_src1;                      /* First operand of last CMP instruction */

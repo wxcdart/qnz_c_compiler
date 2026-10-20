@@ -21,6 +21,77 @@
  * Main Entry Point
  * ========================================================================= */
 
+/* =========================================================================
+ * Sprint 37: static-local mirror
+ *
+ * A `static` block-scope local is a data-section object (registered in
+ * the global table under sym->static_global_name) whose stack slot is a
+ * per-call mirror. The prologue (before the body) copies
+ * data -> slot; the single shared epilogue (every return jumps to the
+ * epilogue label, and natural fallthrough reaches it) copies
+ * slot -> data. All access sites remain frame-relative, and the value
+ * persists across calls. Frame slots are aligned to >=8 bytes, and the
+ * data allocation is rounded up to 8, so 8-byte chunks (with a possibly
+ * smaller final chunk) never spill into a neighbouring object.
+ * ========================================================================= */
+static void static_local_chunk_addr(ZeroCCCompiler *c, const ZeroCCSym *ss,
+                                    size_t off, int *out_addr) {
+    *out_addr = c->next_temp_id++;
+    if (off == 0) {
+        ir_emit_mov_global((uint16_t)*out_addr, ss->static_global_name);
+    } else {
+        int base = c->next_temp_id++;
+        ir_emit_mov_global((uint16_t)base, ss->static_global_name);
+        int o = c->next_temp_id++;
+        ir_emit_mov_imm((uint16_t)o, (int64_t)off);
+        ir_emit_add((uint16_t)*out_addr, (uint16_t)base, (uint16_t)o);
+    }
+}
+
+/* data -> stack slot (prologue) */
+static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
+    size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
+    for (size_t off = 0; off < sz; off += 8) {
+        size_t w = (sz - off < 8) ? (sz - off) : 8;
+        int addr;
+        static_local_chunk_addr(c, ss, off, &addr);
+        int val = c->next_temp_id++;
+        if (w == 8)      ir_emit_deref(val, addr);
+        else if (w == 4) ir_emit_load_32((uint16_t)val, (uint16_t)addr);
+        else if (w == 2) ir_emit_load_16((uint16_t)val, (uint16_t)addr);
+        else             ir_emit_load_byte((uint16_t)val, (uint16_t)addr);
+        int sa = c->next_temp_id++;
+        ir_emit_lea(sa, BE(c)->fp_reg, -(ss->stack_offset + (int32_t)off));
+        if (w == 8)      ir_emit_store_64((uint16_t)val, (uint16_t)sa);
+        else if (w == 4) ir_emit_store_32((uint16_t)val, (uint16_t)sa);
+        else if (w == 2) ir_emit_store_16((uint16_t)val, (uint16_t)sa);
+        else             ir_emit_store_byte((uint16_t)val, (uint16_t)sa);
+    }
+}
+
+/* stack slot -> data (epilogue). Plain allocator temps are fine here
+ * because the caller wraps the whole block with a VREG_0 (return value)
+ * save/restore through the frame - see zero_cc_lower_ast(). */
+static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
+    size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
+    for (size_t off = 0; off < sz; off += 8) {
+        size_t w = (sz - off < 8) ? (sz - off) : 8;
+        int sa = c->next_temp_id++;
+        ir_emit_lea(sa, BE(c)->fp_reg, -(ss->stack_offset + (int32_t)off));
+        int val = c->next_temp_id++;
+        if (w == 8)      ir_emit_deref(val, sa);
+        else if (w == 4) ir_emit_load_32((uint16_t)val, (uint16_t)sa);
+        else if (w == 2) ir_emit_load_16((uint16_t)val, (uint16_t)sa);
+        else             ir_emit_load_byte((uint16_t)val, (uint16_t)sa);
+        int addr;
+        static_local_chunk_addr(c, ss, off, &addr);
+        if (w == 8)      ir_emit_store_64((uint16_t)val, (uint16_t)addr);
+        else if (w == 4) ir_emit_store_32((uint16_t)val, (uint16_t)addr);
+        else if (w == 2) ir_emit_store_16((uint16_t)val, (uint16_t)addr);
+        else             ir_emit_store_byte((uint16_t)val, (uint16_t)addr);
+    }
+}
+
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Initialize lowering state */
     memset(&c->lowering, 0, sizeof(c->lowering));
@@ -111,10 +182,50 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     c->lowering.epilogue_label = c->ir_next_label++;
-    
+
+    /* Sprint 37: static locals. When the function has at least one, reserve
+     * an 8-byte frame slot that shields VREG_0 (return value / sret
+     * pointer) across the epilogue mirror-out below: the mirror-out uses
+     * allocator temps that may be mapped onto the return register, and the
+     * return value is already live in VREG_0 by the time the epilogue runs.
+     * (Must happen before the frame size is computed below.) */
+    c->lowering.static_local_rt_off = 0;
+    for (size_t i = 0; i < c->local_count; i++) {
+        if (c->locals[i].is_static_local) {
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            c->lowering.static_local_rt_off = (int)c->current_stack_frame;
+            break;
+        }
+    }
+
+    /* Sprint 37: static locals - data section -> stack slot, once per call,
+     * before any body statement can read the (mirrored) slot. */
+    for (size_t i = 0; i < c->local_count; i++) {
+        if (c->locals[i].is_static_local) static_local_mirror_in(c, &c->locals[i]);
+    }
+
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
     ir_emit_label(c->lowering.epilogue_label);
+
+    /* Sprint 37: static locals - stack slot -> data section. Every return
+     * jumps to the epilogue label and natural fallthrough reaches it, so
+     * this single block runs on every exit path.
+     *
+     * The mirror-out's allocator temps may be assigned to the return
+     * register, so protect VREG_0 in the reserved frame slot around the
+     * block (integer return values and the sret pointer; FP results live
+     * in XMM registers, which the integer-only mirror-out cannot touch).
+     * CALLEE_SAVE_LOADS runs after the restore and re-establishes all
+     * callee-saved state. */
+    if (c->lowering.static_local_rt_off != 0) {
+        ir_emit_store(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
+        for (size_t i = 0; i < c->local_count; i++) {
+            if (c->locals[i].is_static_local) static_local_mirror_out(c, &c->locals[i]);
+        }
+        ir_emit_load(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
+    }
 
     /* C2b guard: temp ids are 16-bit (TEMP_NONE = 0xFFFF is the "no temp"
      * sentinel). next_temp_id is an int, so a pathological function could

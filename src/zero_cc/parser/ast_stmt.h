@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "../types/types.h"
+#include "../types/global_vars.h"
 #include "parser.h"
 #include "../jit/type_info.h"
 #include "../semantic/decl.h"
@@ -17,6 +18,114 @@
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count);
+
+/* =========================================================================
+ * Sprint 37: static locals (block scope, static storage duration)
+ *
+ * The object is allocated in the data section and registered in the
+ * global table under a mangled name. The declaration's local symbol
+ * keeps a normal stack slot which acts as a per-call MIRROR: the
+ * lowering prologue copies data -> slot and the (single, shared)
+ * epilogue copies slot -> data, so all access sites stay
+ * frame-relative and the value persists across calls.
+ * ========================================================================= */
+static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *sym) {
+    ZeroCCType t = sym->type;
+    size_t size = t.size ? t.size : 8;
+    size_t alloc = (size + 7) & ~(size_t)7;   /* mirror copies in 8-byte chunks */
+    size_t align = t.align > 8 ? (size_t)t.align : 8;
+    while (c->data_section.length % align) zero_cc_emit_u8(&c->data_section, 0);
+    size_t off = c->data_section.length;
+    for (size_t i = 0; i < alloc; i++) zero_cc_emit_u8(&c->data_section, 0);
+    char mangled[48];
+    snprintf(mangled, sizeof(mangled), "__sl_%zu", c->static_local_seq++);
+    if (add_global_var(mangled, t, off, alloc, true, false) < 0) {
+        diag_report_error_at_token(c, "out of memory registering static local '%s'", sym->name);
+        return false;
+    }
+    sym->is_static_local = true;
+    sym->static_data_offset = off;
+    snprintf(sym->static_global_name, sizeof(sym->static_global_name), "%s", mangled);
+    return true;
+}
+
+/* Patch a constant-literal initializer into the data section at the
+ * symbol's static offset (the zero-filled reservation made at register
+ * time). Called with the token stream positioned just after '='.
+ * Returns true when a supported literal initializer was consumed.
+ * A non-literal initializer leaves the stream where the caller skips
+ * it and reports the diagnostic (the run then fails, no binary). */
+static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym) {
+    bool is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+    if (c->token_pos < c->token_count &&
+        (c->tokens[c->token_pos].type == TK_MINUS || c->tokens[c->token_pos].type == TK_PLUS)) {
+        bool neg = (c->tokens[c->token_pos].type == TK_MINUS);
+        c->token_pos++;
+        if (c->token_pos >= c->token_count) return false;
+        ZeroCCTokType t2 = c->tokens[c->token_pos].type;
+        if (is_float) {
+            if (t2 != TK_FLOAT && t2 != TK_NUM) return false;
+            double dv = is_float && t2 == TK_FLOAT ?
+                (double)c->tokens[c->token_pos].float_val : (double)c->tokens[c->token_pos].num_val;
+            c->token_pos++;
+            if (neg) dv = -dv;
+            uint64_t bits;
+            size_t width;
+            if (sym->type.tag == TYPE_FLOAT) {
+                float fv = (float)dv;
+                bits = 0;
+                memcpy(&bits, &fv, sizeof(fv));
+                width = 4;
+            } else {
+                memcpy(&bits, &dv, sizeof(bits));
+                width = 8;
+            }
+            uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+            for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+            return true;
+        } else {
+            if (t2 != TK_NUM && t2 != TK_CHAR_LIT) return false;
+            int64_t iv = (int64_t)c->tokens[c->token_pos].num_val;
+            c->token_pos++;
+            if (neg) iv = -iv;
+            uint64_t bits = (uint64_t)iv;
+            size_t width = (sym->type.size >= 8) ? 8 : ((size_t)sym->type.size > 0 ? (size_t)sym->type.size : 8);
+            uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+            for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+            return true;
+        }
+    }
+    if (c->token_pos >= c->token_count) return false;
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+    if (is_float) {
+        if (t != TK_FLOAT && t != TK_NUM) return false;
+        double dv = (t == TK_FLOAT) ? (double)c->tokens[c->token_pos].float_val :
+            (double)c->tokens[c->token_pos].num_val;
+        c->token_pos++;
+        uint64_t bits;
+        size_t width;
+        if (sym->type.tag == TYPE_FLOAT) {
+            float fv = (float)dv;
+            bits = 0;
+            memcpy(&bits, &fv, sizeof(fv));
+            width = 4;
+        } else {
+            memcpy(&bits, &dv, sizeof(bits));
+            width = 8;
+        }
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+        return true;
+    }
+    if (t != TK_NUM && t != TK_CHAR_LIT) return false;
+    int64_t iv = (int64_t)c->tokens[c->token_pos].num_val;
+    c->token_pos++;
+    uint64_t bits = (uint64_t)iv;
+    size_t width = (sym->type.size >= 8) ? 8 : ((size_t)sym->type.size > 0 ? (size_t)sym->type.size : 8);
+    uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+    for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+    return true;
+}
 
 static void zero_cc_synchronize_ast(ZeroCCCompiler *c) {
     while (c->token_pos < c->token_count) {
@@ -455,6 +564,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
     bool is_const = false;
     bool is_volatile = false;
     bool is_atomic = false;
+    bool is_static_local = false;   /* Sprint 37: block-scope `static` */
 
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_ALIGNAS ||
@@ -492,6 +602,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     c->token_pos++;
                 }
             }
+        } else if (c->tokens[c->token_pos].type == TK_STATIC) {
+            is_static_local = true;  /* Sprint 37 */
+            c->token_pos++;
         } else {
             c->token_pos++;
         }
@@ -974,6 +1087,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     return AST_NULL;
                 }
 
+                /* Sprint 37: static local — the object lives in the data
+                 * section; the stack slot is a per-call mirror (see the
+                 * zero_cc_static_local_register docs). */
+                if (is_static_local) {
+                    if (has_any_vla) {
+                        diag_report_error_at_token(c,
+                            "VLA '%s' cannot have static storage duration", vname);
+                        return AST_NULL;
+                    }
+                    zero_cc_static_local_register(c, sym);
+                }
+
                 ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                 ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
                 dn->line = line;
@@ -1000,6 +1125,21 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 /* Optional initializer: = expr or = { ... } */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                     c->token_pos++;
+                    if (sym->is_static_local) {
+                        /* Sprint 37: constant-literal initializers are baked
+                         * into the data section at parse time. The initializer
+                         * is deliberately NOT attached to the AST: the value
+                         * arrives via the prologue mirror load, and running
+                         * the initializer in the body would reset the static
+                         * on every call (the original bug). */
+                        if (!zero_cc_static_local_patch_init(c, sym)) {
+                            diag_report_error_at_token(c,
+                                "static local '%s' initializer must be a constant literal "
+                                "(complex initializers not yet supported)", vname);
+                            while (c->token_pos < c->token_count &&
+                                   c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                        }
+                    } else {
                     ASTRef init_val = AST_NULL;
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                         /* Brace-enclosed / designated initializer: struct Point p = { .x = 10 }; */
@@ -1025,6 +1165,22 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
                     dn = zero_cc_ast_get(arena, decl_ref);
                     if (dn) dn->left = init_val;
+                    } /* !is_static_local */
+                }
+
+                /* Sprint 37 v1: static locals with multiple comma declarators
+                 * are not yet supported. */
+                if (sym->is_static_local &&
+                    c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                    diag_report_error_at_token(c,
+                        "static local '%s' with multiple declarators not yet supported", vname);
+                    while (c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                }
+                if (sym->is_static_local &&
+                    c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+                    c->token_pos++;
+                    return decl_ref;
                 }
 
                 ASTRef head_decl = decl_ref;

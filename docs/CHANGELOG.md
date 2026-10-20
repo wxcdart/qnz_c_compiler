@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 37] - 2026-10-20 - Block-Scope `static` Locals (data section + per-call stack mirror)
+
+### Added
+- **Block-scope `static` locals** (C99 6.9.2): previously the `TK_STATIC` specifier was silently discarded by the parser, so `static` locals were lowered as plain stack locals — re-initialized on every call. Now each `static` local gets an 8-byte-aligned allocation in `data_section` registered as a global (`__sl_<seq>`) under `ZeroCCSym.is_static_local`; the frame slot acts as a per-call **mirror** (prologue `data → slot`, shared-epilogue `slot → data`). Constant-literal initializers are patched into the data section at parse time and are deliberately not attached to the AST, so they never re-run per call. `static`+VLA, complex initializers, and multi-declarator static lists are rejected with diagnostics.
+  - Files: `parser/ast_stmt.h` (specifier loop, registration, init patching), `types/type_system.h` (sym fields), `types/symbols.h` (`static_local_seq`), `ir/ast_lowering.c` (mirror in/out + epilogue hook), `ir/lowering_state.h` (`static_local_rt_off`).
+- **Regression guard**: `test/inline_audit/10_static_local.c` (static counter must read 100/101/102 across three calls) now passes at `-O0..-O3` in both JIT and AOT via `make test-opt`.
+
+### Fixed
+- **Postfix `++`/`--` on locals returned the NEW value** (pre-existing, found while validating Sprint 37): the local-variable path in `NODE_UNOP` lowering (`ir/ast_lowering_expr.c`) always returned the post-increment temp, ignoring the postfix flag — `return x++;` / `int r = x++;` miscompiled for frame-slot variables (globals and atomics were correct). Now `return (node->flags == 1) ? val_temp : res_temp;`, matching the global/atomic paths.
+- **`zero_cc_add_local` stale-slot bug** (`types/symbol_mgmt.h`): `local_count` resets per function but the slot array persists, so a fresh local could inherit stale fields (e.g. `is_static_local`) from the previous function's local at the same index. The slot is now zeroed before use.
+
+### Design Notes
+- **Epilogue return-value protection**: the mirror-out runs after the return value is materialized in `VREG_0`, and allocator temps may be mapped onto the return register (observed: exit status = `(uintptr_t)&static_var & 0xFF`). Functions with ≥1 static local reserve an 8-byte frame slot (`lowering.static_local_rt_off`) that saves/restores `VREG_0` around the mirror-out; FP results are in XMM registers, which the integer-only mirror-out cannot touch. (Allocator operands 0–15 are *virtual* registers that are themselves allocatable — "using r10 directly" in IR is not a way to pin a physical register; the reserved backend scratch registers are the only non-allocatable ones.)
+- A function with a static local always declares a local, so the inliner's local-decl filter already excludes it — no duplicated data objects across inlined copies are possible.
+- **Verification**: `make test-opt` **105/105**, `make test` **141/141**, `mem2reg_verifier` **12/12**, `sret_verifier` **6/6**, `licm_test_suite` **5/5**, `cfg_verifier` **0 failed**, SIMD suite unchanged (10 pre-existing FP/frontend failures).
+
 ## [Sprint 36] - 2026-10-20 - mem2reg Loop-Promotion Cost: O(loops × 256 × |IR|) → O(loops × |IR|)
 
 ### Changed

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T01:47:55Z
+timestamp: 2026-10-20T02:08:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -197,3 +197,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `perf-measurements.md`
 - Sprint 36: mem2reg loop promotion restructured to one accumulating scan per loop (O(loops x |IR|)); 1088->3.2ms @O1, 3374->13.8ms @O2 on synth_large.c; -O1 dump-ir byte-identical; GVN is the new dominant pass.
+
+## 2026-10-20 — Updated `frontend-and-types.md`
+- Sprint 37: block-scope static locals (data-section allocation + per-call stack mirror; constant-literal init patched at parse time)
+
+## 2026-10-20 — Updated `ir-and-regalloc.md`
+- Sprint 37: epilogue hazard note - allocator temps may map onto the return register after return materialization; shield VREG_0 through the frame

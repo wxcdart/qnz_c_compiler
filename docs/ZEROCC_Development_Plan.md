@@ -369,5 +369,19 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 **Deferred (revisit after Phase 4)**
 - Promotable-slot SSA (phis for non-address-taken stack slots only) replacing `opt_promote_loop_carried`; requires dominators and out-of-SSA with coalescing.
 - Full SSA over all temps (rewrite-scale; only if multi-def reasoning in GVN/CSE blocks further passes).
-- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG.
-- IR cleanups: call args into the instruction stream (remove `instr_index`-keyed side table), move physical regs out of the temp namespace, add type tag.
+- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG. (Sprint 38 should pick ONE of these.)
+- IR cleanups: call args into the instruction stream (remove `instr_index`-keyed side table), move physical regs out of the temp namespace, add type tag. (The Sprint 37 epilogue hazard — allocator temps assignable to the return register after return materialization — is the concrete cost of "physical regs in the temp namespace"; the frame-slot `VREG_0` shield is the interim fix.)
+
+### 11. Sprint 36 (DONE 2026-10-20): mem2reg Loop-Promotion Cost
+
+`opt_promote_loop_carried` went from O(loops × 256 slots × |IR|) to O(loops × |IR|) via a single accumulating scan per loop (see CHANGELOG). Measured: mem2reg 1088→3.2 ms @-O1, total passes-only @-O2 3688→~275 ms; `-dump-ir` byte-identical at `-O1`. All gates green (105/105 test-opt, 141/141 make test, 12/12 mem2reg, 6/6 sret, 5/5 licm). **Next hotspot: GVN** (~184-210 ms @-O2/-O3, per-block hash-table re-init churn) — tracked, separate risk budget.
+
+### 12. Sprint 37 (DONE 2026-10-20): Block-Scope `static` Locals
+
+**Bug**: `TK_STATIC` in a block was silently discarded by the specifier loop, so `static` locals were stack locals — the initializer ran on every call (`test/inline_audit/10_static_local.c` failed at every `-O` level).
+
+**Fix** (data section + per-call stack mirror; see `docs/okf/frontend-and-types.md`):
+- Each `static` local → 8-byte-aligned `data_section` allocation registered as global `__sl_<seq>`; the frame slot is a per-call mirror (prologue `data → slot`, shared epilogue `slot → data`). Constant-literal initializers patched into the data section at parse time; not attached to the AST (no per-call re-init).
+- Epilogue mirror-out is wrapped in a frame-slot save/restore of `VREG_0` (reserved `static_local_rt_off`) because allocator temps there may map onto the return register. (Discovery: IR operands 0–15 are *virtual* registers that the allocator itself assigns — there is no "use physical r10 directly" escape hatch; the reserved scratch regs are the only non-allocatable ones.)
+- **Bonus fixes**: postfix `++`/`--` on locals returned the NEW value (`ast_lowering_expr.c` ignored `node->flags`); `zero_cc_add_local` could hand out a stale slot (previous function's `is_static_local` bit) — slot now zeroed.
+- Verification: `make test-opt` 105/105 (incl. `10_static_local.c` at `-O0..-O3` JIT+AOT), `make test` 141/141, all verifiers green; edge battery (multi static locals, float/char/long, negative literals, sret struct returns, double returns, void fallthrough, persistence across calls) matches `gcc -O0`.

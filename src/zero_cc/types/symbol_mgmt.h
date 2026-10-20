@@ -2,6 +2,7 @@
 #define ZERO_CC_TYPES_SYMBOL_MGMT_H
 
 #include <stdbool.h>
+#include <string.h>
 #include <dlfcn.h>
 
 /* High-speed FNV-1a 32-bit string hashing for local symbols */
@@ -91,6 +92,11 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
 
     size_t new_idx = c->local_count++;
     ZeroCCSym *sym = &c->locals[new_idx];
+    /* Clear the whole slot: local_count is reset per function but the slot
+     * array is persistent, so a fresh local can otherwise inherit stale
+     * fields (e.g. is_static_local) from the previous function's local at
+     * the same index. */
+    memset(sym, 0, sizeof(*sym));
     snprintf(sym->name, sizeof(sym->name), "%s", name);
     sym->type = type;
 

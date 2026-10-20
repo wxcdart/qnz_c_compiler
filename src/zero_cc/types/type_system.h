@@ -121,6 +121,15 @@ typedef struct {
     bool is_const;
     bool is_volatile;
     bool is_restrict;
+    /* Static local (Sprint 37): block-scoped declaration with static
+     * storage duration. The object lives in the data section
+     * (registered in the global table under static_global_name) and the
+     * stack slot is a per-call mirror: the prologue copies
+     * data -> slot, the epilogue (shared by all return paths) copies
+     * slot -> data, so every access site stays frame-relative. */
+    bool is_static_local;
+    size_t static_data_offset;            /* Offset in data_section */
+    char static_global_name[128];         /* Mangled name in the global table */
 } ZeroCCSym;
 
 /* Function Definition Record */
