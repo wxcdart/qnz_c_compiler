@@ -15,6 +15,11 @@ Closes the Sprint 37 static-local blockers that prevented full-header self-hosti
 - `make test` **142/142**, `make test-opt` **106 ok / 0 failed**, `sret_verifier` **6/6**, `okf` **lint+index pass**; `test/abi/variadic_fn` now prints `0 (expected 0)`.
 - gcc differential (JIT + AOT, `-O0..-O3`): single & multiple block-scope static pointer arrays of strings (the exact `live_range.h`/`preprocessor.h` shapes, incl. a `NULL`-terminated `sys_paths[]`), static numeric/char arrays, `static char[] = "..."`, mixed with ordinary locals + a static scalar, early `return` mid-function (mirror-out on every exit path, counter persists), 16-element pointer arrays. All MATCH / pass.
 
+### Warning cleanup (self-hosting hygiene)
+- `parser/const_eval.h`: `(zero_cc_find_typedef(...) || zero_cc_find_struct(...) || zero_cc_find_enum(...)) != NULL` compared an **int** to a pointer (C `||` yields int, so the group evaluated to a bool). Now tests each result for non-NULL individually; identical behavior.
+- `core/preprocessor.h`: the include-resolver `char path[1024]` concatenated `include_file_dirs[d]` (a `char[PATH_MAX]`) + `"/" + filename`, which GCC proved could truncate. A resolved include is a filesystem path (bounded by `PATH_MAX`); the buffer is now `PATH_MAX + 64` to leave room for the filename component. Any result that still overflows is an invalid over-long path that `access()` rejects, and `snprintf` truncates safely regardless.
+- `parser/parser.h`: added the missing prototype `size_t zero_cc_ast_node_size(void);` (defined in `parser.c`, called by the stale-build guard in `main.c`) to silence the `-Wimplicit-function-declaration` warning. The guard is now documented in `docs/okf/build-and-verification.md` — a `ZeroCCASTNode` layout change requires a full `make clean && make build/bin/zerocc`.
+
 ## [Sprint 40] - 2026-10-20 - Pre-Existing Gaps: FP Ternaries, 64-bit Literals, Array Initializers/Parameters, `-S` Emitters, SIMD Suite
 
 ### Fixed

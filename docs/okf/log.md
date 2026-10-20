@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T15:54:29Z
+timestamp: 2026-10-20T17:02:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -224,3 +224,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `global-data-relocs.md`
 - Sprint 41: block-scope static locals complete (unsized-array up-front sizing, mirror-direction fix, pointer-to-string initializers via ZeroCCDataReloc), const-eval casts, and stdarg.h va_* -> __builtin_va_* fix
+
+## 2026-10-20 — Updated `build-and-verification.md`
+- Documented the stale-build guard (zero_cc_ast_node_size vs sizeof(ZeroCCASTNode) layout check in main.c) and its full-rebuild requirement; added the missing parser.h prototype that silenced the implicit-declaration warning

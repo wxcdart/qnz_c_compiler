@@ -121,6 +121,9 @@ void zero_cc_ast_arena_free(ZeroCCASTArena *arena);
 void zero_cc_ast_arena_reset(ZeroCCASTArena *arena);
 ASTRef zero_cc_ast_alloc_node(ZeroCCASTArena *arena, ZeroCCASTTag tag);
 size_t zero_cc_ast_node_count(ZeroCCASTArena *arena, ASTRef root);
+/* Compile-time size of the AST node; the caller (main) compares it against
+ * its own sizeof(ZeroCCASTNode) to catch stale-build objects. */
+size_t zero_cc_ast_node_size(void);
 ASTRef zero_cc_ast_clone(ZeroCCASTArena *src_arena, ASTRef root, ZeroCCASTArena *dst_arena);
 bool zero_cc_ast_has_call(ZeroCCASTArena *arena, ASTRef root, const char *target_name);
 bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root);
