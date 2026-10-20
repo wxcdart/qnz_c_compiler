@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-20T21:09:55Z
+timestamp: 2026-10-20T22:21:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -114,6 +114,36 @@ python3 tools/sret_verifier.py --target-all
 # (`-static`, `-mabi=lp64`), because zerocc's raw aarch64/riscv binary emitters
 # are incomplete - see isa-backends.md. Verified: aarch64 `-o` + qemu matches
 # `gcc -O2` for common C (see CHANGELOG Sprint 41).
+
+# Differential-test EVERY target ISA's RAW binary emitter under QEMU (make target below).
+make test-isa-qemu
+
+### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
+
+`tools/isa_qemu_diff.py` is the differential harness that was missing for the
+**raw** binary emitters (the `-o`/`-c` AOT paths route aarch64/riscv through the
+*text* emitter, so only x86-64's raw path was ever exercised). For each test in
+`test/isa_qemu/` and each ISA it: builds a static executable via zerocc's **raw
+binary path** (`ZC_RAW_AOT=1` forces raw for cross-targets; x86-64 is raw by
+default), builds a reference with the system **cross-gcc** (`-static -O2`), runs
+**both** under the matching `qemu-*-static`, and diffs stdout + exit code.
+
+**Dependency (required, preflighted):** `qemu-user-static`
+(`qemu-x86_64-static`, `qemu-aarch64-static`, `qemu-riscv64-static`,
+`qemu-riscv32-static`) **and** the cross toolchains (`aarch64-linux-gnu-gcc`,
+`riscv64-linux-gnu-gcc`). The harness lists exactly what is missing if absent.
+
+**Current state** (raw emitters, Sprint 41): **x86-64 11/11** (the production
+path). **aarch64 1/11** -- register allocation clobbers live pointers (a
+string-pointer + arithmetic miscompiles), `.data` relocations are malformed
+(linker rejects reloc type 0x1), `.data` global writes segfault, host calls
+(`printf`/`strlen`) return wrong, one infinite loop. **riscv64 0/11** -- objects
+don't link (`can't link soft-float modules with double-float modules`, i.e. an
+inconsistent FP-ABI object attribute). **riscv32 0/11** -- zerocc segfaults
+building rv32, and the installed cross libc lacks rv32 (`crt1.o` is elf64). The
+target therefore reports `Error 1` until the aarch64/riscv raw emitters are
+repaired; x86-64 is the green baseline. Run a single ISA with
+`python3 tools/isa_qemu_diff.py --isa aarch64`.
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

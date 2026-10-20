@@ -19,7 +19,8 @@ This directory contains the active verification suites, test runners, and knowle
 | [`licm_verifier.py`](./licm_verifier.py) / [`licm_test_suite.py`](./licm_test_suite.py) | Loop-Invariant Code Motion (LICM) hoisting and safety verifier | `python3 tools/licm_test_suite.py` |
 | [`simd_regression_suite.py`](./simd_regression_suite.py) | Auto-vectorization (SSE2/SSE4.1, NEON, RVV) regression suite | `python3 tools/simd_regression_suite.py` |
 | [`cross_isa_comparator.py`](./cross_isa_comparator.py) | Multi-ISA assembly comparison tool (`x86-64`, `aarch64`, `riscv64`) | `python3 tools/cross_isa_comparator.py test/aot/hello_world.c` |
-| [`qemu_test_runner.py`](./qemu_test_runner.py) | Cross-ISA execution runner using QEMU user-mode emulation | `python3 tools/qemu_test_runner.py --isa aarch64 test/aot/` |
+| [`qemu_test_runner.py`](./qemu_test_runner.py) | Cross-ISA execution runner using QEMU user-mode emulation (superseded for raw-emitter testing by `isa_qemu_diff.py`) | `python3 tools/qemu_test_runner.py --isa aarch64 test/aot/` |
+| [`isa_qemu_diff.py`](./isa_qemu_diff.py) | **Raw binary emitter** differential test across all ISAs under QEMU (`make test-isa-qemu`); needs qemu-user-static + cross gcc | `python3 tools/isa_qemu_diff.py --isa aarch64` |
 | [`elf_verify.py`](./elf_verify.py) | ELF64 relocatable object (`.o`) section, symbol, and relocation verifier | `python3 tools/elf_verify.py` |
 
 ## Quick Verification Commands

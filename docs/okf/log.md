@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T22:06:45Z
+timestamp: 2026-10-20T22:21:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -251,3 +251,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `isa-backends.md`
 - Sprint 41: OP_CMP_ZERO is ISA-specific in -S (x86 testq / aarch64 cmp r,#0 / riscv mv t0,r); was x86-hardcoded
+
+## 2026-10-20 — Updated `build-and-verification.md`
+- Sprint 41: make test-isa-qemu raw-emitter QEMU differential gate + QEMU/cross-gcc dependency
+
+## 2026-10-20 — Updated `isa-backends.md`
+- Sprint 41: measured raw-emitter state under QEMU (x86-64 11/11, aarch64 1/11, riscv64/32 0/11) via ZC_RAW_AOT

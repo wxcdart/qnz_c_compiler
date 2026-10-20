@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-20T22:06:45Z
+timestamp: 2026-10-20T22:21:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -33,7 +33,7 @@ The **raw binary** emitters for aarch64 (`aarch64.c`) and riscv (`riscv.c`) are 
 - **`-c`** (`compile_object_cross`): emit text to a temp `.s`, then `aarch64-linux-gnu-as tmp.s -o out.o`. x86-64 still writes a binary `.o` via `elf_writer`.
 - `-static` is required because the target dynamic loader isn't installed (the binary runs under `qemu-*-static`); the aarch64 link previously failed with an invalid `-mabi=lp64d` (now `-mabi=lp64`).
 
-The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs. Verified: aarch64 `-o` + `qemu-aarch64-static` matches `gcc -O2` for common C (see CHANGELOG Sprint 41). A **shared** (all-target) logical-AND (`&&`) lowering bug remains (e.g. `while(s[n]&&n<4)` ignores `n<4`) — separate, not aarch64-specific.
+The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv64 **0/11** (objects don't link: `can't link soft-float modules with double-float modules` -- inconsistent FP-ABI attribute); riscv32 **0/11** (zerocc segfaults building rv32; the cross libc lacks rv32). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 

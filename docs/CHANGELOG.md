@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - Cross-ISA Raw-Binary-Emitter QEMU Differential Test (`make test-isa-qemu`)
+
+Added `tools/isa_qemu_diff.py` + `make test-isa-qemu`, a QEMU differential harness for the **raw binary emitters** of every target ISA. The AOT `-o`/`-c` paths route aarch64/riscv through the *text* emitter, so only x86-64's raw path was ever exercised; the raw aarch64/riscv emitters had no differential test at all. The harness builds each `test/isa_qemu/*.c` (11-test battery) per ISA via the raw path (`ZC_RAW_AOT=1` forces raw for cross-targets), builds a reference with the system **cross-gcc** (`-static -O2`), runs **both** under the matching `qemu-*-static`, and diffs stdout + exit code. `ZC_RAW_AOT` is a new opt-in env lever in `main.c`.
+
+### Measured state (raw emitters)
+- **x86-64: 11/11** — the production raw path, fully correct.
+- **aarch64: 1/11** — register allocation clobbers a live string-pointer during `a+b`; `.data` relocations are malformed (linker rejects reloc type 0x1); `.data` global writes SIGSEGV; host calls (`printf`/`strlen`) return wrong; one infinite loop. So the bug is **regalloc + `.data` relocs + host-call interop**, not just encodings.
+- **riscv64: 0/11** — objects don't link: `can't link soft-float modules with double-float modules` (inconsistent FP-ABI object attribute).
+- **riscv32: 0/11** — zerocc segfaults building rv32; the installed cross libc lacks rv32 (`crt1.o` is elf64).
+
+### Dependency
+`make test-isa-qemu` **requires** `qemu-user-static` (`qemu-{x86_64,aarch64,riscv64,riscv32}-static`) **and** the cross toolchains (`aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc`). The harness preflights these and lists exactly what is missing. The target currently reports `Error 1` (aarch64/riscv raw emitters are known-incomplete); x86-64 is the green baseline. Documented in `docs/okf/build-and-verification.md`, `docs/okf/isa-backends.md`, and `AGENTS.md`.
+
 ## [Sprint 41] - 2026-10-20 - Fix `&&`/`||` Lowering + Inliner Param-Write Bug
 
 Fixed the shared **logical-AND/OR lowering bug** (carried over as a known issue from the AArch64 battery), which in turn exposed and required fixing a pre-existing **inliner bug** that dropped writes to value parameters.

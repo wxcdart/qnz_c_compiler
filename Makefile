@@ -64,6 +64,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
+	test-isa-qemu \
 	valgrind test-valgrind
 
 all: $(TESTS) build/bin/zerocc
@@ -154,6 +155,19 @@ test: all
 # never exercises zerocc's optimization passes).
 test-opt: all
 	@python3 tools/opt_sweep.py
+
+# Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
+# test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter
+# (ZC_RAW_AOT=1) into a static executable, then diffs stdout+exit against the
+# system cross-gcc reference -- both run under the matching qemu-*-static.
+# DEPENDENCY: requires qemu-user-static (qemu-{x86_64,aarch64,riscv64,riscv32}-static)
+# and the cross toolchains (aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc).
+# The harness preflights these and reports exactly what is missing. NOTE: the
+# aarch64/riscv RAW emitters are known-incomplete (see docs/okf/isa-backends.md),
+# so this is expected to report failures for those ISAs until they are fixed;
+# x86-64 (the production raw path) is the green baseline.
+test-isa-qemu: all
+	@python3 tools/isa_qemu_diff.py
 
 asan: CFLAGS += -fsanitize=address,undefined -g
 asan: LDFLAGS += -fsanitize=address,undefined

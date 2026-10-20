@@ -937,8 +937,12 @@ static int compile_and_link(CompileOptions *opts) {
     /* Cross-targets (aarch64/riscv) emit TEXT assembly and let the system
      * cross-assembler build the object: zerocc's raw binary emitters for those
      * ISAs are incomplete, while the text emitter is complete and cross-verified
-     * (sret_verifier --target-all). x86-64 emits a native binary object. */
-    int use_text = (target_isa != ISA_X86_64);
+     * (sret_verifier --target-all). x86-64 emits a native binary object.
+     *
+     * ZC_RAW_AOT=1 forces the RAW binary emitter for cross-targets so the raw
+     * emitters can be exercised under a QEMU differential harness
+     * (tools/isa_qemu_diff.py). Default (unset) keeps the safe text path. */
+    int use_text = (target_isa != ISA_X86_64) && !getenv("ZC_RAW_AOT");
 
     /* Generate temporary object file */
     char obj_path[512];
