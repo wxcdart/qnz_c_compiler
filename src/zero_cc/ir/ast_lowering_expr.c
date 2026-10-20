@@ -369,8 +369,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_FLOAT: {
-            /* Float literals: store in rodata and load via RIP-relative addressing */
+            /* Float literals: store in rodata and load via RIP-relative addressing.
+             * A double must be 8-byte aligned in .rodata (AArch64 LDR D requires 8-
+             * byte alignment; equally required on x86-64), so pad to the next 8-byte
+             * boundary before emitting it. (Sprint 41) */
             double val = node->float_val;
+            size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+            if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
             size_t rodata_offset = c->rodata_section.length;
             zero_cc_buf_put_bytes(&c->rodata_section, &val, sizeof(double));
             int temp = c->next_temp_id++;
@@ -950,6 +955,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                          * sign-mask trick (xorpd [m128]) faults on WSL2
                          * (16-byte reads from RX pages raise a GPF). */
                         double zero = 0.0;
+                        size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+                        if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
                         size_t zero_off = c->rodata_section.length;
                         zero_cc_buf_put_bytes(&c->rodata_section, &zero, sizeof(double));
                         int zero_temp = c->next_temp_id++;

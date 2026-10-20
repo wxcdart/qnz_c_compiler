@@ -931,29 +931,36 @@ static int compile_object(CompileOptions *opts) {
 }
 
 static int compile_and_link(CompileOptions *opts) {
+    /* Get target ISA (also decides the intermediate-object strategy below). */
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+
+    /* Cross-targets (aarch64/riscv) emit TEXT assembly and let the system
+     * cross-assembler build the object: zerocc's raw binary emitters for those
+     * ISAs are incomplete, while the text emitter is complete and cross-verified
+     * (sret_verifier --target-all). x86-64 emits a native binary object. */
+    int use_text = (target_isa != ISA_X86_64);
+
     /* Generate temporary object file */
     char obj_path[512];
     if (opts->verbose) {
-        printf("Generating intermediate object file...\n");
+        printf("Generating intermediate %s...\n", use_text ? "assembly" : "object file");
     }
-    
+
     /* Create temp object file path */
-    snprintf(obj_path, sizeof(obj_path), "/tmp/zerocc_%d.o", getpid());
-    
-    /* First, compile to object file */
+    snprintf(obj_path, sizeof(obj_path), "/tmp/zerocc_%d%s", getpid(), use_text ? ".s" : ".o");
+
+    /* First, compile to object file (or text for cross targets) */
     CompileOptions obj_opts = *opts;
-    obj_opts.emit_object = 1;
+    obj_opts.emit_object = !use_text;
+    obj_opts.emit_asm = use_text;
     obj_opts.output_file = obj_path;
     obj_opts.verbose = 0;  /* Suppress verbose during object generation */
-    
+
     int ret = compile_object(&obj_opts);
     if (ret != 0) {
         fprintf(stderr, "Error: Compilation to object file failed\n");
         return ret;
     }
-    
-    /* Get target ISA for linker selection */
-    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     
     if (opts->verbose) {
         printf("Linking with system linker...\n");
@@ -966,15 +973,19 @@ static int compile_and_link(CompileOptions *opts) {
     /* Select appropriate linker based on target ISA */
     const char *linker = "gcc";
     const char *abi_flags = "-no-pie";
+    const char *static_flag = "";   /* cross targets need a static binary to run under QEMU */
     if (target_isa == ISA_AARCH64) {
         linker = "aarch64-linux-gnu-gcc";
-        abi_flags = "-mabi=lp64d -march=armv8-a";
+        abi_flags = "-mabi=lp64 -march=armv8-a";
+        static_flag = "-static";
     } else if (target_isa == ISA_RISCV64) {
         linker = "riscv64-linux-gnu-gcc";
-        abi_flags = "-mabi=lp64d -march=rv64gc";
+        abi_flags = "-mabi=lp64 -march=rv64gc";
+        static_flag = "-static";
     } else if (target_isa == ISA_RISCV32) {
         linker = "riscv64-linux-gnu-gcc";
-        abi_flags = "-mabi=ilp32d -march=rv32gc";
+        abi_flags = "-mabi=ilp32 -march=rv32gc";
+        static_flag = "-static";
     }
     
     char lib_args[1024] = "";
@@ -984,8 +995,8 @@ static int compile_and_link(CompileOptions *opts) {
     }
 
     snprintf(cmd, sizeof(cmd),
-             "%s %s -o %s %s -lc%s 2>&1",
-             linker, abi_flags, output, obj_path, lib_args);
+             "%s %s %s -o %s %s -lc%s 2>&1",
+             linker, abi_flags, static_flag, output, obj_path, lib_args);
     
     if (opts->verbose) {
         printf("  %s\n", cmd);
@@ -1005,6 +1016,43 @@ static int compile_and_link(CompileOptions *opts) {
         printf("Executable created: %s\n", output);
     }
     
+    return 0;
+}
+
+/* Cross-target -c (relocatable object): the raw binary emitter for aarch64/riscv
+ * is incomplete, so emit TEXT assembly and let the system cross-assembler produce
+ * a correct .o. (Sprint 41) */
+static int compile_object_cross(CompileOptions *opts) {
+    char tmp_s[512];
+    snprintf(tmp_s, sizeof(tmp_s), "/tmp/zerocc_%d.s", getpid());
+
+    CompileOptions s_opts = *opts;
+    s_opts.emit_asm = 1;
+    s_opts.emit_object = 0;
+    s_opts.output_file = tmp_s;
+    s_opts.verbose = 0;
+
+    int ret = compile_object(&s_opts);
+    if (ret != 0) {
+        unlink(tmp_s);
+        return ret;
+    }
+
+    ZeroCCISA tisa = parse_target_arch(opts->target_arch);
+    const char *as = (tisa == ISA_AARCH64) ? "aarch64-linux-gnu-as" : "riscv64-linux-gnu-as";
+    const char *output = opts->output_file ? opts->output_file : "a.out";
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "%s %s -o %s 2>&1", as, tmp_s, output);
+
+    ret = system(cmd);
+    unlink(tmp_s);
+    if (ret != 0) {
+        fprintf(stderr, "Error: cross-target object assembly failed\n");
+        return 1;
+    }
+    if (opts->verbose) {
+        printf("Object file written: %s\n", output);
+    }
     return 0;
 }
 
@@ -1036,6 +1084,11 @@ int main(int argc, char **argv) {
     
     /* Determine mode: -c -> object file, -S -> assembly, -o without -c -> executable, else JIT */
     if (opts.emit_object || opts.emit_asm) {
+        /* Cross-target -c (binary object) uses the incomplete raw emitter, so route
+         * it through text + system cross-assembler instead. */
+        if (opts.emit_object && parse_target_arch(opts.target_arch) != ISA_X86_64) {
+            return compile_object_cross(&opts);
+        }
         return compile_object(&opts);
     } else if (opts.output_file) {
         /* Generate executable via system linker */

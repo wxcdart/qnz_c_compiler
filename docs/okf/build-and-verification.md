@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-20T19:06:09Z
+timestamp: 2026-10-20T21:09:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -109,10 +109,11 @@ python3 tools/sret_verifier.py --target-all
 # `sxtw xD, xD` / `uxtw xD, xD` (the source must be a W register: `sxtw xD, wS`);
 # aarch64_asm.c `aarch64_emit_extend_asm` now emits `x<dst>, w<src>` for the
 # width-4 (sxtw/uxtw) case.
-# KNOWN (separate, untested): the aarch64 BINARY (JIT/AOT object) path is still
-# broken - `aarch64_emit_extend` (aarch64.c) uses wrong base encodings, and
-# `--target aarch64 -o` fails to link (emits invalid `-mabi=lp64d`). The `-S` path
-# (what this check uses) is unaffected.
+# Cross-target output (`--target aarch64/riscv64 -o` executable, `-c` object) is
+# emitted as TEXT assembly and linked/assembled with the system cross toolchain
+# (`-static`, `-mabi=lp64`), because zerocc's raw aarch64/riscv binary emitters
+# are incomplete - see isa-backends.md. Verified: aarch64 `-o` + qemu matches
+# `gcc -O2` for common C (see CHANGELOG Sprint 41).
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

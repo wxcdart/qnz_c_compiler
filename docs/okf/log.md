@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T19:06:09Z
+timestamp: 2026-10-20T21:09:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -236,3 +236,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `build-and-verification.md`
 - Sprint 41: AArch64 --target-all sxtw bug FIXED (aarch64_asm.c emit_extend_asm now emits x<dst>,w<src> for width-4); noted the separate broken aarch64 binary path (emit_extend encodings + -mabi=lp64d link)
+
+## 2026-10-20 — Updated `build-and-verification.md`
+- Sprint 41: aarch64/riscv -o and -c now route through the text emitter + system cross toolchain (raw binary emitter incomplete); cross-target links use -static + -mabi=lp64
+
+## 2026-10-20 — Updated `isa-backends.md`
+- Sprint 41: documented cross-target (aarch64/riscv) -o/-c text routing + the incomplete raw binary emitter

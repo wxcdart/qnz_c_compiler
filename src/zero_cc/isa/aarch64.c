@@ -231,10 +231,22 @@ static void aarch64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
 
 /* In-place width extension: SXTB/SXTH/SXTW or UXTB/UXTH/UXTW dst, src */
 static void aarch64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
-    uint32_t base = sign ? 0x1AC00C00u : 0x3AC00C00u; /* SXTx / UXTx */
-    if (width == 2) base |= 0x00001000u;               /* SxTH / UXTH */
-    else if (width == 4) base |= 0x00020000u;          /* SXTW / UXTW */
-    arm64_emit_u32(c, base | ((src & 0x1F) << 16) | (dst & 0x1F));
+    /* AArch64 sign/zero-extend encodings, verified against `aarch64-linux-gnu-as`
+     * for every (dst,src) in 0..30 (Sprint 41). The SXTB/SXTH/SXTW/UXTB/UXTH forms
+     * place the source (Rn) at bits[9:5]; UXTW is the MOV(Xd,Wn) form with Rn at
+     * bits[20:16] (writing a 32-bit value zero-extends it into the 64-bit dest). */
+    uint32_t insn;
+    if (width == 4) {
+        if (sign)
+            insn = 0x93407C00u | (dst & 0x1F) | ((src & 0x1F) << 5);   /* SXTW Xd, Wn */
+        else
+            insn = 0x2A0003E0u | (dst & 0x1F) | ((src & 0x1F) << 16);  /* UXTW Xd, Wn (MOV Xd, Wn) */
+    } else if (width == 2) {
+        insn = (sign ? 0x13003C00u : 0x53003C00u) | (dst & 0x1F) | ((src & 0x1F) << 5); /* SXTH/UXTH Wd, Wn */
+    } else {
+        insn = (sign ? 0x13001C00u : 0x53001C00u) | (dst & 0x1F) | ((src & 0x1F) << 5); /* SXTB/UXTB Wd, Wn */
+    }
+    arm64_emit_u32(c, insn);
 }
 
 static void aarch64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {

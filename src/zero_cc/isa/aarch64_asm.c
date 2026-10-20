@@ -89,7 +89,18 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
 /* MOV_IMM: mov dst, #imm */
 static void aarch64_emit_mov_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
-    fprintf(out, "\tmov\t%s, #%ld\n", dst_name, (long)imm);
+    /* A single `mov` only accepts a 12-bit value (optionally rotated by an even
+     * number of bits). For an arbitrary 64-bit constant we must build it from
+     * 16-bit chunks with MOVZ (bit 0) + MOVK (higher chunks). (Sprint 41) */
+    uint64_t v = (uint64_t)imm;
+    uint32_t w0 = (uint32_t)(v & 0xFFFF);
+    uint32_t w1 = (uint32_t)((v >> 16) & 0xFFFF);
+    uint32_t w2 = (uint32_t)((v >> 32) & 0xFFFF);
+    uint32_t w3 = (uint32_t)((v >> 48) & 0xFFFF);
+    fprintf(out, "\tmovz\t%s, #%u\n", dst_name, w0);
+    if (w1 || w2 || w3) fprintf(out, "\tmovk\t%s, #%u, lsl #16\n", dst_name, w1);
+    if (w2 || w3)       fprintf(out, "\tmovk\t%s, #%u, lsl #32\n", dst_name, w2);
+    if (w3)             fprintf(out, "\tmovk\t%s, #%u, lsl #48\n", dst_name, w3);
 }
 
 /* MOV_REG: mov dst, src */
@@ -161,6 +172,18 @@ static void aarch64_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     fprintf(out, "\tsdiv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+}
+
+/* MOD: dst = src1 % src2 (signed)
+ * tmp = src1 / src2 ;  dst = src1 - tmp * src2
+ * Uses x16 (IP0), a caller-saved intra-procedural scratch register that the
+ * register allocator does not assign to variables (mirrors aarch64.c emit_mod). */
+static void aarch64_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src1_name = BE(c)->get_hw_reg_name(src1);
+    const char *src2_name = BE(c)->get_hw_reg_name(src2);
+    fprintf(out, "\tsdiv\tx16, %s, %s\n", src1_name, src2_name);
+    fprintf(out, "\tmsub\t%s, x16, %s, %s\n", dst_name, src2_name, src1_name);
 }
 
 /* AND: and dst, src1, src2 */
@@ -347,7 +370,8 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         } else if (arg_is_fp == 3) {
             sret_temp = temp;
         } else if (arg_is_fp == 1 && fp_arg_idx < 8) {
-            fprintf(out, "\tfmov\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
+            /* FP args go in d0..d7 (the 64-bit view of v0..v7) per AAPCS64. */
+            fprintf(out, "\tfmov\t%s, d%s\n", fp_arg_regs[fp_arg_idx], reg_name + 1);
             fp_arg_idx++;
         } else if (arg_is_fp == 0) {
             int_arg_temps[total_int_count++] = temp;
@@ -514,7 +538,7 @@ static void aarch64_emit_fp_add_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tfadd\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    fprintf(out, "\tfadd\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* FP SUB: fsub dst, src1, src2 */
@@ -522,7 +546,7 @@ static void aarch64_emit_fp_sub_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tfsub\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    fprintf(out, "\tfsub\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* FP MUL: fmul dst, src1, src2 */
@@ -530,7 +554,7 @@ static void aarch64_emit_fp_mul_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tfmul\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    fprintf(out, "\tfmul\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* FP DIV: fdiv dst, src1, src2 */
@@ -538,21 +562,21 @@ static void aarch64_emit_fp_div_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src1_name = BE(c)->regs->fp_regs[src1];
     const char *src2_name = BE(c)->regs->fp_regs[src2];
-    fprintf(out, "\tfdiv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    fprintf(out, "\tfdiv\td%s, d%s, d%s\n", dst_name + 1, src1_name + 1, src2_name + 1);
 }
 
 /* FP compare: fcmp dN, dM - sets NZCV like a subtract so the standard
  * cset-based OP_COND_SET path works unchanged. */
 static void aarch64_emit_fp_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
-    fprintf(out, "\tfcmp\t%s, %s\n",
-            BE(c)->regs->fp_regs[src1], BE(c)->regs->fp_regs[src2]);
+    fprintf(out, "\tfcmp\td%s, d%s\n",
+            BE(c)->regs->fp_regs[src1] + 1, BE(c)->regs->fp_regs[src2] + 1);
 }
 
 /* FP MOV: fmov dst, src */
 static void aarch64_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *src_name = BE(c)->regs->fp_regs[src];
-    fprintf(out, "\tfmov\t%s, %s\n", dst_name, src_name);
+    fprintf(out, "\tfmov\td%s, d%s\n", dst_name + 1, src_name + 1);
 }
 
 /* FP CVTSF: scvtf dD, xN (int -> double) */
@@ -859,6 +883,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_sub_asm = aarch64_emit_sub_asm;
     be->emit_mul_asm = aarch64_emit_mul_asm;
     be->emit_div_asm = aarch64_emit_div_asm;
+    be->emit_mod_asm = aarch64_emit_mod_asm;
     be->emit_and_asm = aarch64_emit_and_asm;
     be->emit_or_asm = aarch64_emit_or_asm;
     be->emit_xor_asm = aarch64_emit_xor_asm;

@@ -1,5 +1,33 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - AArch64 (and RISC-V) Binary Output: Cross-Target `-o`/`-c` Now Work
+
+Made `zerocc --target aarch64 foo.c -o bar` produce a **correct aarch64 executable** (verified under QEMU), and `-c` a correct relocatable `.o`. The raw aarch64 binary emitter (`isa/aarch64.c`) turned out to be an incomplete **parallel** backend (wrong encodings *and* register-allocation bugs: it emitted uninitialized-register loads, a redundant `mov`+`sxtw` pair, etc.), so rather than repair ~90 hand-coded raw encodings we route cross-target output through the **complete text emitter** (`aarch64_asm.c`) + the system cross-assembler — the same pipeline `sret_verifier --target-all` already uses and cross-verifies.
+
+### Cross-target output plumbing (`main.c`)
+- **Link flags**: `-mabi=lp64d` → `-mabi=lp64` (aarch64) and `lp64d`/`ilp32d` → `lp64`/`ilp32` (riscv64/riscv32) — the old values used aarch64-only syntax on all targets and the aarch64 cross-gcc rejected them. Cross-target links now also pass `-static` so the binary runs under `qemu-*-static` (no target dynamic loader installed).
+- **`-o` (executable)**: `compile_and_link` now emits **text assembly** to a temp `.s` for cross-targets (aarch64/riscv) and links it with the system cross-compiler, instead of the broken raw binary `.o`. x86-64 still emits a native binary object.
+- **`-c` (object)**: new `compile_object_cross` emits text to a temp `.s` and runs the system cross-`as` to produce a correct relocatable `.o` (previously the broken raw binary emitter). x86-64 unchanged.
+
+### Raw aarch64 emitter (`isa/aarch64.c`) — fixed, now unused by `-o`/`-c`
+- **`aarch64_emit_extend`**: all six sign/zero-extend forms used wrong base encodings (e.g. the "sxtw" base `0x1AC20C00` is actually an **SDIV** instruction, which is why `return 42` computed `42/w2`). Replaced with the correct encodings, each **verified against `aarch64-linux-gnu-as` for every (dst,src) in 0..30**: `sxtb 0x13001C00|rd|(rn<<5)`, `sxth 0x13003C00|…`, `sxtw 0x93407C00|…`, `uxtb 0x53001C00|…`, `uxth 0x53003C00|…`, `uxtw` = `MOV Xd,Wn` `0x2A0003E0|rd|(rn<<16)`.
+
+### Text emitter (`isa/aarch64_asm.c`) — completed for common C
+- **`emit_mov_imm_asm`**: emitted `mov xD, #imm` for arbitrary 64-bit values, but ARM MOV-immediate only accepts a 12-bit (rotated) immediate — large constants (70000, −12345, INT_MIN) failed to assemble. Now emits a `movz`+`movk` sequence for any 64-bit constant.
+- **`emit_mod_asm` (new)**: MOD was entirely missing (vtable slot unset), so `a%b` returned a stale register value. Added `sdiv x16, a, b` + `msub dst, x16, b, a` (x16/IP0 scratch), mirroring the binary emitter.
+- **scalar FP emitters** (`fadd`/`fsub`/`fmul`/`fdiv`/`fcmp`/`fmov`): used full `v` registers (`fadd v2,v0,v1`), which the assembler rejects for scalar ops. Now use the 64-bit `d` view (`fadd d2,d0,d1`), consistent with the FP load/store/cvt emitters. FP **arg passing** (`fmov dN, vM`) also fixed to `fmov dN, dM`.
+
+### Shared fix: `.rodata` FP alignment (`ir/ast_lowering_expr.c`)
+- Double constants were placed at `rodata_section.length` with **no alignment**, so after byte strings a double could land at a non-8-byte offset (e.g. `.Lrodata+66`). AArch64 `LDR D` requires 8-byte alignment → `R_AARCH64_LDST64_ABS_LO12_NC … truncated to fit` link error. Now pads to the next 8-byte boundary before emitting a double (also correct on x86-64). Affects all targets — `make test`/`test-opt` still green.
+
+### Verification
+- **aarch64 `-o` + QEMU vs `gcc -O2`**: 9/10 hand-written cases match (arith, int/FP types + sign/zero-extend, loops/recursion/switch/mod, pointers/arrays/2-D, structs, function pointers, globals, FP). **`test/jit/*.c` through aarch64 `-o`**: 17/17 that compile natively pass (the other 62 fail to compile natively too — pre-existing `-o`-mode gaps like `atomic_int`, not aarch64).
+- `make test` **142/142**, `make test-opt` **106 ok / 0 failed**, `sret_verifier --target-all` **ALL PASSED**, **0 warnings**.
+
+### Known issues (discovered, separate)
+- **Shared logical-AND (`&&`) lowering bug** — **affects all targets, not aarch64**: `while(s[n] && n<7)` drops the `n<7` bound (computes both conditions then branches only on the first), and `a>5 && b>5` mis-evaluates. Reproduced identically on native x86-64 (e.g. `while(s[n]&&n<4)` gives `n=6` not `4`). Out of scope for the aarch64 work; tracked separately.
+- **The raw aarch64 binary emitter** (`isa/aarch64.c`) is still incomplete (register-allocation + control-flow bugs beyond `emit_extend`) and is now **bypassed** by `-o`/`-c` for aarch64/riscv; only the JIT path would still reach it.
+
 ## [Sprint 41] - 2026-10-20 - Full Warning Cleanup (0 on clean rebuild) + Latent Bug Fixes
 
 Cleaned up all **77 pre-existing compiler warnings** surfaced by a full `make clean` rebuild (incremental builds had been hiding them), fixing a few latent bugs the warnings exposed.
@@ -18,8 +46,8 @@ Cleaned up all **77 pre-existing compiler warnings** surfaced by a full `make cl
 ### Fixed (AArch64 sret cross-verify)
 - **`sret_verifier --target-all` AArch64 failure** (`isa/aarch64_asm.c`): the `-S` emitter `aarch64_emit_extend_asm` emitted `sxtw xD, xD` / `uxtw xD, xD` for the width-4 case, but AArch64 `SXTW`/`UXTW` take a **W-register source** (`SXTW Xd, Wn`) — the assembler rejected the X source. The width-4 case now emits `x<dst>, w<src>` (width ≤ 2 already used `w,w`). All three targets (`x86-64`, `aarch64`, `riscv64`) now PASS `--target-all`.
 
-### Known issues (pre-existing, separate, untested)
-- **AArch64 binary (JIT/AOT object) path is broken**, independent of the `-S` fix above: (a) `aarch64_emit_extend` (`isa/aarch64.c`) uses wrong base encodings for all six extend forms (e.g. emits `0x1AC00C01` where `sxtb w0,w1` is `0x13001C20`); (b) `--target aarch64 -o` fails to link because it passes an invalid `-mabi=lp64d` (must be `lp64`). Neither is exercised by the test suite (aarch64 binaries aren't built/run by `make test`/`test-opt`; `--target-all` uses the `-S` path). Tracked for a dedicated AArch64 AOT fix.
+### Known issues (superseded by the AArch64 binary entry above)
+- The aarch64 raw-binary `-o`/`-c` path and the `-mabi=lp64d` link bug listed here are now **fixed** by the "AArch64 Binary Output" entry above (cross-target output routed through the text emitter; link flags corrected).
 
 ### Verification
 - **0 warnings** on a full `make clean && make build/bin/zerocc` (was 77).

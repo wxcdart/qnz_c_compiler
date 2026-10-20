@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-20T17:51:15Z
+timestamp: 2026-10-20T21:09:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,6 +24,16 @@ Backend structs (`x86_64_backend`, `aarch64_backend`, `riscv64_backend`) are non
 ### Vtable signature conformance (Sprint 41)
 
 Every backend callback **must** match its `ZeroCCISABackend` slot signature exactly — a mismatch compiles with only an `-Wincompatible-pointer-types` warning but reads **garbage** for the extra parameters at the call site (the caller passes the slot's argument list, not the function's). This bit the RISC-V backend: `riscv64_emit_load_32/16/byte` and `riscv64_emit_store_32/16/byte` carried a trailing `int32_t offset` the slot `emit_*_32/16/byte(c, dst, src)` never supplied (so the offset field was uninitialized stack), and `riscv64_emit_lea_rip` took `const char *label` where the slot `emit_lea_rip(c, dst, size_t rodata_offset)` passes a size_t. Both are now conformed (loads/stores use offset 0, matching x86's `mov (src), dst`; `lea_rip` takes `size_t rodata_offset`). Build the tree clean (`make clean`) to surface any future signature drift as warnings.
+
+### Cross-target output (aarch64 / riscv) goes through the text emitter (Sprint 41)
+
+The **raw binary** emitters for aarch64 (`aarch64.c`) and riscv (`riscv.c`) are incomplete parallel backends (aarch64's has wrong encodings *and* register-allocation bugs: it loads uninitialized registers and clobbers values early). Rather than repair ~90 hand-coded raw encodings with no test harness, **`main.c` routes cross-target `-o` (executable) and `-c` (object) through the complete text emitter** (`aarch64_asm.c` / `riscv_asm.c`) + the **system cross toolchain**:
+
+- **`-o`** (`compile_and_link`): emit text to a temp `.s`, then `aarch64-linux-gnu-gcc -mabi=lp64 -march=armv8-a -static -o out tmp.s -lc` (assembles + links). x86-64 still emits a native binary `.o` and links with `gcc -no-pie`.
+- **`-c`** (`compile_object_cross`): emit text to a temp `.s`, then `aarch64-linux-gnu-as tmp.s -o out.o`. x86-64 still writes a binary `.o` via `elf_writer`.
+- `-static` is required because the target dynamic loader isn't installed (the binary runs under `qemu-*-static`); the aarch64 link previously failed with an invalid `-mabi=lp64d` (now `-mabi=lp64`).
+
+The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs. Verified: aarch64 `-o` + `qemu-aarch64-static` matches `gcc -O2` for common C (see CHANGELOG Sprint 41). A **shared** (all-target) logical-AND (`&&`) lowering bug remains (e.g. `while(s[n]&&n<4)` ignores `n<4`) — separate, not aarch64-specific.
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 
