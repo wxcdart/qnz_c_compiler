@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #define ZERO_CC_MAX_INCLUDE_PATHS  256
 #define ZERO_CC_MAX_MACROS         32768
@@ -59,6 +60,13 @@ typedef struct {
     int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
     char *once_files[ONCE_FILES_MAX];
     size_t once_file_count;
+
+    /* Stack of the nearest REAL-file include directories (C99 6.10.2p2:
+     * a quoted include is searched first in the directory of the file
+     * containing the directive).  Virtual (built-in) headers have no
+     * directory and leave the stack untouched. */
+    char include_file_dirs[32][PATH_MAX];
+    int include_dir_depth;
 
     /* Pragma state */
     int pack_stack[32];

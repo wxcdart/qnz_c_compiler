@@ -10,10 +10,15 @@
 
 #include "../types/types.h"
 #include "../types/registry.h"
+#include "../types/global_vars.h"
 
 /* Forward declarations for recursive functions */
 static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos);
+static inline int64_t parse_bitand(ZeroCCCompiler *c, size_t *pos);
+static inline int64_t parse_bitxor(ZeroCCCompiler *c, size_t *pos);
+static inline int64_t parse_bitor(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos);
+static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t parse_additive(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t parse_multiplicative(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos);
@@ -32,13 +37,128 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
 static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
 
+static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
+    ZeroCCTokType t = c->tokens[pos].type;
+    if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
+        t == TK_UNION || t == TK_ENUM || t == TK_FLOAT_KW || t == TK_DOUBLE_KW ||
+        t == TK_BOOL_KW || t == TK_SIGNED || t == TK_UNSIGNED ||
+        t == TK_SHORT || t == TK_LONG || t == TK_ATOMIC ||
+        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT) {
+        return true;
+    }
+    if (t == TK_IDENT) {
+        const char *name = c->tokens[pos].str_val;
+        return (zero_cc_find_typedef(c, name) || zero_cc_find_struct(c, name) ||
+                zero_cc_find_enum(c, name)) != NULL;
+    }
+    return false;
+}
+
+/* Size/alignment of a plain-identifier operand for sizeof(expr)/_Alignof(expr):
+ * resolve against local symbols first, then the global variable table.
+ * An optional [index] suffix selects the array element size.
+ * Returns 0 when the operand's type cannot be determined at parse time.
+ * On success the operand (incl. any [..] suffix) is consumed from *pos. */
+static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
+    if (c->tokens[*pos].type != TK_IDENT) return 0;
+    const char *name = c->tokens[*pos].str_val;
+    ZeroCCType ty;
+    bool found = false;
+    ZeroCCSym *ls = zero_cc_find_local(c, name);
+    if (ls && ls->type.size > 0) { ty = ls->type; found = true; }
+    if (!found) {
+        ZeroCCGlobalVar *gv = find_global_var(name);
+        if (gv && gv->type.size > 0) { ty = gv->type; found = true; }
+    }
+    if (!found) return 0;
+    /* Only a plain `ident` or `ident[...]` operand is handled here.  A
+     * member access (`->`/`.`), call, or inc/dec suffix means the operand
+     * is a full postfix expression: consume only the identifier here and
+     * the rest dangles, stalling the parser (and yielding the pointer's
+     * size instead of the member's).  Fall through to the expression-type
+     * walker (zero_cc_type_of_equality), which consumes the whole chain. */
+    if (*pos + 1 < c->token_count) {
+        ZeroCCTokType after = c->tokens[*pos + 1].type;
+        if (after == TK_DOT || after == TK_ARROW || after == TK_LPAREN ||
+            after == TK_INC || after == TK_DEC) {
+            return 0;
+        }
+    }
+    (*pos)++; /* consume the identifier */
+    if (c->tokens[*pos].type == TK_LBRACKET) {
+        /* a[expr] -> element size */
+        size_t q = *pos;
+        q++; /* [ */
+        int depth = 1;
+        while (q < c->token_count && depth > 0) {
+            if (c->tokens[q].type == TK_LBRACKET) depth++;
+            else if (c->tokens[q].type == TK_RBRACKET) depth--;
+            q++;
+        }
+        *pos = q; /* past ] */
+        if (ty.tag == TYPE_ARRAY && ty.base && ty.base->size > 0) {
+            return ty.base->size;
+        }
+        return ty.size;
+    }
+    return ty.size;
+}
+
+static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) {
+    if (c->tokens[*pos].type != TK_IDENT) return 0;
+    const char *name = c->tokens[*pos].str_val;
+    ZeroCCType ty;
+    bool found = false;
+    ZeroCCSym *ls = zero_cc_find_local(c, name);
+    if (ls && ls->type.align > 0) { ty = ls->type; found = true; }
+    if (!found) {
+        ZeroCCGlobalVar *gv = find_global_var(name);
+        if (gv && gv->type.align > 0) { ty = gv->type; found = true; }
+    }
+    if (!found) return 0;
+    /* See zero_cc_sizeof_ident_size: postfix continuations after the
+     * identifier must be handled by the expression-type walker. */
+    if (*pos + 1 < c->token_count) {
+        ZeroCCTokType after = c->tokens[*pos + 1].type;
+        if (after == TK_DOT || after == TK_ARROW || after == TK_LPAREN ||
+            after == TK_INC || after == TK_DEC) {
+            return 0;
+        }
+    }
+    (*pos)++; /* consume the identifier */
+    if (c->tokens[*pos].type == TK_LBRACKET) {
+        size_t q = *pos;
+        q++;
+        int depth = 1;
+        while (q < c->token_count && depth > 0) {
+            if (c->tokens[q].type == TK_LBRACKET) depth++;
+            else if (c->tokens[q].type == TK_RBRACKET) depth--;
+            q++;
+        }
+        *pos = q;
+    }
+    return ty.align ? ty.align : 1;
+}
 static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
 {
     (*pos)++; /* consume TK_SIZEOF */
     if (c->tokens[*pos].type == TK_LPAREN) {
         (*pos)++; /* consume '(' */
     }
-    ZeroCCType ty = zero_cc_type_of_equality(c, pos);
+    ZeroCCType ty;
+    /* `sizeof(type)` / `sizeof(type *)` / `sizeof(t arr[])`: a type name
+     * (including pointer/array suffixes) needs the type parser; the
+     * expression grammar treats `*` as multiplication and fails. */
+    if (zero_cc_tok_is_type_start(c, *pos)) {
+        ty = zero_cc_parse_type_name_at_pos(c, pos);
+    } else {
+        size_t id_sz = zero_cc_sizeof_ident_size(c, pos);
+        if (id_sz > 0) {
+            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return (int64_t)id_sz;
+        }
+        ty = zero_cc_type_of_equality(c, pos);
+    }
     if (c->tokens[*pos].type == TK_RPAREN) {
         (*pos)++;
     }
@@ -51,7 +171,17 @@ static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos)
     if (c->tokens[*pos].type == TK_LPAREN) {
         (*pos)++; /* consume '(' */
     }
-    ZeroCCType ty = zero_cc_type_of_equality(c, pos);
+    ZeroCCType ty;
+    if (zero_cc_tok_is_type_start(c, *pos)) {
+        ty = zero_cc_parse_type_name_at_pos(c, pos);
+    } else {
+        size_t id_al = zero_cc_sizeof_ident_align(c, pos);
+        if (id_al > 0) {
+            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return (int64_t)id_al;
+        }
+        ty = zero_cc_type_of_equality(c, pos);
+    }
     if (c->tokens[*pos].type == TK_RPAREN) {
         (*pos)++;
     }
@@ -60,12 +190,12 @@ static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos)
 
 static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_relational(c, pos);
+    int64_t left = parse_bitand(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_EQ || op == TK_NE) {
             (*pos)++;
-            int64_t right = parse_relational(c, pos);
+            int64_t right = parse_bitand(c, pos);
             if (op == TK_EQ)
                 left = (left == right);
             else
@@ -77,20 +207,70 @@ static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
+static inline int64_t parse_bitand(ZeroCCCompiler *c, size_t *pos)
+{
+    int64_t left = parse_bitxor(c, pos);
+    while (c->tokens[*pos].type == TK_AMP) {
+        (*pos)++;
+        left &= parse_bitxor(c, pos);
+    }
+    return left;
+}
+
+static inline int64_t parse_bitxor(ZeroCCCompiler *c, size_t *pos)
+{
+    int64_t left = parse_bitor(c, pos);
+    while (c->tokens[*pos].type == TK_CARET) {
+        (*pos)++;
+        left ^= parse_bitor(c, pos);
+    }
+    return left;
+}
+
+static inline int64_t parse_bitor(ZeroCCCompiler *c, size_t *pos)
+{
+    int64_t left = parse_relational(c, pos);
+    while (c->tokens[*pos].type == TK_PIPE) {
+        (*pos)++;
+        left |= parse_relational(c, pos);
+    }
+    return left;
+}
+
 static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_additive(c, pos);
+    int64_t left = parse_shift(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_LT || op == TK_GT || op == TK_LE || op == TK_GE) {
             (*pos)++;
-            int64_t right = parse_additive(c, pos);
+            int64_t right = parse_shift(c, pos);
             int64_t res = 0;
             if (op == TK_LT) res = (left < right);
             else if (op == TK_GT) res = (left > right);
             else if (op == TK_LE) res = (left <= right);
             else if (op == TK_GE) res = (left >= right);
             left = res;
+        } else {
+            break;
+        }
+    }
+    return left;
+}
+
+static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
+{
+    int64_t left = parse_additive(c, pos);
+    while (true) {
+        ZeroCCTokType op = c->tokens[*pos].type;
+        if (op == TK_SHL || op == TK_SHR) {
+            (*pos)++;
+            int64_t right = parse_additive(c, pos);
+            unsigned long ul = (unsigned long)left;
+            unsigned long ur = (unsigned long)right;
+            if (ur >= 64) ur = 0; /* avoid UB; C99 leaves it undefined anyway */
+            if (op == TK_SHL) left = (int64_t)(ul << ur);
+            else left = (int64_t)(ul >> ur);
         } else {
             break;
         }
@@ -191,8 +371,25 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
         (*pos)++;
         return 0;
     }
+    if (t == TK_IDENT) {
+        /* Enum constants are valid in constant expressions (C99 6.6). */
+        const ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[*pos].str_val);
+        if (ec) {
+            (*pos)++;
+            return ec->value;
+        }
+        return 0; /* unknown identifier in constant expression */
+    }
     if (t == TK_LPAREN) {
         (*pos)++;
+        if (zero_cc_tok_is_type_start(c, *pos)) {
+            /* Cast: (type) expr - skip the type, evaluate the operand. */
+            ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
+            (void)cast_ty;
+            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            int64_t val = parse_unary(c, pos);
+            return val;
+        }
         int64_t val = parse_equality(c, pos);
         if (c->tokens[*pos].type == TK_RPAREN) {
             (*pos)++;
@@ -495,6 +692,16 @@ static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType 
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
+    /* Type qualifiers may precede the type name (C99 6.7.3: const int, etc.) */
+    bool q_const = false, q_volatile = false, q_restrict = false;
+    while (*pos < c->token_count &&
+           (c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_VOLATILE ||
+            c->tokens[*pos].type == TK_RESTRICT)) {
+        if (c->tokens[*pos].type == TK_CONST) q_const = true;
+        else if (c->tokens[*pos].type == TK_VOLATILE) q_volatile = true;
+        else q_restrict = true;
+        (*pos)++;
+    }
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_STRUCT || t == TK_UNION) {
         (*pos)++;
@@ -597,6 +804,9 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         ZeroCCType elem_ty = ty;
         ty = zero_cc_type_array(&elem_ty, arr_len);
     }
+    ty.is_const = q_const;
+    ty.is_volatile = q_volatile;
+    ty.is_restrict = q_restrict;
     return ty;
 }
 
@@ -605,6 +815,16 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     bool lparen = false;
     if (c->tokens[c->token_pos].type == TK_LPAREN) {
         lparen = true;
+        c->token_pos++;
+    }
+    /* Handle type qualifiers (const, volatile, restrict) at the start */
+    bool q_const = false, q_volatile = false, q_restrict = false;
+    while (c->tokens[c->token_pos].type == TK_CONST ||
+           c->tokens[c->token_pos].type == TK_VOLATILE ||
+           c->tokens[c->token_pos].type == TK_RESTRICT) {
+        if (c->tokens[c->token_pos].type == TK_CONST) q_const = true;
+        else if (c->tokens[c->token_pos].type == TK_VOLATILE) q_volatile = true;
+        else q_restrict = true;
         c->token_pos++;
     }
     ZeroCCType ty;
@@ -752,6 +972,9 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
+    ty.is_const = q_const;
+    ty.is_volatile = q_volatile;
+    ty.is_restrict = q_restrict;
     return ty;
 }
 

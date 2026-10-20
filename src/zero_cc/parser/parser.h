@@ -78,6 +78,13 @@ typedef struct ZeroCCASTNode {
     ASTRef left;
     ASTRef right;
     ASTRef next;          /* next statement in block or next arg in call list */
+    uint32_t desig_idx;   /* member/element index for NODE_FLAG_DESIGNATED initializer elements.
+                           * Kept out of the payload union: aux.alt aliases the high half of
+                           * s.str / int_val, so storing it there corrupted string pointers
+                           * and 64-bit constants of designated initializers. */
+    const char *member_name; /* NODE_MEMBER: field name saved by semantic analysis before it
+                              * stores the offset in aux.alt (which overwrites the high half of
+                              * s.str). Lets a node be analyzed more than once. */
 
     /* Payload */
     union {

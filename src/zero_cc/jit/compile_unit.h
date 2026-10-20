@@ -184,7 +184,17 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     // Save the global scope pointer (root of scope chain)
     // Register standard library functions if any
 
+    size_t file_scope_prev_pos = (size_t)-1; /* sentinel: first iteration always has "progress" */
     while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
+        /* Hang guard: if the previous iteration consumed no tokens (a
+         * handler that gave up without erroring, e.g. on truncated or
+         * unsupported input), report and advance instead of looping
+         * forever. */
+        if (c->token_pos == file_scope_prev_pos) {
+            diag_report_error_at_token(c, "unexpected token at file scope");
+            c->token_pos++;
+        }
+        file_scope_prev_pos = c->token_pos;
         if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
             (c->tokens[c->token_pos].type == TK_ENUM &&
              (c->token_pos + 1 < c->token_count &&
@@ -208,9 +218,20 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         /* Extern symbol declarations */
         if (c->tokens[c->token_pos].type == TK_EXTERN) {
             c->token_pos++; /* skip extern */
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
+                c->token_pos++; /* skip _Thread_local / __thread */
+            }
             size_t after_extern = c->token_pos;
+            /* Anonymous struct/union extern: `extern struct { ... } name;` */
+            bool ext_is_union = (c->tokens[c->token_pos].type == TK_UNION);
             /* Parse type and identifier */
             ZeroCCType ext_type = zero_cc_parse_type_name(c);
+            if (c->tokens[c->token_pos].type == TK_LBRACE) {
+                /* Consume the body so the member layout is known; the
+                 * declarator name follows the closing brace. */
+                ext_type = zero_cc_parse_struct_body(c, ext_is_union);
+            }
             ZeroCCType base_ext_type = (ext_type.tag == TYPE_PTR && ext_type.base) ? *ext_type.base : ext_type;
             if (c->tokens[c->token_pos].type == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                 /* Extern function declaration/prototype: let function parser handle it */
@@ -308,6 +329,18 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 }
                 c->token_pos++;
             }
+            /* Tag-only forward declaration: `struct A;` / `union B;` /
+             * `enum C;`.  Legal C, ubiquitous in shared headers; nothing to
+             * register (the tag is created by the later definition). */
+            if ((c->tokens[c->token_pos].type == TK_STRUCT ||
+                 c->tokens[c->token_pos].type == TK_UNION ||
+                 c->tokens[c->token_pos].type == TK_ENUM) &&
+                c->token_pos + 2 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_IDENT &&
+                c->tokens[c->token_pos + 2].type == TK_SEMI) {
+                c->token_pos += 3;
+                continue;
+            }
             /* Parse type */
             ZeroCCType gtype = zero_cc_parse_type_name(c);
             /* Pointer declarators: int *p;  char **pp;  (qualifiers after stars are skipped) */
@@ -347,12 +380,53 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
                         /* Optional array suffix: name[N] */
                         int64_t array_len = 1;
+                        int64_t dims[8]; int dim_count = 0; /* per-dimension sizes (C99 6.7.9) */
+                        bool array_unsized = false;
+                        bool has_array_suffix = false;
                         bool is_char_array = (ptr_depth == 0 && gtype.tag == TYPE_INT8);
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
-                            c->token_pos++;
-                            array_len = zero_cc_eval_const_expr(c);
-                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
-                            if (array_len <= 0) array_len = 1;
+                            has_array_suffix = true;
+                            /* Multi-dimensional: T name[d1][d2]... (C99 6.7.9) */
+                            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                                c->token_pos++;
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                    /* Unsized: T name[] = { ... } (C99 6.7.9) - the
+                                     * size is implied by the initializer. */
+                                    c->token_pos++;
+                                    array_unsized = true;
+                                    if (dim_count < 8) dims[dim_count++] = 1; /* patched after counting */
+                                    break;
+                                }
+                                int64_t dim = zero_cc_eval_const_expr(c);
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                                if (dim <= 0) dim = 1;
+                                array_len *= dim;
+                                if (dim_count < 8) dims[dim_count++] = dim;
+                            }
+                        }
+                        if (array_unsized &&
+                            c->token_pos + 1 < c->token_count &&
+                            c->tokens[c->token_pos].type == TK_ASSIGN &&
+                            c->tokens[c->token_pos + 1].type == TK_LBRACE) {
+                            /* Count top-level elements of the brace list */
+                            size_t q = c->token_pos + 2;
+                            int64_t commas = 0;
+                            int depth = 1;
+                            bool empty = true;
+                            while (q < c->token_count && depth > 0) {
+                                ZeroCCTokType qt = c->tokens[q].type;
+                                if (qt == TK_LBRACE) {
+                                    depth++;
+                                } else if (qt == TK_RBRACE) {
+                                    depth--;
+                                    if (depth == 0) break;
+                                } else if (depth == 1) {
+                                    empty = false;
+                                    if (qt == TK_COMMA) commas++;
+                                }
+                                q++;
+                            }
+                            array_len = empty ? 1 : (commas + 1);
                         }
                         size_t size = (size_t)array_len * elem_size;
 
@@ -405,10 +479,60 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 if (vbuf) {
                                     size_t pos_off = 0;      /* positional array byte offset */
                                     size_t next_member = 0;  /* positional struct member idx */
+                                    /* Array of structs: `T tab[] = { {..}, {..} }`.
+                                     * Each braced element initializes one struct
+                                     * at cur_base = elem_idx * sizeof(T). */
+                                    bool aos = is_struct && has_array_suffix;
+                                    size_t elem_idx = 0, cur_base = 0;
+                                    bool in_elem = false;
+                                    int init_brace_depth = 0; /* nested grouping braces in array inits */
                                     while (c->token_pos < c->token_count &&
-                                           c->tokens[c->token_pos].type != TK_RBRACE) {
+                                           (c->tokens[c->token_pos].type != TK_RBRACE || in_elem || init_brace_depth > 0)) {
                                         const char *field_name = NULL;
                                         size_t iter_start_pos = c->token_pos;
+                                        if (!is_struct && !aos &&
+                                            c->tokens[c->token_pos].type == TK_LBRACE) {
+                                            /* Nested grouping braces in a positional array
+                                             * initializer are transparent (C99 6.7.9): the
+                                             * elements still fill the array sequentially. */
+                                            init_brace_depth++;
+                                            c->token_pos++;
+                                            continue;
+                                        }
+                                        if (!is_struct && !aos && init_brace_depth > 0 &&
+                                            c->tokens[c->token_pos].type == TK_RBRACE) {
+                                            init_brace_depth--;
+                                            c->token_pos++;
+                                            if (c->token_pos < c->token_count &&
+                                                c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                                            continue;
+                                        }
+                                        if (aos) {
+                                            if (!in_elem && c->tokens[c->token_pos].type == TK_LBRACE) {
+                                                cur_base = elem_idx * elem_size;
+                                                elem_idx++;
+                                                next_member = 0;
+                                                in_elem = true;
+                                                c->token_pos++;
+                                                continue;
+                                            }
+                                            if (in_elem && c->tokens[c->token_pos].type == TK_RBRACE) {
+                                                in_elem = false;
+                                                c->token_pos++;
+                                                if (c->token_pos < c->token_count &&
+                                                    c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                                                continue;
+                                            }
+                                            if (!in_elem && next_member >= gtype.member_count) {
+                                                /* Brace-elided element: start the next struct */
+                                                cur_base = elem_idx * elem_size;
+                                                elem_idx++;
+                                                next_member = 0;
+                                            } else if (!in_elem && elem_idx == 0) {
+                                                cur_base = 0;
+                                                elem_idx = 1;
+                                            }
+                                        }
                                         size_t m_off = 0, m_sz = 0;
                                         bool m_float = false;
                                         if (c->tokens[c->token_pos].type == TK_DOT) {
@@ -449,10 +573,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         bool e_float;
                                         if (is_struct) {
                                             if (field_name) {
-                                                e_off = m_off; e_sz = m_sz; e_float = m_float;
+                                                e_off = cur_base + m_off; e_sz = m_sz; e_float = m_float;
                                             } else {
                                                 if (next_member >= gtype.member_count) break;
-                                                e_off = gtype.members[next_member].offset;
+                                                e_off = cur_base + gtype.members[next_member].offset;
                                                 e_sz = gtype.members[next_member].size ? gtype.members[next_member].size : 8;
                                                 e_float = (gtype.members[next_member].tag == TYPE_FLOAT ||
                                                            gtype.members[next_member].tag == TYPE_DOUBLE);
@@ -466,14 +590,47 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         if (e_off >= size) break;
 
                                         ZeroCCTokType vt = c->tokens[c->token_pos].type;
-                                        if (vt == TK_STRING && is_char_array && e_off == 0) {
-                                            /* char array from string literal (truncated to fit) */
+                                        if (vt == TK_STRING && is_char_array) {
+                                            /* char array from string literal (truncated to fit).
+                                             * In multi-dimensional char arrays each string
+                                             * fills one row (row_bytes), NUL included when
+                                             * the row has room for it. */
                                             const char *sv = c->tokens[c->token_pos].allocated_str ?
                                                 c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                                             size_t sl = strlen(sv);
-                                            size_t maxc = (sl + 1 <= size) ? (sl + 1) : size;
-                                            memcpy(vbuf + e_off, sv, maxc);
+                                            size_t adv;
+                                            if (dim_count >= 2) {
+                                                int64_t inner = (dims[dim_count - 1] > 0) ? dims[dim_count - 1] : 1;
+                                                size_t row_bytes = (size_t)inner * elem_size;
+                                                size_t room_row = (e_off + row_bytes <= size) ? row_bytes : (size - e_off);
+                                                size_t maxc = (sl + 1 <= room_row) ? (sl + 1) : room_row;
+                                                memcpy(vbuf + e_off, sv, maxc);
+                                                adv = row_bytes;
+                                            } else {
+                                                size_t room = (e_off < size) ? (size - e_off) : 0;
+                                                size_t maxc = (sl + 1 <= room) ? (sl + 1) : room;
+                                                memcpy(vbuf + e_off, sv, maxc);
+                                                adv = maxc;
+                                            }
                                             c->token_pos++;
+                                            if (!is_struct) pos_off = e_off + adv; /* string consumed its bytes */
+                                        } else if (vt == TK_STRING && !is_char_array) {
+                                            /* Pointer-array element: string literal ->
+                                             * rodata address patched by a data reloc
+                                             * (the vbuf slot stays zero). */
+                                            const char *sv = c->tokens[c->token_pos].allocated_str ?
+                                                c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                            size_t ro_off = c->rodata_section.length;
+                                            zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                                            c->token_pos++;
+                                            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                                dr->data_patch_offset = var_offset + e_off;
+                                                dr->target_kind = 0; /* .rodata target */
+                                                dr->rodata_offset = ro_off;
+                                                dr->target_data_offset = 0;
+                                                dr->target_global_idx = -1;
+                                            }
                                         } else if (vt == TK_FLOAT || (e_float && vt == TK_NUM)) {
                                             double dv = zero_cc_eval_const_expr_float(c);
                                             uint64_t bits;
@@ -495,7 +652,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                             if (e_off + w > size) w = size - e_off;
                                             for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
                                         }
-                                        if (!is_struct) pos_off += elem_size;
+                                        if (!is_struct && !(vt == TK_STRING && is_char_array)) pos_off += elem_size;
                                         if (c->token_pos == iter_start_pos) break; /* safety: no progress */
                                         if (c->token_pos < c->token_count &&
                                             c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
@@ -596,7 +753,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
                             /* Register this declarator before parsing the next */
                             ZeroCCType reg_type = gtype;
-                            if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
+                            for (int d = dim_count - 1; d >= 0; d--) {
+                                int64_t dv = dims[d];
+                                if (array_unsized && d == 0) dv = array_len; /* size inferred */
+                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv > 0 ? dv : 1));
+                            }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
                             }
@@ -613,7 +774,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                         {
                             ZeroCCType reg_type = gtype;
-                            if (array_len > 1) reg_type = zero_cc_type_array(&gtype, (ssize_t)array_len);
+                            for (int d = dim_count - 1; d >= 0; d--) {
+                                int64_t dv = dims[d];
+                                if (array_unsized && d == 0) dv = array_len; /* size inferred */
+                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv > 0 ? dv : 1));
+                            }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
                             }

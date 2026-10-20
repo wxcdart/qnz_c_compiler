@@ -167,11 +167,16 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 } else if (lt->kind == TYPE_KIND_FLOAT || rt->kind == TYPE_KIND_FLOAT) {
                     res = type_float(ctx->perm_arena);
                 } else if (type_is_pointer(lt) && type_is_pointer(rt)) {
-                    /* Pointer-pointer operations (except comparisons which are handled above) */
-                    res = lt;
+                    /* Pointer-pointer operations (except comparisons which are handled above).
+                     * C11 6.5.6p9: pointer - pointer yields ptrdiff_t (long), not a pointer. */
+                    if (op == '-' || op == TK_MINUS) {
+                        res = type_long(ctx->perm_arena);
+                    } else {
+                        res = lt;
+                    }
                 } else if (type_is_pointer(lt)) {
                     res = lt;
-                } else if (type_is_pointer(rt) && op == '+') {
+                } else if (type_is_pointer(rt) && (op == '+' || op == TK_PLUS)) {
                     res = rt;
                 } else if (lt->kind == TYPE_KIND_LONG || rt->kind == TYPE_KIND_LONG) {
                     res = type_long(ctx->perm_arena);

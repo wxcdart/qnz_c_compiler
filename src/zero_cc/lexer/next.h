@@ -2,6 +2,12 @@
 #ifndef ZERO_CC_LEXER_NEXT_H
 #define ZERO_CC_LEXER_NEXT_H
 
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include "zero_cc/lexer/state.h"
+#include "zero_cc/types/token.h"
+
 /* Get next token - main lexer function */
 static inline int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     if (!lx || !out || !lx->src || !lx->cur) return -1;

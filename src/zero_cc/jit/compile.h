@@ -22,6 +22,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     bool fn_noreturn = false;
     bool fn_inline = false;
     bool fn_static = false;
+    bool fn_ret_const = false; /* leading `const` qualifies the pointee of a pointer return type */
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
            c->tokens[c->token_pos].type == TK_NORETURN || c->tokens[c->token_pos].type == TK_CONST ||
            c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -29,6 +30,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
         if (c->tokens[c->token_pos].type == TK_INLINE) fn_inline = true;
         if (c->tokens[c->token_pos].type == TK_STATIC) fn_static = true;
+        if (c->tokens[c->token_pos].type == TK_CONST ||
+            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0))
+            fn_ret_const = true;
         c->token_pos++;
     }
 
@@ -110,6 +114,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     else if (c->tokens[c->token_pos].type == TK_LONG) {
         fn_ret_type = zero_cc_type_int64();
         c->token_pos++; }
+    if (fn_ret_const && c->tokens[c->token_pos].type == TK_STAR) fn_ret_type.is_const = true;
     while (c->tokens[c->token_pos].type == TK_STAR) {
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
         c->token_pos++;
@@ -219,6 +224,37 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_is_restrict = true;
                         c->token_pos++;
                     }
+                }
+                if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                    c->token_pos + 1 < c->token_count &&
+                    c->tokens[c->token_pos + 1].type == TK_STAR) {
+                    /* Function-pointer parameter: `ret_type (*name)(params...)` */
+                    c->token_pos++; /* ( */
+                    while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                    if (c->tokens[c->token_pos].type == TK_IDENT && param_count < 8) {
+                        snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
+                        /* ABI: an 8-byte pointer in a register; the pointed-to
+                         * signature is not modeled (calls go through the
+                         * value). Marked func-ptr for later codegen hooks. */
+                        ZeroCCType pt = zero_cc_type_int64();
+                        ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                        fpt.is_func_ptr = true;
+                        param_types[param_count] = fpt;
+                        param_count++;
+                    }
+                    c->token_pos++; /* name */
+                    if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
+                    /* Skip the parameter list (depth-counted) */
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                        int pdepth = 1;
+                        c->token_pos++;
+                        while (c->token_pos < c->token_count && pdepth > 0) {
+                            if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                            else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                            c->token_pos++;
+                        }
+                    }
+                    /* fall through to the comma/stuck-token handling below */
                 }
                 if (c->tokens[c->token_pos].type == TK_IDENT) {
                     if (param_count < 8) {

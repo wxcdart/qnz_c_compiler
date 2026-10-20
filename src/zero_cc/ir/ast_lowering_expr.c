@@ -1999,7 +1999,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 size_t elem_size = 4;
                 if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
                     if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) {
-                        size_t m_idx = (size_t)elem_node->aux.alt;
+                        size_t m_idx = (size_t)elem_node->desig_idx;
                         if (m_idx < sym->type.member_count) {
                             if (sym->type.members[m_idx].is_flexible) {
                                 diag_report_error_at_token(c,
@@ -2025,7 +2025,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else if (sym->type.tag == TYPE_ARRAY) {
                     size_t a_idx = idx;
                     if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) {
-                        a_idx = (size_t)elem_node->aux.alt;
+                        a_idx = (size_t)elem_node->desig_idx;
                         idx = a_idx;
                     }
                     size_t off, sz;

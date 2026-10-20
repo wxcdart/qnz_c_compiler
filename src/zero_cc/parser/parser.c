@@ -33,3 +33,9 @@ ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base) {
     g_type_pool_head = node;
     return &node->type;
 }
+
+/* Build-integrity canary: lets the driver detect stale object files compiled
+ * against an older ZeroCCASTNode layout. A struct-size change without a full
+ * rebuild silently corrupts AST thin pointers (designated-init string
+ * pointers, int64 constants) and crashes far from the real cause. */
+size_t zero_cc_ast_node_size(void) { return sizeof(ZeroCCASTNode); }

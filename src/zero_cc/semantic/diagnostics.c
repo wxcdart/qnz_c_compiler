@@ -291,6 +291,22 @@ void diag_report_error_at_token(ZeroCCCompiler *c, const char *fmt, ...) {
     char tmp_buf[256];
     vsnprintf(tmp_buf, sizeof(tmp_buf), fmt, ap);
     va_end(ap);
+    /* Append the offending token's text when available - file-scope and
+     * declaration errors are much easier to triage with it. */
+    if (c->token_pos < c->token_count) {
+        const ZeroCCToken *tk = &c->tokens[c->token_pos];
+        const char *ttext = (tk->type == TK_IDENT || tk->type == TK_NUM ||
+                             tk->type == TK_STRING) ?
+            (tk->allocated_str ? tk->allocated_str : tk->str_val) : NULL;
+        if (ttext && ttext[0]) {
+            char full_buf[320];
+            snprintf(full_buf, sizeof(full_buf), "%s (near '%.24s')", tmp_buf, ttext);
+            diag_report_error_file(&c->diag_buf, file, line, col, NULL, "%s", full_buf);
+            c->had_error = 1;
+            snprintf(c->error_msg, sizeof(c->error_msg), "%s", full_buf);
+            return;
+        }
+    }
     diag_report_error_file(&c->diag_buf, file, line, col, NULL, "%s", tmp_buf);
     /* Also set legacy fields for backward compat */
     c->had_error = 1;

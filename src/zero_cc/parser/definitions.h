@@ -18,6 +18,31 @@ static inline bool struct_member_room(ZeroCCCompiler *c, ZeroCCType *st) {
 }
 
 /* Parse struct or union body { ... } */
+/* A pointer member `T **p` records only one TYPE_PTR level (tag=PTR, base=T).
+ * Wrap the pointee `extra` more times so the member's type is T with the
+ * full star count, matching how locals/params are typed. */
+static inline void zero_cc_member_wrap_ptr_levels(ZeroCCStructMember *m, int extra) {
+    for (int i = 0; i < extra && m->base; i++) {
+        ZeroCCType pt = zero_cc_type_ptr(m->base);
+        m->base = zero_cc_type_alloc_base(&pt);
+    }
+}
+
+/* `T *a[N]` is an array of N pointers.  The member parser builds the pointer
+ * (tag=PTR, base=pointee); turn it into TYPE_ARRAY-of-pointer when the
+ * declarator has an array suffix (previously the array dimension was dropped
+ * for pointer members, so `a[1]` indexed past a single pointer). */
+static inline void zero_cc_member_make_ptr_array(ZeroCCStructMember *m) {
+    ZeroCCType pt;
+    memset(&pt, 0, sizeof(pt));
+    pt.tag = TYPE_PTR;
+    pt.size = 8;
+    pt.align = 8;
+    pt.base = m->base;
+    m->tag = TYPE_ARRAY;
+    m->base = zero_cc_type_alloc_base(&pt);
+}
+
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     ZeroCCType st; memset(&st, 0, sizeof(st));
     st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
@@ -188,16 +213,20 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
             size_t elem_count = 1;
             bool is_flexible = false;
-            if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+            while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                 c->token_pos++;
+                size_t dim = 1;
                 if (c->tokens[c->token_pos].type == TK_NUM) {
-                    elem_count = (size_t)c->tokens[c->token_pos].num_val;
+                    dim = (size_t)c->tokens[c->token_pos].num_val;
                     c->token_pos++;
                 } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                     is_flexible = true;
-                    elem_count = 0;
+                    dim = 0;
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                if (is_flexible) break;
+                elem_count *= dim;
             }
 
             if (in_bitfield) {
@@ -227,6 +256,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     /* Pointer members also record the pointee (C5): `t *p`
                      * members need m->base so `o.p->field` resolves. */
                     m->base = zero_cc_type_alloc_base(&inner_type);
+                    if (!is_ptr && (elem_count > 1 || is_flexible)) {
+                        m->tag = TYPE_ARRAY; /* array-of-struct member in union */
+                    }
                     if (m->size > max_size) max_size = m->size;
                 }
             } else {
@@ -243,6 +275,13 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     /* Pointer members also record the pointee (C5). */
                     m->base = zero_cc_type_alloc_base(&inner_type);
+                    if (!is_ptr && (elem_count > 1 || is_flexible)) {
+                        /* Array of struct/union/enum member (`struct S arr[N]`):
+                         * store as TYPE_ARRAY with the element type as base so
+                         * `o.arr[i]` resolves. m->base already points to the
+                         * element (inner_type); only the tag changes. */
+                        m->tag = TYPE_ARRAY;
+                    }
                     if (!is_flexible) {
                         current_offset += m->size;
                     }
@@ -337,10 +376,12 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 c->token_pos++;
             }
             bool is_ptr = false;
+            int ptr_depth = 0;
             bool member_ptr_is_const = false;
             bool member_ptr_is_volatile = false;
             while (c->tokens[c->token_pos].type == TK_STAR) {
                 is_ptr = true;
+                ptr_depth++;
                 c->token_pos++;
                 while (c->tokens[c->token_pos].type == TK_CONST ||
                        c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -369,24 +410,58 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             if (effective_align > st.align) st.align = effective_align;
 
             char mname[128] = "";
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
+            /* Function-pointer member: `type (*name)(params);`
+             * (previously the `(` after the `*` star was never handled and
+             * the member loop spun forever on it).  The declarator is
+             * consumed here; the member is a plain 8-byte pointer. */
+            if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_STAR) {
+                c->token_pos++; /* ( */
+                c->token_pos++; /* * */
+                if (c->tokens[c->token_pos].type == TK_IDENT) {
+                    snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                }
+                if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                /* Skip the parameter list `( ... )` */
+                if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                    c->token_pos++;
+                    int paren_depth = 1;
+                    while (c->token_pos < c->token_count && paren_depth > 0) {
+                        if (c->tokens[c->token_pos].type == TK_LPAREN) paren_depth++;
+                        else if (c->tokens[c->token_pos].type == TK_RPAREN) paren_depth--;
+                        c->token_pos++;
+                    }
+                }
+                is_ptr = true;
+                base_align = 8;
+                base_size = 8;
+                effective_align = member_align > base_align ? member_align : base_align;
+                if (c->default_pack > 0 && effective_align > (size_t)c->default_pack) effective_align = (size_t)c->default_pack;
+                if (effective_align > st.align) st.align = effective_align;
+            } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
             }
 
             size_t elem_count = 1;
             bool is_flexible = false;
-            if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+            while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                 c->token_pos++;
+                size_t dim = 1;
                 if (c->tokens[c->token_pos].type == TK_NUM) {
-                    elem_count = (size_t)c->tokens[c->token_pos].num_val;
+                    dim = (size_t)c->tokens[c->token_pos].num_val;
                     c->token_pos++;
                 } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
-                    /* Flexible array member: empty brackets [] */
+                    /* Flexible array member: empty brackets [] (C99 6.7.2.1p18) */
                     is_flexible = true;
-                    elem_count = 0;
+                    dim = 0;
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                if (is_flexible) break;
+                elem_count *= dim;
             }
 
             bool is_bitfield = false;
@@ -438,7 +513,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (!m->base) {
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = m->tag;
+                            dummy.tag = (mt == TK_VOID && ptr_depth > 1) ? TYPE_VOID : m->tag;
                             dummy.size = base_size;
                             dummy.align = base_align;
                             dummy.is_const = member_is_const;
@@ -446,6 +521,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->base = zero_cc_type_alloc_base(&dummy);
                         }
                         m->tag = TYPE_PTR;
+                        zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                        if (!is_bitfield && (elem_count > 1 || is_flexible)) zero_cc_member_make_ptr_array(m);
                     } else if (!is_bitfield && (elem_count > 1 || is_flexible)) {
                         ZeroCCType elem_t;
                         if (m->base) {
@@ -578,7 +655,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (!m->base) {
                                 ZeroCCType dummy;
                                 memset(&dummy, 0, sizeof(dummy));
-                                dummy.tag = m->tag;
+                                dummy.tag = (mt == TK_VOID && ptr_depth > 1) ? TYPE_VOID : m->tag;
                                 dummy.size = base_size;
                                 dummy.align = base_align;
                                 dummy.is_const = member_is_const;
@@ -586,6 +663,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->base = zero_cc_type_alloc_base(&dummy);
                             }
                             m->tag = TYPE_PTR;
+                        zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                        if (!is_bitfield && (elem_count > 1 || is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (elem_count > 1 || is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {
@@ -610,10 +689,12 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             while (c->tokens[c->token_pos].type == TK_COMMA) {
                 c->token_pos++;
                 bool c_is_ptr = false;
+                int c_ptr_depth = 0;
                 bool c_member_ptr_is_const = false;
                 bool c_member_ptr_is_volatile = false;
                 while (c->tokens[c->token_pos].type == TK_STAR) {
                     c_is_ptr = true;
+                    c_ptr_depth++;
                     c->token_pos++;
                     while (c->tokens[c->token_pos].type == TK_CONST ||
                            c->tokens[c->token_pos].type == TK_VOLATILE ||
@@ -637,16 +718,20 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
                 size_t c_elem_count = 1;
                 bool c_is_flexible = false;
-                if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+                while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                     c->token_pos++;
+                    size_t dim = 1;
                     if (c->tokens[c->token_pos].type == TK_NUM) {
-                        c_elem_count = (size_t)c->tokens[c->token_pos].num_val;
+                        dim = (size_t)c->tokens[c->token_pos].num_val;
                         c->token_pos++;
                     } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                         c_is_flexible = true;
-                        c_elem_count = 0;
+                        dim = 0;
                     }
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                    if (c_is_flexible) break;
+                    c_elem_count *= dim;
                 }
 
                 bool c_is_bitfield = false;
@@ -694,13 +779,15 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (c_is_ptr) {
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = m->tag;
+                            dummy.tag = (mt == TK_VOID && c_ptr_depth > 1) ? TYPE_VOID : m->tag;
                             dummy.size = base_size;
                             dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
                             m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
+                            zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) {
                             ZeroCCType elem_t;
                             if (m->base) {
@@ -757,13 +844,15 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (c_is_ptr) {
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = m->tag;
+                            dummy.tag = (mt == TK_VOID && c_ptr_depth > 1) ? TYPE_VOID : m->tag;
                             dummy.size = base_size;
                             dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
                             m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
+                            zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (c_elem_count > 1 || c_is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {
@@ -827,6 +916,9 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
             if (st_name[0] != '\0') {
                 snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
                 zero_cc_register_struct(c, st_name, st);
+                /* Forward typedefs of this tag (typedef struct S S;) hold
+                 * incomplete snapshots; refresh them with the definition. */
+                zero_cc_sync_typedefs_with_struct(c, st_name, &st);
             }
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
@@ -836,6 +928,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                     snprintf(st.struct_name, sizeof(st.struct_name), "%s", alias);
                 }
                 zero_cc_register_struct(c, alias, st);
+                zero_cc_sync_typedefs_with_struct(c, st.struct_name, &st);
                 if (is_typedef) {
                     zero_cc_register_typedef(c, alias, st);
                 }

@@ -2,6 +2,9 @@
 #ifndef ZERO_CC_LEXER_INIT_H
 #define ZERO_CC_LEXER_INIT_H
 
+#include <string.h>
+#include "zero_cc/lexer/state.h"
+#include "zero_cc/types/token.h"
 #include "keywords.inc"
 
 /* Initialize lexer with source and filename */

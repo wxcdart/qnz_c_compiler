@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - Static-Local Self-Hosting: Unsized Arrays, Mirror Direction, String Pointer Arrays + `va_arg` Fix
+
+Closes the Sprint 37 static-local blockers that prevented full-header self-hosting. zerocc's own headers use block-scope `static const char *arr[] = {...}` (e.g. `gpr_names[]`/`xmm_names[]` in `ir/live_range.h`, `sys_paths[]` in `core/preprocessor.h`); none of these patterns compiled before.
+
+### Fixed
+- **Static-local mirror direction** (`ir/ast_lowering.c`): `static_local_mirror_in`/`_out` stored chunk `off` at `fp - (stack_offset + off)` (wrong direction), so a multi-element array's elements landed out of order / out of bounds (element 0 correct, the rest scrambled). Both directions now copy **full 8-byte chunks** from data `O+off` to frame `fp + off - stack_offset`, matching the frame-relative body accesses (`fp - stack_offset + i*8`). Safe because the data slot and frame slot are both allocated rounded-up-to-8.
+- **Unsized array sizing deferred past reservation**: `T arr[] = {...}` was registered/`add_local`'d at the 8-byte minimum and the initializer enlarged it afterward, so two static-local arrays in one function **overlapped** (the second's mirror clobbered the first's slot → segfault). New `zero_cc_measure_array_init_at` (`parser/ast_stmt.h`) walks the initializer tokens **without consuming them** to compute the object byte size + element count, and the declaration applies it to `decl_type` **before** `zero_cc_type_to_typeinfo`/`zero_cc_add_local`/`zero_cc_static_local_register`. This sizes both the stack mirror slot and the `.data` reservation correctly up front.
+- **Static-local pointer-to-string initializers** (`parser/ast_stmt.h`): `static const char *names[] = {"a","b",NULL};` now writes each string to `.rodata` and records a `ZeroCCDataReloc` (kind 0) per pointer slot (resolved by the JIT data-page patcher and the AOT `.rela..data` emitter); `NULL`/other constant expressions go through `zero_cc_eval_const_expr`. Char-array string initializers (`static char s[] = "hi"`) and braced char/numeric lists are written as raw bytes; unsized arrays infer `array_len`/`size` from the initializer.
+- **`zero_cc_eval_const_expr` casts** (`parser/const_eval.h`): `parse_primary` now handles `(type) expr` (e.g. `(void*)0`, `((int)5)`), so initializer constant-expressions with casts evaluate instead of failing. Scalar/array-element initializers also guard against partial token consumption (a scalar initializer must be followed by `;`, an array element by `,`/`}`).
+- **Variadic `va_arg` was a no-op** (`core/preprocessor.h`): the built-in `stdarg.h` fallback redefined `va_start`/`va_arg`/`va_end` as no-ops, silently breaking every variadic function (`test/abi/variadic_fn` reported `1` instead of `0`). Both `stdarg.h` variants now map to `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end`/`__builtin_va_copy`, and `__builtin_va_copy` is registered as a built-in object-like macro alongside the others.
+
+### Verification
+- `make test` **142/142**, `make test-opt` **106 ok / 0 failed**, `sret_verifier` **6/6**, `okf` **lint+index pass**; `test/abi/variadic_fn` now prints `0 (expected 0)`.
+- gcc differential (JIT + AOT, `-O0..-O3`): single & multiple block-scope static pointer arrays of strings (the exact `live_range.h`/`preprocessor.h` shapes, incl. a `NULL`-terminated `sys_paths[]`), static numeric/char arrays, `static char[] = "..."`, mixed with ordinary locals + a static scalar, early `return` mid-function (mirror-out on every exit path, counter persists), 16-element pointer arrays. All MATCH / pass.
+
 ## [Sprint 40] - 2026-10-20 - Pre-Existing Gaps: FP Ternaries, 64-bit Literals, Array Initializers/Parameters, `-S` Emitters, SIMD Suite
 
 ### Fixed

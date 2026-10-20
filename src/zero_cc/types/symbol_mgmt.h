@@ -129,12 +129,23 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
 }
 
 static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const char *name) {
+    /* Prefer a DEFINITION over an earlier prototype/extern entry with the
+     * same name (Sprint 41).  A function declared before its body (the
+     * universal header pattern) registers two entries; the first-match
+     * return bound call relocations and function pointers to the prototype
+     * stub (text_offset 0, is_prototype), which the JIT then resolved via
+     * dlsym() - a wrong target for internal functions. */
+    ZeroCCFunction *proto = NULL;
     for (size_t i = 0; i < c->function_count; i++) {
         if (strcmp(c->functions[i].name, name) == 0) {
-            return &c->functions[i];
+            if (c->functions[i].is_prototype) {
+                if (!proto) proto = &c->functions[i];
+            } else {
+                return &c->functions[i];
+            }
         }
     }
-    return NULL;
+    return proto;
 }
 
 /* Dynamic Symbol Lookup for JIT Mode */

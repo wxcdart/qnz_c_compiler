@@ -17,6 +17,14 @@ extern struct {
     int disabled_warning_count;
 } zero_cc_global_diag_state;
 
+/* Forward declaration: this header's functions take `ZeroCCCompiler *`
+ * (member access like c->diag_buf) but are typically included before
+ * zero_cc/types/symbols.h defines the struct.  The forward typedef makes
+ * the parameter type a pointer-to-incomplete-struct instead of an
+ * unknown-identifier fallback; semantic analysis resolves members against
+ * the completed registry. */
+typedef struct ZeroCCCompiler ZeroCCCompiler;
+
 /* Get the pack value after preprocessing */
 static inline int zero_cc_get_pack_value(void) {
     return zero_cc_global_pack;
@@ -207,6 +215,7 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "__builtin_va_start(ap, last)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "__builtin_va_end", "ap", "((void)0)");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_copy", "dest", "src", "__builtin_va_copy(dest, src)");
     zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "__builtin_va_start(ap, last)");
     zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "va_end", "ap", "((void)0)");
@@ -302,7 +311,14 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef unsigned long size_t;\n"
             "void* malloc(size_t size);\nvoid free(void* ptr);\nvoid* calloc(size_t nmemb, size_t size);\n"
             "void* realloc(void* ptr, size_t size);\nvoid exit(int status);\nint system(const char *command);\n"
-            "long strtoll(const char *nptr, char **endptr, int base);\nint atoi(const char *nptr);\nint abs(int j);\n"
+            "long strtoll(const char *nptr, char **endptr, int base);\nlong strtol(const char *nptr, char **endptr, int base);\n"
+            "unsigned long strtoul(const char *nptr, char **endptr, int base);\ndouble strtod(const char *nptr, char **endptr);\n"
+            "unsigned long long strtoull(const char *nptr, char **endptr, int base);\nlong long atoll(const char *nptr);\n"
+            "double atof(const char *nptr);\nvoid abort(void);\n"
+            "char* getenv(const char *name);\n"
+            "void* qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
+            "void* bsearch(const void *key, const void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
+            "int atoi(const char *nptr);\nint abs(int j);\n"
             "#endif\n"
         );
     }
@@ -311,6 +327,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _STRING_H\n#define _STRING_H 1\n"
             "typedef unsigned long size_t;\n"
             "void* memcpy(void *dest, const void *src, size_t n);\n"
+            "void* memmove(void *dest, const void *src, size_t n);\n"
             "void* memset(void *s, int c, size_t n);\n"
             "int memcmp(const void *s1, const void *s2, size_t n);\n"
             "size_t strlen(const char *s);\n"
@@ -327,6 +344,167 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif\n"
         );
     }
+    if (strcmp(name, "limits.h") == 0) {
+        return strdup(
+            "#ifndef _LIMITS_H\n#define _LIMITS_H 1\n"
+            "#define PATH_MAX 4096\n"
+            "#define NAME_MAX 255\n"
+            "#define CHAR_BIT 8\n"
+            "#define SCHAR_MIN (-128)\n#define SCHAR_MAX 127\n"
+            "#define UCHAR_MAX 255\n"
+            "#define CHAR_MIN 0\n#define CHAR_MAX 127\n"
+            "#define SHRT_MIN (-32768)\n#define SHRT_MAX 32767\n"
+            "#define USHRT_MAX 65535\n"
+            "#define INT_MIN (-2147483647-1)\n#define INT_MAX 2147483647\n"
+            "#define UINT_MAX 4294967295U\n"
+            "#define LONG_MIN (-9223372036854775807L-1)\n#define LONG_MAX 9223372036854775807L\n"
+            "#define ULONG_MAX 18446744073709551615UL\n"
+            "#define LLONG_MIN (-9223372036854775807LL-1)\n#define LLONG_MAX 9223372036854775807LL\n"
+            "#define ULLONG_MAX 18446744073709551615ULL\n"
+            "#define SIZE_MAX ((size_t)-1)\n"
+            "#define PTRDIFF_MIN (-9223372036854775807L-1)\n#define PTRDIFF_MAX 9223372036854775807L\n"
+            "#define SIZE_T_MAX ((size_t)-1)\n"
+            "#define INT8_MIN (-128)\n#define INT8_MAX 127\n"
+            "#define UINT8_MAX 255\n"
+            "#define INT16_MIN (-32768)\n#define INT16_MAX 32767\n"
+            "#define UINT16_MAX 65535\n"
+            "#define INT32_MIN (-2147483647-1)\n#define INT32_MAX 2147483647\n"
+            "#define UINT32_MAX 4294967295U\n"
+            "#define INT64_MIN (-9223372036854775807LL-1)\n#define INT64_MAX 9223372036854775807LL\n"
+            "#define UINT64_MAX 18446744073709551615ULL\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "errno.h") == 0) {
+        return strdup(
+            "#ifndef _ERRNO_H\n#define _ERRNO_H 1\n"
+            "extern int errno;\n"
+            "#define EPERM 1\n#define ENOENT 2\n#define EINTR 4\n#define EIO 5\n#define EBADF 9\n"
+            "#define EAGAIN 11\n#define ENOMEM 12\n#define EACCES 13\n#define EEXIST 17\n"
+            "#define EINVAL 22\n#define ENFILE 23\n#define EMFILE 24\n#define ENOSPC 28\n"
+            "#define EPIPE 32\n#define EROFS 30\n#define ENOSYS 38\n#define ENOTDIR 20\n#define EISDIR 21\n"
+            "#define ERANGE 34\n#define ENAMETOOLONG 36\n#define ETIMEDOUT 110\n#define ECONNREFUSED 111\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "ctype.h") == 0) {
+        return strdup(
+            "#ifndef _CTYPE_H\n#define _CTYPE_H 1\n"
+            "int isalnum(int c);\nint isalpha(int c);\nint isdigit(int c);\nint isxdigit(int c);\n"
+            "int isspace(int c);\nint ispunct(int c);\nint isupper(int c);\nint islower(int c);\n"
+            "int isprint(int c);\nint isgraph(int c);\nint iscntrl(int c);\n"
+            "int tolower(int c);\nint toupper(int c);\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "stdarg.h") == 0) {
+        return strdup(
+            "#ifndef _STDARG_H\n#define _STDARG_H 1\n"
+            "typedef struct { void *__ap; } va_list;\n"
+            "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
+            "#define va_end(ap) __builtin_va_end(ap)\n"
+            "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
+            "#define va_copy(dest, src) __builtin_va_copy(dest, src)\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "time.h") == 0) {
+        return strdup(
+            "#ifndef _TIME_H\n#define _TIME_H 1\n"
+            "typedef long time_t;\n"
+            "struct tm { int tm_sec; int tm_min; int tm_hour; int tm_mday; int tm_mon; int tm_year; int tm_wday; int tm_yday; int tm_isdst; };\n"
+            "time_t time(time_t *t);\n"
+            "double difftime(time_t stop, time_t start);\n"
+            "struct tm *gmtime(const time_t *t);\n"
+            "struct tm *localtime(const time_t *t);\n"
+            "char *ctime(const time_t *t);\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "unistd.h") == 0) {
+        return strdup(
+            "#ifndef _UNISTD_H\n#define _UNISTD_H 1\n"
+            "typedef unsigned long size_t;\n"
+            "int write(int fd, const void *buf, size_t count);\n"
+            "int read(int fd, void *buf, size_t count);\n"
+            "int close(int fd);\n"
+            "long getpid(void);\n"
+            "int access(const char *path, int mode);\n"
+            "int pipe(int pipefd[2]);\n"
+            "int dup(int oldfd);\n"
+            "int dup2(int oldfd, int newfd);\n"
+            "void *sbrk(int incr);\n"
+            "#define F_OK 0\n#define R_OK 4\n#define W_OK 2\n#define X_OK 1\n"
+            "#define STDIN_FILENO 0\n#define STDOUT_FILENO 1\n#define STDERR_FILENO 2\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "fcntl.h") == 0) {
+        return strdup(
+            "#ifndef _FCNTL_H\n#define _FCNTL_H 1\n"
+            "typedef unsigned long size_t;\n"
+            "int open(const char *path, int flags, ...);\n"
+            "int creat(const char *path, int mode);\n"
+            "#define O_RDONLY 0\n#define O_WRONLY 1\n#define O_RDWR 2\n"
+            "#define O_CREAT 64\n#define O_EXCL 128\n#define O_TRUNC 512\n#define O_APPEND 1024\n"
+            "#define O_NONBLOCK 2048\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "sys/types.h") == 0) {
+        return strdup(
+            "#ifndef _SYS_TYPES_H\n#define _SYS_TYPES_H 1\n"
+            "typedef unsigned long size_t;\n"
+            "typedef long ssize_t;\n"
+            "typedef unsigned int uid_t;\n"
+            "typedef unsigned int gid_t;\n"
+            "typedef long off_t;\n"
+            "typedef unsigned int mode_t;\n"
+            "typedef long pid_t;\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "sys/stat.h") == 0) {
+        return strdup(
+            "#ifndef _SYS_STAT_H\n#define _SYS_STAT_H 1\n"
+            "typedef unsigned long size_t;\n"
+            "struct stat { unsigned long st_mode; unsigned long st_size; long st_mtime; };\n"
+            "int stat(const char *path, struct stat *buf);\n"
+            "int lstat(const char *path, struct stat *buf);\n"
+            "int mkdir(const char *path, int mode);\n"
+            "int chmod(const char *path, int mode);\n"
+            "#define S_ISREG(m) (((m) & 61440) == 32768)\n"
+            "#define S_ISDIR(m) (((m) & 61440) == 16384)\n"
+            "#define S_IRWXU 493\n#define S_IRUSR 256\n#define S_IWUSR 128\n#define S_IXUSR 64\n"
+            "#define S_IRWXG 56\n#define S_IRGRP 32\n#define S_IWGRP 16\n#define S_IXGRP 8\n"
+            "#define S_IRWXO 7\n#define S_IROTH 4\n#define S_IWOTH 2\n#define S_IXOTH 1\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "sys/mman.h") == 0) {
+        return strdup(
+            "#ifndef _SYS_MMAN_H\n#define _SYS_MMAN_H 1\n"
+            "typedef unsigned long size_t;\n"
+            "#define PROT_NONE 0\n#define PROT_READ 1\n#define PROT_WRITE 2\n#define PROT_EXEC 4\n"
+            "#define MAP_PRIVATE 2\n#define MAP_SHARED 1\n#define MAP_ANONYMOUS 32\n#define MAP_ANON 32\n"
+            "#define MAP_FAILED ((void*)-1)\n"
+            "void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
+            "int munmap(void *addr, size_t length);\n"
+            "int mprotect(void *addr, size_t len, int prot);\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "dlfcn.h") == 0) {
+        return strdup(
+            "#ifndef _DLFCN_H\n#define _DLFCN_H 1\n"
+            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_DEFAULT ((void*)0)\n"
+            "void* dlopen(const char *filename, int flags);\n"
+            "void* dlsym(void *handle, const char *symbol);\n"
+            "int dlclose(void *handle);\n"
+            "char* dlerror(void);\n"
+            "#endif\n"
+        );
+    }
     if (strcmp(name, "stdio.h") == 0) {
         return strdup(
             "#ifndef _STDIO_H\n#define _STDIO_H 1\n"
@@ -339,6 +517,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int sprintf(char *str, const char *format, ...);\n"
             "int snprintf(char *str, size_t size, const char *format, ...);\n"
             "int puts(const char *s);\nint putchar(int c);\n"
+            "int fputs(const char *s, FILE *stream);\nint fgetc(FILE *stream);\n"
+            "int getchar(void);\n"
             "FILE* fopen(const char *pathname, const char *mode);\n"
             "int fclose(FILE *stream);\n"
             "size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);\n"
@@ -519,15 +699,29 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     return NULL;
 }
 
-static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const char *filename, bool is_system) {
+static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const char *filename, bool is_system,
+                                                 char *out_path, size_t out_cap) {
     char path[1024];
     /* 1. First check virtual freestanding system headers */
     char *vhdr = zero_cc_cpp_get_virtual_header(filename);
-    if (vhdr) return vhdr;
+    if (vhdr) {
+        if (out_path && out_cap) out_path[0] = '\0'; /* virtual: no file directory */
+        return vhdr;
+    }
 
-    /* 2. Check local relative path */
+    /* 2. Quoted includes: directory of the including file first (C99
+     *    6.10.2p2), nearest real-file directory on the stack first, then
+     *    the working directory (top-level source siblings). */
     if (!is_system) {
+        for (int d = cpp->include_dir_depth - 1; d >= 0; d--) {
+            snprintf(path, sizeof(path), "%s/%s", cpp->include_file_dirs[d], filename);
+            if (access(path, R_OK) == 0) {
+                if (out_path && out_cap) snprintf(out_path, out_cap, "%s", path);
+                return zero_cc_read_file(path);
+            }
+        }
         if (access(filename, R_OK) == 0) {
+            if (out_path && out_cap) snprintf(out_path, out_cap, "%s", filename);
             return zero_cc_read_file(filename);
         }
     }
@@ -535,6 +729,7 @@ static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const c
     for (size_t i = 0; i < cpp->include_dirs.count; i++) {
         snprintf(path, sizeof(path), "%s/%s", cpp->include_dirs.paths[i], filename);
         if (access(path, R_OK) == 0) {
+            if (out_path && out_cap) snprintf(out_path, out_cap, "%s", path);
             return zero_cc_read_file(path);
         }
     }
@@ -549,10 +744,36 @@ static inline char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const c
     for (int i = 0; sys_paths[i]; i++) {
         snprintf(path, sizeof(path), "%s/%s", sys_paths[i], filename);
         if (access(path, R_OK) == 0) {
+            if (out_path && out_cap) snprintf(out_path, out_cap, "%s", path);
             return zero_cc_read_file(path);
         }
     }
+    if (out_path && out_cap) out_path[0] = '\0';
     return NULL;
+}
+
+/* Push the directory of a real include file so nested quoted includes
+ * resolve relative to it (C99 6.10.2p2).  Returns the stack depth to
+ * restore afterwards. */
+static inline int zero_cc_cpp_push_include_dir(ZeroCCPreprocessor *cpp, const char *resolved_path) {
+    int saved = cpp->include_dir_depth;
+    if (!resolved_path || !resolved_path[0]) return saved;
+    if (cpp->include_dir_depth >= 32) return saved;
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s", resolved_path);
+    char *slash = strrchr(tmp, '/');
+    if (slash && slash != tmp) {
+        *slash = '\0';
+        snprintf(cpp->include_file_dirs[cpp->include_dir_depth], PATH_MAX, "%s", tmp);
+    } else {
+        snprintf(cpp->include_file_dirs[cpp->include_dir_depth], PATH_MAX, ".");
+    }
+    cpp->include_dir_depth++;
+    return saved;
+}
+
+static inline void zero_cc_cpp_pop_include_dir(ZeroCCPreprocessor *cpp, int saved_depth) {
+    cpp->include_dir_depth = saved_depth;
 }
 
 static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out);
@@ -822,15 +1043,21 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         }
                         if (*p == ')') p++;
                         while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        const char *body_start = p;
+                        /* Build the body, splicing backslash-newline
+                         * continuations (phase 2) out of the stored text. */
+                        char *body = (char *)malloc(1024); size_t blen = 0;
                         while (*p && *p != '\n') {
-                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
-                            p++;
+                            if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
+                            if (blen + 2 > 1024) {
+                                size_t nc = (blen + 2) * 2;
+                                char *nb = (char *)malloc(nc);
+                                memcpy(nb, body, blen);
+                                free(body);
+                                body = nb;
+                            }
+                            body[blen++] = *p++;
                         }
-                        size_t body_len = p - body_start;
-                        char *body = (char *)malloc(body_len + 1);
-                        memcpy(body, body_start, body_len);
-                        body[body_len] = '\0';
+                        body[blen] = '\0';
 
                         if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
                             size_t idx = cpp->macro_count++;
@@ -848,15 +1075,21 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         }
                     } else {
                         while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        const char *val_start = p;
+                        /* Object-macro value: splice backslash-newline
+                         * continuations out (phase 2). */
+                        char *val = (char *)malloc(1024); size_t vlen = 0;
                         while (*p && *p != '\n') {
-                            if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
-                            p++;
+                            if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
+                            if (vlen + 2 > 1024) {
+                                size_t nc = (vlen + 2) * 2;
+                                char *nv = (char *)malloc(nc);
+                                memcpy(nv, val, vlen);
+                                free(val);
+                                val = nv;
+                            }
+                            val[vlen++] = *p++;
                         }
-                        size_t val_len = p - val_start;
-                        char *val = (char *)malloc(val_len + 1);
-                        memcpy(val, val_start, val_len);
-                        val[val_len] = '\0';
+                        val[vlen] = '\0';
                         zero_cc_cpp_define_obj(cpp, macro_name, val);
                         free(val);
                     }
@@ -874,9 +1107,21 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     inc_name[inl] = '\0';
                     if (*p == delim_end) p++;
                     
-                    char *inc_content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys);
+                    char resolved_path[PATH_MAX];
+                    int saved_inc_depth = 0;
+                    char *inc_content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys, resolved_path, sizeof(resolved_path));
                     if (inc_content) {
+                        saved_inc_depth = zero_cc_cpp_push_include_dir(cpp, resolved_path);
+                        /* Track the file being processed (Sprint 41):
+                         * #pragma once dedup and __FILE__ expansion both
+                         * key off cpp->filename.  resolved_path is valid
+                         * for the duration of the nested process_text
+                         * call; virtual headers leave it empty (NULL). */
+                        char *saved_filename = cpp->filename;
+                        cpp->filename = resolved_path[0] ? resolved_path : NULL;
                         zero_cc_cpp_process_text(cpp, inc_content, out);
+                        cpp->filename = saved_filename;
+                        zero_cc_cpp_pop_include_dir(cpp, saved_inc_depth);
                         free(inc_content);
                     }
                 } else if (active && strcmp(directive, "pragma") == 0) {
@@ -939,7 +1184,8 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     FILE *f = fopen(asset_path, "rb");
                     if (!f && cpp) {
                         /* Try resolve via include search paths */
-                        char *resolved = zero_cc_cpp_resolve_include(cpp, asset_path, is_sys);
+                        char resolved_path2[PATH_MAX];
+                        char *resolved = zero_cc_cpp_resolve_include(cpp, asset_path, is_sys, resolved_path2, sizeof(resolved_path2));
                         if (resolved) {
                             /* read from resolved string as raw bytes */
                             size_t rlen = strlen(resolved);

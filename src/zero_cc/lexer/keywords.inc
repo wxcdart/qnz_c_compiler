@@ -52,6 +52,7 @@ static const KeywordEntry keyword_table[] = {
     {"_Noreturn",      TK_NORETURN},
     {"_Static_assert", TK_STATIC_ASSERT},
     {"_Thread_local",  TK_THREAD_LOCAL},
+    {"__thread",       TK_THREAD_LOCAL},
 
     /* C23 keywords */
     {"alignas",        TK_ALIGNAS},

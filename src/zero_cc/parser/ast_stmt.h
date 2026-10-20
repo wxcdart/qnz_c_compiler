@@ -97,6 +97,118 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     }
     if (c->token_pos >= c->token_count) return false;
     ZeroCCTokType t = c->tokens[c->token_pos].type;
+    /* Static-local string initializer: = "string" for char[] */
+    if (t == TK_STRING && sym->type.tag == TYPE_ARRAY && sym->type.base && (sym->type.base->tag == TYPE_INT8 || sym->type.base->tag == TYPE_UINT8)) {
+        c->token_pos++;
+        const char *s = c->tokens[c->token_pos - 1].allocated_str ? c->tokens[c->token_pos - 1].allocated_str : c->tokens[c->token_pos - 1].str_val;
+        size_t len = strlen(s) + 1; /* include null terminator */
+        /* Ensure data section has enough capacity */
+        size_t max_write = sym->static_data_offset + len;
+        if (c->data_section.length < max_write) {
+            zero_cc_buf_ensure(&c->data_section, max_write - c->data_section.length);
+        }
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        memcpy(dst, s, len);
+        /* If array was unsized, update the type size and array_len */
+        if (sym->type.array_len == 0) {
+            sym->type.array_len = len;
+            sym->type.size = len;
+        }
+        /* Update data section length */
+        size_t written_end = sym->static_data_offset + len;
+        if (c->data_section.length < written_end) {
+            c->data_section.length = written_end;
+        }
+        return true;
+    }
+    /* Static-local array: = { elem, elem, ... } (positional). Each element
+     * is either a string literal (for pointer elements the literal is stored
+     * in .rodata and a data relocation patches the 8-byte slot; for char
+     * elements the bytes are written directly) or a compile-time constant
+     * expression (literals, shifts, casts, NULL, ...). Nested grouping
+     * braces are transparent. Unsized arrays are sized from the initializer. */
+    if (t == TK_LBRACE && sym->type.tag == TYPE_ARRAY) {
+        c->token_pos++; /* { */
+        ZeroCCType *eb = sym->type.base;
+        size_t elem_sz = (eb && eb->size > 0) ? eb->size : 1;
+        bool elem_is_ptr  = (eb && eb->tag == TYPE_PTR);
+        bool elem_is_char = (eb && (eb->tag == TYPE_INT8 || eb->tag == TYPE_UINT8));
+        size_t total = (sym->type.size > 0) ? sym->type.size : 0;
+        size_t off = 0;
+        /* Reserve + zero-fill data capacity for the initializer. */
+        size_t reserve = total > 0 ? total : elem_sz * 64;
+        size_t cap_end = sym->static_data_offset + reserve;
+        if (c->data_section.length < cap_end) {
+            size_t grow = cap_end - c->data_section.length;
+            zero_cc_buf_ensure(&c->data_section, grow);
+            memset(c->data_section.data + c->data_section.length, 0, grow);
+        }
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+            if (c->tokens[c->token_pos].type == TK_LBRACE) {
+                c->token_pos++; /* grouping brace: transparent */
+                continue;
+            }
+            if (c->tokens[c->token_pos].type == TK_STRING) {
+                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                c->token_pos++;
+                if (elem_is_ptr) {
+                    /* Pointer-to-string: emit literal to .rodata, patch the
+                     * 8-byte data slot via a data relocation. */
+                    size_t ro_off = c->rodata_section.length;
+                    zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                        dr->data_patch_offset = sym->static_data_offset + off;
+                        dr->target_kind = 0; /* .rodata target */
+                        dr->rodata_offset = ro_off;
+                        dr->target_data_offset = 0;
+                        dr->target_global_idx = -1;
+                    }
+                    off += 8;
+                } else if (elem_is_char) {
+                    /* Char element: write the string bytes (incl. NUL). */
+                    size_t slen = strlen(sv) + 1;
+                    if (total > 0 && off + slen > total) slen = (total > off) ? (total - off) : 0;
+                    memcpy(dst + off, sv, slen);
+                    off += slen;
+                } else {
+                    return false;
+                }
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                continue;
+            }
+            /* Constant-expression element (literals, shifts, casts, NULL, ...) */
+            size_t start = c->token_pos;
+            int64_t iv = zero_cc_eval_const_expr(c);
+            if (c->token_pos == start) return false; /* not a constant expression */
+            /* Guard against partial consumption corrupting the token stream:
+             * a complete element is terminated by ',' or '}'. */
+            ZeroCCTokType after = (c->token_pos < c->token_count) ? c->tokens[c->token_pos].type : TK_EOF;
+            if (after != TK_COMMA && after != TK_RBRACE) return false;
+            uint64_t bits = (uint64_t)iv;
+            size_t w = (elem_sz < 8) ? elem_sz : 8;
+            if (total > 0 && off + w > total) w = (total > off) ? (total - off) : 0;
+            for (size_t i = 0; i < w; i++) dst[off + i] = (uint8_t)(bits >> (8 * i));
+            off += w;
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+        /* If array was unsized, size it from the bytes written. */
+        if (sym->type.array_len == 0 && off > 0) {
+            sym->type.array_len = (elem_sz > 0) ? (off / elem_sz) : off;
+            if (eb && eb->size > 0) sym->type.size = off;
+        }
+        /* Extend the data section length to cover the written object. */
+        size_t written_end = sym->static_data_offset + off;
+        if (c->data_section.length < written_end) {
+            c->data_section.length = written_end;
+        }
+        return true;
+    }
     if (is_float) {
         if (t != TK_FLOAT && t != TK_NUM) return false;
         double dv = (t == TK_FLOAT) ? (double)c->tokens[c->token_pos].float_val :
@@ -117,6 +229,25 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
         return true;
     }
+    /* Static-local scalar: accept any compile-time constant expression
+     * (literals, shifts, bitwise/arith ops, enum constants, parenthesized
+     * groups) and bake the value into the data section. */
+    if (!is_float) {
+        size_t start = c->token_pos;
+        int64_t iv = zero_cc_eval_const_expr(c);
+        if (c->token_pos != start) {
+            /* Guard against partial consumption corrupting the token stream:
+             * a complete scalar initializer is terminated by ';'. */
+            ZeroCCTokType after = (c->token_pos < c->token_count) ? c->tokens[c->token_pos].type : TK_EOF;
+            if (after != TK_SEMI) return false;
+            uint64_t bits = (uint64_t)iv;
+            size_t width = (sym->type.size >= 8) ? 8 : ((size_t)sym->type.size > 0 ? (size_t)sym->type.size : 8);
+            uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+            for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+            return true;
+        }
+        return false;
+    }
     if (t != TK_NUM && t != TK_CHAR_LIT) return false;
     int64_t iv = (int64_t)c->tokens[c->token_pos].num_val;
     c->token_pos++;
@@ -125,6 +256,69 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
     for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
     return true;
+}
+
+/* Measure (WITHOUT consuming tokens) the byte size of an unsized-array
+ * initializer so the array can be fully sized (stack slot + data
+ * reservation) BEFORE zero_cc_add_local / zero_cc_static_local_register.
+ * `brace_pos` is the token index of the initializer's first token (the
+ * '{' of a braced list, or the string literal for a whole-string char
+ * initializer). Returns the object's byte size, or 0 when not measurable.
+ * *out_count (optional) receives the element count (0 for whole-string). */
+static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
+                                            size_t brace_pos, size_t *out_count) {
+    size_t count = 0, total = 0;
+    if (out_count) *out_count = 0;
+    if (!elem || brace_pos >= c->token_count) return 0;
+    size_t elem_sz = (elem->size > 0) ? elem->size : 1;
+    bool elem_is_ptr  = (elem->tag == TYPE_PTR);
+    bool elem_is_char = (elem->tag == TYPE_INT8 || elem->tag == TYPE_UINT8);
+    ZeroCCTokType first = c->tokens[brace_pos].type;
+    if (first == TK_STRING) {
+        if (!elem_is_char) return 0;
+        const char *s = c->tokens[brace_pos].allocated_str ?
+            c->tokens[brace_pos].allocated_str : c->tokens[brace_pos].str_val;
+        return strlen(s) + 1;
+    }
+    if (first != TK_LBRACE) return 0;
+    size_t q = brace_pos + 1; /* first token after '{' */
+    while (q < c->token_count) {
+        ZeroCCTokType tt = c->tokens[q].type;
+        if (tt == TK_COMMA) { q++; continue; }          /* top-level separator */
+        if (tt == TK_RBRACE) { q++; break; }            /* the array's '}' */
+        if (tt == TK_LBRACE) {                          /* nested grouping brace */
+            int d2 = 1; q++;
+            while (q < c->token_count && d2 > 0) {
+                if (c->tokens[q].type == TK_LBRACE) d2++;
+                else if (c->tokens[q].type == TK_RBRACE) d2--;
+                q++;
+            }
+            count++;
+            total += (elem_sz < 8) ? elem_sz : 8;
+            continue;
+        }
+        /* A top-level element. */
+        count++;
+        if (tt == TK_STRING) {
+            const char *s = c->tokens[q].allocated_str ?
+                c->tokens[q].allocated_str : c->tokens[q].str_val;
+            total += (elem_is_ptr) ? 8 : (elem_is_char ? strlen(s) + 1 : ((elem_sz < 8) ? elem_sz : 8));
+            q++;
+        } else {
+            total += (elem_sz < 8) ? elem_sz : 8;
+            /* Skip the constant-expression tokens up to a top-level ',' or '}'. */
+            int paren = 0;
+            for (;;) {
+                ZeroCCTokType ct = c->tokens[q].type;
+                if (ct == TK_LPAREN) { paren++; q++; continue; }
+                if (ct == TK_RPAREN) { if (paren > 0) paren--; q++; continue; }
+                if (paren == 0 && (ct == TK_COMMA || ct == TK_RBRACE)) break;
+                q++;
+            }
+        }
+    }
+    if (out_count) *out_count = count;
+    return total;
 }
 
 static void zero_cc_synchronize_ast(ZeroCCCompiler *c) {
@@ -173,7 +367,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         gn->line = line;
         gn->col = col;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
-            gn->s.str = c->tokens[c->token_pos].str_val;
+            gn->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
             gn->s.len = strlen(gn->s.str);
             c->token_pos++;
         }
@@ -191,7 +385,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ZeroCCASTNode *ln = zero_cc_ast_get(arena, l_ref);
         ln->line = line;
         ln->col = col;
-        ln->s.str = c->tokens[c->token_pos].str_val;
+        ln->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
         ln->s.len = strlen(ln->s.str);
         c->token_pos += 2; /* ident ':' */
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
@@ -948,8 +1142,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
                     func_node->line = line;
                     func_node->col = col;
-                    func_node->s.str = vname;
-                    func_node->s.len = strlen(vname);
+                    func_node->s.str = zero_cc_intern_string(c, vname);
+                    func_node->s.len = strlen(func_node->s.str);
                     func_node->left = param_list;   // parameter list
                     func_node->right = body_ref;    // body
                     decl_node_set_type(ctx, func_node, fn_ti);
@@ -963,8 +1157,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
                     func_node->line = line;
                     func_node->col = col;
-                    func_node->s.str = vname;
-                    func_node->s.len = strlen(vname);
+                    func_node->s.str = zero_cc_intern_string(c, vname);
+                    func_node->s.len = strlen(func_node->s.str);
                     func_node->flags |= NODE_FLAG_FUNC_PROTO;
                     func_node->left = param_list;
                     func_node->right = AST_NULL;
@@ -1079,6 +1273,27 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     decl_type = cur_type;
                 }
 
+                /* C99 6.7.9: an unsized array's outermost dimension is
+                 * inferred from its initializer. Measure it (without
+                 * consuming tokens) BEFORE zero_cc_add_local so the stack
+                 * slot and the static-local data reservation are sized to
+                 * the real object (not the 8-byte minimum), preventing the
+                 * per-call mirror from overflowing into a neighbour. */
+                if (is_array && num_dims > 0 && !has_any_vla &&
+                    decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 &&
+                    c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_ASSIGN &&
+                    decl_type.base) {
+                    size_t pre_count = 0;
+                    size_t pre_sz = zero_cc_measure_array_init_at(
+                        c, decl_type.base, c->token_pos + 1, &pre_count);
+                    if (pre_sz > 0) {
+                        decl_type.array_len = (decl_type.base->size > 0) ?
+                            (pre_sz / decl_type.base->size) : pre_sz;
+                        decl_type.size = pre_sz;
+                    }
+                }
+
                 /* Derive canonical TypeInfo* directly from decl_type */
                 TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
                 ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
@@ -1103,8 +1318,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
                 dn->line = line;
                 dn->col = col;
-                dn->s.str = vname;
-                dn->s.len = strlen(vname);
+                dn->s.str = zero_cc_intern_string(c, vname);
+                dn->s.len = strlen(dn->s.str);
                 if (has_any_vla) {
                     dn->flags |= NODE_DECL_IS_VLA;
                     dn->right = dim_exprs[0]; /* outermost runtime dimension expr */
@@ -1147,7 +1362,15 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         ASTRef head_expr = parse_brace_init_list_ast(c, arena, decl_type, &elem_count);
                         if (decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 && elem_count > 0) {
                             decl_type.array_len = elem_count;
-                            if (sym) sym->type.array_len = elem_count;
+                            if (decl_type.base && decl_type.base->size > 0) {
+                                decl_type.size = decl_type.base->size * elem_count;
+                            }
+                            if (sym) {
+                                sym->type.array_len = elem_count;
+                                if (sym->type.base && sym->type.base->size > 0) {
+                                    sym->type.size = sym->type.base->size * elem_count;
+                                }
+                            }
                             if (decl_ti && decl_ti->kind == TYPE_KIND_ARRAY) {
                                 decl_ti->details.array.count = elem_count;
                             }

@@ -37,9 +37,9 @@ typedef struct {
     int run_mode;         /* --run */
     int verbose;          /* -v */
     int opt_level;        /* 0-3 for -O0 to -O3 */
-    int include_dirs[10]; /* -I (placeholder) */
+    char *include_dirs[32]; /* -I directories (Sprint 41: real search paths) */
     int include_count;
-    int define_macros[10]; /* -D (placeholder) */
+    char *define_macros[64]; /* -D macro definitions (name or name=value) */
     int define_count;
     int dump_ir;          /* -dump-ir */
     int dump_cfg;         /* -dump-cfg */
@@ -121,15 +121,43 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
         }
-        else if (strncmp(arg, "-I", 2) == 0) {
-            if (opts->include_count < 10) {
-                opts->include_dirs[opts->include_count++] = 1; /* Placeholder */
+        else if (strcmp(arg, "-I") == 0 && i + 1 < argc) {
+            if (opts->include_count < 32) {
+                opts->include_dirs[opts->include_count++] = strdup(argv[++i]);
+            } else {
+                fprintf(stderr, "zerocc: warning: more than 32 -I options; ignoring '%s'\n", argv[i + 1]);
+                i++;
             }
         }
-        else if (strncmp(arg, "-D", 2) == 0) {
-            if (opts->define_count < 10) {
-                opts->define_macros[opts->define_count++] = 1; /* Placeholder */
+        else if (strncmp(arg, "-I", 2) == 0 && arg[2]) {
+            if (opts->include_count < 32) {
+                opts->include_dirs[opts->include_count++] = strdup(arg + 2);
+            } else {
+                fprintf(stderr, "zerocc: warning: more than 32 -I options; ignoring '%s'\n", arg + 2);
             }
+        }
+        else if (strcmp(arg, "-I") == 0) {
+            fprintf(stderr, "zerocc: error: '-I' requires a directory argument\n");
+            return 1;
+        }
+        else if (strcmp(arg, "-D") == 0 && i + 1 < argc) {
+            if (opts->define_count < 64) {
+                opts->define_macros[opts->define_count++] = strdup(argv[++i]);
+            } else {
+                fprintf(stderr, "zerocc: warning: more than 64 -D options; ignoring '%s'\n", argv[i + 1]);
+                i++;
+            }
+        }
+        else if (strncmp(arg, "-D", 2) == 0 && arg[2]) {
+            if (opts->define_count < 64) {
+                opts->define_macros[opts->define_count++] = strdup(arg + 2);
+            } else {
+                fprintf(stderr, "zerocc: warning: more than 64 -D options; ignoring '%s'\n", arg + 2);
+            }
+        }
+        else if (strcmp(arg, "-D") == 0) {
+            fprintf(stderr, "zerocc: error: '-D' requires a macro argument\n");
+            return 1;
         }
         else if (strncmp(arg, "-l", 2) == 0) {
             if (opts->lib_count < 32) {
@@ -293,6 +321,39 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
     comp->asm_out = NULL;
 }
 
+/* Run the preprocessor with the CLI-provided -I include dirs and -D
+ * defines (Sprint 41).  Both are optional; with neither present this
+ * is exactly the old `zero_cc_preprocess(source, NULL)` behavior. */
+static char *preprocess_with_options(const char *source, const CompileOptions *opts) {
+    ZeroCCIncludeDirs inc_dirs;
+    ZeroCCDefines defines;
+    memset(&inc_dirs, 0, sizeof(inc_dirs));
+    for (int d = 0; d < opts->include_count; d++) {
+        if (inc_dirs.count < ZERO_CC_MAX_INCLUDE_PATHS) {
+            inc_dirs.paths[inc_dirs.count++] = opts->include_dirs[d];
+        }
+    }
+    memset(&defines, 0, sizeof(defines));
+    for (int d = 0; d < opts->define_count; d++) {
+        if (defines.count >= 128) break;
+        /* Copy the option string: the caller's CompileOptions must stay
+         * intact for a potential second compile in the same process. */
+        char *name_copy = strdup(opts->define_macros[d]);
+        char *eq = strchr(name_copy, '=');
+        char *value_copy;
+        if (eq) {
+            *eq = '\0';
+            value_copy = strdup(eq + 1);
+        } else {
+            value_copy = NULL;
+        }
+        defines.defs[defines.count].name = name_copy;
+        defines.defs[defines.count].value = value_copy;
+        defines.count++;
+    }
+    return zero_cc_preprocess_ext(source, &inc_dirs, &defines);
+}
+
 static int compile_jit(CompileOptions *opts) {
     /* Read source file */
     char *source = read_file(opts->input_file);
@@ -327,9 +388,13 @@ static int compile_jit(CompileOptions *opts) {
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
     
-    /* Preprocess */
-    char *prep = zero_cc_preprocess(source, NULL);
+    /* Preprocess (with -I include dirs and -D defines from the CLI) */
+    char *prep = preprocess_with_options(source, opts);
     free(source);
+    if (getenv("ZERO_CC_DUMP_CPP") && prep) {
+        FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
+        if (df) { fputs(prep, df); fclose(df); }
+    }
     if (!prep) {
         fprintf(stderr, "Preprocessing failed\n");
         zero_cc_free_compiler(comp);
@@ -468,7 +533,10 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
 
 static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
     if (!comp) return;
-    
+
+    /* Free the stable string pool (interned AST strings) */
+    zero_cc_free_string_pool(comp);
+
     /* Free IR arenas */
     ir_arena_free(&comp->ir_arena);
     ir_call_args_arena_free(&comp->ir_call_args);
@@ -520,9 +588,13 @@ static int compile_object(CompileOptions *opts) {
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
     
-    /* Preprocess */
-    char *prep = zero_cc_preprocess(source, NULL);
+    /* Preprocess (with -I include dirs and -D defines from the CLI) */
+    char *prep = preprocess_with_options(source, opts);
     free(source);
+    if (getenv("ZERO_CC_DUMP_CPP") && prep) {
+        FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
+        if (df) { fputs(prep, df); fclose(df); }
+    }
     if (!prep) {
         fprintf(stderr, "Preprocessing failed\n");
         zero_cc_free_compiler(comp);
@@ -937,6 +1009,14 @@ static int compile_and_link(CompileOptions *opts) {
 }
 
 int main(int argc, char **argv) {
+    /* Stale-build guard: catch object files compiled against an older
+     * ZeroCCASTNode layout before they corrupt the AST at runtime. */
+    if (zero_cc_ast_node_size() != sizeof(ZeroCCASTNode)) {
+        fprintf(stderr,
+                "zerocc: AST node layout mismatch (stale build objects).\n"
+                "Run: make clean && make build/bin/zerocc\n");
+        return 1;
+    }
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     struct rlimit rl;
     if (getrlimit(RLIMIT_STACK, &rl) == 0) {

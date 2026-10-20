@@ -19,6 +19,7 @@
 #include "../opt/cfg.h"
 
 /* Compiler & Emitter Context */
+typedef struct ZeroCCStrChunk ZeroCCStrChunk;
 typedef struct ZeroCCCompiler {
     ZeroCCToken *tokens;
     size_t token_count;
@@ -139,7 +140,30 @@ typedef struct ZeroCCCompiler {
     
     /* Label patcher state - Task 62: Unified label resolution */
     LabelPatcherState label_patcher;
+
+    /* Stable string pool (chunked): interned copies of identifiers, labels,
+     * member names and string literals referenced by AST nodes. Chunks are
+     * never realloc'd, so interned pointers stay valid across token-buffer
+     * growth (which moves the ZeroCCToken.str_val buffers they copied from). */
+    struct ZeroCCStrChunk *str_chunks;
 } ZeroCCCompiler;
+
+/* Forward declaration for self-referential struct */
+typedef struct ZeroCCStrChunk ZeroCCStrChunk;
+
+/* Chunked stable string pool. AST nodes store pointers into these chunks
+ * (zero-copy into the token buffer is unsafe: c->tokens is realloc'd when
+ * it outgrows its capacity, dangling every previously captured str_val). */
+struct ZeroCCStrChunk {
+    char *data;
+    size_t len;
+    size_t cap;
+    struct ZeroCCStrChunk *next;
+};
+
+/* String pool functions (implemented in string_pool.c) */
+extern const char *zero_cc_intern_string(ZeroCCCompiler *c, const char *s);
+extern void zero_cc_free_string_pool(ZeroCCCompiler *c);
 
 int64_t decl_align_spec; /* alignment specifier from _Alignas */
 

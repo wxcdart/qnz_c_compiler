@@ -51,21 +51,15 @@ static void static_local_chunk_addr(ZeroCCCompiler *c, const ZeroCCSym *ss,
 /* data -> stack slot (prologue) */
 static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
-    for (size_t off = 0; off < sz; off += 8) {
-        size_t w = (sz - off < 8) ? (sz - off) : 8;
+    size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
+    for (size_t off = 0; off < alloc_sz; off += 8) {
         int addr;
         static_local_chunk_addr(c, ss, off, &addr);
         int val = c->next_temp_id++;
-        if (w == 8)      ir_emit_deref(val, addr);
-        else if (w == 4) ir_emit_load_32((uint16_t)val, (uint16_t)addr);
-        else if (w == 2) ir_emit_load_16((uint16_t)val, (uint16_t)addr);
-        else             ir_emit_load_byte((uint16_t)val, (uint16_t)addr);
+        ir_emit_deref(val, addr);
         int sa = c->next_temp_id++;
-        ir_emit_lea(sa, BE(c)->fp_reg, -(ss->stack_offset + (int32_t)off));
-        if (w == 8)      ir_emit_store_64((uint16_t)val, (uint16_t)sa);
-        else if (w == 4) ir_emit_store_32((uint16_t)val, (uint16_t)sa);
-        else if (w == 2) ir_emit_store_16((uint16_t)val, (uint16_t)sa);
-        else             ir_emit_store_byte((uint16_t)val, (uint16_t)sa);
+        ir_emit_lea(sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
+        ir_emit_store_64((uint16_t)val, (uint16_t)sa);
     }
 }
 
@@ -74,21 +68,15 @@ static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
  * save/restore through the frame - see zero_cc_lower_ast(). */
 static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
-    for (size_t off = 0; off < sz; off += 8) {
-        size_t w = (sz - off < 8) ? (sz - off) : 8;
+    size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
+    for (size_t off = 0; off < alloc_sz; off += 8) {
         int sa = c->next_temp_id++;
-        ir_emit_lea(sa, BE(c)->fp_reg, -(ss->stack_offset + (int32_t)off));
+        ir_emit_lea(sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
         int val = c->next_temp_id++;
-        if (w == 8)      ir_emit_deref(val, sa);
-        else if (w == 4) ir_emit_load_32((uint16_t)val, (uint16_t)sa);
-        else if (w == 2) ir_emit_load_16((uint16_t)val, (uint16_t)sa);
-        else             ir_emit_load_byte((uint16_t)val, (uint16_t)sa);
+        ir_emit_deref(val, sa);
         int addr;
         static_local_chunk_addr(c, ss, off, &addr);
-        if (w == 8)      ir_emit_store_64((uint16_t)val, (uint16_t)addr);
-        else if (w == 4) ir_emit_store_32((uint16_t)val, (uint16_t)addr);
-        else if (w == 2) ir_emit_store_16((uint16_t)val, (uint16_t)addr);
-        else             ir_emit_store_byte((uint16_t)val, (uint16_t)addr);
+        ir_emit_store_64((uint16_t)val, (uint16_t)addr);
     }
 }
 

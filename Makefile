@@ -58,7 +58,8 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/aarch64.o \
 	src/zero_cc/isa/riscv.o \
-	src/zero_cc/jit/elf_writer.o)
+	src/zero_cc/jit/elf_writer.o \
+	src/zero_cc/types/string_pool.o)
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \

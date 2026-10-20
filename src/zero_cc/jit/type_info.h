@@ -16,8 +16,15 @@
 /* Parse and Compile a Top-Level Function */
 
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
-    // Guard against uninitialized/corrupted types while allowing valid large arrays and structs
-    if (t.size > (16ULL * 1024 * 1024)) {
+    // Guard against uninitialized/corrupted types while allowing valid large arrays and structs.
+    // NOTE: the threshold must comfortably exceed the largest legitimate struct.  zerocc's
+    // own state struct (ZeroCCCompiler) is ~62 MB because it embeds large fixed arrays
+    // (structs[], typedefs[], buffers, ...), so a 16 MB bound mis-flagged it as corrupt
+    // and silently degraded pointers to it into pointer_to(int), breaking every member
+    // access on `c->...`.  A genuinely uninitialized size is a random 64-bit value
+    // (typically >1 TB), so a 1 GB bound still catches corruption while admitting real
+    // structs and large user arrays.
+    if (t.size > (1ULL * 1024 * 1024 * 1024)) {
         return type_int(perm);
     }
     TypeInfo *ti = NULL;

@@ -360,6 +360,12 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
 
     /* 1. Pointer arithmetic cases */
     if (type_is_pointer(lp) || type_is_pointer(rp)) {
+        /* && and || accept any scalar operands (C11 6.5.13/14), including pointers */
+        if (is_logical &&
+            (type_is_pointer(lp) || type_is_arithmetic(lp)) &&
+            (type_is_pointer(rp) || type_is_arithmetic(rp))) {
+            return type_int(perm);
+        }
         if (is_plus) {
             /* pointer + integer -> pointer */
             if (type_is_pointer(lp) && type_is_integer(rp)) {

@@ -291,7 +291,12 @@ void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t
     
     // Add new field
     struct StructField *fields = (struct StructField *)new_fields;
-    fields[new_count - 1].name = name;
+    /* Copy the name into the permanent arena: callers may pass pointers into
+     * the token buffer, which is reallocated/freed during parsing. */
+    size_t nlen = strlen(name) + 1;
+    char *name_copy = (char *)arena_alloc(perm, nlen);
+    if (name_copy) memcpy(name_copy, name, nlen);
+    fields[new_count - 1].name = name_copy ? name_copy : name;
     fields[new_count - 1].offset = offset;
     fields[new_count - 1].type = field_type;
     fields[new_count - 1].is_bitfield = (bit_width > 0);

@@ -1,10 +1,10 @@
 ---
 type: Concept
 title: Global Variables, Data Section & Pointer Relocations
-description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
+description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), block-scope static locals (unsized arrays, pointer-to-string initializers, per-call stack mirror), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
 resource: backend/global-data-relocs
 tags: [globals, data-section, relocations, jit, aot, elf, initialization]
-timestamp: 2026-10-17T20:23:56Z
+timestamp: 2026-10-20T15:54:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -55,7 +55,18 @@ JIT memory layout is `[text][rodata]` on the code page (made RX after copy) and 
 
 - `OP_MOV_GLOBAL` (address of a global in code) emits `mov rdst, imm64(0)` + an 8-byte text reloc; the JIT patcher resolves it via `find_global_var` to the absolute data address (see [isa-backends.md](./isa-backends.md)).
 - Reading a global float/double uses `ir_emit_vloadss`/`ir_emit_vloadsd` (not a 64-bit int deref); struct member loads detect floatness from semantic `TypeInfo` or, as fallback, the base struct's `members[]` tags **matched by offset** (`aux.alt`), never by name — the `s.str` union slot of `NODE_MEMBER` is overwritten by semantic analysis (see [frontend-and-types.md](./frontend-and-types.md)).
-- Constant expressions at file scope (`zero_cc_eval_const_expr`, `src/zero_cc/parser/const_eval.h`) support `TK_CHAR_LIT` (value in `num_val`) in addition to numerics, `true`/`false`, `NULL` and parentheses; a no-progress guard in the aggregate-init loop prevents hangs on unrecognized tokens.
+- Constant expressions at file scope (`zero_cc_eval_const_expr`, `src/zero_cc/parser/const_eval.h`) support `TK_CHAR_LIT` (value in `num_val`) in addition to numerics, `true`/`false`, `NULL` and parentheses; a no-progress guard in the aggregate-init loop prevents hangs on unrecognized tokens. `zero_cc_eval_const_expr` also now parses **casts** `(type) expr` (e.g. `(void*)0`, `((int)5)`) so initializer constant-expressions like `static void *p = (void*)0;` evaluate cleanly instead of erroring.
+
+## Block-Scope `static` Locals (Sprint 37)
+
+Block-scope `static` variables (including **unsized arrays** inferred from their initializer, per C99 6.7.9) share the same data-section + relocation machinery as file-scope globals, plus a per-call stack mirror so all accesses stay frame-relative (fast, no global-symbol indirection).
+
+- **Declaration** (`src/zero_cc/parser/ast_stmt.h`): a static local is registered via `zero_cc_static_local_register` (a global entry with `static_local=1` plus a reserved `.data` slot) and a **stack mirror slot** is reserved with `zero_cc_add_local`. The initializer is baked into `.data` immediately at parse time by `zero_cc_static_local_patch_init` (the AST is never retained for static locals).
+- **Sizing the unsized array up front**: an unsized `T arr[] = {...}` must be sized **before** `zero_cc_add_local`/`zero_cc_static_local_register`, or it is reserved at the 8-byte minimum and the real (larger) object overflows into the neighbour's slot. `zero_cc_measure_array_init_at` walks the initializer tokens **without consuming them** and returns the object byte size + element count; the declaration code applies it to `decl_type` before deriving `decl_ti`/`sym`. This is what makes multiple static-local arrays in one function (e.g. zerocc's own `gpr_names[]`/`xmm_names[]` in `live_range.h`, `sys_paths[]` in `preprocessor.h`) coexist without corrupting each other.
+- **Pointer-to-string elements**: `static const char *names[] = {"a","b",NULL};` writes each string to `.rodata` and records a `ZeroCCDataReloc` (kind 0) per pointer slot, so both the JIT data-page patcher and the AOT `.rela..data` emitter resolve the pointers. `NULL` (and other constant expressions) evaluate via `zero_cc_eval_const_expr`. Char-array string initializers (`static char s[] = "hi"`) and braced char/numeric lists are written as raw bytes.
+- **The per-call mirror** (`src/zero_cc/ir/ast_lowering.c`, `static_local_mirror_in`/`_out`): at function entry the object is copied `.data` → frame, at every return the frame is copied back. Both directions copy **full 8-byte chunks** from data offset `O+off` to frame `fp + off - stack_offset` (i.e. element `i` lands at the same `fp - stack_offset + i*8` the body reads/writes). A prior bug stored chunk `off` at `fp - (stack_offset + off)` (wrong direction), scrambling multi-element arrays. The 8-byte-chunk copy is safe because the data slot and the frame slot are both allocated rounded-up-to-8.
+- **Persistence**: the mirror-out runs on every return path (the epilogue helper `epilogue_for_return` is used by all return exits), so a `static` counter/array survives early `return` mid-function.
+- **Variadic `va_arg`** (`src/zero_cc/core/preprocessor.h`): the built-in `stdarg.h` fallback previously redefined `va_start`/`va_arg`/`va_end` as **no-ops**, silently breaking variadic functions (`test/abi/variadic_fn`). It now maps them to `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end`/`__builtin_va_copy` (all four are registered as object-like macros in the built-in macro table alongside `va_*`).
 
 ## Related Concepts
 

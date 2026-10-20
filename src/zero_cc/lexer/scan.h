@@ -3,6 +3,7 @@
 #define ZERO_CC_LEXER_SCAN_H
 
 #include <stdbool.h>
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include "zero_cc/lexer/state.h"

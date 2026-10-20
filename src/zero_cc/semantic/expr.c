@@ -540,7 +540,10 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* Field lookup from tag / struct definition in symbol table */
     TypeInfo *member_t = NULL;
-    const char *member_name = node->s.str;
+    /* s.str is clobbered by the aux.alt offset store below; keep the name in
+     * member_name so re-analysis of the same node still sees it. */
+    if (!node->member_name) node->member_name = node->s.str;
+    const char *member_name = node->member_name;
     size_t member_offset = 0;
 
     if (struct_t->details.record.tag) {

@@ -27,6 +27,30 @@ static inline ZeroCCType* zero_cc_find_struct(ZeroCCCompiler *c, const char *nam
     return NULL;
 }
 
+/* Propagate a completed struct/union definition into a ZeroCCType tree:
+ * replace any node whose tag matches `name` (a forward-declaration
+ * snapshot), then recurse into the pointee/element base.  ZeroCCType
+ * copies share no state by value, so a typedef registered from an
+ * opaque declaration (e.g. `typedef struct S S;`) keeps the incomplete
+ * snapshot forever unless something like this runs when the definition
+ * arrives. */
+static inline void zero_cc_type_sync_struct(ZeroCCType *t, const char *name, const ZeroCCType *complete) {
+    if (!t || !name || !complete) return;
+    if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
+        t->struct_name[0] != '\0' && strcmp(t->struct_name, name) == 0) {
+        *t = *complete;
+        return;
+    }
+    if (t->base) zero_cc_type_sync_struct(t->base, name, complete);
+}
+
+static inline void zero_cc_sync_typedefs_with_struct(ZeroCCCompiler *c, const char *name, const ZeroCCType *complete) {
+    if (!c || !name || name[0] == '\0' || !complete) return;
+    for (size_t i = 0; i < c->typedef_count; i++) {
+        zero_cc_type_sync_struct(&c->typedefs[i].type, name, complete);
+    }
+}
+
 /* Typedef Registry */
 static inline void zero_cc_register_typedef(ZeroCCCompiler *c, const char *alias, ZeroCCType type) {
     for (size_t i = 0; i < c->typedef_count; i++) {
