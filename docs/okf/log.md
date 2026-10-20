@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T21:09:55Z
+timestamp: 2026-10-20T22:06:45Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -242,3 +242,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `isa-backends.md`
 - Sprint 41: documented cross-target (aarch64/riscv) -o/-c text routing + the incomplete raw binary emitter
+
+## 2026-10-20 — Updated `ir-and-regalloc.md`
+- Sprint 41: documented &&/|| straight-line lowering (TK_LOGAND/TK_LOGOR now lower to CMP_ZERO+COND_SET + AND/OR; was default-arm left-operand-only)
+
+## 2026-10-20 — Updated `optimization-passes.md`
+- Sprint 41: inliner now rejects value-param writes (zero_cc_ast_assigns_to_param); param writes were dropped during inlining
+
+## 2026-10-20 — Updated `isa-backends.md`
+- Sprint 41: OP_CMP_ZERO is ISA-specific in -S (x86 testq / aarch64 cmp r,#0 / riscv mv t0,r); was x86-hardcoded

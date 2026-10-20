@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - Fix `&&`/`||` Lowering + Inliner Param-Write Bug
+
+Fixed the shared **logical-AND/OR lowering bug** (carried over as a known issue from the AArch64 battery), which in turn exposed and required fixing a pre-existing **inliner bug** that dropped writes to value parameters.
+
+### `&&` / `||` lowering (`ir/ast_lowering_expr.c`)
+- **Before**: `NODE_BINOP` had no case for `TK_LOGAND`/`TK_LOGOR`, so they fell through to the `default` arm, which **moved only the left operand** into the result and silently dropped the right operand. `while(s[n] && n<7)` evaluated both conditions but branched only on `s[n]` (the `n<7` bound vanished → over-run), and `a>5 && b>5` returned just `a>5`.
+- **After**: `a && b` lowers to `(a!=0) & (b!=0)` and `a || b` to `(a!=0) | (b!=0)` as straight-line IR (`CMP_ZERO`+`COND_SET` for each operand, then a bitwise `AND`/`OR`). Straight-line (no embedded branches) keeps it safe under the -O2/-O3 CSE/GVN/LICM passes. Result is a 0/1 integer, matching C.
+  - **Known limitation**: no short-circuit — the right operand is always evaluated, so `p && *p` with `p==NULL` still dereferences `p`. A branch-based short-circuit form is confounded by the -O2/-O3 optimizer and is tracked as follow-up.
+
+### Inliner: dropped writes to value parameters (`jit/compile.h`)
+- The -O2+ small-function inliner binds value parameters to the caller's **argument registers** and substitutes parameter *reads* with that register, but a parameter *write* (`x = …` / `x op= …`) has no matching slot, so the store is silently dropped while a later read still sees the original argument. `int bump(int x){ x+=100; return x*2; }` inlined as `v*2` (the `+100` vanished → `bump(5)` gave `10`, not `210`).
+- The old `||` masking of its right operand had hidden this (the bug only matters once the right operand is actually used). Now that `||` is correct, `inline_audit/01_mut_param.c` and `16_same_var_args.c` regressed at -O2/-O3.
+- **Fix**: new `zero_cc_ast_assigns_to_param()` AST walker (`parser/ast_arena.h`) flags a `NODE_ASSIGN` whose target is a parameter name; such functions are now excluded from inlining (mirrors the existing `&param` exclusion).
+
+### `-S` `CMP_ZERO` was x86-hardcoded (`ir/asm_emitter.c`)
+- `OP_CMP_ZERO` (used by `!expr`, `expr==0/!=0`, and now `&&`/`||`) emitted the x86 `testq` mnemonic for **every** ISA, so aarch64/riscv `-S` output failed to assemble (`unknown mnemonic 'testq'`). Now ISA-aware: x86 `testq %r,%r`, aarch64 `cmp r,#0`, riscv `mv t0,r` (the riscv `snez`/`seqz` cond-set reads `t0`).
+
+### Verification
+- `&&`/`||` value semantics match `gcc -O2` (native x86-64): `a>5&&b>5`, `a||b`, the `while(s[n]&&n<4)` bound. AArch64 `-o` battery now **10/10** (was 9/10 — `09_strings` used `&&`).
+- `make test` **142/142**, `make test-opt` **106 ok / 0 failed**, `sret_verifier --verify-all` **6/6**, `sret_verifier --target-all` **ALL PASSED**, **0 warnings** on clean rebuild.
+
+### Notes
+- `test/jit/generic.c` in the aarch64 `-o` regression prints a **pointer address**, which differs by architecture (x86 stack vs aarch64 QEMU); the exact-match harness flags it, but the logic values match — not a regression.
+
 ## [Sprint 41] - 2026-10-20 - AArch64 (and RISC-V) Binary Output: Cross-Target `-o`/`-c` Now Work
 
 Made `zerocc --target aarch64 foo.c -o bar` produce a **correct aarch64 executable** (verified under QEMU), and `-c` a correct relocatable `.o`. The raw aarch64 binary emitter (`isa/aarch64.c`) turned out to be an incomplete **parallel** backend (wrong encodings *and* register-allocation bugs: it emitted uninitialized-register loads, a redundant `mov`+`sxtw` pair, etc.), so rather than repair ~90 hand-coded raw encodings we route cross-target output through the **complete text emitter** (`aarch64_asm.c`) + the system cross-assembler — the same pipeline `sret_verifier --target-all` already uses and cross-verifies.
@@ -25,7 +49,7 @@ Made `zerocc --target aarch64 foo.c -o bar` produce a **correct aarch64 executab
 - `make test` **142/142**, `make test-opt` **106 ok / 0 failed**, `sret_verifier --target-all` **ALL PASSED**, **0 warnings**.
 
 ### Known issues (discovered, separate)
-- **Shared logical-AND (`&&`) lowering bug** — **affects all targets, not aarch64**: `while(s[n] && n<7)` drops the `n<7` bound (computes both conditions then branches only on the first), and `a>5 && b>5` mis-evaluates. Reproduced identically on native x86-64 (e.g. `while(s[n]&&n<4)` gives `n=6` not `4`). Out of scope for the aarch64 work; tracked separately.
+- **Shared logical-AND (`&&`) lowering bug** — **affects all targets, not aarch64**: `while(s[n] && n<7)` drops the `n<7` bound, and `a>5 && b>5` mis-evaluates. Reproduced identically on native x86-64 (e.g. `while(s[n]&&n<4)` gives `n=6` not `4`). **Fixed in the Sprint 41 entry above** (`&&`/`||` lowering + the inliner param-write bug it exposed).
 - **The raw aarch64 binary emitter** (`isa/aarch64.c`) is still incomplete (register-allocation + control-flow bugs beyond `emit_extend`) and is now **bypassed** by `-o`/`-c` for aarch64/riscv; only the JIT path would still reach it.
 
 ## [Sprint 41] - 2026-10-20 - Full Warning Cleanup (0 on clean rebuild) + Latent Bug Fixes

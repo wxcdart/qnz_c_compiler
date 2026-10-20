@@ -263,4 +263,41 @@ bool zero_cc_ast_addr_of_param(ZeroCCASTArena *arena, ASTRef root,
     return zero_cc_ast_addr_of_param_impl(arena, root, 0, param_names, (size_t)param_count);
 }
 
+/* True if the body assigns to a value parameter (x = ... / x op= ...).
+ * Inlined parameters bind to the caller's argument virtual registers; a write
+ * to a parameter has no matching stack slot, so the store is dropped while a
+ * later read of the parameter still sees the original argument -- e.g.
+ * `int bump(int x){ x += 100; return x*2; }` inlined as `v*2` (the `+100` vanishes,
+ * Sprint 41). Such functions must not be inlined. (Increment/decrement are not
+ * supported, so NODE_ASSIGN covers every write form. */
+static bool zero_cc_ast_assigns_to_param_impl(ZeroCCASTArena *arena, ASTRef ref, int depth,
+                                              const char *param_names[], size_t param_count) {
+    if (!arena || ref == AST_NULL || depth > 128) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (n->tag == NODE_ASSIGN && n->left != AST_NULL) {
+        ZeroCCASTNode *lhs = zero_cc_ast_get(arena, n->left);
+        if (lhs && lhs->tag == NODE_IDENT && lhs->s.str) {
+            for (size_t p = 0; p < param_count; p++) {
+                if (param_names[p] && strcmp(lhs->s.str, param_names[p]) == 0) return true;
+            }
+        }
+    }
+    if (n->left != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->left, depth + 1, param_names, param_count)) return true;
+    if (n->right != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->right, depth + 1, param_names, param_count)) return true;
+    if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
+        if (n->aux.alt != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->aux.alt, depth + 1, param_names, param_count)) return true;
+    } else if (n->tag == NODE_FOR) {
+        if (n->aux.step != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->aux.step, depth + 1, param_names, param_count)) return true;
+        if (n->aux.alt != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->aux.alt, depth + 1, param_names, param_count)) return true;
+    }
+    if (n->next != AST_NULL && zero_cc_ast_assigns_to_param_impl(arena, n->next, depth + 1, param_names, param_count)) return true;
+    return false;
+}
+bool zero_cc_ast_assigns_to_param(ZeroCCASTArena *arena, ASTRef root,
+                                  const char *param_names[], int param_count) {
+    if (param_count <= 0) return false;
+    return zero_cc_ast_assigns_to_param_impl(arena, root, 0, param_names, (size_t)param_count);
+}
+
 #endif /* ZERO_CC_PARSER_AST_ARENA_H */

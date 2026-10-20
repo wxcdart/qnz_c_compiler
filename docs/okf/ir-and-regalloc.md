@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-20T02:08:16Z
+timestamp: 2026-10-20T22:06:45Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -21,6 +21,10 @@ Each `Instr` in `c->ir_arena` has:
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
+
+### Logical `&&` / `||` Lowering (Sprint 41)
+
+`NODE_BINOP` with `TK_LOGAND`/`TK_LOGOR` lowers to a **straight-line** sequence (no embedded branches): each operand is tested with `OP_CMP_ZERO`+`OP_COND_SET(CC_NE)` to a 0/1 temp, then combined with `OP_AND`/`OP_OR` — i.e. `a&&b = (a!=0) & (b!=0)`, `a||b = (a!=0) | (b!=0)`, matching C's 0/1 result. It was previously missing from the `NODE_BINOP` dispatch and fell through to the `default` arm, which returned only the **left** operand (dropping the right operand's comparison — the `while(s[n]&&n<7)` over-run). Straight-line form is deliberate: a branch-based short-circuit (both operands + embedded `je`/`jmp` + labels, as `NODE_TERNARY` uses) confuses the -O2/-O3 CSE/GVN/LICM passes. **Limitation**: no short-circuit, so the right operand is always evaluated (`p && *p` with `p==NULL` still derefs).
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

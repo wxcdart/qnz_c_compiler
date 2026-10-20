@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-20T21:09:55Z
+timestamp: 2026-10-20T22:06:45Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -78,6 +78,10 @@ When taking the address of a function (`fn` or `&fn` assigned to a function poin
 `OP_JE`/`OP_JNE` carry a **condition temp** (the result of `OP_COND_SET` or a 0/1 value), not raw flags. The x86-64 emitter lowers them as `test reg, reg` + `je`/`jne` — i.e. **jump when the temp is zero / non-zero**. Consequences:
 - "jump if condition TRUE" requires `ir_emit_jne(cond_temp, label)`; "jump if FALSE" uses `ir_emit_je` (as in `lower_stmt_if`, where the JE target is the *else* branch and the then-branch is the fallthrough).
 - Dispatch chains (e.g. `switch` in `lower_stmt_switch`) must use `ir_emit_jne(flag, case_label)`.
+
+## `OP_CMP_ZERO` Is ISA-Specific in the `-S` Path
+
+`OP_CMP_ZERO` (sets the condition for a following `OP_COND_SET`; used by `!expr`, `expr==0/!=0`, and `&&`/`||`) has **ISA-dependent** emission in `asm_emitter.c` (Sprint 41: it was x86-hardcoded `testq`, which broke aarch64/riscv `-S`): x86-64 `testq %r,%r`, aarch64 `cmp r,#0` (NZCV for the next `cset`), riscv `mv t0,r` (the riscv `snez`/`seqz` cond-set reads the `t0` scratch, same convention as `emit_cmp_asm`'s `sub t0,a,b`). The x86-64 JIT/AOT binary path handles `OP_CMP_ZERO` in its own MC emitter and is unaffected.
 
 ## Global Data Reloc Patching (JIT)
 

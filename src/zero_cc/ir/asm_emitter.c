@@ -360,11 +360,20 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
-        /* CMP_ZERO: test reg, reg (mirrors the MC emitter) - sets ZF/SF for
-         * the following OP_COND_SET. Used by !expr / expr==0 / expr!=0. */
+        /* CMP_ZERO: compare reg against 0 - sets the condition for the
+         * following OP_COND_SET. Used by !expr / expr==0 / expr!=0 / && / ||.
+         * ISA-specific: x86 `testq`, aarch64 `cmp r,#0` (flags for cset),
+         * riscv `mv t0,r` (cond_set reads t0). (Sprint 41: was x86-hardcoded
+         * `testq`, which broke aarch64/riscv -S output. */
         case OP_CMP_ZERO: {
             const char *r = BE(c)->get_hw_reg_name(phys_src1);
-            fprintf(out, "\ttestq\t%%%s,%%%s\n", r, r);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tcmp\t%s, #0\n", r);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tmv\tt0, %s\n", r);
+            } else {
+                fprintf(out, "\ttestq\t%%%s,%%%s\n", r, r);
+            }
             return;
         }
             

@@ -520,6 +520,33 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_BINOP: {
+            /* Logical AND (&&) / OR (||): compute (left != 0) and (right != 0)
+             * as 0/1 integers, then combine with bitwise & / |. Straight-line
+             * (no embedded branches) so it stays safe under the -O2/-O3 optimizer
+             * passes. Result is a 0/1 integer, matching C. (Sprint 41) Previously
+             * these fell through to the default arm, which returned only the LEFT
+             * operand -- e.g. `a && b > 5` was parsed as `(a && b) > 5` and lowered
+             * to just `a`, dropping the `b > 5` (and the `while(s[n] && n<7)` bound).
+             * Known limitation: no short-circuit, so the right operand is always
+             * evaluated (`p && *p` with p==NULL still derefs p). */
+            if (node->aux.op == TK_LOGAND || node->aux.op == TK_LOGOR) {
+                int result_temp = c->next_temp_id++;
+                int lt = c->next_temp_id++;
+                int rt = c->next_temp_id++;
+                int lc = lower_expr(c, arena, node->left);
+                ir_emit_cmp_zero(lc);
+                ir_emit_cond_set(lt, CC_NE);                 /* lt = (a != 0) */
+                int rc = lower_expr(c, arena, node->right);
+                ir_emit_cmp_zero(rc);
+                ir_emit_cond_set(rt, CC_NE);                 /* rt = (b != 0) */
+                if (node->aux.op == TK_LOGAND)
+                    ir_emit_and(result_temp, lt, rt);        /* a && b = (a!=0) & (b!=0) */
+                else
+                    ir_emit_or(result_temp, lt, rt);         /* a || b = (a!=0) | (b!=0) */
+                c->last_expr_is_float = 0;
+                return result_temp;
+            }
+
             /* Evaluate left operand first */
             int left_temp = lower_expr(c, arena, node->left);
             bool left_is_float = c->last_expr_is_float;

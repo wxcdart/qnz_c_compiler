@@ -539,6 +539,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     for (size_t p = 0; p < fn->param_count && p < 8; p++) names[p] = fn->param_names[p];
                     if (zero_cc_ast_addr_of_param(&arena, body, names, (int)fn->param_count))
                         inline_ok = false;
+                    /* (Sprint 41) A write to a value param (x = / x op=) has no
+                     * stack slot in the inlined body, so the store is dropped and
+                     * later reads see the stale argument. Do not inline such fns. */
+                    if (inline_ok && zero_cc_ast_assigns_to_param(&arena, body, names, (int)fn->param_count))
+                        inline_ok = false;
                 }
                 if (inline_ok) {
                     ASTRef cloned_body = zero_cc_ast_clone(&arena, body, tu_arena);
