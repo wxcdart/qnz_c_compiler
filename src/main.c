@@ -42,6 +42,7 @@ typedef struct {
     int define_macros[10]; /* -D (placeholder) */
     int define_count;
     int dump_ir;          /* -dump-ir */
+    int dump_cfg;         /* -dump-cfg */
     int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
     const char *libs[32]; /* -l<lib> */
@@ -137,6 +138,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-dump-ir") == 0) {
             opts->dump_ir = 1;
+        }
+        else if (strcmp(arg, "-dump-cfg") == 0) {
+            opts->dump_cfg = 1;
         }
         else if (strcmp(arg, "--profile-opts") == 0) {
             opts->profile_opts = 1;
@@ -341,6 +345,11 @@ static int compile_jit(CompileOptions *opts) {
         comp->dump_ir = 1;
     }
     
+    /* Enable CFG dump if requested (Sprint 35 Phase 2) */
+    if (opts->dump_cfg) {
+        comp->dump_cfg = 1;
+    }
+    
     /* Enable optimization profiling if requested */
     if (opts->profile_opts) {
         opt_profile_enable(1);
@@ -527,6 +536,11 @@ static int compile_object(CompileOptions *opts) {
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
         comp->dump_ir = 1;
+    }
+    
+    /* Enable CFG dump if requested (Sprint 35 Phase 2) */
+    if (opts->dump_cfg) {
+        comp->dump_cfg = 1;
     }
     
     /* Enable assembly emission if requested */

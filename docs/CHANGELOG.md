@@ -1,5 +1,23 @@
 # ZeroCC Changelog
 
+## [Sprint 35 Phase 2] - 2026-10-20 - CFG Layer
+
+### Added
+- **CFG layer (`src/zero_cc/opt/cfg.{h,c}`)**: a view over the flat, non-SSA IR providing basic blocks (contiguous `[start,end)` ranges; leaders = instruction 0, every `OP_LABEL`, and the instruction after any terminal `JMP/JE/JNE/JL/JLE/JG/JCOND/RET/EPILOGUE`), successor/predecessor lists, BFS reachability from entry, and back-edge/loop-header detection (`blocks[v].start <= blocks[u].start`, the natural-loop convention the legacy passes already use).
+  - **Lazy cache with explicit invalidation**: `ZeroCCCFG cfg_cache` + `uint64_t cfg_version` on `ZeroCCCompiler`. `cfg_build()` rebuilds only on version mismatch; the version is bumped in `ir_reset()` (per function), after **every** optimizer pass (`opt_pass.c` — passes may rewrite the IR in place), and after the two in-place lowering mutations (callee-save append, x86 float-CC remap). Not built at `-O0` unless requested. The CFG is a pure read-only view — it never writes to the `IRArena`.
+- **`-dump-cfg`** (in `main.c`, both AOT and JIT paths): stable plain-text dump, one line per block — `fn main` / `bb1: [4..10] succ=bb8,bb2 pred=bb0,bb7 loop_header=1` / `loops:` section (`bb7->bb1`) / `N blocks, M reachable, K loops` summary.
+- **`tools/cfg_verifier.py`** (stdlib-only, `mem2reg_verifier.py` conventions): one `zerocc -dump-ir -dump-cfg` run per test, then an **independent Python recomputation** of blocks and natural loops from the IR dump (separate code, shared opcode rules only) cross-checked against the C-side report: block tiling, jump-target-is-block-start, pred/succ mutual consistency, reachability, and C-vs-Python loop-set equality as `(header_pos, from_pos)` pairs. Modes: `--verify-all` (sweep corpus + `test/cfg`), `--file`, `--dot` text export, `--opt`.
+- **CFG unit tests (`test/cfg/`)**: `straight.c`, `if_else.c`, `nested_loops.c` (2 nested back-edges), `goto_mix.c`, `switch_case.c`, `ternary_in_loop.c`.
+
+### Notes
+- **No `OP_EPILOGUE` exists in the IR**: the epilogue is the final `CALLEE_SAVE_LOADS` block; `leave`/`ret` are emitted by the backend outside the IR, so the last block legitimately has no successors (handled, not an error).
+- **Unreachable blocks are warnings, not failures**: lowering emits unreachable tails after `return`s and orphaned constant blocks (present at `-O0`, i.e. a codegen property, not a CFG-layer defect). The verifier still hard-fails a block that has a *reachable* predecessor yet is reported unreachable, and any tiling/consistency/loop-set mismatch.
+- The 63 corpus tests the verifier SKIPs are exactly the non-standalone API/header-dependent tests the `opt_sweep.py` AOT phase also cannot compile (verified identical sets; pre-existing frontend gaps such as `__attribute__` support, unrelated to the CFG layer).
+
+### Verification
+- `cfg_verifier.py --verify-all`: **0 failed** (48 verifiable functions across 48 standalone programs; 63 skips; 100 unreachable-block warnings). Negative tests confirm detection of tiling breaks, pred/succ breaks, and loop-set mismatches.
+- `make test-opt` **105/105** · `make test` **141/141** · `mem2reg_verifier.py` **12/12** · `sret_verifier.py` **6/6** · `okf.py lint` PASS.
+
 ## [Sprint 35 Phase 1] - 2026-10-20 - Inlining Audit & Conservative Candidate Filters
 
 ### Added

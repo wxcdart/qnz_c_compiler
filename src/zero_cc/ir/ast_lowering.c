@@ -160,6 +160,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         ir_emit_callee_save_loads(callee_save_mask);
     }
     
+    /* Callee-save IR append (Phase D) mutated the IR: invalidate CFG cache. */
+    c->cfg_version++;
+    
     /* x86 float-compare CC remap (C12): on this host class (WSL2),
      * comisd/ucomisd sets CF/ZF but NOT SF/OF, so the signed condition
      * codes (setl/setle/setg/setge) misfire on float compares while
@@ -182,6 +185,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 }
             }
         }
+        /* In-place IR mutation: invalidate the cached CFG (Phase 2). */
+        c->cfg_version++;
     }
     
     live_range_free(&lra);
@@ -243,6 +248,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         } else {
             fprintf(stderr, "DEBUG: No functions found!\n");
         }
+    }
+    
+    /* Debug: Dump CFG if requested (Sprint 35 Phase 2) */
+    if (c->dump_cfg) {
+        cfg_dump(stderr);
+        fprintf(stderr, "\n");
     }
     
     /* Clear IR buffer for next function */

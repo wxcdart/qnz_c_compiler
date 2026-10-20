@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-19T23:13:46Z
+timestamp: 2026-10-20T00:46:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -79,8 +79,16 @@ Note that `build/test/abi/*` binaries built by `make all` are compiled by the ho
 Active verification suites live at the top level of `tools/` (historical one-off debugging scripts are archived in `tools/archive/`):
 
 ```bash
-# Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (88 tests)
+# Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (105 tests)
 make test-opt
+
+# Verify the CFG layer (-dump-cfg) against an independent Python recomputation
+# of blocks/loops from -dump-ir: tiling, jump targets, pred/succ consistency,
+# reachability, C-vs-Python loop-set equality. Skips non-standalone tests.
+python3 tools/cfg_verifier.py --verify-all
+
+# Dump a function's CFG (stable plain text: blocks, succ/pred, loop headers)
+./build/bin/zerocc -dump-cfg -O0 test/cfg/nested_loops.c -o /tmp/x
 
 # Run C11 feature & concurrency verification suite (11/11 tests: _Alignas, _Alignof, anonymous structs/unions, _Generic, _Static_assert, atomics, <threads.h>)
 python3 tools/c11/test_c11.py --verbose

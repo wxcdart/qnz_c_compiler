@@ -44,6 +44,12 @@ void ir_reset(void) {
     if (call_arena && call_arena->table) {
         call_arena->count = 0;
     }
+
+    /* A new function's IR invalidates any cached CFG (Sprint 35 Phase 2). */
+    if (g_compiler) {
+        g_compiler->cfg_version++;
+        g_compiler->cfg_cache.valid = false;
+    }
 }
 
 /* Get instruction count */

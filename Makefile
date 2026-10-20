@@ -52,6 +52,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_profile.o \
 	src/zero_cc/opt/opt_loop.o \
 	src/zero_cc/opt/opt_vectorize.o \
+	src/zero_cc/opt/cfg.o \
 	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/aarch64.o \

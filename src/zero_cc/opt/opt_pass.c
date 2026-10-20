@@ -8,7 +8,9 @@
 #include "opt_gvn.h"
 #include "opt_copy_prop.h"
 #include "opt_profile.h"
+#include "cfg.h"
 #include "../ir/ir.h"
+#include "../types/symbols.h"
 
 static OptLevel g_opt_level = OPT_LEVEL_NONE;
 
@@ -69,6 +71,11 @@ void opt_run_passes(ZeroCCCompiler *c) {
             int before_count = (int)ir_get_count();
             pass->run(c);
             int after_count = (int)ir_get_count();
+
+            /* The pass may have rewritten the IR in place (DCE compaction,
+             * mem2reg forwarding, LICM rebuild): invalidate the cached CFG
+             * (Sprint 35 Phase 2). */
+            c->cfg_version++;
 
             if (before_count != after_count) {
                 changed = 1;

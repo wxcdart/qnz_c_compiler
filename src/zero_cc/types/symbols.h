@@ -16,6 +16,7 @@
 #include "../ir/label_patcher.h"
 #include "../ir/ir_arena.h"
 #include "../opt/opt_pass.h"
+#include "../opt/cfg.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCCompiler {
@@ -112,8 +113,15 @@ typedef struct ZeroCCCompiler {
     
     /* Debug flags */
     bool dump_ir;  /* Dump IR after lowering */
+    bool dump_cfg; /* Dump CFG after lowering (-dump-cfg) */
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
+
+    /* CFG layer cache (Sprint 35 Phase 2): lazily built view over the IR,
+     * invalidated whenever cfg_version is bumped (ir_reset, optimizer
+     * passes, callee-save append). */
+    ZeroCCCFG cfg_cache;
+    uint64_t cfg_version;
 
     /* Optimization level (from -O flag) */
     OptLevel opt_level;

@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-19T23:13:46Z
+timestamp: 2026-10-20T00:46:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -77,11 +77,21 @@ ZeroCC intentionally uses Poletto & Sarkar's Linear-Scan Register Allocation alg
    - In production compiler design, the register allocator is not meant to rescue poor intermediate representation. Hot inner loops typically require only 3 to 6 simultaneously live variables (induction variables, accumulators, loop bounds).
    - The responsibility of keeping loop variables off the stack belongs to the **frontend and IR optimization passes** (`mem2reg`, `licm`). Once `mem2reg` promotes stack slots into virtual register temporaries, the linear-scan allocator naturally places them into physical registers with zero spills.
 
+## CFG Layer (`src/zero_cc/opt/cfg.{h,c}`, Sprint 35 Phase 2)
+
+The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`OP_JMP`). Sprint 35 Phase 2 added a **lazily-built, cached CFG view** over the `Instr` array (a pure read-only view — it never writes to the `IRArena`):
+
+- **Blocks**: contiguous `[start,end)` instruction ranges. Leaders: instruction 0, every `OP_LABEL`, and the instruction after any terminal `JMP/JE/JNE/JL/JLE/JG/JCOND/RET/EPILOGUE`. Blocks tile the IR exactly once.
+- **Edges**: successors from each block's last instruction (explicit label target + fallthrough for conditional branches; `RET`/`EPILOGUE` have none); predecessor lists derived. Note zerocc emits **no `OP_EPILOGUE` instruction** — the epilogue is the final `CALLEE_SAVE_LOADS` block, and `leave`/`ret` are emitted by the backend outside the IR, so the last block legitimately has no successors.
+- **Reachability**: BFS from block 0. Lowering emits unreachable tails after `return`s and orphaned constant blocks (a codegen property, present at `-O0`), so unreachable blocks are *reported*, not an invariant.
+- **Loops**: an edge `u->v` is a backedge iff `blocks[v].start <= blocks[u].start` (the natural-loop convention the legacy passes already use); `v` is marked `is_loop_header`. Multiple natural loops may share one header (the Sprint 33 LICM bug class).
+- **Caching & invalidation**: `ZeroCCCFG cfg_cache` + `uint64_t cfg_version` on `ZeroCCCompiler`; `cfg_build()` rebuilds only on version mismatch. The version is bumped in `ir_reset()` (per function), after **every** optimizer pass (`opt_pass.c` — passes may rewrite the IR in place), and after the in-place lowering mutations (callee-save append, x86 float-CC remap). Not built at `-O0` unless requested (`-dump-cfg`).
+- **`-dump-cfg`**: stable plain-text dump — `fn main` / `bb1: [4..10] succ=bb8,bb2 pred=bb0,bb7 loop_header=1` / `loops:` section / `N blocks, M reachable, K loops` summary. Verified by `tools/cfg_verifier.py` (independent Python recomputation of blocks/loops from `-dump-ir`, cross-checked against the C report; see [Build & Verification](./build-and-verification.md)).
+- **Phase 3 uses this**: mem2reg loop promotion, LICM loop detection, and the vectorizer body check are the first passes to be migrated off their private `label_to_idx`/pre-scan re-derivations onto the CFG. Full plan & phases: [Development Plan §10](../ZEROCC_Development_Plan.md).
+
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 
-The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`OP_JMP`), no basic blocks/CFG/dominators, temps assigned more than once (ternaries, inlined branches, loop-carried `OP_MOV_REG`), physical registers 0-15 living in the temp namespace, no type tag, and call arguments in an `instr_index`-keyed side table. Each pass re-derives control-flow facts itself (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span matching in the vectorizer); this is the shared root of the LICM multi-definition bug and the vectorizer residuals.
-
-**Decision (2026-10-19): add a lazily-built CFG view over the `Instr` array first; defer SSA.** Plan and phases: [Development Plan §10](../ZEROCC_Development_Plan.md). Unmeasured claims (e.g. JIT-vs-GCC compile speed) must be re-measured before being relied on.
+The IR is a flat, non-SSA linear array with implicit control flow, temps assigned more than once (ternaries, inlined branches, loop-carried `OP_MOV_REG`), physical registers 0-15 living in the temp namespace, no type tag, and call arguments in an `instr_index`-keyed side table. A CFG view now exists (above); **dominators and out-of-SSA are not implemented** — the per-pass re-derivation of control-flow facts (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span matching in the vectorizer) remains until the Phase 3 migration onto the CFG. Unmeasured claims (e.g. JIT-vs-GCC compile speed) must be re-measured before being relied on.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
