@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-19T23:13:46Z
+timestamp: 2026-10-20T03:21:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -118,6 +118,16 @@ Conversion between integers and scalar floating-point values is supported across
 When `-S` is invoked, `emit_asm_data_sections()` emits all global symbols, alignments, initialized data bytes, and relocations:
 - `.rodata` for string literals and floating-point constants.
 - `.data` section emitting `.globl` directives, `.p2align` / `.align`, labels, initialized bytes, and `.quad` relocations pointing to `.rodata` string literals or other globals (`target_kind = 0/1`).
+
+## `-S` In-Place ALU Opcode Coverage (Sprint 40)
+
+`ir/asm_emitter.c` (the `-S` switch) previously fell through to a `# UNKNOWN` comment for `OP_ADD_IMM`, `OP_SUB_IMM`, `OP_INC`, `OP_DEC`, `OP_NOT`, and `OP_LNOT` — any `-S` output containing them (e.g. `return ~a;` at `-O0`) was silently wrong while the `-o` ELF path (MC lowering) handled them fine. Sprint 40 added emitters on all three backends (new vtable slots `emit_add_imm_asm` / `emit_sub_imm_asm` / `emit_inc_asm` / `emit_dec_asm` / `emit_not_asm` in `isa_backend.h`):
+- **x86-64**: `addq $imm, %d` / `subq $imm, %d` / `incq %d` / `decq %d` / `notq %d`; `OP_LNOT` composes the existing emitters (`testq %s,%s` + `sete` + `movzbq`).
+- **AArch64**: `add d, #imm` / `sub d, #imm` / `add d, #1` / `sub d, #1` / `mvn d, s`.
+- **RISC-V**: `addi d, d, imm` / `addi d, d, -imm` / `addi d, d, ±1` / `xori d, d, -1`.
+- **In-place NOT semantics**: `x86` and `riscv` emit `mv dst, src` (or the `xori`/`mvn` two-operand form on AArch64) when the allocator picked `dst != src`, mirroring the MC emitters (`x86_emit_not` in `x86_64.c`) — the first attempt that omitted the copy read a garbage register and only surfaced in `-S` execution.
+- Note: the Sprint 39 documentation listed `OP_SUB_INC`/`OP_ADD_INC` in this gap — those opcodes do not exist in the 127-opcode enum; the real list is the six above. `ir_emit_inc/dec/add_imm/sub_imm` had no lowering callers pre-Sprint 40 (in-place `i++` lowers to plain `ADD`/`SUB`), so the gap was latent until the emitters landed.
+- Verified: 0 `# UNKNOWN` comments across the 79-test `test/jit` `-S` corpus; all assemblable standalone outputs compile with `gcc -c` (16/16).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

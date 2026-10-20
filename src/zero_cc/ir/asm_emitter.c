@@ -275,6 +275,49 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* In-place ALU ops (Sprint 40: previously fell through to the
+         * `# UNKNOWN` default, making -S output silently wrong). */
+        case OP_ADD_IMM:
+            if (BE(c)->emit_add_imm_asm) {
+                BE(c)->emit_add_imm_asm(c, phys_dst, instr->imm, out);
+            }
+            return;
+
+        case OP_SUB_IMM:
+            if (BE(c)->emit_sub_imm_asm) {
+                BE(c)->emit_sub_imm_asm(c, phys_dst, instr->imm, out);
+            }
+            return;
+
+        case OP_INC:
+            if (BE(c)->emit_inc_asm) {
+                BE(c)->emit_inc_asm(c, phys_dst, out);
+            }
+            return;
+
+        case OP_DEC:
+            if (BE(c)->emit_dec_asm) {
+                BE(c)->emit_dec_asm(c, phys_dst, out);
+            }
+            return;
+
+        case OP_NOT:
+            if (BE(c)->emit_not_asm) {
+                BE(c)->emit_not_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+
+        /* Logical NOT: test src,src + setcc EQ + movzbq - mirrors the MC
+         * emitter (OP_LNOT in ast_lowering_mc.c). */
+        case OP_LNOT: {
+            const char *r = BE(c)->get_hw_reg_name(phys_src1);
+            fprintf(out, "\ttestq\t%%%s,%%%s\n", r, r);
+            if (BE(c)->emit_cond_set_asm) {
+                BE(c)->emit_cond_set_asm(c, phys_dst, CC_EQ, out);
+            }
+            return;
+        }
+
         /* In-place width extension: dst is the value register, src is its
          * (expected identical) physical register. */
         case OP_SEXT8:

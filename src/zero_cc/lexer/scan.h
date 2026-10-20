@@ -346,8 +346,22 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
 
     bool has_fp = false;
     if (endptr_d && endptr_d != parse_str) {
+        /* Hex literals: 'e'/'E' are ordinary hex DIGITS, not exponent
+         * markers.  Per C99 6.4.4.2 a hex literal is a floating
+         * constant only when it has a '.' or a p/P exponent; `0x123456789ABCDEFLL`
+         * is a long long, not a hex float.  The pre-fix naive scan saw
+         * the 'E' digit and took the float path, consuming one 'L' as a
+         * long-double suffix and leaving the second 'L' dangling (parse
+         * error) or storing a double in an int. */
+        bool is_hex_lit = (parse_str[0] == '0' &&
+                           (parse_str[1] == 'x' || parse_str[1] == 'X'));
         for (char *q = (char*)parse_str; q < endptr_d; q++) {
-            if (*q == '.' || *q == 'e' || *q == 'E' || *q == 'p' || *q == 'P') {
+            if (*q == '.') {
+                has_fp = true;
+                break;
+            }
+            if ((is_hex_lit && (*q == 'p' || *q == 'P')) ||
+                (!is_hex_lit && (*q == 'e' || *q == 'E'))) {
                 has_fp = true;
                 break;
             }

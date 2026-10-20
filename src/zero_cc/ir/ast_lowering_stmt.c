@@ -52,13 +52,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
     if (node->flags & NODE_DECL_IS_VLA) {
         /* Variable Length Array (C99 VLA) - enforce hybrid rules */
         
-        /* Rule 1: Only one VLA per function */
-        if (c->lowering.vla.has_runtime_vla) {
-            diag_report_error_at_token(c, "Only one VLA allowed per function (hybrid VLA rule)");
-            return;
-        }
+        /* Rule 1: multiple VLAs per function are supported (Sprint 40):
+         * each VLA emits its own OP_VLA_ALLOC (sub rsp, aligned-size;
+         * mov ptr, rsp) and stores the pointer in its own local slot;
+         * `leave` in the epilogue unwinds all of them. The legacy
+         * one-VLA-per-function restriction is lifted. */
         c->lowering.vla.has_runtime_vla = true;
-        c->lowering.vla.vla_count = 1;
+        c->lowering.vla.vla_count++;
         
         /* Rule 2: VLA must be at function scope (block_depth == 1) */
         if (c->lowering.vla.block_depth > 1) {

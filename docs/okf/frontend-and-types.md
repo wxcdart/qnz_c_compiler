@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-20T02:08:16Z
+timestamp: 2026-10-20T03:21:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -73,6 +73,25 @@ Multi-dimensional fixed arrays (e.g. `int a[2][3]`, `b[2][2][2]`) and matrix-sha
 - **`NODE_INDEX` lowering & pointer decay** (`src/zero_cc/ir/ast_lowering_expr.c`): when an indexing expression indexes an array whose element type is itself an array (e.g. `a[i]` in `a[i][j]`) or a struct/union (`p[i][j]` in `p[i][j].x`), `NODE_INDEX` decays to the element's base address (`addr_temp`) without emitting intermediate load instructions (`LOAD_32`, `VLOADSS`, etc.). Chained indexing multiplies outer dimensions by the full row stride (`dim1 * ... * dimK * sizeof(elem)`).
 - **Member assignment on index lvalues** (`src/zero_cc/ir/ast_lowering_expr.c`): `NODE_ASSIGN` with `NODE_MEMBER` LHS supports non-identifier base expressions (`p[i][j].x = val`), storing directly through the evaluated address pointer rather than assuming a stack-relative offset.
 - **Auto-Vectorization Invariant** (`src/zero_cc/opt/opt_vectorize.c`): the loop vectorizer restricts analysis to innermost loops (loops with no inner backedges) to avoid misclassifying reduction sums or multi-loop matrix kernels as parallel SIMD loops without horizontal reduction.
+
+## Array Parameters, N-D Initializers & Declarator Completeness (Sprint 40)
+
+- **Array parameter adjustment** (C99 6.7.6.3p7, `src/zero_cc/jit/compile.h`): a parameter declared `T x[...]` has its OUTERMOST array dimension adjusted to a pointer; remaining dimensions form the pointed-to array type — `int f(int x[])` → `int *x`, `int f(int m[][4])` → `int (*)[4]` (a `TYPE_PTR` whose base is `TYPE_ARRAY(int, 4)`). Pre-Sprint 40 the `[...]` suffixes were skipped and the parameter kept its element type, so the pointer argument was sign-extended as a 32-bit int (`movslq`) and truncated at runtime (wrong values or segfaults on `m[i][j]` through the parameter). Only the first dimension token may become the pointer: wrapping each dimension in a pointer (`int**` for `int m[][4]`) is the documented first-attempt bug.
+- **Flattened brace-initializer placement** (`src/zero_cc/ir/ast_lowering_expr.c`): the parser's `parse_brace_init_list_ast` splices nested brace lists into a single leaf-level chain (`int m[2][4] = {{1,2,3,4},{5,6,7,8}}` becomes 8 int nodes). The compound-literal lowering therefore places each positional element by **C-layout leaf index**: `object_count_scalar_leaves` counts the scalar leaves of one object (arrays recurse `array_len × leaves(base)`; structs sum member leaves, mirroring `struct_resolve_scalar_leaf`'s array-member counting), and `object_resolve_scalar_leaf` maps leaf index → (offset, size) for 1-D, N-D, and struct members (mixed widths included). Pre-Sprint 40 the element k went to `k * base_size` — correct only for 1-D arrays of scalars (`int m[2][4]` stored element 1 at byte 16; `struct P v[2]` stored each int 16 bytes apart). Designated `[idx] =` maps element idx to the element's first leaf; unresolvable layouts fall back to the legacy `base_size` stride. The whole object is zero-initialized first, so unfilled slots stay 0 (C semantics). 2-level array designators (`[0][2] =`) are not parsed (single-level only).
+- **Multi-declarator arrays** (`src/zero_cc/parser/ast_stmt.h`): `float a[n], b[n];` — every declarator in a declaration parses its own `[...]` dimensions and VLA info (pre-Sprint 40 only the first declarator's dimensions were parsed, so later declarators were mis-typed). Function parameter lists follow the array-parameter rule above.
+- **Multiple VLAs per function** (`src/zero_cc/ir/ast_lowering_stmt.c`): the `Only one VLA allowed per function` restriction is gone — each VLA increments `vla_count`; the remaining rules (function scope, not inside loops) are unchanged.
+
+## FP Conditional Expressions (Sprint 40)
+
+`cond ? fa : fb` with float/double arms is correct at every -O level (JIT + AOT):
+- The result temp is **defined by `OP_FMOV`** when either arm is FP — a temp's register class is derived from its defining opcode (`live_range.h`: FP op → XMM), so a GPR `MOV_REG` into an XMM-class temp is a class conflict. Pre-Sprint 40 the ternary always emitted `MOV_REG` and marked the result non-float: the caller read an uninitialized GPR and a trailing `(int)` cast lowered to `OP_SEXT32` instead of `OP_CVTTSD2SI`.
+- **Mixed int/FP arms** follow the C usual arithmetic conversion: the int arm is `cvtsi2sd`'d before the `OP_FMOV`, in both directions (`c ? 7 : 2.5` and `c ? 1.5 : 0`).
+- **Emission-order constraint**: the then-arm move is emitted before the else arm is lowered, so the else arm's floatness is predicted by `ast_expr_is_fp` (conservative AST probe: float literals, FP casts via `ast_node_get_typeinfo`, FP-typed idents/calls, FP binops — comparisons and `!` yield int; unknown shapes return 0, keeping the int path rather than over-converting). The final `last_expr_is_float` uses `then_fp || else_fp || else_may_be_fp`.
+- The branchless pass (`opt_branchless.c`) still rejects FP arms (GPR guard) - unaffected.
+
+## Hex Literal Classification (Sprint 40)
+
+`lexer/scan.h` (`zero_cc_scan_number`): a hex literal (`0x…`) is classified as a floating constant **only when the consumed prefix contains `.` or a `p`/`P` exponent** (C99 6.4.4.2 - `0x1.8p1`, `0x1.Fp0`). In a hex literal `e`/`E` are ordinary hex DIGITS, not exponent markers. The pre-Sprint 40 scan treated `E` as an exponent, so `0x123456789ABCDEFLL` (and any hex literal containing an `E`/`e` digit) was lexed as a hex float: one `L` was consumed as a long-double suffix, the second was left dangling (parse error), or a double bit-pattern was stored in an int (the root cause of the Sprint 39 "64-bit literals > 32 bits miscompile" finding in ternary arms and XOR operands). Decimal literals keep the `.`/`e`/`E` float test (`1e2` is still a double); binary literals (`0b…`) are always integers. Suffix parsing (`U`/`L`/`LL`) is unchanged.
 
 ## Goto, User Labels & Switch (Implemented)
 

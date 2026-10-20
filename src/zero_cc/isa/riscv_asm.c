@@ -254,6 +254,40 @@ static void riscv_emit_neg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     fprintf(out, "\tsub\t%s, zero, %s\n", dst_name, src_name);
 }
 
+/* ADD_IMM: addi dst, dst, imm (Sprint 40: was missing from -S) */
+static void riscv_emit_add_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\taddi\t%s, %s, %ld\n", dst_name, dst_name, (long)imm);
+}
+
+/* SUB_IMM: addi dst, dst, -imm */
+static void riscv_emit_sub_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\taddi\t%s, %s, %ld\n", dst_name, dst_name, (long)(-imm));
+}
+
+/* INC: addi dst, dst, 1 */
+static void riscv_emit_inc_asm(ZeroCCCompiler *c, int dst, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\taddi\t%s, %s, 1\n", dst_name, dst_name);
+}
+
+/* DEC: addi dst, dst, -1 */
+static void riscv_emit_dec_asm(ZeroCCCompiler *c, int dst, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\taddi\t%s, %s, -1\n", dst_name, dst_name);
+}
+
+/* NOT: xori dst, src, -1 (copy src first when distinct) */
+static void riscv_emit_not_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    if (dst != src) {
+        const char *src_name = BE(c)->get_hw_reg_name(src);
+        fprintf(out, "\tmv\t%s, %s\n", dst_name, src_name);
+    }
+    fprintf(out, "\txori\t%s, %s, -1\n", dst_name, dst_name);
+}
+
 /* LEA: addi dst, base, offset */
 static void riscv_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -799,6 +833,11 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cmp_asm = riscv_emit_cmp_asm;
     be->emit_cond_set_asm = riscv_emit_cond_set_asm;
     be->emit_neg_asm = riscv_emit_neg_asm;
+    be->emit_add_imm_asm = riscv_emit_add_imm_asm;
+    be->emit_sub_imm_asm = riscv_emit_sub_imm_asm;
+    be->emit_inc_asm = riscv_emit_inc_asm;
+    be->emit_dec_asm = riscv_emit_dec_asm;
+    be->emit_not_asm = riscv_emit_not_asm;
     be->emit_lea_asm = riscv_emit_lea_asm;
     be->emit_deref_asm = riscv_emit_deref_asm;
     be->emit_call_asm = riscv_emit_call_asm;

@@ -1221,6 +1221,76 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         }
                     }
 
+                    /* Array dimensions for the 2nd..nth declarator
+                     * (Sprint 40): `float a[n], b[n];` - previously only the
+                     * first declarator parsed `[...]`, so a dimension on a
+                     * later declarator broke the parse. */
+                    size_t ndim_counts[MAX_ARRAY_DIMS];
+                    ASTRef ndim_exprs[MAX_ARRAY_DIMS];
+                    bool ndim_is_vla[MAX_ARRAY_DIMS];
+                    size_t nnum_dims = 0;
+                    bool nis_array = false;
+                    bool nhas_any_vla = false;
+
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        c->token_pos++; // consume '['
+                        nis_array = true;
+                        size_t nfixed_count = 0;
+                        ASTRef ndim_expr = AST_NULL;
+                        bool nis_dim_vla = false;
+
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                            c->token_pos++;
+                            nfixed_count = 0;
+                        } else {
+                            ndim_expr = parse_expr_ast_internal(c, arena);
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                c->token_pos++;
+                            }
+                            ZeroCCASTNode *ndim_node = zero_cc_ast_get(arena, ndim_expr);
+                            if (ndim_node && ndim_node->tag == NODE_INT && ndim_node->int_val >= 0) {
+                                nfixed_count = (size_t)ndim_node->int_val;
+                            } else {
+                                nis_dim_vla = true;
+                                nhas_any_vla = true;
+                            }
+                        }
+
+                        if (nnum_dims < MAX_ARRAY_DIMS) {
+                            ndim_counts[nnum_dims] = nfixed_count;
+                            ndim_exprs[nnum_dims] = ndim_expr;
+                            ndim_is_vla[nnum_dims] = nis_dim_vla;
+                            nnum_dims++;
+                        }
+                    }
+
+                    if (nhas_any_vla) {
+                        for (size_t d = 1; d < nnum_dims; d++) {
+                            if (ndim_is_vla[d]) {
+                                diag_report_error_at_token(c, "multi-dim VLA with runtime inner dimensions is not supported");
+                                return AST_NULL;
+                            }
+                        }
+                    }
+
+                    if (nis_array) {
+                        ZeroCCType ncur_type = next_type;
+                        for (size_t d = nnum_dims; d > 0; d--) {
+                            size_t idx = d - 1;
+                            if (ndim_is_vla[idx]) {
+                                ncur_type = zero_cc_type_array(&ncur_type, 0);
+                                ncur_type.is_vla = true;
+                                ncur_type.size = 8;
+                                ncur_type.align = 8;
+                            } else {
+                                ncur_type = zero_cc_type_array(&ncur_type, ndim_counts[idx]);
+                            }
+                            ncur_type.is_const = is_const;
+                            ncur_type.is_volatile = is_volatile;
+                        }
+                        next_type = ncur_type;
+                    }
+
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
                     ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);
                     if (!next_sym) {
@@ -1234,7 +1304,21 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     next_dn->col = col;
                     next_dn->s.str = next_vname;
                     next_dn->s.len = strlen(next_vname);
+                    if (nhas_any_vla) {
+                        next_dn->flags |= NODE_DECL_IS_VLA;
+                        next_dn->right = ndim_exprs[0]; /* outermost runtime dimension expr */
+                    }
+
+                    /* Attach type to AST node for semantic analysis */
                     decl_node_set_type(ctx, next_dn, next_ti);
+
+                    /* C99 §6.7.8 p3: VLA shall not have an initializer */
+                    if ((next_dn->flags & NODE_DECL_IS_VLA) != 0 &&
+                        c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                        diag_report_error_at_token(c,
+                            "variable length array '%s' cannot be initialized", next_vname);
+                        return AST_NULL;
+                    }
 
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                         c->token_pos++;

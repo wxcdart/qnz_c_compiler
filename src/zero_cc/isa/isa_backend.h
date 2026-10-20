@@ -88,6 +88,14 @@ typedef struct ZeroCCISABackend {
     void (*emit_cmp_asm)(ZeroCCCompiler *c, int src1, int src2, FILE *out);
     void (*emit_cond_set_asm)(ZeroCCCompiler *c, int dst, int cond, FILE *out);
     void (*emit_neg_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    /* Sprint 40: in-place ALU ops previously fell through to the
+     * `# UNKNOWN` default in asm_emitter.c (the -S output was silently
+     * wrong for any IR containing them). */
+    void (*emit_add_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
+    void (*emit_sub_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
+    void (*emit_inc_asm)(ZeroCCCompiler *c, int dst, FILE *out);
+    void (*emit_dec_asm)(ZeroCCCompiler *c, int dst, FILE *out);
+    void (*emit_not_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_lea_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_deref_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_call_asm)(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out);

@@ -41,6 +41,85 @@ static bool struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, 
     return false;
 }
 
+/* Number of scalar leaves in one object of type t (C layout order).
+ * Sprint 40: the parser flattens nested brace-initializer lists into a
+ * leaf-level chain, so initializers are placed by leaf index. */
+static size_t object_count_scalar_leaves(const ZeroCCType *t) {
+    if (!t) return 0;
+    if (t->tag == TYPE_ARRAY) {
+        if (!t->base || t->array_len == 0) return 0;
+        return t->array_len * object_count_scalar_leaves(t->base);
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        size_t n = 0;
+        for (size_t i = 0; i < t->member_count; i++) {
+            const ZeroCCStructMember *m = &t->members[i];
+            if (m->is_flexible) continue;
+            if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+                n += (m->size / m->base->size) * object_count_scalar_leaves(m->base);
+            } else if (m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) {
+                n += m->base ? object_count_scalar_leaves(m->base) : 1;
+            } else {
+                n++;
+            }
+        }
+        return n;
+    }
+    return 1;
+}
+
+/* Resolve the (offset, size) of the target_idx-th scalar leaf of one
+ * object of type t (array or struct) in C layout order.  Used by the
+ * compound-literal initializer to place flattened positional elements.
+ * Pre-Sprint-40, array initializers placed element k at k * base_size
+ * with a base_size store - correct only for 1-D arrays of scalars; a
+ * 2-D `int m[2][4]` (base_size = 16) stored element 1 at byte 16, and
+ * `struct P v[2]` (flattened to 8 ints) stored each int 16 bytes apart.
+ * Returns false when the index is out of range or the layout is
+ * unresolvable (caller falls back to the legacy behavior). */
+static bool object_resolve_scalar_leaf(const ZeroCCType *t, size_t target_idx,
+                                       size_t *out_off, size_t *out_sz) {
+    if (!t) return false;
+    if (t->tag == TYPE_ARRAY) {
+        const ZeroCCType *el = t->base;
+        if (!el || el->size == 0 || t->array_len == 0) return false;
+        if (el->tag == TYPE_ARRAY || el->tag == TYPE_STRUCT || el->tag == TYPE_UNION) {
+            size_t per = object_count_scalar_leaves(el);
+            if (per == 0 || target_idx >= t->array_len * per) return false;
+            size_t ei = target_idx / per;
+            size_t wi = target_idx % per;
+            size_t sub_off, sub_sz;
+            if (el->tag == TYPE_ARRAY) {
+                if (!object_resolve_scalar_leaf(el, wi, &sub_off, &sub_sz)) return false;
+            } else {
+                size_t ci = 0;
+                const char *flex = NULL;
+                if (!struct_resolve_scalar_leaf(el, wi, &ci, 0, &sub_off, &sub_sz, &flex))
+                    return false;
+            }
+            *out_off = ei * el->size + sub_off;
+            *out_sz = sub_sz;
+            return true;
+        }
+        /* scalar elements */
+        if (target_idx >= t->array_len) return false;
+        *out_off = target_idx * el->size;
+        *out_sz = el->size;
+        return true;
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        size_t ci = 0;
+        const char *flex = NULL;
+        return struct_resolve_scalar_leaf(t, target_idx, &ci, 0, out_off, out_sz, &flex);
+    }
+    if (target_idx == 0) {
+        *out_off = 0;
+        *out_sz = t->size ? t->size : 4;
+        return true;
+    }
+    return false;
+}
+
 /* Infer the C99 narrow-int width of an operand expression when it can be
  * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
  * pointer / non-int). Used for binop result-width marking and signed >>.
@@ -195,6 +274,70 @@ static void member_apply_compound(ZeroCCCompiler *c, int op_tok, int addr,
             default: ir_emit_mov_reg(op_res, *right_temp); break;
         }
         *right_temp = op_res;
+    }
+}
+
+/* Conservative AST probe (Sprint 40): does this expression evaluate to a
+ * float/double under the double-width scalar FP model?  Used by the
+ * ternary operator to pick the result temp's register class BEFORE the
+ * then-arm move is emitted (the else arm's class is only known after it
+ * is lowered, which happens after the then move).  Unrecognized shapes
+ * return 0 (treat as int) - a wrong 0 keeps the pre-Sprint-40 behavior
+ * (no regression) and never over-converts. */
+static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return 0;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return 0;
+    switch (n->tag) {
+        case NODE_FLOAT:
+            return 1;
+        case NODE_INT:
+        case NODE_STRING:
+        case NODE_BOOL:
+        case NODE_NULLPTR:
+            return 0;
+        case NODE_CAST: {
+            TypeInfo *ti = ast_node_get_typeinfo(c, n);
+            return ti ? type_is_floating(ti) : 0;
+        }
+        case NODE_IDENT: {
+            ZeroCCSym *s = zero_cc_find_local(c, n->s.str);
+            if (s) return s->type.tag == TYPE_FLOAT || s->type.tag == TYPE_DOUBLE;
+            ZeroCCGlobalVar *g = find_global_var(n->s.str);
+            if (g) return g->type.tag == TYPE_FLOAT || g->type.tag == TYPE_DOUBLE;
+            return 0;
+        }
+        case NODE_BINOP: {
+            if (ast_expr_is_fp(c, arena, n->left)) return 1;
+            switch (n->aux.op) {
+                case TK_EQ: case TK_NE: case TK_LT: case TK_LE:
+                case TK_GT: case TK_GE:
+                    return 0;  /* comparisons yield int */
+                default:
+                    return ast_expr_is_fp(c, arena, n->right);
+            }
+        }
+        case NODE_UNOP:
+            switch (n->aux.op) {
+                case TK_BANG:
+                    return 0;  /* !x yields int even for FP x */
+                default:
+                    return ast_expr_is_fp(c, arena, n->left);
+            }
+        case NODE_TERNARY:
+            return ast_expr_is_fp(c, arena, n->right) ||
+                   ast_expr_is_fp(c, arena, n->aux.alt);
+        case NODE_CALL: {
+            ZeroCCASTNode *cal = zero_cc_ast_get(arena, n->left);
+            if (cal && cal->tag == NODE_IDENT) {
+                ZeroCCFunction *f = zero_cc_find_function(c, cal->s.str);
+                if (f) return f->return_type.tag == TYPE_FLOAT ||
+                            f->return_type.tag == TYPE_DOUBLE;
+            }
+            return 0;
+        }
+        default:
+            return 0;
     }
 }
 
@@ -1749,24 +1892,63 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         
         case NODE_TERNARY: {
-            /* Ternary (cond ? then : else) using standard IR */
+            /* Ternary (cond ? then : else) using standard IR.
+             *
+             * FP arms (Sprint 40): the result temp must be XMM-class, so
+             * it must be DEFINED by an FP op (the allocator derives a
+             * temp's register class from its defining opcode).  The
+             * pre-Sprint-40 code always emitted a GPR MOV_REG and marked
+             * the result non-float, so `c ? fa : fb` read an uninitialized
+             * GPR and a trailing `(int)` cast lowered to SEXT32 instead
+             * of CVTTSD2SI.  Mixed int/FP arms follow the C usual
+             * arithmetic conversion: the int arm is cvtsi2sd'd.  The
+             * then-arm move is emitted before the else arm is lowered, so
+             * the else arm's floatness is predicted with ast_expr_is_fp
+             * (conservative: unknown shapes stay on the old int path). */
             int cond_temp = lower_expr(c, arena, node->left);
             int res_temp = c->next_temp_id++;
             uint16_t else_label = c->ir_next_label++;
             uint16_t end_label = c->ir_next_label++;
 
+            int else_may_be_fp = ast_expr_is_fp(c, arena, node->aux.alt);
+
             ir_emit_je((uint16_t)cond_temp, else_label);
 
             int then_temp = lower_expr(c, arena, node->right);
-            ir_emit_mov_reg(res_temp, then_temp);
+            int then_fp = c->last_expr_is_float;
+
+            if (then_fp || else_may_be_fp) {
+                if (then_fp) {
+                    ir_emit_fmov((uint16_t)res_temp, (uint16_t)then_temp);
+                } else {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)then_temp);
+                    ir_emit_fmov((uint16_t)res_temp, (uint16_t)conv);
+                }
+            } else {
+                ir_emit_mov_reg(res_temp, then_temp);
+            }
             ir_emit_jmp(end_label);
 
             ir_emit_label(else_label);
             int else_temp = lower_expr(c, arena, node->aux.alt);
-            ir_emit_mov_reg(res_temp, else_temp);
+            int else_fp = c->last_expr_is_float;
+            int fp_result = then_fp || else_fp || else_may_be_fp;
+
+            if (fp_result) {
+                if (else_fp) {
+                    ir_emit_fmov((uint16_t)res_temp, (uint16_t)else_temp);
+                } else {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)else_temp);
+                    ir_emit_fmov((uint16_t)res_temp, (uint16_t)conv);
+                }
+            } else {
+                ir_emit_mov_reg(res_temp, else_temp);
+            }
 
             ir_emit_label(end_label);
-            c->last_expr_is_float = 0;
+            c->last_expr_is_float = fp_result;
             return res_temp;
         }
         
@@ -1846,9 +2028,27 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         a_idx = (size_t)elem_node->aux.alt;
                         idx = a_idx;
                     }
-                    size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
-                    elem_offset = a_idx * unit_sz;
-                    elem_size = unit_sz;
+                    size_t off, sz;
+                    /* Positional elements are flattened by the parser to
+                     * leaf level: place by leaf index.  Designated [idx]
+                     * names an ELEMENT, so map it to the element's first
+                     * leaf (1-D scalar arrays: identical to before). */
+                    size_t leaf_idx;
+                    if ((elem_node->flags & NODE_FLAG_DESIGNATED) &&
+                        sym->type.base) {
+                        size_t per = object_count_scalar_leaves(sym->type.base);
+                        leaf_idx = a_idx * (per ? per : 1);
+                    } else {
+                        leaf_idx = idx;
+                    }
+                    if (object_resolve_scalar_leaf(&sym->type, leaf_idx, &off, &sz)) {
+                        elem_offset = off;
+                        elem_size = sz;
+                    } else {
+                        size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
+                        elem_offset = a_idx * unit_sz;
+                        elem_size = unit_sz;
+                    }
                 } else {
                     elem_offset = 0;
                     elem_size = sym->type.size ? sym->type.size : 4;

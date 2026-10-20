@@ -1,0 +1,102 @@
+{
+  "float_add_basic": {
+    "name": "float_add_basic",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 22,
+    "expected_simd_count": 1,
+    "execution_time": 0.001507806999143213,
+    "error_message": ""
+  },
+  "float_sub_basic": {
+    "name": "float_sub_basic",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 22,
+    "expected_simd_count": 1,
+    "execution_time": 0.0011909559834748507,
+    "error_message": ""
+  },
+  "float_mul_basic": {
+    "name": "float_mul_basic",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 22,
+    "expected_simd_count": 1,
+    "execution_time": 0.0010838810121640563,
+    "error_message": ""
+  },
+  "float_div_basic": {
+    "name": "float_div_basic",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 22,
+    "expected_simd_count": 1,
+    "execution_time": 0.0009789959876798093,
+    "error_message": ""
+  },
+  "float_compare": {
+    "name": "float_compare",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 13,
+    "expected_simd_count": 1,
+    "execution_time": 0.0012299710069783032,
+    "error_message": ""
+  },
+  "float_array_loop": {
+    "name": "float_array_loop",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 16,
+    "expected_simd_count": 1,
+    "execution_time": 0.0011153370141983032,
+    "error_message": ""
+  },
+  "int_to_float_conv": {
+    "name": "int_to_float_conv",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 9,
+    "expected_simd_count": 1,
+    "execution_time": 0.0010988280409947038,
+    "error_message": ""
+  },
+  "float_to_int_conv": {
+    "name": "float_to_int_conv",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 7,
+    "expected_simd_count": 1,
+    "execution_time": 0.0011826870031654835,
+    "error_message": ""
+  },
+  "multiple_float_params": {
+    "name": "multiple_float_params",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 38,
+    "expected_simd_count": 3,
+    "execution_time": 0.0011754020233638585,
+    "error_message": ""
+  },
+  "nested_float_ops": {
+    "name": "nested_float_ops",
+    "passed": true,
+    "compiled": true,
+    "output_match": true,
+    "simd_count": 28,
+    "expected_simd_count": 2,
+    "execution_time": 0.001179475977551192,
+    "error_message": ""
+  }
+}

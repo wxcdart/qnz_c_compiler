@@ -248,6 +248,37 @@ static void aarch64_emit_neg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tneg\t%s, %s\n", dst_name, src_name);
 }
 
+/* ADD_IMM: add dst, #imm (Sprint 40: was missing from -S) */
+static void aarch64_emit_add_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\tadd\t%s, %s, #%ld\n", dst_name, dst_name, (long)imm);
+}
+
+/* SUB_IMM: sub dst, #imm */
+static void aarch64_emit_sub_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\tsub\t%s, %s, #%ld\n", dst_name, dst_name, (long)imm);
+}
+
+/* INC: add dst, #1 */
+static void aarch64_emit_inc_asm(ZeroCCCompiler *c, int dst, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\tadd\t%s, %s, #1\n", dst_name, dst_name);
+}
+
+/* DEC: sub dst, #1 */
+static void aarch64_emit_dec_asm(ZeroCCCompiler *c, int dst, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    fprintf(out, "\tsub\t%s, %s, #1\n", dst_name, dst_name);
+}
+
+/* NOT: mvn dst, src */
+static void aarch64_emit_not_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    const char *src_name = BE(c)->get_hw_reg_name(src);
+    fprintf(out, "\tmvn\t%s, %s\n", dst_name, src_name);
+}
+
 /* LEA: add/sub dst, base, #offset */
 static void aarch64_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -834,6 +865,11 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cmp_asm = aarch64_emit_cmp_asm;
     be->emit_cond_set_asm = aarch64_emit_cond_set_asm;
     be->emit_neg_asm = aarch64_emit_neg_asm;
+    be->emit_add_imm_asm = aarch64_emit_add_imm_asm;
+    be->emit_sub_imm_asm = aarch64_emit_sub_imm_asm;
+    be->emit_inc_asm = aarch64_emit_inc_asm;
+    be->emit_dec_asm = aarch64_emit_dec_asm;
+    be->emit_not_asm = aarch64_emit_not_asm;
     be->emit_lea_asm = aarch64_emit_lea_asm;
     be->emit_deref_asm = aarch64_emit_deref_asm;
     be->emit_call_asm = aarch64_emit_call_asm;

@@ -262,6 +262,42 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         param_count++;
                     }
                     c->token_pos++;
+                    /* Array parameter (C99 6.7.6.3p7): the OUTERMOST array
+                     * dimension is adjusted to a pointer; remaining
+                     * dimensions form the pointed-to array type
+                     * (`int m[][4]` -> `int (*)[4]`).  Previously the
+                     * `[...]` suffixes were skipped by the stuck-token
+                     * guard below and the param kept its element type, so
+                     * the pointer value was later sign-extended as a
+                     * 32-bit int (movslq) and truncated at runtime. */
+                    if (param_count > 0 && c->token_pos < c->token_count &&
+                        c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        ssize_t dims[8];
+                        int ndims = 0;
+                        while (c->token_pos < c->token_count &&
+                               c->tokens[c->token_pos].type == TK_LBRACKET &&
+                               ndims < 8) {
+                            ssize_t d = 0;
+                            c->token_pos++; /* '[' */
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_NUM) {
+                                d = (ssize_t)c->tokens[c->token_pos].num_val;
+                                c->token_pos++;
+                            }
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                c->token_pos++; /* ']' */
+                            }
+                            dims[ndims++] = d;
+                        }
+                        ZeroCCType t = param_types[param_count - 1];
+                        /* Later dimension tokens are inner: build the
+                         * pointed-to array type innermost-first. */
+                        for (int i = ndims - 1; i >= 1; i--) {
+                            t = zero_cc_type_array(&t, dims[i]);
+                        }
+                        param_types[param_count - 1] = zero_cc_type_ptr(&t);
+                    }
                 }
             }
         }

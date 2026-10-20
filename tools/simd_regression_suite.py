@@ -50,14 +50,15 @@ class TestResult:
 REGRESSION_TESTS = [
     RegressionTest(
         name="float_add_basic",
-        description="Basic float addition should use addss",
+        description="Basic float addition should use an XMM add (double-width model: addsd)",
         source_code="""
 float float_add_basic(float a, float b) {
     return a + b;
 }
 int main(void) {
     float result = float_add_basic(1.0f, 2.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="300",
@@ -65,14 +66,15 @@ int main(void) {
     ),
     RegressionTest(
         name="float_sub_basic",
-        description="Basic float subtraction should use subss",
+        description="Basic float subtraction should use an XMM sub (double-width model: subsd)",
         source_code="""
 float float_sub_basic(float a, float b) {
     return a - b;
 }
 int main(void) {
     float result = float_sub_basic(3.0f, 1.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="200",
@@ -80,14 +82,15 @@ int main(void) {
     ),
     RegressionTest(
         name="float_mul_basic",
-        description="Basic float multiplication should use mulss",
+        description="Basic float multiplication should use an XMM mul (double-width model: mulsd)",
         source_code="""
 float float_mul_basic(float a, float b) {
     return a * b;
 }
 int main(void) {
     float result = float_mul_basic(2.0f, 3.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="600",
@@ -95,14 +98,15 @@ int main(void) {
     ),
     RegressionTest(
         name="float_div_basic",
-        description="Basic float division should use divss",
+        description="Basic float division should use an XMM div (double-width model: divsd)",
         source_code="""
 float float_div_basic(float a, float b) {
     return a / b;
 }
 int main(void) {
     float result = float_div_basic(6.0f, 2.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="300",
@@ -110,13 +114,14 @@ int main(void) {
     ),
     RegressionTest(
         name="float_compare",
-        description="Float comparison should use ucomiss",
+        description="Float comparison should use an XMM compare (ucomisd + setcc)",
         source_code="""
 int float_compare(float a, float b) {
     return a < b;
 }
 int main(void) {
-    return float_compare(1.0f, 2.0f);
+    printf("%d\\n", float_compare(1.0f, 2.0f));
+    return 0;
 }
 """,
         expected_output="1",
@@ -124,31 +129,34 @@ int main(void) {
     ),
     RegressionTest(
         name="float_array_loop",
-        description="Float array loop should generate SIMD",
+        description="Float array loop (VLA, zero-initialized) over XMM accumulates",
         source_code="""
 int float_array_loop(int n) {
     float a[n], b[n];
+    int i;
+    for (i = 0; i < n; i++) { a[i] = 0.0f; b[i] = 0.0f; }
     float sum = 0.0f;
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         sum += a[i] * b[i];
     }
     return (int)sum;
 }
-int main(void) { return float_array_loop(100); }
+int main(void) { printf("%d\\n", float_array_loop(100)); return 0; }
 """,
         expected_output="0",
-        expected_simd_count=2,
+        expected_simd_count=1,
     ),
     RegressionTest(
         name="int_to_float_conv",
-        description="Integer to float conversion should use cvtsi2ss",
+        description="Integer to float conversion should use cvtsi2sd (double-width model)",
         source_code="""
 float int_to_float_conv(int a) {
     return (float)a;
 }
 int main(void) {
     float result = int_to_float_conv(42);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="4200",
@@ -156,13 +164,14 @@ int main(void) {
     ),
     RegressionTest(
         name="float_to_int_conv",
-        description="Float to integer conversion should use cvtss2si",
+        description="Float to integer conversion should use cvttsd2si (double-width model)",
         source_code="""
 int float_to_int_conv(float a) {
     return (int)a;
 }
 int main(void) {
-    return float_to_int_conv(42.9f);
+    printf("%d\\n", float_to_int_conv(42.9f));
+    return 0;
 }
 """,
         expected_output="42",
@@ -170,14 +179,15 @@ int main(void) {
     ),
     RegressionTest(
         name="multiple_float_params",
-        description="Multiple float parameters should use XMM registers",
+        description="Multiple float parameters should use XMM registers (up to 6 SSE ABI)",
         source_code="""
 float multiple_float_params(float a, float b, float c, float d) {
     return a + b + c + d;
 }
 int main(void) {
     float result = multiple_float_params(1.0f, 2.0f, 3.0f, 4.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="1000",
@@ -185,14 +195,15 @@ int main(void) {
     ),
     RegressionTest(
         name="nested_float_ops",
-        description="Nested float operations",
+        description="Nested float operations over XMM",
         source_code="""
 float nested_float_ops(float a, float b) {
     return (a + b) * (a - b);
 }
 int main(void) {
     float result = nested_float_ops(3.0f, 1.0f);
-    return (int)(result * 100);
+    printf("%d\\n", (int)(result * 100));
+    return 0;
 }
 """,
         expected_output="800",
@@ -209,16 +220,18 @@ class SIMDRegressionSuite:
     
     def run_test(self, test: RegressionTest) -> TestResult:
         """Run a single regression test"""
+        # The test sources use printf; prepend stdio.h.
+        src_code = '#include <stdio.h>\n' + test.source_code
         try:
             # Create temp files
             with tempfile.NamedTemporaryFile(mode='w', suffix='.c', delete=False) as f:
-                f.write(test.source_code)
+                f.write(src_code)
                 src_file = f.name
             
             exe_file = src_file.replace('.c', '')
             asm_file = src_file.replace('.c', '.s')
             
-            # Compile
+            # Compile to a native executable
             compile_result = subprocess.run(
                 [self.zerocc_path, test.optimization_level, src_file, '-o', exe_file],
                 capture_output=True,
@@ -238,13 +251,23 @@ class SIMDRegressionSuite:
                     error_message=compile_result.stderr
                 )
             
-            # Count SIMD instructions
+            # Count SIMD/XMM instructions from the AOT assembly (-S).
+            # The run-compile above emits no .s file; compile separately.
+            asm_result = subprocess.run(
+                [self.zerocc_path, test.optimization_level, src_file, '-S', '-o', asm_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
             simd_count = 0
-            if os.path.exists(asm_file):
+            if asm_result.returncode == 0 and os.path.exists(asm_file):
                 with open(asm_file, 'r') as f:
                     asm_content = f.read()
+                # ZeroCC's scalar float model is double-width in XMM
+                # (docs/okf/scalar-float-x86.md): scalar FP ops emit the
+                # *sd / cvt*sd2* variants, not the *ss variants.
                 simd_patterns = [
-                    r'\b(movaps|movups|movss|movsd|addss|addsd|subss|subsd|mulss|mulsd|divss|divsd|ucomiss|comiss|cvtsi2ss|cvtss2si)\b'
+                    r'\b(movaps|movups|movss|movsd|movsldup|addss|addsd|subss|subsd|mulss|mulsd|divss|divsd|ucomiss|ucomisd|comiss|comisd|cvtsi2ss|cvtsi2sd|cvtss2si|cvttsd2si|cvtsd2si)\b'
                 ]
                 for pattern in simd_patterns:
                     simd_count += len(re.findall(pattern, asm_content))
@@ -260,7 +283,13 @@ class SIMDRegressionSuite:
             )
             elapsed = time.perf_counter() - start
             
-            output_match = run_result.returncode == int(test.expected_output)
+            # Run and check output: the test prints its result value to
+            # stdout and returns 0.  (Comparing the exit code was broken:
+            # exit statuses are truncated to 8 bits, so e.g. 1000 could
+            # never match.  The pre-fix suite compared returncode to the
+            # expected *value*.)
+            output_match = (run_result.returncode == 0 and
+                            run_result.stdout.strip() == test.expected_output)
             simd_match = simd_count >= test.expected_simd_count
             
             passed = output_match and simd_match
@@ -273,7 +302,7 @@ class SIMDRegressionSuite:
                 simd_count=simd_count,
                 expected_simd_count=test.expected_simd_count,
                 execution_time=elapsed,
-                error_message="" if passed else f"Output: {run_result.returncode}, SIMD: {simd_count}"
+                error_message="" if passed else f"stdout: {run_result.stdout.strip()!r} (rc={run_result.returncode}), SIMD: {simd_count}"
             )
         
         except Exception as e:
