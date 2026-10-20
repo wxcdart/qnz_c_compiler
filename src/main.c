@@ -542,6 +542,13 @@ static int compile_object(CompileOptions *opts) {
     if (opts->dump_cfg) {
         comp->dump_cfg = 1;
     }
+        
+    /* Enable optimization profiling if requested (Sprint 35 Phase 4: the
+     * AOT path previously dumped a disabled profile). */
+    if (opts->profile_opts) {
+        opt_profile_enable(1);
+        opt_profile_reset();
+    }
     
     /* Enable assembly emission if requested */
     if (opts->emit_asm) {

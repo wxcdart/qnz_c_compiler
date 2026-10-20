@@ -23,6 +23,28 @@ void opt_profile_enable(int enable) {
     g_profile_enabled = enable;
 }
 
+int opt_profile_is_enabled(void) {
+    return g_profile_enabled;
+}
+
+void opt_profile_time_pass(size_t idx, const char *name, double ms) {
+    if (!g_profile_enabled || idx >= 16) return;
+    g_stats.pass_ms[idx] += ms;
+    if (idx >= g_stats.pass_name_count && name) {
+        g_stats.pass_names[idx][0] = '\0';
+        g_stats.pass_name_count = idx + 1;
+    }
+    if (name && g_stats.pass_names[idx][0] == '\0') {
+        /* store at most 31 chars */
+        size_t n = 0;
+        while (name[n] && n < 31) {
+            g_stats.pass_names[idx][n] = name[n];
+            n++;
+        }
+        g_stats.pass_names[idx][n] = '\0';
+    }
+}
+
 void opt_profile_dump(FILE *f) {
     if (!g_profile_enabled) {
         fprintf(f, "[Profiling disabled]\n");
@@ -81,6 +103,18 @@ void opt_profile_dump(FILE *f) {
         fprintf(f, "  Spill rate: %.2f%%\n", spill_rate);
     }
     
+    /* Per-pass wall time (Sprint 35 Phase 4) */
+    if (g_stats.pass_name_count > 0) {
+        fprintf(f, "\nPer-pass wall time (ms, accumulated over all functions):\n");
+        double total = 0.0;
+        for (size_t i = 0; i < g_stats.pass_name_count; i++) {
+            if (g_stats.pass_names[i][0] == '\0') continue;
+            fprintf(f, "  %-20s %9.3f\n", g_stats.pass_names[i], g_stats.pass_ms[i]);
+            total += g_stats.pass_ms[i];
+        }
+        fprintf(f, "  %-20s %9.3f\n", "TOTAL (passes only)", total);
+    }
+
     /* General statistics */
     fprintf(f, "\nGeneral:\n");
     fprintf(f, "  Instructions before optimization: %zu\n", g_stats.total_instructions_before);

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T01:05:51Z
+timestamp: 2026-10-20T01:35:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -188,3 +188,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `ir-and-regalloc.md`
 - Sprint 35 Phase 3: pass migration complete; no private loop re-derivations remain in LICM/mem2reg/vectorizer
+
+## 2026-10-20 — Updated `perf-measurements.md`
+- Sprint 35 Phase 4: measured per-pass optimizer costs (CFG migration = no regression, 7-10% faster at O2/O3); retracted the 78x JIT-vs-GCC claim with re-measured matrix; recorded 3 fixed 16-bit temp-id OOB bugs (GVN/vectorizer/LICM).
+
+## 2026-10-20 — Updated `ir-and-regalloc.md`
+- Sprint 35 Phase 4: retracted 78x JIT claim, linked perf-measurements.md.

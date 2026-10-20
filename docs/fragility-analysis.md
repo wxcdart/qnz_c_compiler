@@ -87,6 +87,7 @@ Discovered while re-testing the C9 loop cases: `for(k...) { float t = use2(1.0f)
 - **Fix** (`opt/opt_vectorize.c`): the analyzer now scans the loop body for `OP_CALL` / `OP_CALL_INDIRECT` / `OP_RET` and rejects such loops (`has_call` guard in the vectorization criteria). Legitimate element-wise array loops (`a[i] = b[i] + c[i]`) still vectorize and run correctly (e48: VADDPS still emitted, rc=0 JIT+AOT+gcc).
 - **Verified**: e21/e23/e24/e29/e30/e31/e38/e39/e40/e41/e43/e46 (call-in-loop battery, incl. value probes) pass JIT + AOT; e42/e44/e45 (no-call loops) and e47/e48 (vectorizer sanity) pass; `make test` 140/140 unchanged.
 - **Known residual (documented, not fixed)**: mid-body *conditional* branches in an otherwise array-shaped loop are still not rejected (the loop-condition `JE` is part of every for-loop's backedge span, so a blanket jump guard would disable the vectorizer entirely); and the transform's increment rewrite matches *any* `OP_ADD` with a constant-1 operand, which could corrupt a non-counter `x + 1` in a vectorized loop. Both are rarer patterns; tracked here for the vectorizer-hardening item.
+- **RESOLVED (2026-10-18, `5766bee` — changelog backfilled in Sprint 35 Phase 4)**: both residuals are fixed — (a) the analyzer rejects mid-body conditional branches (the loop-condition `JE` is excluded by position), and (b) the increment rewrite matches only the loop counter (`loop_var_temp`), not any constant-1 `OP_ADD`. Sprint 35 Phase 3 re-derived (a) on the CFG (per-block check) and additionally made the vectorizer require a verified compile-time loop bound that is a multiple of `vec_width` (the transform has no remainder handling). See `docs/okf/optimization-passes.md`.
 
 ---
 
@@ -160,7 +161,7 @@ Key distinction after Sprints 22–29: every former **C-tier** correctness bug w
 - `members[64]` is bounds-checked — no OOB write from oversized structs.
 - Long string literals (600B), 5000-element VLA, 1000-deep runtime recursion, `long long` INT64 boundaries, char/short sign boundaries — all correct.
 - Reloc/label tables have generous caps (32K); LRA arrays grow dynamically.
-- `make test` 140/140 and the C99 probe battery (30/30) still pass.
+- `make test` 141/141 (Sprint 35) and the C99 probe battery (30/30) still pass.
 
 ## Suggested fix order
 

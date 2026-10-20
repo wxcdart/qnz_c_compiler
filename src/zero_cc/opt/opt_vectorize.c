@@ -570,9 +570,12 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
     }
     
-    /* Track scalar temp -> vector temp mapping for data flow */
-    int scalar_to_vec_map[256];
-    memset(scalar_to_vec_map, -1, sizeof(scalar_to_vec_map));
+    /* Track scalar temp -> vector temp mapping for data flow.
+     * Sprint 35 P4: full 16-bit temp-id space (static, memset per call).
+     * The old [256] local went OOB for functions with >256 temps. */
+    static int16_t s_scalar_to_vec_map[65536];
+    int16_t *scalar_to_vec_map = s_scalar_to_vec_map;
+    memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
     
     /* Transform loads, arithmetic, and stores */
     for (int i = start_idx; i <= end_idx; i++) {

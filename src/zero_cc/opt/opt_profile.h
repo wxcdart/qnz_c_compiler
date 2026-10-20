@@ -50,6 +50,12 @@ typedef struct {
     size_t total_instructions_before;
     size_t total_instructions_after;
     size_t optimization_iterations;
+
+    /* Per-pass wall time (Sprint 35 Phase 4): accumulated ms per pass,
+     * keyed by index into the opt_pass.c pass table. */
+    double pass_ms[16];
+    char pass_names[16][32];
+    size_t pass_name_count;
 } OptProfileStats;
 
 /**
@@ -71,6 +77,10 @@ void opt_profile_dump(FILE *f);
  * Enable/disable profiling (default: disabled for production)
  */
 void opt_profile_enable(int enable);
+int opt_profile_is_enabled(void);
+
+/* Record the wall-clock duration of one pass execution (Sprint 35 Phase 4). */
+void opt_profile_time_pass(size_t idx, const char *name, double ms);
 
 /* Profiling helper functions (implemented in opt_profile.c) */
 void opt_profile_count_cse_instruction(void);

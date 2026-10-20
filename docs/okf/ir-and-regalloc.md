@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-20T01:05:51Z
+timestamp: 2026-10-20T01:35:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -69,7 +69,7 @@ ZeroCC intentionally uses Poletto & Sarkar's Linear-Scan Register Allocation alg
 ### Architectural Rationale & Trade-Offs
 1. **Compilation Speed ($O(N)$ vs $O(N^2)$)**:
    - Graph coloring requires building, maintaining, and iteratively updating an interference graph, which takes tens to hundreds of milliseconds.
-   - Linear scan allocates physical registers in a single forward pass over sorted intervals in microseconds. This enables ZeroCC's in-memory JIT to compile and execute code in ~2.8 ms (78× faster than GCC).
+   - Linear scan allocates physical registers in a single forward pass over sorted intervals in microseconds. The earlier "~2.8 ms (78× faster than GCC)" figure was **retracted in Sprint 35 Phase 4**: re-measured on `test/bench/synth_large.c`, the JIT compiles+runs in ~234 ms vs `gcc -O0` ~164 ms / `gcc -O2` ~365 ms. See [Performance Measurements](./perf-measurements.md) for the full matrix and methodology.
 2. **Scratch-Register Spill Safety**:
    - Reserving fixed scratch registers outside the allocatable pool guarantees that spilling a temporary can *never trigger a secondary spill*. This permanently prevents spill-cascade loops and allocator thrashing across all three supported ISAs (x86-64, AArch64, RISC-V).
 3. **The Architectural Division of Labor**:

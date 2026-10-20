@@ -1,5 +1,35 @@
 # ZeroCC Changelog
 
+## [Sprint 35 Phase 4] - 2026-10-20 - Measurement, the Retracted 78× Claim, and Three 16-bit temp-id OOB Fixes
+
+### Added
+- **`--profile-opts` per-pass wall time** (`opt/opt_profile.{h,c}`, `opt/opt_pass.c`): a "Per-pass wall time (ms, accumulated over all functions)" section (`clock_gettime` around each `pass->run`, gated by `opt_profile_is_enabled()`). The AOT `-o` path now actually *enables* the profiler (previously it only dumped, so `--profile-opts` produced no per-pass data on AOT builds).
+- **`docs/okf/perf-measurements.md`**: the measured numbers, methodology, and reproduction steps (linked from `docs/okf/index.md`).
+- **`test/bench/synth_large.c`**: the measurement workload (861 lines, ~40 functions, ~122 loops, IR > 1024 instructions).
+
+### Changed
+- **The "~78× faster than GCC" claim is RETRACTED.** Re-measured (median of 5, compile+run of `synth_large.c`): `zerocc --run -O0` **234 ms** vs `gcc -O0` **164 ms** / `gcc -O2` **365 ms** — the JIT is *slower* than GCC, not 78× faster. `docs/okf/ir-and-regalloc.md` updated; the historical CHANGELOG line (Sprint 22 era) is left in place as a dated record but is superseded by the new OKF page. No docs may assert the 78× figure again.
+- **CFG-migration cost verdict (the plan's before/after question)**: on the same workload, baseline `87284bd` vs HEAD wall time: `-O0` 399→286 ms, `-O1` 1470→1071 ms, `-O2` 3949→3665 ms, `-O3` 3813→3401 ms. **No regression from the Phase 2/3 CFG migration; 7-10% faster at `-O2/-O3`** (CFG pred/succ edges replace per-loop full-function jump pre-scans). Dominant pass cost is mem2reg's pre-existing O(loops × 256 slots × |IR|) scan (≈85% of pass time); slot-set pruning is deferred as a future optimization.
+- **`docs/fragility-analysis.md` §C11**: the two "known residuals" (mid-body conditionals not rejected; increment rewrite matching any `OP_ADD` with constant 1) are marked fixed (`5766bee`; re-derived on the CFG in Phase 3). Stale `make test 140/140` note updated.
+
+### Fixed (found *by* the Phase 4 measurement — large workload = >256 temps per function)
+- **`opt/opt_gvn.c` (global-buffer-overflow, the `--profile-opts` corruption)**: `g_canon[256]` indexed by the 16-bit `temp_dest` went OOB for any function with >256 temps, corrupting adjacent BSS globals. All GVN temp storage widened to 16 bits: `g_canon[65536]`, `MemEntry.addr/val`, `g_slot_can[64]`, `ValueEntry.src1/2`, `mf_forget_temp()`, `replace_with_gvn_copy()`.
+- **`opt/opt_vectorize.c`**: `scalar_to_vec_map[256]` (stack) was indexed unboundedly by `temp_dest`/`temp_src1` (2 unguarded writes + 2 unguarded reads) — OOB for >256 temps. Now a full-range `static int16_t[65536]` memset per transform.
+- **`opt/opt_loop.c` (LICM segfault at `-O2` on the large workload)**: `loop->is_invariant` was `calloc(MAX_LOOP_BODY)` (1024) but indexed by *instruction index* — OOB for any IR > 1024 instructions. Now sized by `ir_get_count()+1`; `body_indices` grows dynamically beyond `MAX_LOOP_BODY`.
+- Invariant: **tables keyed by temp id must cover the full 16-bit temp space (or bounds-check); tables keyed by instruction index must be sized by the IR count, never a body cap.**
+
+### Verification
+- `make test-opt` **105/105** · `make test` **141/141** · `cfg_verifier.py --verify-all` **0 failed** · `mem2reg_verifier.py` **12/12** · `sret_verifier.py` **6/6** · `licm_test_suite.py --all` **5/5** · `okf.py lint` **PASS**.
+- `synth_large.c` compiles & runs identically at `-O0..-O3` (return value matches `gcc -O2`: 162); the pre-fix binary segfaulted at `-O2/-O3` on this file.
+- ASan run clean at `-O2` on the workload after the GVN fix (the OOB write was caught by ASan as `global-buffer-overflow` in `opt_restrict_memory_forward`).
+
+## [Backfill: missing entries] - 2026-10-18 (recorded in Sprint 35 Phase 4)
+
+Two commits landed between Sprint 31/32 without changelog entries:
+
+- **`8781592` fix(opt): -O level gating** — `OptPass.min_level` + `comp->opt_level`; passes tagged O1/O2/O3; `-O0` is now plain codegen (no optimization passes run). This is why inlining/LICM/CSE/GVN only run at `-O2`+ and strength-reduction/branch-simplify/vectorize at `-O3`.
+- **`5766bee` fix(opt): vectorizer hardening (C11 residuals)** — the analyzer rejects loops with mid-body conditional branches, and the transform's increment rewrite matches *only the loop counter* (`loop_var_temp`), not any `OP_ADD` with a constant-1 operand. Superseded (re-derived on the CFG) by Sprint 35 Phase 3.
+
 ## [Sprint 35 Phase 3] - 2026-10-20 - Pass Migration Onto the CFG
 
 ### Changed

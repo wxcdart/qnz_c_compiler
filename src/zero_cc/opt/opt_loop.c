@@ -77,15 +77,34 @@ static void detect_loops(LoopAnalysisState *state) {
         loop->exit_idx = (int)cfg->blocks[u].end - 1;
         loop->preheader_idx = -1;
         loop->body_count = 0;
-        loop->capacity = MAX_LOOP_BODY;
+        /* is_invariant is indexed by INSTRUCTION index (opt_licm does
+         * `invariant[idx]`), so it must be sized by the IR size, not by the
+         * body length (pre-existing OOB for IRs > MAX_LOOP_BODY
+         * instructions, exposed by the large synthetic function in Sprint
+         * 35 Phase 4). body_indices is grown as needed. */
+        loop->capacity = count + 1;
         loop->body_indices = malloc(sizeof(int) * MAX_LOOP_BODY);
-        loop->is_invariant = calloc(MAX_LOOP_BODY, sizeof(bool));
+        loop->is_invariant = calloc((size_t)count + 1, sizeof(bool));
 
         if (loop->body_indices && loop->is_invariant) {
+            int body_cap = MAX_LOOP_BODY;
+            bool grow_failed = false;
             for (int j = (int)cfg->blocks[h].start; j < (int)cfg->blocks[u].end; j++) {
-                if (loop->body_count < MAX_LOOP_BODY) {
-                    loop->body_indices[loop->body_count++] = j;
+                if (loop->body_count >= body_cap) {
+                    int nc = body_cap * 2;
+                    int *nb = (int *)realloc(loop->body_indices, sizeof(int) * (size_t)nc);
+                    if (!nb) { grow_failed = true; break; }
+                    loop->body_indices = nb;
+                    body_cap = nc;
                 }
+                loop->body_indices[loop->body_count++] = j;
+            }
+            if (grow_failed) {
+                free(loop->body_indices);
+                free(loop->is_invariant);
+                loop->body_indices = NULL;
+                loop->is_invariant = NULL;
+                continue;
             }
             state->loop_count++;
         } else {

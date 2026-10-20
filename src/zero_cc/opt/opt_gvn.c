@@ -19,8 +19,8 @@
 /* Value number table */
 typedef struct {
     uint8_t op;
-    uint8_t src1;
-    uint8_t src2;
+    uint16_t src1;   /* Sprint 35 P4: 16-bit temp id (was uint8_t -> truncation/OOB for funcs >256 temps) */
+    uint16_t src2;
     int16_t imm;
     uint16_t result_temp;  /* C2b: 16-bit temp id */
 } ValueEntry;
@@ -126,7 +126,7 @@ static void gvn_add(Instr *instr, int val_num) {
 /**
  * Replace instruction with MOV from existing value
  */
-static void replace_with_gvn_copy(int instr_idx, uint8_t src_temp) {
+static void replace_with_gvn_copy(int instr_idx, uint16_t src_temp) {
     Instr *instr = ir_get(instr_idx);
     if (!instr) return;
     
@@ -154,22 +154,25 @@ static void replace_with_gvn_copy(int instr_idx, uint8_t src_temp) {
 
 typedef struct {
     uint8_t op;       /* load opcode this entry satisfies */
-    uint8_t addr;     /* canonical address temp */
-    uint8_t val;      /* temp holding the value at addr */
+    uint16_t addr;    /* canonical address temp (Sprint 35 P4: 16-bit) */
+    uint16_t val;     /* temp holding the value at addr (Sprint 35 P4: 16-bit) */
     uint8_t group;    /* restrict alias group (0 = unconstrained) */
 } MemEntry;
 
 static MemEntry g_mf[MF_MAX_ENTRIES];
 static int g_mf_n;
 static int16_t g_slot_off[MF_MAX_SLOTS];
-static uint8_t g_slot_can[MF_MAX_SLOTS];
+static uint16_t g_slot_can[MF_MAX_SLOTS];  /* Sprint 35 P4: 16-bit temp ids */
 static int g_slot_n;
-static uint8_t g_canon[256];
+/* Sprint 35 P4: full 16-bit temp-id space. The old [256] table went OOB for
+ * functions with >256 temps (temp ids start at VREG_USER_START=16 and are
+ * unbounded), silently corrupting adjacent globals. */
+static uint16_t g_canon[65536];
 
 static void mf_reset(void) {
     g_mf_n = 0;
     g_slot_n = 0;
-    for (int i = 0; i < 256; i++) g_canon[i] = (uint8_t)i;
+    for (int i = 0; i < 65536; i++) g_canon[i] = (uint16_t)i;
 }
 
 static void mf_remove_if_group(int only_group) {
@@ -181,7 +184,7 @@ static void mf_remove_if_group(int only_group) {
     g_mf_n = w;
 }
 
-static void mf_forget_temp(uint8_t t) {
+static void mf_forget_temp(uint16_t t) {
     int w = 0;
     for (int r = 0; r < g_mf_n; r++) {
         if (g_mf[r].addr != t && g_mf[r].val != t) g_mf[w++] = g_mf[r];
@@ -264,13 +267,13 @@ static void opt_restrict_memory_forward(void) {
         }
 
         if (mf_is_load(in->op) && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
-            uint8_t addr = g_canon[in->temp_src1];
+            uint16_t addr = g_canon[in->temp_src1];
             int hit = -1;
             for (int e = 0; e < g_mf_n; e++) {
                 if (g_mf[e].op == in->op && g_mf[e].addr == addr) { hit = e; break; }
             }
             if (hit >= 0) {
-                uint8_t val = g_mf[hit].val;
+                uint16_t val = g_mf[hit].val;
                 in->op = OP_MOV_REG;
                 in->temp_src1 = val;
                 in->temp_src2= TEMP_NONE;

@@ -9,6 +9,7 @@
 #include "opt_copy_prop.h"
 #include "opt_profile.h"
 #include "cfg.h"
+#include <time.h>
 #include "../ir/ir.h"
 #include "../types/symbols.h"
 
@@ -69,7 +70,17 @@ void opt_run_passes(ZeroCCCompiler *c) {
             if (!opt_is_enabled(pass->min_level)) continue;
 
             int before_count = (int)ir_get_count();
+            /* Per-pass wall time (Sprint 35 Phase 4): only when profiling
+             * is enabled (--profile-opts). */
+            struct timespec t0, t1;
+            if (opt_profile_is_enabled()) clock_gettime(CLOCK_MONOTONIC, &t0);
             pass->run(c);
+            if (opt_profile_is_enabled()) {
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                opt_profile_time_pass(i, pass->name,
+                    (double)(t1.tv_sec - t0.tv_sec) * 1e3 +
+                    (double)(t1.tv_nsec - t0.tv_nsec) * 1e-6);
+            }
             int after_count = (int)ir_get_count();
 
             /* The pass may have rewritten the IR in place (DCE compaction,

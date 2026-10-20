@@ -54,4 +54,6 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 
 - **[Build, Test & Verification Guide](./build-and-verification.md)**
   - Makefile targets (`make all`, `make test`, `make rebuild`), running single tests, verifying AOT (`-o`) vs JIT (`--run`), and automated C99/C11 & ABI verifiers (`tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/sret_verifier.py`, `tools/struct_abi_verifier.py`).
+- **[Performance Measurements & the JIT-vs-GCC Claim](./perf-measurements.md)**
+  - Measured per-pass optimizer costs (`--profile-opts`) before/after the Sprint 35 CFG migration, the retracted "~78× faster than GCC" claim with the re-measured JIT-vs-GCC matrix, the mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 
