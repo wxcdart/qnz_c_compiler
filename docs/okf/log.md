@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T17:51:15Z
+timestamp: 2026-10-20T19:06:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -233,3 +233,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `build-and-verification.md`
 - Sprint 41: noted pre-existing AArch64 sret --target-all failure (sxtw xD,xD source must be a W register); riscv64 + x86-64 pass
+
+## 2026-10-20 — Updated `build-and-verification.md`
+- Sprint 41: AArch64 --target-all sxtw bug FIXED (aarch64_asm.c emit_extend_asm now emits x<dst>,w<src> for width-4); noted the separate broken aarch64 binary path (emit_extend encodings + -mabi=lp64d link)

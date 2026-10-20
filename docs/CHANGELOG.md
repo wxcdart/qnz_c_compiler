@@ -15,8 +15,11 @@ Cleaned up all **77 pre-existing compiler warnings** surfaced by a full `make cl
 - **`elf_writer.c`** incompatible-pointer chained assignment `reloc_offsets = reloc_symbol_indices = NULL` (uint64_t\* vs uint16_t\*) split into two.
 - **`diagnostics.c`/`symbols.h`** `-Wformat-truncation`: legacy `error_msg[256]` was undersized for the 320-byte enriched message; grown to `error_msg[512]`.
 
-### Known issue (pre-existing, out of scope)
-- **AArch64 sret cross-verify fails** (`sret_verifier --target-all`): the aarch64 backend emits `sxtw xD, xD` (the source must be a W register: `sxtw xD, wS`). Pre-existing (fails identically at the prior commit); RISC-V and x86-64 pass. Tracked for a separate AArch64 codegen fix.
+### Fixed (AArch64 sret cross-verify)
+- **`sret_verifier --target-all` AArch64 failure** (`isa/aarch64_asm.c`): the `-S` emitter `aarch64_emit_extend_asm` emitted `sxtw xD, xD` / `uxtw xD, xD` for the width-4 case, but AArch64 `SXTW`/`UXTW` take a **W-register source** (`SXTW Xd, Wn`) — the assembler rejected the X source. The width-4 case now emits `x<dst>, w<src>` (width ≤ 2 already used `w,w`). All three targets (`x86-64`, `aarch64`, `riscv64`) now PASS `--target-all`.
+
+### Known issues (pre-existing, separate, untested)
+- **AArch64 binary (JIT/AOT object) path is broken**, independent of the `-S` fix above: (a) `aarch64_emit_extend` (`isa/aarch64.c`) uses wrong base encodings for all six extend forms (e.g. emits `0x1AC00C01` where `sxtb w0,w1` is `0x13001C20`); (b) `--target aarch64 -o` fails to link because it passes an invalid `-mabi=lp64d` (must be `lp64`). Neither is exercised by the test suite (aarch64 binaries aren't built/run by `make test`/`test-opt`; `--target-all` uses the `-S` path). Tracked for a dedicated AArch64 AOT fix.
 
 ### Verification
 - **0 warnings** on a full `make clean && make build/bin/zerocc` (was 77).

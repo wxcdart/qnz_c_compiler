@@ -211,8 +211,12 @@ static void aarch64_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift,
     fprintf(out, "\tasr\t%s, %s, %s\n", dst_name, src_name, shift_name);
 }
 
-/* SEXT/ZEXT: sxtb/sxth/sxtw, uxtb/uxth/uxtwd (in-place).
- * SXTB/SXTH/UXTB/UXTH require 32-bit (w) registers in AArch64. */
+/* SEXT/ZEXT: sxtb/sxth/sxtw, uxtb/uxth/uxtw.
+ * SXTB/SXTH/UXTB/UXTH use 32-bit (w) registers for both operands.
+ * SXTW/UXTW extend a 32-bit value into a 64-bit register:
+ * the destination is an X register and the SOURCE is a W register
+ * (AArch64: SXTW Xd, Wn / UXTW Xd, Wn) - using an X register for the
+ * source is an assembler error. */
 static void aarch64_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
@@ -223,7 +227,7 @@ static void aarch64_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int wid
     if (width <= 2) {
         fprintf(out, "\t%s\tw%s, w%s\n", mnem, dst_name + 1, src_name + 1);
     } else {
-        fprintf(out, "\t%s\t%s, %s\n", mnem, dst_name, src_name);
+        fprintf(out, "\t%s\tx%s, w%s\n", mnem, dst_name + 1, src_name + 1);
     }
 }
 
