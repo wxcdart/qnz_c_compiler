@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 36] - 2026-10-20 - mem2reg Loop-Promotion Cost: O(loops × 256 × |IR|) → O(loops × |IR|)
+
+### Changed
+- **`opt/opt_mem2reg.c` (`opt_promote_loop_carried`)**: the candidate search previously rescanned the whole function **once per stack slot (up to 256) per loop (up to 64)** — measured in Sprint 35 Phase 4 to be ~85% of all optimizer time. Now a **single scan per loop** accumulates per-slot stats (in-loop loads/stores, post-exit loads, bad loads, out-of-loop stores) for all slots at once; only slots passing the candidate check (exactly 1 in-loop load + 1 in-loop store, no pre-loop loads, exactly 1 out-of-loop store) get the follow-up init-store scan and post-loop forwarding. The address-taken pre-audit additionally records `max_slot_used`, bounding the candidate iteration (a slot with no load/store traffic in the function is provably non-candidate). Candidate/transform semantics unchanged.
+
+### Measured (median of 5 `--profile-opts` runs, `test/bench/synth_large.c`)
+| Pass | Before @-O1 | After @-O1 | Before @-O2 | After @-O2 | Before @-O3 | After @-O3 |
+|---|---|---|---|---|---|---|
+| mem2reg | 1088 ms | **3.2 ms** | 3374 ms | **13.8 ms** | 4536 ms | **15.9 ms** |
+| total passes-only | 1089 ms | ~4 ms | 3688 ms | **~275 ms** | 4964 ms | ~300 ms |
+
+- **Correctness**: `-O1` `-dump-ir` output **byte-identical** pre/post (promotion decisions unchanged); `make test-opt` **105/105**, `mem2reg_verifier.py` **12/12**, `make test` **141/141**, `cfg_verifier.py` **0 failed**, `sret_verifier.py` **6/6**, `licm_test_suite.py` **5/5**.
+- **Next hotspot identified**: GVN (~184-210 ms @-O2/-O3, now the dominant pass — per-block hash-table re-init churn); tracked, not fixed here (GVN was just OOB-fixed in Sprint 35 Phase 4; separate risk budget).
+- **Measurement note**: host wall times swing ±50% under variable load; per-pass profile (in-process `CLOCK_MONOTONIC`) is the stable metric.
+
 ## [Sprint 35 Phase 4] - 2026-10-20 - Measurement, the Retracted 78× Claim, and Three 16-bit temp-id OOB Fixes
 
 ### Added

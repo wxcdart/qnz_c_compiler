@@ -4,7 +4,7 @@ title: Performance Measurements & the JIT-vs-GCC Claim
 description: Measured per-pass optimizer costs (--profile-opts) before/after the Sprint 35 CFG migration, the re-measured JIT-vs-GCC compile-time comparison (the old "~78x faster than GCC" figure is retracted), the dominant mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 resource: concepts/perf-measurements
 tags: [performance, profiling, jit, gcc, benchmark, opt-profile, mem2reg, temp-id]
-timestamp: 2026-10-20T01:35:56Z
+timestamp: 2026-10-20T01:47:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -79,15 +79,22 @@ per-loop full-function jump pre-scans (entry-cleanness + first-exit in mem2reg,
 
 ### Where the time actually goes
 
-**mem2reg's loop promotion is ~85% of all optimizer time**, and this is a
-*pre-existing* algorithmic cost, not a Phase 2/3 regression:
-`opt_promote_loop_carried` scans the whole function (O(|IR|)) once **per stack
-slot (up to `MAX_STACK_SLOTS` = 256) per loop (up to 64)**, inside the pass
-pipeline's fixed-point iteration (5 rounds at `-O2`). 64 loops × 256 slots ×
-~4000 instructions × rounds explains the seconds. The obvious improvement —
-collect the set of slots actually used by the function first, and/or do one
-combined scan per loop updating state for all slots at once — is deferred (it is
-a real algorithm change to the most-tested pass, not Phase 4 scope).
+~~**mem2reg's loop promotion is ~85% of all optimizer time** ... the obvious
+improvement — collect the set of slots actually used by the function first,
+and/or do one combined scan per loop updating state for all slots at once —
+is deferred.~~ — **RESOLVED in Sprint 36**: `opt_promote_loop_carried` now does
+ONE scan per loop that accumulates per-slot stats for all slots (plus the
+address-taken pre-audit records `max_slot_used` to bound the candidate
+iteration). Measured (median of 5, `synth_large.c`): mem2reg 1088→3.2 ms @-O1,
+3374→13.8 ms @-O2, 4536→15.9 ms @-O3; total passes-only @-O2 3688→~275 ms
+(~13×). The `-O1` `-dump-ir` output is byte-identical pre/post (promotion
+decisions unchanged). **New dominant pass: GVN** (~184-210 ms @-O2/-O3;
+per-block hash-table re-init churn) — tracked as the next optimization target.
+
+**Measurement methodology**: wall times on the project host swing ±50% under
+variable load (4 cores, load avg up to ~1.3); the per-pass profile
+(in-process `CLOCK_MONOTONIC`, unaffected by page-cache/linker variance) is
+the stable metric — report medians of ≥5 runs.
 
 ## 3. What the measurement exposed: 16-bit temp-id OOB bugs
 

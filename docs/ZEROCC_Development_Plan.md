@@ -11,6 +11,14 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 36: mem2reg Loop-Promotion Cost — O(loops × 256 × |IR|) → O(loops × |IR|) ✅
+- **Status**: committed (`de94758`). Phase 1 of the agreed order **2 → 3 → 4 → 1** (mem2reg perf → static-local fix → CFG-enabled opt → T0 `-I`).
+- **Problem** (measured in Sprint 35 Phase 4): `opt_promote_loop_carried` rescanned the whole function once **per stack slot (up to 256) per loop (up to 64)** — ~85% of all optimizer time (1088 ms @-O1, 3374 ms @-O2, 4536 ms @-O3 on `test/bench/synth_large.c`).
+- **Fix** (`opt/opt_mem2reg.c`): one scan of the function per loop accumulates per-slot stats for ALL slots in a single pass (in-loop loads/stores, first-exit-post loads, bad loads, out-of-loop stores); only slots passing the candidate check get the follow-up init-store/forwarding scans. The existing address-taken pre-audit also records `max_slot_used`, bounding the candidate iteration (slots with no load/store traffic are provably non-candidates). Candidate semantics unchanged.
+- **Measured** (median of 5 profile runs, `synth_large.c`): mem2reg 1088→3.2 ms @-O1, 3374→13.8 ms @-O2, 4536→15.9 ms @-O3; total passes-only @-O2 3688→~275 ms (~13×). **Correctness: the `-O1` `-dump-ir` output is byte-identical pre/post** (promotion decisions unchanged); `make test-opt` 105/105, `mem2reg_verifier.py` 12/12, `make test` 141/141.
+- **Next hotspot**: GVN (~184-210 ms @-O2/-O3, now the dominant pass — per-block hash-table re-init churn); tracked, not fixed here (GVN was just OOB-fixed in Sprint 35 Phase 4; separate risk budget).
+- **Measurement note**: wall times on this host swing ±50% under variable load (load avg up to 1.3 on 4 cores); the per-pass profile (in-process `CLOCK_MONOTONIC`) is the stable metric — always report medians of ≥5 runs.
+
 ### Sprint 34: Small Function Inlining (`-O2`/`-O3`) & LICM Multi-Def Safety ⚠️ (landed with open risks)
 - **Status**: COMMITTED (`0272a2a`). Inlining risks were audited in Sprint 35 Phase 1 (2026-10-20): FP signatures, body locals, labels/goto and `&param` are now rejected by conservative candidate filters (`jit/compile.h`); see the Phase 1 section and `test/inline_audit/` (17 differential tests in the `opt_sweep.py` corpus).
 - **Achievement**: AST-level call-site inlining of small `static`/`inline` leaf functions (≤35 AST nodes, non-variadic, non-recursive, no struct return >8B, no calls in body) with TU-level AST retention/cloning. Fixed a pre-existing LICM bug that hoisted instructions whose destination temp had multiple definitions in the loop.

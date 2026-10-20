@@ -158,16 +158,26 @@ static void opt_promote_loop_carried(void) {
     size_t count = ir_get_count();
     if (count == 0) return;
 
-    /* 1. Track address-taken slots anywhere in the function */
+    /* 1. Track address-taken slots anywhere in the function, and the
+     * highest slot with any stack load/store traffic (Sprint 36: bounds
+     * the per-loop candidate scan; slots beyond it are never candidates). */
     bool slot_addr_taken[MAX_STACK_SLOTS];
+    int max_slot_used = -1;
     memset(slot_addr_taken, 0, sizeof(slot_addr_taken));
     for (size_t i = 0; i < count; i++) {
         Instr *ins = ir_get(i);
-        if (ins && ins->op == OP_LEA) {
+        if (!ins) continue;
+        if (ins->op == OP_LEA) {
             int slot = slot_from_offset(get_frame_offset(ins));
             if (slot >= 0 && slot < MAX_STACK_SLOTS) slot_addr_taken[slot] = true;
         }
+        if (instr_is_stack_load(ins) || instr_is_stack_store(ins)) {
+            int slot = slot_from_offset(get_frame_offset(ins));
+            if (slot >= 0 && slot < MAX_STACK_SLOTS && slot > max_slot_used)
+                max_slot_used = slot;
+        }
     }
+    if (max_slot_used < 0) return;  /* no stack traffic at all */
 
     /* 2. Detect natural loops via the CFG layer (Sprint 35 Phase 3).
      * As before, only UNCONDITIONAL (OP_JMP) backedges qualify: the
@@ -251,45 +261,58 @@ static void opt_promote_loop_carried(void) {
         }
 
 
-        /* 4. Find candidate slots for loop promotion */
-        for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-            if (slot_addr_taken[s]) continue;
+        /* 4. Find candidate slots for loop promotion.
+         * Sprint 36: ONE scan of the function accumulates per-slot stats
+         * for ALL slots (the pre-Sprint-36 code rescanned the whole
+         * function once per slot: O(loops x MAX_STACK_SLOTS x |IR|),
+         * ~85% of total optimizer time on large functions). Only slots
+         * that pass the candidate check get the follow-up scans. */
+        int16_t st_loop_loads[MAX_STACK_SLOTS], st_loop_stores[MAX_STACK_SLOTS];
+        int16_t st_other_stores[MAX_STACK_SLOTS], st_bad_loads[MAX_STACK_SLOTS];
+        int st_load_idx[MAX_STACK_SLOTS], st_store_idx[MAX_STACK_SLOTS];
+        memset(st_loop_loads, 0, sizeof(st_loop_loads));
+        memset(st_loop_stores, 0, sizeof(st_loop_stores));
+        memset(st_other_stores, 0, sizeof(st_other_stores));
+        memset(st_bad_loads, 0, sizeof(st_bad_loads));
+        for (int s = 0; s < MAX_STACK_SLOTS; s++) { st_load_idx[s] = -1; st_store_idx[s] = -1; }
 
-            /* Count loads and stores of slot s in loop, and audit the rest
-             * of the function: only the in-loop load/store and the preheader
-             * init may touch the slot; every other load must be post-loop
-             * (after first_exit) and there must be no other store at all. */
-            int loop_loads = 0;
-            int loop_stores = 0;
-            int load_idx = -1;
-            int store_idx = -1;
-            int other_stores = 0;
-            int bad_loads = 0;
-
-            for (size_t k = 0; k < count; k++) {
-                Instr *f_ins = ir_get(k);
-                if (!f_ins) continue;
-                bool in_loop = (k >= (size_t)hdr_idx && k <= back_idx);
-                if (instr_is_stack_load(f_ins)) {
-                    if (slot_from_offset(get_frame_offset(f_ins)) != s) continue;
-                    if (in_loop) {
-                        loop_loads++;
-                        if (load_idx < 0) load_idx = (int)k;
-                    } else if (first_exit >= 0 && (int)k > first_exit) {
-                        /* post-loop load - will be forwarded */
-                    } else {
-                        bad_loads++;  /* load before the loop or in a dead zone */
-                    }
-                } else if (instr_is_stack_store(f_ins)) {
-                    if (slot_from_offset(get_frame_offset(f_ins)) != s) continue;
-                    if (in_loop) {
-                        loop_stores++;
-                        store_idx = (int)k;
-                    } else {
-                        other_stores++;  /* may be the preheader init; checked below */
-                    }
+        for (size_t k = 0; k < count; k++) {
+            Instr *f_ins = ir_get(k);
+            if (!f_ins) continue;
+            bool is_load = instr_is_stack_load(f_ins);
+            bool is_store = !is_load && instr_is_stack_store(f_ins);
+            if (!is_load && !is_store) continue;
+            int sl = slot_from_offset(get_frame_offset(f_ins));
+            if (sl < 0 || sl > max_slot_used) continue;
+            bool in_loop = (k >= (size_t)hdr_idx && k <= back_idx);
+            if (is_load) {
+                if (in_loop) {
+                    st_loop_loads[sl]++;
+                    if (st_load_idx[sl] < 0) st_load_idx[sl] = (int)k;
+                } else if (first_exit >= 0 && (int)k > first_exit) {
+                    /* post-loop load - will be forwarded */
+                } else {
+                    st_bad_loads[sl]++;  /* load before the loop or in a dead zone */
+                }
+            } else {
+                if (in_loop) {
+                    st_loop_stores[sl]++;
+                    st_store_idx[sl] = (int)k;
+                } else {
+                    st_other_stores[sl]++;  /* may be the preheader init; checked below */
                 }
             }
+        }
+
+        for (int s = 0; s <= max_slot_used; s++) {
+            if (slot_addr_taken[s]) continue;
+
+            int loop_loads = st_loop_loads[s];
+            int loop_stores = st_loop_stores[s];
+            int load_idx = st_load_idx[s];
+            int store_idx = st_store_idx[s];
+            int other_stores = st_other_stores[s];
+            int bad_loads = st_bad_loads[s];
 
             /* Candidate: exactly 1 load and 1 store in loop, no other loads
              * before the exit, no stores outside the loop except the init. */
