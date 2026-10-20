@@ -526,47 +526,47 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
 }
 
 /* RET */
-static void x86_emit_ret_asm(ZeroCCCompiler *c, FILE *out) {
+static void x86_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
     fprintf(out, "\tret\n");
 }
 
 /* LABEL */
-static void x86_emit_label_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
 }
 
 /* JMP */
-static void x86_emit_jmp_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jmp_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjmp\t%s\n", label);
 }
 
 /* JEQ */
-static void x86_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tje\t%s\n", label);
 }
 
 /* JNE */
-static void x86_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jne_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjne\t%s\n", label);
 }
 
 /* JLT */
-static void x86_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jlt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjl\t%s\n", label);
 }
 
 /* JLE */
-static void x86_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jle_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjle\t%s\n", label);
 }
 
 /* JGT */
-static void x86_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jgt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjg\t%s\n", label);
 }
 
 /* JGE */
-static void x86_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void x86_emit_jge_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tjge\t%s\n", label);
 }
 
@@ -693,7 +693,7 @@ static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *o
 }
 
 /* PARAM_SAVE_INT: mov [rbp - offset], reg */
-static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+static void x86_emit_param_save_int_asm(ZeroCCCompiler *, int reg_idx, int32_t offset, FILE *out) {
     static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     if (reg_idx >= 0 && reg_idx < 6) {
         fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[reg_idx], -offset);
@@ -701,14 +701,14 @@ static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t 
 }
 
 /* PARAM_SAVE_FP: movsd [rbp - offset], xmmN */
-static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+static void x86_emit_param_save_fp_asm(ZeroCCCompiler *, int reg_idx, int32_t offset, FILE *out) {
     if (reg_idx >= 0 && reg_idx < 8) {
         fprintf(out, "\tmovsd\t%%xmm%d,%d(%%rbp)\n", reg_idx, -offset);
     }
 }
 
 /* VARIADIC_SPILL: spill remaining integer registers for va_start */
-static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
+static void x86_emit_variadic_spill_asm(ZeroCCCompiler *, int param_count, int32_t base_offset, FILE *out) {
     static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     for (int i = 0; i < param_count && i < 6; i++) {
         fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[i], base_offset - i * 8);
@@ -732,112 +732,112 @@ static void x86_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t of
 }
 
 /* Vector scalar add - addss */
-static void x86_emit_vaddss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vaddss_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddss\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar sub - subss */
-static void x86_emit_vsubss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vsubss_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubss\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar mul - mulss */
-static void x86_emit_vmulss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vmulss_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulss\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar div - divss */
-static void x86_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivss\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single add - addps */
-static void x86_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single sub - subps */
-static void x86_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single mul - mulps */
-static void x86_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single div - divps */
-static void x86_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar double add - addsd */
-static void x86_emit_vaddsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vaddsd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddsd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar double sub - subsd */
-static void x86_emit_vsubsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vsubsd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubsd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar double mul - mulsd */
-static void x86_emit_vmulsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vmulsd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulsd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector scalar double div - divsd */
-static void x86_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivsd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double add - addpd */
-static void x86_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double sub - subpd */
-static void x86_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double mul - mulpd */
-static void x86_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double div - divpd */
-static void x86_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivpd\t%%%s,%%%s\n", src2_name, dst_name);
@@ -908,28 +908,28 @@ static void x86_emit_vpmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
 }
 
 /* Vector bitwise and - andps */
-static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tandps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector bitwise or - orps */
-static void x86_emit_vorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vorps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\torps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector bitwise xor - xorps */
-static void x86_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+static void x86_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\txorps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector shuffle - shufps */
-static void x86_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out) {
+static void x86_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int, int src2, int imm, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tshufps\t$%d,%%%s,%%%s\n", imm, src2_name, dst_name);
@@ -950,14 +950,14 @@ static void x86_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE *o
 }
 
 /* Vector compare scalar single - cmpss */
-static void x86_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+static void x86_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int, int src2, int pred, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tcmpss\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
 }
 
 /* Vector scalar double comparison - cmpsd */
-static void x86_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+static void x86_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int, int src2, int pred, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tcmpsd\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);

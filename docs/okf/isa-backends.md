@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-20T03:21:15Z
+timestamp: 2026-10-20T17:51:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -20,6 +20,10 @@ ZeroCC abstracts target-specific code generation behind `ZeroCCISABackend` (`src
 ## Lazy Backend Initialization
 
 Backend structs (`x86_64_backend`, `aarch64_backend`, `riscv64_backend`) are non-`const` and lazily wired with their assembly emitter callbacks via `zero_cc_init_backends_once()` inside `zero_cc_get_backend()` and `zero_cc_get_native_backend()`.
+
+### Vtable signature conformance (Sprint 41)
+
+Every backend callback **must** match its `ZeroCCISABackend` slot signature exactly — a mismatch compiles with only an `-Wincompatible-pointer-types` warning but reads **garbage** for the extra parameters at the call site (the caller passes the slot's argument list, not the function's). This bit the RISC-V backend: `riscv64_emit_load_32/16/byte` and `riscv64_emit_store_32/16/byte` carried a trailing `int32_t offset` the slot `emit_*_32/16/byte(c, dst, src)` never supplied (so the offset field was uninitialized stack), and `riscv64_emit_lea_rip` took `const char *label` where the slot `emit_lea_rip(c, dst, size_t rodata_offset)` passes a size_t. Both are now conformed (loads/stores use offset 0, matching x86's `mov (src), dst`; `lea_rip` takes `size_t rodata_offset`). Build the tree clean (`make clean`) to surface any future signature drift as warnings.
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 

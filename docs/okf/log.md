@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T17:02:08Z
+timestamp: 2026-10-20T17:51:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -227,3 +227,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `build-and-verification.md`
 - Documented the stale-build guard (zero_cc_ast_node_size vs sizeof(ZeroCCASTNode) layout check in main.c) and its full-rebuild requirement; added the missing parser.h prototype that silenced the implicit-declaration warning
+
+## 2026-10-20 — Updated `isa-backends.md`
+- Sprint 41: documented vtable signature conformance (RISC-V load/store/lea_rip now match their ZeroCCISABackend slots; a mismatch reads garbage for the extra params)
+
+## 2026-10-20 — Updated `build-and-verification.md`
+- Sprint 41: noted pre-existing AArch64 sret --target-all failure (sxtw xD,xD source must be a W register); riscv64 + x86-64 pass

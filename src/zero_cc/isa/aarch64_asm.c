@@ -429,47 +429,47 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
 }
 
 /* RET: ret */
-static void aarch64_emit_ret_asm(ZeroCCCompiler *c, FILE *out) {
+static void aarch64_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
     fprintf(out, "\tret\n");
 }
 
 /* LABEL: label: */
-static void aarch64_emit_label_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
 }
 
 /* JMP: b label */
-static void aarch64_emit_jmp_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jmp_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb\t%s\n", label);
 }
 
 /* JEQ: b.eq label */
-static void aarch64_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.eq\t%s\n", label);
 }
 
 /* JNE: b.ne label */
-static void aarch64_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jne_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.ne\t%s\n", label);
 }
 
 /* JLT: b.lt label */
-static void aarch64_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jlt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.lt\t%s\n", label);
 }
 
 /* JLE: b.le label */
-static void aarch64_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jle_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.le\t%s\n", label);
 }
 
 /* JGT: b.gt label */
-static void aarch64_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jgt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.gt\t%s\n", label);
 }
 
 /* JGE: b.ge label */
-static void aarch64_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void aarch64_emit_jge_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.ge\t%s\n", label);
 }
 

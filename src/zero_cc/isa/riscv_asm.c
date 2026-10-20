@@ -413,47 +413,47 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
 }
 
 /* RET: ret (jalr zero, ra) */
-static void riscv_emit_ret_asm(ZeroCCCompiler *c, FILE *out) {
+static void riscv_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
     fprintf(out, "\tret\n");
 }
 
 /* LABEL: label: */
-static void riscv_emit_label_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
 }
 
 /* JMP: j label */
-static void riscv_emit_jmp_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jmp_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tj\t%s\n", label);
 }
 
 /* JEQ: beq t0, zero, label */
-static void riscv_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tbeq\tt0, zero, %s\n", label);
 }
 
 /* JNE: bne t0, zero, label */
-static void riscv_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jne_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tbne\tt0, zero, %s\n", label);
 }
 
 /* JLT: blt t0, zero, label */
-static void riscv_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jlt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tblt\tt0, zero, %s\n", label);
 }
 
 /* JLE: ble t0, zero, label */
-static void riscv_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jle_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tble\tt0, zero, %s\n", label);
 }
 
 /* JGT: bgt t0, zero, label */
-static void riscv_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jgt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tbgt\tt0, zero, %s\n", label);
 }
 
 /* JGE: bge t0, zero, label */
-static void riscv_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+static void riscv_emit_jge_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tbge\tt0, zero, %s\n", label);
 }
 
@@ -772,7 +772,7 @@ static void riscv_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2
 }
 
 /* Vector shuffle - Not directly supported in RVV, use vmv.v.v */
-static void riscv_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out) {
+static void riscv_emit_vshufps_asm(ZeroCCCompiler *c, int dst, int, int src2, int imm, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\t# RVV shuffle (imm=%d): %s <- %s\n", imm, dst_name, src2_name);
@@ -795,14 +795,14 @@ static void riscv_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE 
 }
 
 /* Vector compare - feq.s */
-static void riscv_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+static void riscv_emit_vcmpss_asm(ZeroCCCompiler *c, int, int src1, int src2, int, FILE *out) {
     const char *src1_name = (src1 >= 0 && src1 < 32) ? BE(c)->regs->fp_regs[src1] : "fa0";
     const char *src2_name = (src2 >= 0 && src2 < 32) ? BE(c)->regs->fp_regs[src2] : "fa1";
     fprintf(out, "\tfeq.s\tt0, %s, %s\n", src1_name, src2_name);
 }
 
 /* Vector scalar double comparison - feq.d */
-static void riscv_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
+static void riscv_emit_vcmpsd_asm(ZeroCCCompiler *c, int, int src1, int src2, int, FILE *out) {
     const char *src1_name = (src1 >= 0 && src1 < 32) ? BE(c)->regs->fp_regs[src1] : "fa0";
     const char *src2_name = (src2 >= 0 && src2 < 32) ? BE(c)->regs->fp_regs[src2] : "fa1";
     fprintf(out, "\tfeq.d\tt0, %s, %s\n", src1_name, src2_name);

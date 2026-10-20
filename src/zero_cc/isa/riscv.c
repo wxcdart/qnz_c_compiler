@@ -537,47 +537,50 @@ static void riscv64_emit_deref(ZeroCCCompiler *c, int dst, int src) {
     riscv_emit_u32(c, 0x00000003 | (dst << 7) | (src << 15));
 }
 
-/* load_32 dst, [base, offset] - 32-bit load */
-static void riscv64_emit_load_32(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
-    /* lw dst, offset(base) */
-    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+/* load_32 dst, [base] - 32-bit load from the address in base (offset 0).
+ * Matches vtable slot emit_load_32(c, dst_reg, src_reg). */
+static void riscv64_emit_load_32(ZeroCCCompiler *c, int dst, int base) {
+    /* lw dst, 0(base) */
+    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15));
 }
 
-/* load_16 dst, [base, offset] - 16-bit load */
-static void riscv64_emit_load_16(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
-    /* lh dst, offset(base) */
-    riscv_emit_u32(c, 0x00001003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+/* load_16 dst, [base] - 16-bit load from the address in base (offset 0). */
+static void riscv64_emit_load_16(ZeroCCCompiler *c, int dst, int base) {
+    /* lh dst, 0(base) */
+    riscv_emit_u32(c, 0x00001003 | (dst << 7) | (base << 15));
 }
 
-/* load_byte dst, [base, offset] - 8-bit load */
-static void riscv64_emit_load_byte(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
-    /* lb dst, offset(base) */
-    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15) | ((offset & 0xFFF) << 20));
+/* load_byte dst, [base] - 8-bit load from the address in base (offset 0). */
+static void riscv64_emit_load_byte(ZeroCCCompiler *c, int dst, int base) {
+    /* lb dst, 0(base) */
+    riscv_emit_u32(c, 0x00000003 | (dst << 7) | (base << 15));
 }
 
-/* store_32 src, [base, offset] - 32-bit store */
-static void riscv64_emit_store_32(ZeroCCCompiler *c, int src, int base, int32_t offset) {
-    /* sw src, offset(base) */
-    riscv_emit_u32(c, 0x00002023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+/* store_32 src, [base] - 32-bit store to the address in base (offset 0).
+ * Matches vtable slot emit_store_32(c, src_reg, base_reg). */
+static void riscv64_emit_store_32(ZeroCCCompiler *c, int src, int base) {
+    /* sw src, 0(base) */
+    riscv_emit_u32(c, 0x00002023 | (base << 15) | (src << 20));
 }
 
-/* store_16 src, [base, offset] - 16-bit store */
-static void riscv64_emit_store_16(ZeroCCCompiler *c, int src, int base, int32_t offset) {
-    /* sh src, offset(base) */
-    riscv_emit_u32(c, 0x00001023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+/* store_16 src, [base] - 16-bit store to the address in base (offset 0). */
+static void riscv64_emit_store_16(ZeroCCCompiler *c, int src, int base) {
+    /* sh src, 0(base) */
+    riscv_emit_u32(c, 0x00001023 | (base << 15) | (src << 20));
 }
 
-/* store_byte src, [base, offset] - 8-bit store */
-static void riscv64_emit_store_byte(ZeroCCCompiler *c, int src, int base, int32_t offset) {
-    /* sb src, offset(base) */
-    riscv_emit_u32(c, 0x00000023 | (base << 15) | (src << 20) | ((offset & 0xFFF) << 7));
+/* store_byte src, [base] - 8-bit store to the address in base (offset 0). */
+static void riscv64_emit_store_byte(ZeroCCCompiler *c, int src, int base) {
+    /* sb src, 0(base) */
+    riscv_emit_u32(c, 0x00000023 | (base << 15) | (src << 20));
 }
 
-/* lea_rip dst, label - RIP-relative LEA (PC-relative on RISC-V) */
-static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, const char *label) {
-    /* auipc dst, offset; addi dst, dst, offset */
-    (void)c; (void)dst; (void)label;
-    /* Placeholder - would need label resolution */
+/* lea_rip dst, rodata_offset - address of a .rodata string. Matches vtable
+ * slot emit_lea_rip(c, dst_reg, rodata_offset). Placeholder: full PC-relative
+ * rodata addressing with a relocation record is not implemented yet. */
+static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, size_t rodata_offset) {
+    /* auipc dst, hi; addi dst, dst, lo (PC-relative absolute address). */
+    (void)c; (void)dst; (void)rodata_offset;
     riscv_emit_u32(c, 0x000017);  /* auipc x1, 0 */
     riscv_emit_u32(c, 0x00000093);  /* addi x2, x1, 0 */
 }
@@ -722,15 +725,6 @@ static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 }
 
 /* Control flow */
-
-/* jmp_cond cond, label - conditional jump based on condition code */
-static size_t riscv64_emit_jmp_cond(ZeroCCCompiler *c, int cond, const char *label) {
-    size_t patch_pos = me_get_offset(c);
-    /* b.cond placeholder */
-    riscv_emit_u32(c, 0x00000063);
-    (void)label;
-    return patch_pos;
-}
 
 /* Function ABI */
 

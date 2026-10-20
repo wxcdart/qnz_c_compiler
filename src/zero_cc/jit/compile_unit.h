@@ -633,13 +633,14 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                             }
                                         } else if (vt == TK_FLOAT || (e_float && vt == TK_NUM)) {
                                             double dv = zero_cc_eval_const_expr_float(c);
-                                            uint64_t bits;
+                                            uint64_t bits = 0;
                                             /* Float members (4 bytes) must store the
                                              * float pattern, not the low 32 bits
-                                             * of the double. */
+                                             * of the double. Copy only the 4 float
+                                             * bytes; the rest of bits stays zero. */
                                             if (e_sz <= 4) {
                                                 float fv = (float)dv;
-                                                memcpy(&bits, &fv, sizeof(bits));
+                                                memcpy(&bits, &fv, sizeof(fv));
                                             } else {
                                                 memcpy(&bits, &dv, sizeof(bits));
                                             }
@@ -722,10 +723,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                  * stored bits are the float pattern (not the low
                                  * 32 bits of the double, which are often zero). */
                                 double dv = zero_cc_eval_const_expr_float(c);
-                                uint64_t bits;
+                                uint64_t bits = 0;
                                 if (elem_size <= 4) {
                                     float fv = (float)dv;
-                                    memcpy(&bits, &fv, sizeof(bits));
+                                    memcpy(&bits, &fv, sizeof(fv));
                                 } else {
                                     memcpy(&bits, &dv, sizeof(bits));
                                 }

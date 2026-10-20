@@ -91,7 +91,10 @@ typedef struct ZeroCCCompiler {
     /* Backend pointers */
     const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
     int had_error;
-    char error_msg[256];
+    /* Legacy display buffer. Sized to hold a formatted message plus the
+     * "(near '<token>')" suffix that diag_report_error_at_token appends
+     * (see full_buf in diagnostics.c, 320B). */
+    char error_msg[512];
     int expr_depth;                       /* Expression parser recursion depth counter */
 
     /* Rich diagnostics system */

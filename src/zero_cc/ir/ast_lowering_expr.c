@@ -1129,8 +1129,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                  * base is a pointer (->) or a struct object (.). */
                 bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
                 int32_t base_stack_offset = 0;
-                TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
-                size_t m_size = member_ti ? type_size(member_ti) : 4;
 
                 /* Multi-segment chains (o.p->v = x): compute the address
                  * generically - the flat paths below cannot dereference

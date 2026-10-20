@@ -333,7 +333,7 @@ static void opt_promote_loop_carried(void) {
              * the slot after the loop would leave head_temp uninitialised). */
             int init_store_idx = -1;
             for (int k = 0; k < (int)count; k++) {
-                if (k >= hdr_idx && (size_t)k <= back_idx) continue;
+                if (k >= (int)hdr_idx && (size_t)k <= back_idx) continue;
                 Instr *pre_ins = ir_get(k);
                 if (pre_ins && instr_is_stack_store(pre_ins) &&
                     slot_from_offset(get_frame_offset(pre_ins)) == s) {
@@ -341,7 +341,7 @@ static void opt_promote_loop_carried(void) {
                     break;
                 }
             }
-            if (init_store_idx < 0 || init_store_idx >= hdr_idx) continue;
+            if (init_store_idx < 0 || init_store_idx >= (int)hdr_idx) continue;
             if (first_exit < 0) continue; /* no reachable exit: nothing to forward */
 
             Instr *init_ins = ir_get(init_store_idx);

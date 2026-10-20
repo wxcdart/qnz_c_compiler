@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - Full Warning Cleanup (0 on clean rebuild) + Latent Bug Fixes
+
+Cleaned up all **77 pre-existing compiler warnings** surfaced by a full `make clean` rebuild (incremental builds had been hiding them), fixing a few latent bugs the warnings exposed.
+
+### Fixed (latent bugs the warnings revealed)
+- **Float initializer overread** (`jit/compile_unit.h`): two global/struct float-init paths did `memcpy(&bits, &fv, sizeof(bits))` — copying **8** bytes out of a **4-byte** `float fv` (a 4-byte stack overread). Now `uint64_t bits = 0;` + `memcpy(&bits, &fv, sizeof(fv))` (4 float bytes, zero-extended).
+- **RISC-V vtable signature mismatch** (`isa/riscv.c`): `riscv64_emit_{load_32,load_16,load_byte,store_32,store_16,store_byte}` took a 4th `int32_t offset` param and `riscv64_emit_lea_rip` took `const char *label`, neither matching the vtable slots (`(c,dst,src)` / `(c,dst,size_t rodata_offset)`). The callers always pass 2 args, so the 3rd was **garbage** — the RISC-V load/store encoded a random offset and `lea_rip` misread a size_t as a pointer. Signatures now match the interface (offset 0, `size_t rodata_offset`). Validated by `sret_verifier --target-all` (riscv64 PASS).
+- **`opt_mem2reg.c` sign-compare**: `k >= hdr_idx` / `init_store_idx >= hdr_idx` compared `int` against `size_t hdr_idx`; now `(int)hdr_idx` (consistent with the `(int)count` loop bound).
+
+### Cleaned up (hygiene, no behavior change)
+- **Unused asm-emitter params** (`x86_64_asm.c`, `riscv_asm.c`, `aarch64_asm.c`): 55 vtable-callback params (`c` on text-only emitters, `src1` on 2-operand SSE/vec ops, `dst`/`pred` on the RISC-V `vcmp*`) dropped their names to silence `-Wunused-parameter`.
+- **Unused code**: `opt_vectorize.c` dead pattern-matchers `is_array_load`/`is_array_store` + unused `target_isa`; `x86_64.c` dead ABI tables `x86_64_hw_reg_names`/`x86_64_callee_save_pool_to_vreg`; `riscv.c` dead `riscv64_emit_jmp_cond`; `ast_lowering_expr.c` dead outer `member_ti`/`m_size`; `elf_writer.c` unused `symtab_start`.
+- **`elf_writer.c`** incompatible-pointer chained assignment `reloc_offsets = reloc_symbol_indices = NULL` (uint64_t\* vs uint16_t\*) split into two.
+- **`diagnostics.c`/`symbols.h`** `-Wformat-truncation`: legacy `error_msg[256]` was undersized for the 320-byte enriched message; grown to `error_msg[512]`.
+
+### Known issue (pre-existing, out of scope)
+- **AArch64 sret cross-verify fails** (`sret_verifier --target-all`): the aarch64 backend emits `sxtw xD, xD` (the source must be a W register: `sxtw xD, wS`). Pre-existing (fails identically at the prior commit); RISC-V and x86-64 pass. Tracked for a separate AArch64 codegen fix.
+
+### Verification
+- **0 warnings** on a full `make clean && make build/bin/zerocc` (was 77).
+- `make test` **142/142**, `make test-opt` **106 ok**, `sret_verifier --verify-all` **6/6**, `--target-all` riscv64 **PASS**, `okf lint+index` pass.
+
 ## [Sprint 41] - 2026-10-20 - Static-Local Self-Hosting: Unsized Arrays, Mirror Direction, String Pointer Arrays + `va_arg` Fix
 
 Closes the Sprint 37 static-local blockers that prevented full-header self-hosting. zerocc's own headers use block-scope `static const char *arr[] = {...}` (e.g. `gpr_names[]`/`xmm_names[]` in `ir/live_range.h`, `sys_paths[]` in `core/preprocessor.h`); none of these patterns compiled before.

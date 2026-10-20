@@ -94,48 +94,6 @@ void vectorization_free(VectorizationState *state) {
 }
 
 /**
- * Check if an instruction is a simple array load
- * Pattern: temp = load [base + loop_var * stride]
- */
-static bool is_array_load(Instr *instr, int base_temp, int loop_var, int stride) {
-    if (!instr) return false;
-    
-    /* Check for FLOAD or LOAD_32 pattern */
-    if (instr->op != OP_FLOAD && instr->op != OP_LOAD_32) {
-        return false;
-    }
-    
-    /* Check if source matches base + loop_var * stride pattern */
-    /* For simplicity, we check if src1 is the base and offset is related to loop_var */
-    if (instr->temp_src1 == base_temp) {
-        /* Offset should be loop_var * stride */
-        if (instr->imm == loop_var * stride) {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-/**
- * Check if an instruction is a simple array store
- * Pattern: store temp, [base + loop_var * stride]
- */
-static bool is_array_store(Instr *instr, int base_temp, int loop_var, int stride) {
-    if (!instr) return false;
-    
-    if (instr->op != OP_FSTORE && instr->op != OP_STORE_32) {
-        return false;
-    }
-    
-    if (instr->temp_src1 == base_temp && instr->imm == loop_var * stride) {
-        return true;
-    }
-    
-    return false;
-}
-
-/**
  * Check if instruction is a vectorizable arithmetic operation
  * Pattern: dest = src1 + src2 (or -, *)
  */
@@ -504,6 +462,7 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
  * - Accurate address calculation for VLOAD/VSTORE
  */
 bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int loop_idx) {
+    (void)c; /* transform works purely on the pre-computed state/IR */
     if (loop_idx < 0 || loop_idx >= state->loop_count) {
         return false;
     }
@@ -514,7 +473,6 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     }
     
     int vec_width = vinfo->vector_width;
-    int target_isa = c->regalloc.target_isa;
     
     /* Get loop body */
     int start_idx = vinfo->body_start_idx;

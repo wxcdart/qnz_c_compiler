@@ -25,11 +25,6 @@ static const ISARegInfo x86_64_regs = {
 
 /* x86-64 System V ABI calling convention */
 /* Register numbers: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15 */
-/* Hardware register names indexed by hardware register number */
-static const char *x86_64_hw_reg_names[] = {
-    "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
-};
 
 static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
 static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
@@ -42,11 +37,6 @@ static const int32_t x86_64_callee_save_slot_offset[] = {
     /* r13 */ 24,
     /* r14 */ 32,
     /* r15 */ 40,
-};
-
-/* Physical VREG for each allocator pool index */
-static const int x86_64_callee_save_pool_to_vreg[] = {
-    0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 };
 
 static const ISACallingConvention x86_64_conv = {

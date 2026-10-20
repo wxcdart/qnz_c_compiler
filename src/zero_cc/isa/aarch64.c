@@ -456,6 +456,7 @@ static void aarch64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg)
 
 /* atomic_cmpxchg - atomic compare and exchange */
 static void aarch64_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
+    (void)width; /* fixed-width 32-bit exclusive sequence below */
     /* ldxr dst, [addr] (load exclusive) */
     arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
     /* cmp dst, expected */
@@ -468,6 +469,7 @@ static void aarch64_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst, int addr, in
 
 /* atomic_xadd - atomic add and return old value */
 static void aarch64_emit_atomic_xadd(ZeroCCCompiler *c, int dst, int addr, int value, int width) {
+    (void)width; /* fixed-width 32-bit exclusive sequence below */
     /* ldxr dst, [addr] */
     arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
     /* add tmp, dst, value */

@@ -465,7 +465,6 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     symtab++;
 
     // Add symbols - local symbols first, then global symbols
-    ElfWriterSymbol* symtab_start = symtab;
     uint16_t *sym_remap = (uint16_t *)calloc((size_t)ctx->symbol_count + 2, sizeof(uint16_t));
     if (!sym_remap) {
         set_error(ctx, "Out of memory building symbol remap");
@@ -783,7 +782,8 @@ void elf_writer_cleanup(ElfWriterCtx* ctx) {
     free(ctx->reloc_types);
     free(ctx->reloc_addends);
     free(ctx->reloc_section_indices);
-    ctx->reloc_offsets = ctx->reloc_symbol_indices = NULL;
+    ctx->reloc_offsets = NULL;
+    ctx->reloc_symbol_indices = NULL;
     ctx->reloc_types = NULL;
     ctx->reloc_addends = NULL;
     ctx->reloc_section_indices = NULL;
