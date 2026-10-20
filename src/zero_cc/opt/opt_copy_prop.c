@@ -86,41 +86,22 @@ static void copy_prop_invalidate(uint16_t temp) {
 
 /**
  * Check if instruction defines a temp (is a destination)
+ *
+ * Generic rule (matches DCE's liveness convention): any instruction with
+ * a temp_dest set defines that temp.  OP_CALL/OP_CALL_INDIRECT are
+ * excluded - since C2b their temp_dest is not a temp ID (call arguments
+ * live in IRCallArgs; historically dest held arg_count).
+ *
+ * The previous explicit opcode list missed the in-place ops (ADD_IMM,
+ * SUB_INC, INC, DEC, SEXT*, ZEXT*, LEA, ...), so an in-place redefine of
+ * a temp that had been copy-mapped was not invalidated, and later uses
+ * of the temp were replaced with the stale copy source (Sprint 39:
+ * exposed by the branchless-select pass, which emits SUB_INC on a copied
+ * temp).
  */
 static int instr_defines_temp(Instr *instr) {
-    switch (instr->op) {
-        case OP_MOV_REG:
-        case OP_MOV_IMM:
-        case OP_MOV_MEM:
-        case OP_MOV:
-        case OP_ADD:
-        case OP_SUB:
-        case OP_MUL:
-        case OP_DIV:
-        case OP_MOD:
-        case OP_AND:
-        case OP_OR:
-        case OP_XOR:
-        case OP_NOT:
-        case OP_NEG:
-        case OP_SHL:
-        case OP_SHR:
-        case OP_SAR:
-        case OP_LOAD_BYTE:
-        case OP_LOAD_16:
-        case OP_LOAD_32:
-        case OP_VLOAD:
-        case OP_VLOADSS:
-        case OP_VLOADSD:
-        case OP_VMOV:
-        case OP_VMOVSS:
-        case OP_VMOVSD:
-        case OP_CALL:
-        case OP_CALL_INDIRECT:
-            return 1;
-        default:
-            return 0;
-    }
+    if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT) return 0;
+    return instr->temp_dest != TEMP_NONE;
 }
 
 /**

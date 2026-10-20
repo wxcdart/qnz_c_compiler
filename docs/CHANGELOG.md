@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 39] - 2026-10-20 - Branchless Conditional Select (CFG-enabled -O3 pass) + copy_prop invalidation fix
+
+### Added
+- **`opt/opt_branchless.{c,h}` - branchless conditional select** (the first of the planned CFG-enabled optimizations; `-O3` only, priority 58 between LICM and strength reduction). Converts the ternary-lowering branch shape (`JE t, L_else` + then arm + `JMP L_end` + else arm + merge label) into the branchless bitwise select `mask = (t ? -1 : 0); diff = A ^ B; sel = mask & diff; res = B ^ sel` - exact for any 64-bit pattern (int, pointer, struct chunk), no new opcode.
+  - **Two condition forms**: (a) preceding `OP_COND_SET` (t is 0/1; mask = `t * -1`); (b) plain GPR value (arbitrary int, jump tests `t == 0`; mask via `OP_CMP_ZERO` + `OP_COND_SET CC_EQ` - the same sequence lowering uses for `!x`).
+  - **Arms must be pure value plumbing** (frame load / register copy / in-place SEXT-ZEXT, ending in `MOV_REG res, V`) - the copy form appears after copy-prop replaces the arm's frame load.
+  - **Safety**: CFG predecessor checks (L_else only from the JE block; L_end exactly from {then, else}); `res` not read in the span; values provably GPR-resident (definition walk; FP arms rejected); condition stays live; 4 fresh temps/site with the 16-bit temp guard; two-pass arena rebuild with `ir_call_args` remap (LICM recipe).
+  - **Mask opcodes are -S-safe by construction**: the `-S` `asm_emitter` has no `OP_NOT`/`OP_SUB_INC`/`OP_ADD_INC`/`OP_INC`/`OP_DEC` emitters (pre-existing gap, `# UNKNOWN` comments), so the mask uses only `MOV_IMM`/`MUL`/`SUB`/`XOR`/`AND`/`CMP_ZERO`/`COND_SET`, supported by both `-S` and `-o` paths.
+  - **Regression guard**: `test/jit/ternary_branchless.c` in the `make test-opt` corpus (swept at every -O level, JIT + AOT), plus a gcc differential battery (plain/comparison conditions, negative/large values, pointer arms, SEXT arms, condition reuse, nested ternaries, loop-carried selects).
+
+### Fixed
+- **`opt/opt_copy_prop.c` - incomplete definition invalidation**: `instr_defines_temp` used an explicit opcode list that missed the in-place ops (`OP_ADD_IMM`, `OP_SUB_INC`, `OP_INC`, `OP_DEC`, `OP_SEXT*`, `OP_ZEXT*`, `OP_LEA`, …), so an in-place redefine of a copy-mapped temp was not invalidated and later uses were replaced with the stale copy source (`t2 = t; t2 = t2 - 1; r = ~t2` → `r = ~t`). Latent before this sprint (lowering only ever emitted 3-operand forms for `x += c`); the branchless pass's in-place `SUB_INC` mask was the first trigger. Now the generic rule matching DCE's liveness convention: `temp_dest != TEMP_NONE` defines, with `OP_CALL`/`OP_CALL_INDIRECT` excluded (their `temp_dest` is not a temp ID since C2b). Strictly more conservative invalidation; no perf regression measured.
+
+### Known Issues (surfaced, pre-existing, unfixed - documented in `docs/okf/optimization-passes.md`)
+- **Float/double ternary miscompiles at -O0**: FP conditional-expression result temp allocated GPR-class while arms `FLOAD` into XMM; trailing `(int)` cast lowers to `SEXT32` instead of `CVTTSS2SI` → reads an uninitialized GPR.
+- **64-bit literals > 32 bits miscompile at -O0** in ternary arms (returns the ELSE value) and as XOR operands (`2 ^ 0xAAAAAAAAAAAAAAAAL` → `0x7FFFFFFFFFFFFFFD`); 34-bit values fine. Repro without any ternary for the XOR case - a constant/immediate lowering gap.
+- **`-S` asm_emitter opcode gaps**: `OP_NOT`/`OP_SUB_INC`/`OP_ADD_INC`/`OP_INC`/`OP_DEC` emit `# UNKNOWN` comments (the `-o` ELF path is complete).
+
+### Verification
+- `make test-opt` **106/106** (new corpus test included), `make test` **142/142**, `cfg_verifier` **112 files / 0 failed** (63 skipped, 101 warnings - same policy), `mem2reg_verifier` all passed, `sret_verifier` **6/6**, `licm_test_suite` **5/5**, SIMD suite unchanged (10 pre-existing FP/frontend failures).
+- No perf regression: copy_prop 0.6-0.9 ms @-O2 on `synth_large.c` (≈ pre-sprint), total passes-only ~106-117 ms (host-load range).
+
 ## [Sprint 38] - 2026-10-20 - GVN Cost: ~200 ms → ~2.3 ms (Generation-Stamped Canonical Table)
 
 ### Changed

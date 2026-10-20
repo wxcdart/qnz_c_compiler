@@ -72,6 +72,10 @@ void opt_profile_dump(FILE *f) {
         fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
     }
     
+    /* Branchless select (Sprint 39) */
+    fprintf(f, "\nBranchless select:\n");
+    fprintf(f, "  Ternary branches converted: %zu\n", g_stats.branchless_selects);
+    
     /* Copy propagation statistics */
     fprintf(f, "\nCopy Propagation:\n");
     fprintf(f, "  Total instructions scanned: %zu\n", g_stats.copy_prop_instructions);
@@ -197,6 +201,11 @@ void opt_profile_count_gvn_instruction(void) {
 }
 void opt_profile_count_gvn_eliminated(void) {
     if (g_profile_enabled) g_stats.gvn_eliminated++;
+}
+
+/* Branchless select (Sprint 39) */
+void opt_profile_count_branchless(void) {
+    if (g_profile_enabled) g_stats.branchless_selects++;
 }
 
 void opt_profile_print_gvn(void) {

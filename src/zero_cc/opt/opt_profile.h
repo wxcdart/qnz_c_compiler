@@ -27,6 +27,9 @@ typedef struct {
     size_t gvn_total_instructions;
     size_t gvn_eliminated;
     
+    /* Branchless select (Sprint 39) */
+    size_t branchless_selects;
+    
     /* Copy propagation statistics */
     size_t copy_prop_instructions;
     size_t copy_prop_changes;
@@ -88,6 +91,7 @@ void opt_profile_count_cse_eliminated(void);
 void opt_profile_count_cse_basic_block(void);
 void opt_profile_count_gvn_instruction(void);
 void opt_profile_count_gvn_eliminated(void);
+void opt_profile_count_branchless(void);
 void opt_profile_count_copy_prop_instruction(void);
 void opt_profile_count_copy_prop_changed(void);
 void opt_profile_set_copy_prop_changes(size_t changes);

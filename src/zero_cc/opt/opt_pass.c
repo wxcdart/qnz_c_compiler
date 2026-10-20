@@ -6,6 +6,7 @@
 #include "opt_loop.h"
 #include "opt_vectorize.h"
 #include "opt_gvn.h"
+#include "opt_branchless.h"
 #include "opt_copy_prop.h"
 #include "opt_profile.h"
 #include "cfg.h"
@@ -23,6 +24,7 @@ static void opt_pass_copy_prop(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_gvn(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
+static void opt_pass_branchless(ZeroCCCompiler *c);
 static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
@@ -38,6 +40,7 @@ static const OptPass g_opt_passes[] = {
     { "cse", opt_pass_cse, 1, 45, OPT_LEVEL_O2 },
     { "gvn", opt_pass_gvn, 1, 50, OPT_LEVEL_O2 },
     { "licm", opt_pass_licm, 1, 55, OPT_LEVEL_O2 },
+    { "branchless", opt_pass_branchless, 1, 58, OPT_LEVEL_O3 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60, OPT_LEVEL_O3 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 65, OPT_LEVEL_O3 },
     { "auto_vectorize", opt_pass_auto_vectorize, 1, 70, OPT_LEVEL_O3 },
@@ -109,6 +112,7 @@ static void opt_pass_mem2reg(ZeroCCCompiler *c) { opt_promote_mem2reg(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_gvn(ZeroCCCompiler *c) { opt_eliminate_gvn(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }
+static void opt_pass_branchless(ZeroCCCompiler *c) { opt_branchless_select(c); }
 static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduction(c); }
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c) { opt_auto_vectorize(c); }
