@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-19T23:25:28Z
+timestamp: 2026-10-20T00:30:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -29,6 +29,7 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - Candidate function bodies are cloned from function-local AST arenas into TU-level `tu_ast_arena`.
    - At call sites, argument expressions are evaluated to temporaries, bound to parameter identifiers, and the inlined body is lowered directly into caller IR, routing returns to destination temporaries without call instruction or stack frame overhead.
    - Subsequent passes (`mem2reg`, `licm`, `copy_prop`, `dce`) optimize seamlessly across the inlined boundary.
+   - **Sprint 35 Phase 1 audit — conservative candidate filters**: the call-site expander re-lowers the body in the CALLER's context, where the callee's parse-time state is unavailable or collides. `jit/compile.h` therefore rejects candidates whose signature or body has any of: **float/double param or return** (param substitution forces `last_expr_is_float=0`; FP params/returns misroute between GPR and XMM), **any local declaration in the body** (locals are registered at parse time in the callee's per-function table and reset per function, so body locals lower to `TEMP_NONE` at the call site), **any label/goto** (user labels resolve through a global name-based map, so a same-named caller label aliases the inlined target), or **`&param`** (value params bind to virtual registers with no address; `&param` lowers to an invalid LEA). The AST walkers `zero_cc_ast_has_local_decl`, `zero_cc_ast_has_label_goto`, and `zero_cc_ast_addr_of_param` (`parser/ast_arena.h`) implement these checks. Verified-safe-and-still-inlined: expression-only leaf helpers, struct params/returns ≤8B, multiple returns, real calls from the inlined body, nested depth 2, same callee twice in one expression. Audit battery: `test/inline_audit/` (17 differential tests, part of `make test-opt`). Re-enabling bodies with locals (snapshot name+type before the callee's local table is reset, re-register into the caller's frame with a name-collision check) and FP signatures (carry param types through the inlining context) are the planned follow-ups.
 6. **Local & Cross-Block Mem2Reg (`opt_mem2reg.c`)**
    - Forwards stack stores (`OP_MOV_MEM`) to subsequent stack loads (`OP_MOV`) to eliminate redundant stack traffic.
    - **Straight-Line & Fallthrough Optimization**:

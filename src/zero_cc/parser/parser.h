@@ -116,6 +116,10 @@ ASTRef zero_cc_ast_alloc_node(ZeroCCASTArena *arena, ZeroCCASTTag tag);
 size_t zero_cc_ast_node_count(ZeroCCASTArena *arena, ASTRef root);
 ASTRef zero_cc_ast_clone(ZeroCCASTArena *src_arena, ASTRef root, ZeroCCASTArena *dst_arena);
 bool zero_cc_ast_has_call(ZeroCCASTArena *arena, ASTRef root, const char *target_name);
+bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root);
+bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root);
+bool zero_cc_ast_addr_of_param(ZeroCCASTArena *arena, ASTRef root,
+                               const char *param_names[], int param_count);
 static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) {
     if (!arena || ref == AST_NULL || ref >= arena->count) return NULL;
     size_t chunk_idx = ref >> ZERO_CC_AST_CHUNK_BITS;

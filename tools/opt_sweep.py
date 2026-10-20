@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CORPUS = ["test/jit", "test/aot", "test/licm"]
+DEFAULT_CORPUS = ["test/jit", "test/aot", "test/licm", "test/inline_audit"]
 LEVELS = [0, 1, 2, 3]
 
 

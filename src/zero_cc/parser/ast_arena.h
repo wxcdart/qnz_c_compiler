@@ -178,4 +178,89 @@ bool zero_cc_ast_has_call(ZeroCCASTArena *arena, ASTRef root, const char *target
     return zero_cc_ast_has_call_impl(arena, root, target_name, 0);
 }
 
+/*
+ * Sprint 35 Phase 1 (inline audit): body features the call-site inliner
+ * cannot lower safely.  Each predicate walks left/right/next plus the
+ * if/ternary else (aux.alt) and for-loop step/body (aux.step/aux.alt),
+ * mirroring zero_cc_ast_has_call_impl.
+ */
+
+static inline bool zero_cc_ast_walk(ZeroCCASTArena *arena, ASTRef ref, int depth,
+                                    bool (*pred)(ZeroCCASTNode *, size_t), size_t ctx) {
+    (void)depth;
+    if (!arena || ref == AST_NULL || depth > 128) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (pred(n, ctx)) return true;
+    if (n->left != AST_NULL && zero_cc_ast_walk(arena, n->left, depth + 1, pred, ctx)) return true;
+    if (n->right != AST_NULL && zero_cc_ast_walk(arena, n->right, depth + 1, pred, ctx)) return true;
+    if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
+        if (n->aux.alt != AST_NULL && zero_cc_ast_walk(arena, n->aux.alt, depth + 1, pred, ctx)) return true;
+    } else if (n->tag == NODE_FOR) {
+        if (n->aux.step != AST_NULL && zero_cc_ast_walk(arena, n->aux.step, depth + 1, pred, ctx)) return true;
+        if (n->aux.alt != AST_NULL && zero_cc_ast_walk(arena, n->aux.alt, depth + 1, pred, ctx)) return true;
+    }
+    if (n->next != AST_NULL && zero_cc_ast_walk(arena, n->next, depth + 1, pred, ctx)) return true;
+    return false;
+}
+
+/* True if the body declares ANY local variable (including for-loop init
+ * declarations and static locals).  Local symbols are registered at parse
+ * time into the callee's per-function table, which is not visible from the
+ * caller where the body is re-lowered: unregistered locals lower to
+ * TEMP_NONE and silently corrupt the call site. */
+static bool zero_cc_ast_pred_local_decl(ZeroCCASTNode *n, size_t ctx) {
+    (void)ctx;
+    return n->tag == NODE_DECL && !(n->flags & NODE_DECL_FUNC_PROTO);
+}
+bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root) {
+    return zero_cc_ast_walk(arena, root, 0, zero_cc_ast_pred_local_decl, 0);
+}
+
+/* True if the body contains a label or goto.  User labels resolve through
+ * a global name-based map (get_or_create_user_ir_label), so a label in an
+ * inlined body with the same name as a caller label would alias the
+ * caller's target. */
+static bool zero_cc_ast_pred_label_goto(ZeroCCASTNode *n, size_t ctx) {
+    (void)ctx;
+    return n->tag == NODE_LABEL || n->tag == NODE_GOTO;
+}
+bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root) {
+    return zero_cc_ast_walk(arena, root, 0, zero_cc_ast_pred_label_goto, 0);
+}
+
+/* True if the body takes the address of a value parameter (&param).
+ * Inlined parameters are bound to virtual registers with no stack slot,
+ * so &param lowers to an invalid LEA (the Sprint 35 Phase 1 audit found
+ * this segfaulting at -O2). */
+static bool zero_cc_ast_addr_of_param_impl(ZeroCCASTArena *arena, ASTRef ref, int depth,
+                                           const char *param_names[], size_t param_count) {
+    if (!arena || ref == AST_NULL || depth > 128) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (n->tag == NODE_UNOP && n->aux.op == TK_AMP && n->left != AST_NULL) {
+        ZeroCCASTNode *op = zero_cc_ast_get(arena, n->left);
+        if (op && op->tag == NODE_IDENT && op->s.str) {
+            for (size_t p = 0; p < param_count; p++) {
+                if (param_names[p] && strcmp(op->s.str, param_names[p]) == 0) return true;
+            }
+        }
+    }
+    if (n->left != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->left, depth + 1, param_names, param_count)) return true;
+    if (n->right != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->right, depth + 1, param_names, param_count)) return true;
+    if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
+        if (n->aux.alt != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->aux.alt, depth + 1, param_names, param_count)) return true;
+    } else if (n->tag == NODE_FOR) {
+        if (n->aux.step != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->aux.step, depth + 1, param_names, param_count)) return true;
+        if (n->aux.alt != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->aux.alt, depth + 1, param_names, param_count)) return true;
+    }
+    if (n->next != AST_NULL && zero_cc_ast_addr_of_param_impl(arena, n->next, depth + 1, param_names, param_count)) return true;
+    return false;
+}
+bool zero_cc_ast_addr_of_param(ZeroCCASTArena *arena, ASTRef root,
+                               const char *param_names[], int param_count) {
+    if (param_count <= 0) return false;
+    return zero_cc_ast_addr_of_param_impl(arena, root, 0, param_names, (size_t)param_count);
+}
+
 #endif /* ZERO_CC_PARSER_AST_ARENA_H */

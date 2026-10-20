@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-19T23:25:28Z
+timestamp: 2026-10-20T00:30:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -173,3 +173,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-19 — Updated `optimization-passes.md`
 - Added loop entry-cleanness guard note (goto_into_loop.c regression test); sweep count 88/88
+
+## 2026-10-20 — Updated `optimization-passes.md`
+- Sprint 35 Phase 1: inlining audit - four miscompile classes found (FP signatures, body locals, labels/goto, &param); conservative candidate filters added; 17-test differential battery in corpus

@@ -1,5 +1,26 @@
 # ZeroCC Changelog
 
+## [Sprint 35 Phase 1] - 2026-10-20 - Inlining Audit & Conservative Candidate Filters
+
+### Added
+- **Inlining audit battery (`test/inline_audit/`, 17 tests)**: adversarial differential tests vs `gcc -O2` covering param mutation, `&param`, pointer mutation, narrow/wide arg conversion, float/double args and returns (incl. FP-expression return), static locals, labels/goto, multiple returns, same callee twice in one expression, nested inline depth 2, struct params/returns ≤8B, and mixed inlined+real calls. Now part of the `make test-opt` corpus (105 tests).
+
+### Fixed (inlining-specific miscompiles found by the audit, all at `-O2`/`-O3`)
+- **`jit/compile.h` candidate filters** (Sprint 35 Phase 1): the audit showed four body features that the call-site expander cannot lower safely. Candidate detection now rejects:
+  - **float/double params or return** — the param-substitution path forces `last_expr_is_float=0`, so an FP param (an XMM value) was handed to the inlined body as an integer (`CVTSI2SD` from the GPR), and inlined FP returns went through a GPR `MOV_REG` redirection (value never reached the XMM register).
+  - **local declarations in the body** — locals are registered at *parse time* into the callee's per-function local table, which is reset for the caller; at the call site the body's locals resolved to `TEMP_NONE` (r65535), silently corrupting loops and return values.
+  - **labels/goto in the body** — user labels resolve through a global name-based map (`get_or_create_user_ir_label`); a same-named caller label would alias the inlined body's jump target.
+  - **`&param`** — value parameters bind to virtual registers with no stack slot; `&param` lowered to an invalid LEA and segfaulted.
+- **`parser/ast_arena.h` + `parser/parser.h`**: new AST walkers `zero_cc_ast_has_local_decl`, `zero_cc_ast_has_label_goto`, `zero_cc_ast_addr_of_param` (mirror the `zero_cc_ast_has_call` left/right/next + if-else/for traversal).
+- **Verified still inlined** after the filters: expression-only leaf helpers, struct params/returns ≤8B, multiple returns, real calls from the inlined body, nested depth 2, same callee twice in one expression.
+
+### Known gap found by the audit (pre-existing, NOT inlining)
+- `static` locals are lowered as ordinary stack locals (re-initialised on every call): `test/inline_audit/10_static_local.c` fails at **every** `-O` level including `-O0` (no inlining involved). Tracked as a frontend gap; the test stays in the corpus as an across-`-O` consistency guard (its gcc REF-DIFF is informational).
+
+### Verification
+- `make test-opt`: **105/105** (was 88; +17 audit tests) at `-O0..-O3`, JIT + AOT. Pre-filter audit run: 6 of 17 tests miscompiled at `-O2/-O3` (02 `&param` SIGSEGV; 07/08/09 FP; 11 goto; 17 locals).
+- `make test` **141/141** · `mem2reg_verifier.py` **12/12** · `sret_verifier.py` **6/6**.
+
 ## [Sprint 35 Phase 0] - 2026-10-20 - Sprint 33 Regression Fixes & Optimizer Sweep Harness
 
 ### Added

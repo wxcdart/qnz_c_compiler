@@ -428,13 +428,47 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
              * are executed inside zero_cc_lower_ast(). */
 
-            /* Record small static/inline function body in translation-unit arena for inlining */
+            /* Record small static/inline function body in translation-unit arena for inlining.
+             * Sprint 35 Phase 1 (inline audit) conservative candidate filters - the
+             * call-site expander re-lowers the body in the CALLER's context, where the
+             * callee's parse-time state is unavailable or collides:
+             *  - no float/double params or return (param temps carry no FP class; the
+             *    param-substitution path forces last_expr_is_float=0, so FP params/
+             *    returns miscompile at -O2),
+             *  - no local declarations in the body (locals are registered at parse
+             *    time in the callee's per-function table; at the call site they lower
+             *    to TEMP_NONE and corrupt the caller),
+             *  - no labels/goto (user labels resolve through a global name-based map;
+             *    a same-named caller label would alias the inlined body's target),
+             *  - no &param (value params bind to virtual registers with no address).
+             *  Real calls from the inlined body, struct params/returns <=8B, multiple
+             *    returns, and nested inlining (depth < 2) are verified safe. */
             if (c->tu_ast_arena && (fn_inline || fn_static) && !fn->is_variadic &&
                 !fn->returns_struct && fn->ret_struct_sz <= 8) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 size_t node_count = zero_cc_ast_node_count(&arena, body);
-                /* Small leaf or non-recursive helper function (<= 35 nodes, no self-calls) */
-                if (node_count > 0 && node_count <= 35 && !zero_cc_ast_has_call(&arena, body, fn->name)) {
+                bool inline_ok = (node_count > 0 && node_count <= 35 &&
+                                  !zero_cc_ast_has_call(&arena, body, fn->name));
+                if (inline_ok) {
+                    if (fn->return_type.tag == TYPE_FLOAT || fn->return_type.tag == TYPE_DOUBLE)
+                        inline_ok = false;
+                    for (size_t p = 0; inline_ok && p < fn->param_count && p < 8; p++) {
+                        if (fn->param_types[p].tag == TYPE_FLOAT || fn->param_types[p].tag == TYPE_DOUBLE)
+                            inline_ok = false;
+                    }
+                }
+                if (inline_ok) {
+                    if (zero_cc_ast_has_local_decl(&arena, body) ||
+                        zero_cc_ast_has_label_goto(&arena, body))
+                        inline_ok = false;
+                }
+                if (inline_ok && fn->param_count > 0) {
+                    const char *names[8];
+                    for (size_t p = 0; p < fn->param_count && p < 8; p++) names[p] = fn->param_names[p];
+                    if (zero_cc_ast_addr_of_param(&arena, body, names, (int)fn->param_count))
+                        inline_ok = false;
+                }
+                if (inline_ok) {
                     ASTRef cloned_body = zero_cc_ast_clone(&arena, body, tu_arena);
                     if (cloned_body != AST_NULL) {
                         fn->can_inline = true;
