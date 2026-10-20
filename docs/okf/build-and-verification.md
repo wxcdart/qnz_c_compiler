@@ -125,13 +125,19 @@ make test-isa-qemu
 *text* emitter, so only x86-64's raw path was ever exercised). For each test in
 `test/isa_qemu/` and each ISA it: builds a static executable via zerocc's **raw
 binary path** (`ZC_RAW_AOT=1` forces raw for cross-targets; x86-64 is raw by
-default), builds a reference with the system **cross-gcc** (`-static -O2`), runs
-**both** under the matching `qemu-*-static`, and diffs stdout + exit code.
+default), builds a reference with a **static-musl** cross toolchain
+(`musl-gcc-<arch>`, from `tools/setup_musl_cross.sh`), runs **both** under the
+matching `qemu-*-static`, and diffs stdout + exit code.
 
 **Dependency (required, preflighted):** `qemu-user-static`
 (`qemu-x86_64-static`, `qemu-aarch64-static`, `qemu-riscv64-static`,
-`qemu-riscv32-static`) **and** the cross toolchains (`aarch64-linux-gnu-gcc`,
-`riscv64-linux-gnu-gcc`). The harness lists exactly what is missing if absent.
+`qemu-riscv32-static`) **and** a per-ISA static-musl reference wrapper
+(`musl-gcc-<arch>`) installed by `tools/setup_musl_cross.sh` (which builds static
+musl with the system cross gcc — `aarch64-linux-gnu-gcc`,
+`riscv64-linux-gnu-gcc`, host `gcc` — and, for riscv32, a small rv32 libgcc shim).
+A uniform musl-static reference is used across all 4 ISAs so the differential
+baseline is consistent. The harness lists exactly what is missing if absent and
+prints the `setup_musl_cross.sh` command to build each reference.
 
 **Current state** (raw emitters, Sprint 41): **x86-64 11/11** (the production
 path). **aarch64 1/11** -- register allocation clobbers live pointers (a
@@ -140,7 +146,8 @@ string-pointer + arithmetic miscompiles), `.data` relocations are malformed
 (`printf`/`strlen`) return wrong, one infinite loop. **riscv64 0/11** -- objects
 don't link (`can't link soft-float modules with double-float modules`, i.e. an
 inconsistent FP-ABI object attribute). **riscv32 0/11** -- zerocc segfaults
-building rv32, and the installed cross libc lacks rv32 (`crt1.o` is elf64). The
+building rv32 (the static-musl rv32 reference itself builds and runs cleanly
+under `qemu-riscv32-static`; the failure is entirely on the zerocc side). The
 target therefore reports `Error 1` until the aarch64/riscv raw emitters are
 repaired; x86-64 is the green baseline. Run a single ISA with
 `python3 tools/isa_qemu_diff.py --isa aarch64`.

@@ -11,8 +11,10 @@ aarch64/riscv raw emitters (the x86-64 raw path is the default AOT path).
 Dependencies (required):
   - QEMU static binaries:  qemu-x86_64-static qemu-aarch64-static
                             qemu-riscv64-static qemu-riscv32-static
-  - Cross toolchains:      aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc
-  (host gcc is always available for the x86-64 reference)
+  - A uniform STATIC-MUSL reference per ISA, provided by the
+    `musl-gcc-<arch>` wrappers installed by `tools/setup_musl_cross.sh`
+    (builds static musl + a wrapper using the system cross-gcc for codegen).
+    This gives one consistent libc baseline across all ISAs for the differential.
 
 Usage:
     python3 tools/isa_qemu_diff.py                    # all ISAs
@@ -32,12 +34,17 @@ REPO = Path(__file__).resolve().parent.parent
 ZEROC = REPO / "build" / "bin" / "zerocc"
 TEST_DIR = REPO / "test" / "isa_qemu"
 
-# isa -> (zerocc --target value, reference cross-gcc, qemu runner, extra gcc flags)
+# isa -> zerocc --target value, the static-musl reference wrapper, the QEMU
+# runner, and the setup_musl_cross.sh args to (re)build that reference.
 ISAS = {
-    "x86_64":  dict(target="x86-64",  gcc="gcc",                   qemu="qemu-x86_64-static",  gccflags=""),
-    "aarch64": dict(target="aarch64", gcc="aarch64-linux-gnu-gcc", qemu="qemu-aarch64-static",  gccflags="-march=armv8-a"),
-    "riscv64": dict(target="riscv64", gcc="riscv64-linux-gnu-gcc", qemu="qemu-riscv64-static",  gccflags="-march=rv64gc"),
-    "riscv32": dict(target="riscv32", gcc="riscv64-linux-gnu-gcc", qemu="qemu-riscv32-static",  gccflags="-march=rv32gc -mabi=ilp32"),
+    "x86_64":  dict(target="x86-64",  ref="musl-gcc-x86_64",  qemu="qemu-x86_64-static",
+                    setup="--arch x86_64 --ccbin gcc --host x86_64-linux-musl"),
+    "aarch64": dict(target="aarch64", ref="musl-gcc-aarch64", qemu="qemu-aarch64-static",
+                    setup="--arch aarch64 --ccbin aarch64-linux-gnu-gcc"),
+    "riscv64": dict(target="riscv64", ref="musl-gcc-riscv64", qemu="qemu-riscv64-static",
+                    setup="--arch riscv64 --ccbin riscv64-linux-gnu-gcc"),
+    "riscv32": dict(target="riscv32", ref="musl-gcc-riscv32", qemu="qemu-riscv32-static",
+                    setup="--arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra '\''-march=rv32gc -mabi=ilp32'\'' --host riscv32-linux-musl"),
 }
 
 
@@ -48,9 +55,11 @@ def preflight(isas):
         missing.append(f"{ZEROC} (run `make build/bin/zerocc` first)")
     for isa in isas:
         cfg = ISAS[isa]
-        for tool in (cfg["gcc"], cfg["qemu"]):
-            if shutil.which(tool) is None:
-                missing.append(f"{tool} (needed for {isa})")
+        if shutil.which(cfg["ref"]) is None:
+            missing.append(f"{cfg['ref']} (needed for {isa}); build it with "
+                           f"tools/setup_musl_cross.sh {cfg['setup']}")
+        if shutil.which(cfg["qemu"]) is None:
+            missing.append(f"{cfg['qemu']} (needed for {isa})")
     return missing
 
 
@@ -70,9 +79,9 @@ def build_zerocc(cfg, src, exe, timeout=60):
 
 
 def build_ref(cfg, src, exe, timeout=60):
-    """Build the reference static executable with the system cross-gcc."""
-    return run([cfg["gcc"], "-static", "-O2"] + cfg["gccflags"].split() +
-               [str(src), "-o", str(exe), "-lc"], timeout=timeout, text=True)
+    """Build the reference static-musl executable with the musl-gcc-<arch> wrapper."""
+    return run([cfg["ref"], "-static", "-O2",
+                str(src), "-o", str(exe), "-lc"], timeout=timeout, text=True)
 
 
 def run_exe(cfg, exe, timeout=15):
@@ -125,8 +134,8 @@ def main():
         print("MISSING DEPENDENCIES for QEMU differential testing:\n")
         for m in missing:
             print(f"  - {m}")
-        print("\nInstall QEMU (qemu-user-static) and the cross toolchains")
-        print("(gcc-aarch64-linux-gnu, gcc-riscv64-linux-gnu) and re-run.")
+        print("\nInstall QEMU (qemu-user-static) and the per-ISA static-musl")
+        print("reference via tools/setup_musl_cross.sh (see lines above) and re-run.")
         return 2
 
     total = pass_ = fail = timeout = buildfail = 0
@@ -136,7 +145,7 @@ def main():
         cfg = ISAS[isa]
         s_pass = s_fail = s_to = s_bf = 0
         print(f"\n=== {isa}  (zerocc target={cfg['target']}, "
-              f"ref={cfg['gcc']}, run={cfg['qemu']}, RAW binary path) ===")
+              f"ref={cfg['ref']} [static musl], run={cfg['qemu']}, RAW binary path) ===")
         for t in tests:
             total += 1
             exe_zc = work / f"{t.stem}_{isa}_zc"

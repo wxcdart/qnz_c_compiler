@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-20 - Uniform Static-Musl Cross Reference for All 4 ISAs
+
+The `make test-isa-qemu` QEMU differential harness now uses a **uniform static-musl reference across all 4 target ISAs** (x86_64, aarch64, riscv64, riscv32) instead of the system glibc cross-cc. This gives one consistent libc baseline for the differential and closes the riscv32 reference gap (glibc had no rv32 support at all).
+
+### New: `tools/setup_musl_cross.sh`
+Builds a per-ISA static-musl cross toolchain under `/home/ubuntu/dev/musl-cross/<arch>/` (static `libc.a` + crt + headers) and a `musl-gcc-<arch>` wrapper in `/home/ubuntu/.local/bin/`:
+- **x86_64 / aarch64 / riscv64**: a gcc **specs** file (the proven musl-gcc.specs structure — the empty `*esp_*` sections are what stop gcc from re-injecting its glibc start files) + a thin wrapper. The cross gcc ships a same-arch libgcc, so a normal driver link works.
+- **riscv32**: special-cased. The Debian `riscv64-linux-gnu-gcc` hardcodes its **rv64** libgcc by absolute path (ABI-incompatible with elf32), so the script (a) builds a small **rv32 libgcc shim** (correct software 64-bit `__udivdi3`/`__umoddi3` + the `__tf2` float128 helpers as link-stubs that abort if reached — the test battery never uses long double) and (b) emits an **explicit-link** wrapper that links musl crt + user objects + musl libc + the shim in the correct order with `-static -no-pie -Wl,-m,elf32lriscv`.
+
+### Wiring (`tools/isa_qemu_diff.py`)
+`build_ref` now calls the `musl-gcc-<arch>` wrapper; the preflight checks for the wrapper (and QEMU) and prints the `setup_musl_cross.sh` command for any missing reference.
+
+### Measured state (raw emitters, unchanged zerocc side)
+- **x86-64: 11/11** — identical to the glibc-reference baseline, confirming the reference switch is behavior-preserving.
+- **aarch64: 1/11, riscv64: 0/11, riscv32: 0/11** — all failures are **zerocc raw-emitter** bugs (aarch64 regalloc/`.data`/host-call; riscv64 soft/double-float link; riscv32 zerocc segfault), not the reference. **The static-musl reference itself now builds and runs correctly for all 4 ISAs** under the matching `qemu-*-static` (a stdio+return program: correct output, `exit=7`, zero dynamic deps).
+
+### Notes
+- musl 1.2.6 is built from the local source tree (`/home/ubuntu/dev/qnz_gcc/third_party/musl/musl-1.2.6`); `AR`/`RANLIB`/`STRIP` are overridden to the host tools since musl derives a non-existent `CROSS_COMPILE` prefix from the target tuple.
+- Documented in `docs/okf/build-and-verification.md`, `AGENTS.md`, `tools/README.md`.
+
 ## [Sprint 41] - 2026-10-20 - Cross-ISA Raw-Binary-Emitter QEMU Differential Test (`make test-isa-qemu`)
 
 Added `tools/isa_qemu_diff.py` + `make test-isa-qemu`, a QEMU differential harness for the **raw binary emitters** of every target ISA. The AOT `-o`/`-c` paths route aarch64/riscv through the *text* emitter, so only x86-64's raw path was ever exercised; the raw aarch64/riscv emitters had no differential test at all. The harness builds each `test/isa_qemu/*.c` (11-test battery) per ISA via the raw path (`ZC_RAW_AOT=1` forces raw for cross-targets), builds a reference with the system **cross-gcc** (`-static -O2`), runs **both** under the matching `qemu-*-static`, and diffs stdout + exit code. `ZC_RAW_AOT` is a new opt-in env lever in `main.c`.
