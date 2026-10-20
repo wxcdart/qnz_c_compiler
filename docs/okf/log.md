@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-20T00:46:54Z
+timestamp: 2026-10-20T01:05:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -182,3 +182,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-20 — Updated `build-and-verification.md`
 - Sprint 35 Phase 2: add cfg_verifier.py gate and -dump-cfg examples; sweep corpus now 105 tests
+
+## 2026-10-20 — Updated `optimization-passes.md`
+- Sprint 35 Phase 3: LICM/mem2reg/vectorizer migrated onto the CFG; vectorizer revived with verified-constant-loop-bound prerequisite
+
+## 2026-10-20 — Updated `ir-and-regalloc.md`
+- Sprint 35 Phase 3: pass migration complete; no private loop re-derivations remain in LICM/mem2reg/vectorizer

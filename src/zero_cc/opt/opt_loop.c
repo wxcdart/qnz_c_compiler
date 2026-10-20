@@ -1,9 +1,13 @@
 #include "opt_loop.h"
 #include "opt_profile.h"
+#include "cfg.h"
 #include "../ir/ir.h"
 #include "../ir/ir_emitter.h"
 #include <stdlib.h>
 #include <string.h>
+
+/* External reference to the global compiler pointer (defined in ir.c). */
+extern __thread ZeroCCCompiler *g_compiler;
 
 /**
  * Loop analysis and optimization implementation
@@ -45,82 +49,52 @@ void loop_analysis_free(LoopAnalysisState *state) {
 }
 
 /**
- * Simple loop detection: find backedges (jumps to earlier instructions)
- * This is a simplified version that works for the common case
+ * Loop detection via the CFG layer (Sprint 35 Phase 3).
+ * Each CFG back-edge (an edge u->v with blocks[v].start <= blocks[u].start)
+ * defines a natural loop: header = blocks[v].start, body = the instruction
+ * range [blocks[v].start .. blocks[u].end)  (the back-edge jump is the last
+ * instruction of its block, so this is the same set the legacy
+ * instruction-index scan [target_idx .. i] produced).
  */
 static void detect_loops(LoopAnalysisState *state) {
     int count = (int)ir_get_count();
     state->ir_count = count;
     state->loop_count = 0;
-    
-    /* Build label-to-instruction-index map.
-     * Note: Synthetic label IDs are allocated sequentially by ir_next_label. */
-    int max_label_id = -1;
-    for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
-        if (instr && instr->op == OP_LABEL) {
-            if ((int)instr->label_idx > max_label_id) {
-                max_label_id = (int)instr->label_idx;
-            }
-        }
-    }
-    
-    if (max_label_id < 0) return;
-    
-    int map_size = max_label_id + 1;
-    int *label_to_idx = (int *)malloc(map_size * sizeof(int));
-    if (!label_to_idx) return;
-    for (int i = 0; i < map_size; i++) label_to_idx[i] = -1;
-    
-    for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
-        if (instr && instr->op == OP_LABEL) {
-            label_to_idx[instr->label_idx] = i;
-        }
-    }
-    
-    /* Detect loops: look for jumps to earlier instructions (backedges) */
-    for (int i = 0; i < count && state->loop_count < MAX_LOOPS; i++) {
-        Instr *instr = ir_get(i);
-        if (!instr) continue;
-        
-        if (instr->op == OP_JMP || instr->op == OP_JE || 
-            instr->op == OP_JNE || instr->op == OP_JL ||
-            instr->op == OP_JLE || instr->op == OP_JG || instr->op == OP_JCOND) {
-            
-            int label = (int)instr->label_idx;
-            if (label >= 0 && label < map_size) {
-                int target_idx = label_to_idx[label];
-                if (target_idx >= 0 && target_idx < i) {
-                    /* Backedge found: header at target_idx, backedge jump at i */
-                    LoopInfo *loop = &state->loops[state->loop_count];
-                    loop->header_idx = target_idx;
-                    loop->exit_idx = i;
-                    loop->preheader_idx = -1;
-                    loop->body_count = 0;
-                    loop->capacity = MAX_LOOP_BODY;
-                    loop->body_indices = malloc(sizeof(int) * MAX_LOOP_BODY);
-                    loop->is_invariant = calloc(MAX_LOOP_BODY, sizeof(bool));
-                    
-                    if (loop->body_indices && loop->is_invariant) {
-                        for (int j = target_idx; j <= i; j++) {
-                            if (loop->body_count < MAX_LOOP_BODY) {
-                                loop->body_indices[loop->body_count++] = j;
-                            }
-                        }
-                        state->loop_count++;
-                    } else {
-                        free(loop->body_indices);
-                        free(loop->is_invariant);
-                        loop->body_indices = NULL;
-                        loop->is_invariant = NULL;
-                    }
+
+    if (!g_compiler || !cfg_build()) return;
+    ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+
+    int nloops = cfg->loop_count;
+    if (nloops > MAX_LOOPS) nloops = MAX_LOOPS;
+
+    for (int l = 0; l < nloops; l++) {
+        int h = cfg->loops[l].header;
+        int u = cfg->loops[l].backedge_from;
+        if (h < 0 || h >= cfg->block_count || u < 0 || u >= cfg->block_count) continue;
+
+        LoopInfo *loop = &state->loops[state->loop_count];
+        loop->header_idx = (int)cfg->blocks[h].start;
+        loop->exit_idx = (int)cfg->blocks[u].end - 1;
+        loop->preheader_idx = -1;
+        loop->body_count = 0;
+        loop->capacity = MAX_LOOP_BODY;
+        loop->body_indices = malloc(sizeof(int) * MAX_LOOP_BODY);
+        loop->is_invariant = calloc(MAX_LOOP_BODY, sizeof(bool));
+
+        if (loop->body_indices && loop->is_invariant) {
+            for (int j = (int)cfg->blocks[h].start; j < (int)cfg->blocks[u].end; j++) {
+                if (loop->body_count < MAX_LOOP_BODY) {
+                    loop->body_indices[loop->body_count++] = j;
                 }
             }
+            state->loop_count++;
+        } else {
+            free(loop->body_indices);
+            free(loop->is_invariant);
+            loop->body_indices = NULL;
+            loop->is_invariant = NULL;
         }
     }
-    
-    free(label_to_idx);
 }
 
 static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body_count) {

@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 35 Phase 3] - 2026-10-20 - Pass Migration Onto the CFG
+
+### Changed
+- **LICM (`opt/opt_loop.c`)**: `detect_loops` now iterates `cfg->loops[]` (CFG back-edges) instead of building a private `label_to_idx` map and scanning for jumps to earlier instructions. Header = `blocks[header].start`, body = `[blocks[header].start .. blocks[backedge_from].end)` — the same instruction set as the legacy span (a backedge jump is the last instruction of its block). The multi-def invariant check, in-loop source-def rule, call-spanning guard, and shared-header union emission are unchanged.
+- **Mem2reg loop promotion (`opt/opt_mem2reg.c`)**: `opt_promote_loop_carried` no longer pre-scans the whole function for jump targets. Loops come from `cfg->loops[]` (still unconditional-`OP_JMP`-backedges only); **entry-cleanness** (the Sprint 33 goto-into-loop guard) is now "no explicit jump edge from a block outside the loop range into any loop block" (fall-through from the preheader allowed); **first-exit** is the earliest CFG successor of a loop block past the backedge. Slot audit and 4-step rewrite unchanged.
+- **Vectorizer (`opt/opt_vectorize.c`)**: the span-based mid-body-conditional check is replaced by a CFG per-block check (a conditional jump is permitted only as the backedge or as the header's loop test targeting outside the span).
+  - **Effect: the vectorizer was effectively dead and is now active.** The legacy per-instruction scan flagged the loop's *own* header test (a forward `JE`-to-exit inside the `[header..backedge]` span) as a mid-body conditional, so while-style loops were never vectorized (0 SIMD instructions across the corpus). With the precise check, standard element-wise loops are now vectorized (e.g. `test/abi/simd_int_loop.c` emits 12 SIMD instructions at `-O3` and passes).
+  - **New safety prerequisite (required by the revival): verified loop bound.** The transform widens `i += 1` → `i += vec_width` with **no remainder handling**; a loop count not a multiple of `vec_width` makes the final `VLOAD`/`VSTORE` overflow the array into adjacent stack. The analysis now requires the loop-test chain (branch → `COND_SET` → `CMP` → constant operand) to yield a compile-time constant bound that is a positive multiple of `vec_width`. Variable bounds, FP bounds, and infinite loops are not vectorized (probed: N=4 vectorized+correct, N=5 scalar+correct, at `-O0..-O3`).
+
+### Notes
+- The pre-existing `tools/simd_regression_suite.py` failures (10/10, all FP/frontend compilation gaps) are **unchanged** by this phase — verified identical before/after; they are unrelated to the vectorizer check.
+- `tools/licm_test_suite.py --all` **regenerates** `test/licm/*.c` (overwriting the committed `main()`s with module-only versions, breaking `make all`): do not run it against a clean tree, or `git checkout -- test/licm/` afterwards.
+
+### Verification
+- `make test-opt` **105/105** · `make test` **141/141** · `mem2reg_verifier.py` **12/12** (incl. `goto_into_loop` at every level) · `sret_verifier.py` **6/6** · `licm_test_suite.py --all` **5/5** · `cfg_verifier.py --verify-all` **0 failed**.
+
 ## [Sprint 35 Phase 2] - 2026-10-20 - CFG Layer
 
 ### Added

@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-20T00:46:54Z
+timestamp: 2026-10-20T01:05:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -87,11 +87,11 @@ The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`O
 - **Loops**: an edge `u->v` is a backedge iff `blocks[v].start <= blocks[u].start` (the natural-loop convention the legacy passes already use); `v` is marked `is_loop_header`. Multiple natural loops may share one header (the Sprint 33 LICM bug class).
 - **Caching & invalidation**: `ZeroCCCFG cfg_cache` + `uint64_t cfg_version` on `ZeroCCCompiler`; `cfg_build()` rebuilds only on version mismatch. The version is bumped in `ir_reset()` (per function), after **every** optimizer pass (`opt_pass.c` — passes may rewrite the IR in place), and after the in-place lowering mutations (callee-save append, x86 float-CC remap). Not built at `-O0` unless requested (`-dump-cfg`).
 - **`-dump-cfg`**: stable plain-text dump — `fn main` / `bb1: [4..10] succ=bb8,bb2 pred=bb0,bb7 loop_header=1` / `loops:` section / `N blocks, M reachable, K loops` summary. Verified by `tools/cfg_verifier.py` (independent Python recomputation of blocks/loops from `-dump-ir`, cross-checked against the C report; see [Build & Verification](./build-and-verification.md)).
-- **Phase 3 uses this**: mem2reg loop promotion, LICM loop detection, and the vectorizer body check are the first passes to be migrated off their private `label_to_idx`/pre-scan re-derivations onto the CFG. Full plan & phases: [Development Plan §10](../ZEROCC_Development_Plan.md).
+- **Phase 3 (done, 2026-10-20)**: the three known-fragile passes now derive loop structure from the CFG instead of private re-derivations — LICM `detect_loops` iterates `cfg->loops[]` (no `label_to_idx` left); mem2reg `opt_promote_loop_carried` uses CFG pred/succ edges for entry-cleanness and first-exit (unconditional-`OP_JMP` backedges only, as before); the vectorizer's mid-body-conditional check is a per-CFG-block test (plus a verified-constant-loop-bound prerequisite, since the transform has no remainder handling — see [Optimization Passes](./optimization-passes.md)). Full plan & phases: [Development Plan §10](../ZEROCC_Development_Plan.md).
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 
-The IR is a flat, non-SSA linear array with implicit control flow, temps assigned more than once (ternaries, inlined branches, loop-carried `OP_MOV_REG`), physical registers 0-15 living in the temp namespace, no type tag, and call arguments in an `instr_index`-keyed side table. A CFG view now exists (above); **dominators and out-of-SSA are not implemented** — the per-pass re-derivation of control-flow facts (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span matching in the vectorizer) remains until the Phase 3 migration onto the CFG. Unmeasured claims (e.g. JIT-vs-GCC compile speed) must be re-measured before being relied on.
+The IR is a flat, non-SSA linear array with implicit control flow, temps assigned more than once (ternaries, inlined branches, loop-carried `OP_MOV_REG`), physical registers 0-15 living in the temp namespace, no type tag, and call arguments in an `instr_index`-keyed side table. A CFG view now exists (above), and the three known-fragile passes (LICM, mem2reg loop promotion, vectorizer) derive their loop structure from it as of Sprint 35 Phase 3; **dominators and out-of-SSA are not implemented**. Unmeasured claims (e.g. JIT-vs-GCC compile speed) must be re-measured before being relied on.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

@@ -1,6 +1,7 @@
 #include "opt_vectorize.h"
 #include "opt_loop.h"
 #include "opt_constant_fold.h"
+#include "cfg.h"
 #include "../ir/ir.h"
 #include "../ir/ir_arena.h"
 #include "../ir/ir_emit_ops.h"
@@ -191,20 +192,6 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             continue;
         }
         
-        /* Vectorizer hardening (residual C11): detect mid-body conditional branches.
-         * A conditional jump (JE, JNE, JL, JLE, JG, JGE) inside the loop body
-         * that is NOT the backedge jump means the loop has data-dependent control
-         * flow - the body doesn't execute uniformly across all iterations, so
-         * vectorization would be incorrect. The backedge jump is at loop->exit_idx.
-         * We only flag OTHER conditional jumps as mid-body conditionals. */
-        int is_cond_jump = (instr->op == OP_JE || instr->op == OP_JNE ||
-                            instr->op == OP_JL || instr->op == OP_JLE ||
-                            instr->op == OP_JG || instr->op == OP_JCOND);
-        if (is_cond_jump && idx != loop->exit_idx) {
-            has_mid_body_cond = true;
-            continue;
-        }
-        
         /* Look for array access pattern */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             load_count++;
@@ -244,6 +231,123 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         }
     }
     
+    /* Vectorizer hardening (Sprint 35 Phase 3): CFG-based mid-body
+     * conditional check.  The legacy per-instruction span scan flagged the
+     * loop's OWN header test (a forward JE-to-exit inside the span) as a
+     * mid-body conditional, so while-style loops were never vectorized.
+     * The CFG check is precise: a conditional jump is permitted only if it
+     * IS the backedge (the block ending at loop->exit_idx) or it is the
+     * header block's loop test whose target lies outside the loop span
+     * [header_idx, exit_idx].  Any other conditional in the span is
+     * data-dependent control flow (e.g. an if/else in the body) and makes
+     * the loop non-vectorizable. */
+    if (g_compiler && cfg_build()) {
+        ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+        for (int b = 0; b < cfg->block_count && !has_mid_body_cond; b++) {
+            ZeroCCBlock *blk = &cfg->blocks[b];
+            if (blk->end <= (size_t)loop->header_idx) continue;  /* before span */
+            if (blk->start > (size_t)loop->exit_idx) break;     /* past span */
+            int last = (int)blk->end - 1;
+            Instr *t = ir_get(last);
+            if (!t) continue;
+            if (last == loop->exit_idx) continue;  /* the backedge itself */
+            int op = (int)t->op;
+            if (!(op == OP_JE || op == OP_JNE || op == OP_JL || op == OP_JLE ||
+                  op == OP_JG || op == OP_JCOND)) continue;
+            /* Header block's loop test targeting outside the span: OK. */
+            if ((int)blk->start == loop->header_idx) {
+                int lid = (int)t->label_idx;
+                int target_pos = -1;
+                int ic = (int)ir_get_count();
+                for (int k = 0; k < ic; k++) {
+                    Instr *l = ir_get(k);
+                    if (l && l->op == OP_LABEL && (int)l->label_idx == lid) {
+                        target_pos = k;
+                        break;
+                    }
+                }
+                if (target_pos >= 0 &&
+                    (target_pos < loop->header_idx || target_pos > loop->exit_idx)) {
+                    continue;
+                }
+            }
+            has_mid_body_cond = true;
+        }
+    }
+    
+    /* Vectorizer hardening (Sprint 35 Phase 3): loop-bound safety. The
+     * transform widens the induction step (i += 1 -> i += vec_width) and
+     * processes vec_width elements per iteration with NO remainder
+     * handling: if the loop count is not a multiple of vec_width, the
+     * final VLOAD/VSTORE overflows the array (stack OOB read/write).
+     * The loop is only accepted when its bound is a compile-time constant
+     * that is a positive multiple of vec_width. Variable bounds, FP
+     * bounds, and infinite loops (no verifiable test) are not vectorized.
+     * (Identified via the loop test: header block's terminal conditional
+     * targeting the exit, or a conditional backedge; chain
+     * branch -> COND_SET -> CMP -> constant operand.) */
+    bool bound_ok = false;
+    {
+        int test_idx = -1;
+        if (g_compiler && cfg_build()) {
+            ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+            for (int b = 0; b < cfg->block_count && test_idx < 0; b++) {
+                ZeroCCBlock *blk = &cfg->blocks[b];
+                if (blk->end <= (size_t)loop->header_idx) continue;
+                if (blk->start > (size_t)loop->exit_idx) break;
+                int last = (int)blk->end - 1;
+                Instr *t = ir_get(last);
+                if (!t) continue;
+                int op = (int)t->op;
+                bool is_cond = (op == OP_JE || op == OP_JNE || op == OP_JL ||
+                                op == OP_JLE || op == OP_JG || op == OP_JCOND);
+                if (!is_cond) continue;
+                if (last == loop->exit_idx) {
+                    test_idx = last;  /* conditional backedge (tail test) */
+                    break;
+                }
+                if ((int)blk->start == loop->header_idx) {
+                    int lid = (int)t->label_idx;
+                    int ic = (int)ir_get_count();
+                    for (int k = 0; k < ic; k++) {
+                        Instr *l = ir_get(k);
+                        if (l && l->op == OP_LABEL && (int)l->label_idx == lid) {
+                            if (k > loop->exit_idx) test_idx = last; /* test -> exit */
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (test_idx >= 0) {
+            int flag = (int)ir_get(test_idx)->temp_src1;
+            int condset_idx = -1;
+            for (int k = test_idx - 1; k > loop->header_idx && condset_idx < 0; k--) {
+                Instr *cs = ir_get(k);
+                if (cs && cs->op == OP_COND_SET && (int)cs->temp_dest == flag) condset_idx = k;
+            }
+            int hi = (condset_idx >= 0) ? condset_idx : test_idx;
+            int cmp_idx = -1;
+            for (int k = hi - 1; k > loop->header_idx; k--) {
+                Instr *cm = ir_get(k);
+                if (cm && cm->op == OP_CMP) { cmp_idx = k; break; }
+            }
+            if (cmp_idx >= 0) {
+                Instr *cm = ir_get(cmp_idx);
+                int o1 = (int)cm->temp_src1;
+                int o2 = (int)cm->temp_src2;
+                bool c1 = (o1 != TEMP_NONE && ir_is_constant(o1));
+                bool c2 = (o2 != TEMP_NONE && ir_is_constant(o2));
+                if (c1 != c2) {
+                    int bound_temp = c1 ? o1 : o2;
+                    int width = has_double ? 2 : state->vector_width;
+                    int bound = (int)ir_get_constant(bound_temp);
+                    bound_ok = (bound > 0 && bound % width == 0);
+                }
+            }
+        }
+    }
+    
     /* Vectorization criteria:
      * - At least 2 array loads (read operands)
      * - At least 1 array store (write result inside the loop body)
@@ -251,7 +355,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      * - No function calls or complex side effects (C11: actually enforced via has_call)
      * - No mid-body conditional branches (vectorizer hardening)
      */
-    if (!has_call && !has_mid_body_cond && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
+    if (!has_call && !has_mid_body_cond && bound_ok && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
         vinfo->is_vectorizable = true;
         vinfo->is_double = has_double;
         vinfo->is_int32 = !has_fp && !has_double;

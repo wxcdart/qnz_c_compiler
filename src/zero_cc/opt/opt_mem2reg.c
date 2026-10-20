@@ -1,8 +1,13 @@
 #include "opt_mem2reg.h"
+#include "cfg.h"
 #include "../ir/ir.h"
 #include "../ir/ir_arena.h"
+#include "../types/symbols.h"
 #include <stdlib.h>
 #include <string.h>
+
+/* External reference to the global compiler pointer (defined in ir.c). */
+extern __thread ZeroCCCompiler *g_compiler;
 
 /**
  * Local Memory-to-Register Promotion Pass (Safe Version)
@@ -164,38 +169,25 @@ static void opt_promote_loop_carried(void) {
         }
     }
 
-    /* 2. Build label to instruction index map */
-    int max_label = -1;
-    for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
-        if (ins && ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
-            max_label = (int)ins->label_idx;
-        }
-    }
-    if (max_label < 0) return;
+    /* 2. Detect natural loops via the CFG layer (Sprint 35 Phase 3).
+     * As before, only UNCONDITIONAL (OP_JMP) backedges qualify: the
+     * promotion rewrites the in-loop load/store pair, and a conditional
+     * backedge (tail-tested loop) would let the exit path skip the store
+     * while the load was NOP'd.  Entry-cleanness (no jump from outside
+     * may target a label inside the loop) and the first-exit position
+     * are derived from the CFG's pred/succ edges instead of a full
+     * instruction pre-scan. */
+    if (!g_compiler || !cfg_build()) return;
+    ZeroCCCFG *cfg = &g_compiler->cfg_cache;
 
-    int *label_to_pos = (int *)malloc((max_label + 1) * sizeof(int));
-    if (!label_to_pos) return;
-    for (int i = 0; i <= max_label; i++) label_to_pos[i] = -1;
-    for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
-        if (ins && ins->op == OP_LABEL) {
-            label_to_pos[ins->label_idx] = (int)i;
-        }
-    }
+    for (int l = 0; l < cfg->loop_count; l++) {
+        int h = cfg->loops[l].header;
+        int u = cfg->loops[l].backedge_from;
+        size_t hdr_idx = cfg->blocks[h].start;
+        size_t back_idx = cfg->blocks[u].end - 1;
 
-    /* 3. Detect natural loops: look for backedge jumps */
-    for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
-        if (!ins) continue;
-        if (ins->op != OP_JMP) continue;
-
-        int lbl = (int)ins->label_idx;
-        if (lbl < 0 || lbl > max_label) continue;
-        int hdr_idx = label_to_pos[lbl];
-        if (hdr_idx < 0 || (size_t)hdr_idx >= i) continue;
-
-        size_t back_idx = i;
+        Instr *be = ir_get(back_idx);
+        if (!be || be->op != OP_JMP) continue;  /* unconditional backedge only */
 
         /* Verify loop safety: no calls, no VLA, no indirect stores */
         bool safe_loop = true;
@@ -204,11 +196,14 @@ static void opt_promote_loop_carried(void) {
             if (!loop_ins) continue;
             if (loop_ins->op == OP_CALL || loop_ins->op == OP_CALL_INDIRECT ||
                 loop_ins->op == OP_VLA_ALLOC || loop_ins->op == OP_STORE_BYTE ||
-                loop_ins->op == OP_STORE_16 || loop_ins->op == OP_STORE_32 ||
-                loop_ins->op == OP_STORE_64 || loop_ins->op == OP_FSTORE ||
+                loop_ins->op == OP_STORE_16 ||
+                loop_ins->op == OP_STORE_32 ||
+                loop_ins->op == OP_STORE_64 ||
+                loop_ins->op == OP_FSTORE ||
                 loop_ins->op == OP_VSTORE || loop_ins->op == OP_VSTORESS ||
                 loop_ins->op == OP_VSTORESD || loop_ins->op == OP_ATOMIC_XADD ||
-                loop_ins->op == OP_ATOMIC_CMPXCHG || loop_ins->op == OP_ATOMIC_CMPXCHG_BOOL ||
+                loop_ins->op == OP_ATOMIC_CMPXCHG ||
+                loop_ins->op == OP_ATOMIC_CMPXCHG_BOOL ||
                 loop_ins->op == OP_ATOMIC_XCHG) {
                 safe_loop = false;
                 break;
@@ -216,48 +211,45 @@ static void opt_promote_loop_carried(void) {
         }
         if (!safe_loop) continue;
 
-        /* No jump from OUTSIDE the loop range may target a label inside it
-         * (including the header label): such an entry would skip the
-         * preheader init, leaving the promoted head_temp uninitialised on
-         * that path where the original in-loop load would have read the
-         * slot's pre-loop value (well-defined C, e.g. `x=10; ... goto h;`).
-         * Disqualify the whole loop. */
+        /* Entry cleanness via CFG predecessors: an explicit jump edge
+         * (non-adjacent target, or an unconditional JMP to the next
+         * block) from a block OUTSIDE [h..u] into any block of the loop
+         * range would skip the preheader init, leaving the promoted
+         * head_temp uninitialised on that path (well-defined C, e.g.
+         * `x=10; ... goto h;`).  Disqualify the whole loop.  Fall-through
+         * edges from the preheader are not jumps: allowed. */
         bool loop_entry_clean = true;
-        for (size_t k = 0; k < count && loop_entry_clean; k++) {
-            if (k >= hdr_idx && k <= back_idx) continue;
-            Instr *j = ir_get(k);
-            if (!j) continue;
-            if (j->op != OP_JMP && j->op != OP_JE && j->op != OP_JNE &&
-                j->op != OP_JL && j->op != OP_JLE && j->op != OP_JG &&
-                j->op != OP_JCOND) continue;
-            int t = (int)j->label_idx;
-            if (t < 0 || t > max_label) continue;
-            int tp = label_to_pos[t];
-            if (tp >= (int)hdr_idx && tp <= (int)back_idx) {
-                loop_entry_clean = false;
+        for (int b = h; b <= u && loop_entry_clean; b++) {
+            for (int p = 0; p < cfg->blocks[b].pred_count; p++) {
+                int P = cfg->blocks[b].preds[p];
+                if (P >= h && P <= u) continue;  /* internal edge */
+                bool jump_edge = (P + 1 != b);
+                if (!jump_edge) {
+                    Instr *pt = ir_get(cfg->blocks[P].end - 1);
+                    jump_edge = (pt && pt->op == OP_JMP);
+                }
+                if (jump_edge) {
+                    loop_entry_clean = false;
+                    break;
+                }
             }
         }
         if (!loop_entry_clean) continue;
 
-        /* Find the earliest exit target: any branch or unconditional jump
-         * inside the loop whose label lies after the backedge (loop exits
-         * may be conditional (loop condition) or unconditional (break)). */
+        /* Find the earliest exit target: any CFG successor of a loop block
+         * whose start lies after the backedge (loop exits may be
+         * conditional (loop condition) or unconditional (break)). */
         int first_exit = -1;
-        for (size_t k = hdr_idx; k <= back_idx; k++) {
-            Instr *loop_ins = ir_get(k);
-            if (!loop_ins) continue;
-            if (loop_ins->op == OP_JE || loop_ins->op == OP_JNE ||
-                loop_ins->op == OP_JL || loop_ins->op == OP_JLE ||
-                loop_ins->op == OP_JG || loop_ins->op == OP_JCOND ||
-                loop_ins->op == OP_JMP) {
-                int t = (int)loop_ins->label_idx;
-                if (t < 0 || t > max_label) continue;
-                int tp = label_to_pos[t];
+        for (int b = h; b <= u; b++) {
+            for (int s = 0; s < cfg->blocks[b].succ_count; s++) {
+                int S = cfg->blocks[b].succ[s];
+                int tp = (int)cfg->blocks[S].start;
                 if (tp > (int)back_idx && (first_exit < 0 || tp < first_exit)) {
                     first_exit = tp;
                 }
             }
         }
+
 
         /* 4. Find candidate slots for loop promotion */
         for (int s = 0; s < MAX_STACK_SLOTS; s++) {
@@ -381,7 +373,6 @@ static void opt_promote_loop_carried(void) {
         }
     }
 
-    free(label_to_pos);
 }
 
 /**
