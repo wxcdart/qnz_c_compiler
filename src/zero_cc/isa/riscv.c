@@ -128,13 +128,13 @@ static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
         } else {
             riscv_emit_u32(c, rv64_I(6 /* t1 */, RV64_SP, 0, (int16_t)aligned, 0x13));
         }
-        riscv_emit_u32(c, rv64_S(6 /* t1 */, RV64_RA, 2, 8, 0x23));    /* sd ra, 8(t1) */
-        riscv_emit_u32(c, rv64_S(6 /* t1 */, RV64_S0, 2, 0, 0x23));    /* sd s0, 0(t1) */
+        riscv_emit_u32(c, rv64_S(6 /* t1 */, RV64_RA, 3, 8, 0x23));    /* sd ra, 8(t1) */
+        riscv_emit_u32(c, rv64_S(6 /* t1 */, RV64_S0, 3, 0, 0x23));    /* sd s0, 0(t1) */
         riscv_emit_u32(c, rv64_R(RV64_S0, 6 /* t1 */, 0, 0, 0));       /* add s0, t1, zero */
     } else {
         riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-(int32_t)total), 0x13));
-        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, 2, (int16_t)(aligned + 8), 0x23));  /* sd ra, aligned+8(sp) */
-        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, 2, (int16_t)aligned, 0x23));        /* sd s0, aligned(sp) */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, 3, (int16_t)(aligned + 8), 0x23));  /* sd ra, aligned+8(sp) */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, 3, (int16_t)aligned, 0x23));        /* sd s0, aligned(sp) */
         riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 0, (int16_t)aligned, 0x13));        /* addi s0, sp, aligned */
     }
 }
@@ -148,8 +148,8 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
 static void riscv64_emit_leave(ZeroCCCompiler *c) {
     /* Deallocate the frame without knowing its size: s0 = entry_sp - 16. */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
-    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 2, 8, 0x03));  /* ld ra, 8(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 2, 0, 0x03));  /* ld s0, 0(sp) */
+    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
+    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 3, 0, 0x03));  /* ld s0, 0(sp) */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
 }
 
@@ -308,7 +308,7 @@ static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int3
 
 static void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
     /* sd src, offset(base) */
-    riscv_emit_u32(c, rv64_S(RV_REG(base_reg), RV_REG(src_reg), 2, (int16_t)offset, 0x23));
+    riscv_emit_u32(c, rv64_S(RV_REG(base_reg), RV_REG(src_reg), 3, (int16_t)offset, 0x23));
 }
 
 static size_t riscv64_emit_jmp(ZeroCCCompiler *c, const char *label) {
@@ -366,15 +366,25 @@ static size_t riscv64_emit_jge(ZeroCCCompiler *c, const char *label) {
 }
 
 static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
-    /* jal ra, 0 + R_RISCV_CALL relocation (the linker fills in the offset or
-     * rewrites it into an auipc-based long call). */
+    /* jal ra, offset.
+     * For internal (defined) functions: patch the jal directly at codegen time.
+     * For external/prototype functions: emit R_RISCV_CALL_PLT relocation for linker. */
+    ZeroCCFunction *fn = func_name ? zero_cc_find_function(c, func_name) : NULL;
     size_t pos = me_get_offset(c);
-    riscv_emit_u32(c, rv64_J(1 /* ra */, 0));
-    if (func_name && c->reloc_count < ZERO_CC_MAX_RELOCS) {
-        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
-        r->text_patch_offset = pos;
-        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
-        r->is_call = true;
+    
+    if (fn && !fn->is_prototype) {
+        /* Internal function: compute relative offset and emit jal with correct displacement */
+        int32_t rel = (int32_t)(fn->text_offset - pos);
+        riscv_emit_u32(c, rv64_J(1 /* ra */, rel));
+    } else {
+        /* External or prototype function: emit jal with 0 offset + relocation */
+        riscv_emit_u32(c, rv64_J(1 /* ra */, 0));
+        if (func_name && c->reloc_count < ZERO_CC_MAX_RELOCS) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
+            r->is_call = true;
+        }
     }
 }
 
@@ -501,11 +511,11 @@ static void riscv64_emit_stack_adjust(ZeroCCCompiler *c, int32_t delta) {
 
 static void riscv64_emit_push_reg(ZeroCCCompiler *c, int reg) {
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -8, 0x13));  /* addi sp, sp, -8 */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 2, 0, 0x23));  /* sd reg, 0(sp) */
+    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 3, 0, 0x23));  /* sd reg, 0(sp) */
 }
 
 static void riscv64_emit_pop_reg(ZeroCCCompiler *c, int reg) {
-    riscv_emit_u32(c, rv64_I(RV_REG(reg), RV64_SP, 2, 0, 0x03));  /* ld reg, 0(sp) */
+    riscv_emit_u32(c, rv64_I(RV_REG(reg), RV64_SP, 3, 0, 0x03));  /* ld reg, 0(sp) */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 8, 0x13));      /* addi sp, sp, 8 */
 }
 
@@ -812,7 +822,7 @@ static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 /* param_save_int reg, slot - save integer param to stack slot */
 static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg, int slot) {
     /* sd reg, slot*8(sp) */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 2, (int16_t)(slot * 8), 0x23));
+    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 3, (int16_t)(slot * 8), 0x23));
 }
 
 /* param_save_fp reg, slot - save FP param to stack slot */
@@ -1200,8 +1210,26 @@ static size_t riscv32_emit_jge(ZeroCCCompiler *c, const char *label) {
 }
 
 static void riscv32_emit_call(ZeroCCCompiler *c, const char *func_name) {
-    riscv_emit_u32(c, 0x000000EF | (1 << 7));
-    (void)func_name;
+    /* jal ra, offset.
+     * For internal (defined) functions: patch the jal directly at codegen time.
+     * For external/prototype functions: emit R_RISCV_CALL_PLT relocation for linker. */
+    ZeroCCFunction *fn = func_name ? zero_cc_find_function(c, func_name) : NULL;
+    size_t pos = me_get_offset(c);
+    
+    if (fn && !fn->is_prototype) {
+        /* Internal function: compute relative offset and emit jal with correct displacement */
+        int32_t rel = (int32_t)(fn->text_offset - pos);
+        riscv_emit_u32(c, rv64_J(1 /* ra */, rel));
+    } else {
+        /* External or prototype function: emit jal with 0 offset + relocation */
+        riscv_emit_u32(c, rv64_J(1 /* ra */, 0));
+        if (func_name && c->reloc_count < ZERO_CC_MAX_RELOCS) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
+            r->is_call = true;
+        }
+    }
 }
 
 static void riscv32_emit_ret(ZeroCCCompiler *c) {
@@ -1401,6 +1429,12 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_epilogue = riscv32_emit_epilogue,
     .get_code_offset = riscv32_get_code_offset,
     
+    /* Assembly emission (shared with RV64) */
+    .emit_prologue_asm = riscv_emit_prologue_asm,
+    .emit_epilogue_asm = riscv_emit_epilogue_asm,
+    .get_hw_reg_name = riscv_get_hw_reg_name,
+    .get_vec_reg_name = riscv_get_vec_reg_name,
+    
     .emit_mov_imm = riscv32_emit_mov_imm,
     .emit_add = riscv32_emit_add,
     .emit_sub = riscv32_emit_sub,
@@ -1464,4 +1498,119 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_dec = riscv32_emit_dec,
     .emit_sar = riscv32_emit_sar,
     .emit_label = riscv32_emit_label,
+
+    /* Shared with RV64 for 32-bit operations */
+    .emit_mov_reg = riscv64_emit_mov_reg,
+    .emit_shr = riscv64_emit_shr,
+    .emit_not = riscv64_emit_not,
+    .emit_extend = riscv64_emit_extend,
+    .emit_cmp_zero = riscv64_emit_cmp_zero,
+    .emit_lnot = riscv64_emit_lnot,
+    .emit_setl = riscv64_emit_setl,
+    .emit_setle = riscv64_emit_setle,
+    .emit_setg = riscv64_emit_setg,
+    .emit_setge = riscv64_emit_setge,
+    .emit_sete = riscv64_emit_sete,
+    .emit_setne = riscv64_emit_setne,
+    .emit_deref = riscv64_emit_deref,
+    .emit_load_byte = riscv64_emit_load_byte,
+    .emit_load_16 = riscv64_emit_load_16,
+    .emit_load_32 = riscv64_emit_load_32,
+    .emit_store_byte = riscv64_emit_store_byte,
+    .emit_store_16 = riscv64_emit_store_16,
+    .emit_store_32 = riscv64_emit_store_32,
+    .emit_vla_alloc = riscv64_emit_vla_alloc,
+    .emit_atomic_cmpxchg = riscv64_emit_atomic_cmpxchg,
+    .emit_atomic_xadd = riscv64_emit_atomic_xadd,
+    .emit_atomic_xchg = riscv64_emit_atomic_xchg,
+    .emit_mfence = riscv64_emit_mfence,
+    .emit_param_save_int = riscv64_emit_param_save_int,
+    .emit_param_save_fp = riscv64_emit_param_save_fp,
+    .emit_variadic_spill = riscv64_emit_variadic_spill,
+    .emit_variadic_al_setup = riscv64_emit_variadic_al_setup,
+    .emit_lea_rip = riscv64_emit_lea_rip,
+    
+    /* Assembly emission for IR instructions (shared with RV64) */
+    .emit_mov_imm_asm = riscv_emit_mov_imm_asm,
+    .emit_mov_reg_asm = riscv_emit_mov_reg_asm,
+    .emit_load_asm = riscv_emit_load_asm,
+    .emit_store_asm = riscv_emit_store_asm,
+    .emit_add_asm = riscv_emit_add_asm,
+    .emit_sub_asm = riscv_emit_sub_asm,
+    .emit_mul_asm = riscv_emit_mul_asm,
+    .emit_div_asm = riscv_emit_div_asm,
+    .emit_and_asm = riscv_emit_and_asm,
+    .emit_or_asm = riscv_emit_or_asm,
+    .emit_xor_asm = riscv_emit_xor_asm,
+    .emit_shl_asm = riscv_emit_shl_asm,
+    .emit_shr_asm = riscv_emit_shr_asm,
+    .emit_sar_asm = riscv_emit_sar_asm,
+    .emit_extend_asm = riscv_emit_extend_asm,
+    .emit_cmp_asm = riscv_emit_cmp_asm,
+    .emit_cond_set_asm = riscv_emit_cond_set_asm,
+    .emit_neg_asm = riscv_emit_neg_asm,
+    .emit_add_imm_asm = riscv_emit_add_imm_asm,
+    .emit_sub_imm_asm = riscv_emit_sub_imm_asm,
+    .emit_inc_asm = riscv_emit_inc_asm,
+    .emit_dec_asm = riscv_emit_dec_asm,
+    .emit_not_asm = riscv_emit_not_asm,
+    .emit_lea_asm = riscv_emit_lea_asm,
+    .emit_deref_asm = riscv_emit_deref_asm,
+    .emit_call_asm = riscv_emit_call_asm,
+    .emit_ret_asm = riscv_emit_ret_asm,
+    .emit_label_asm = riscv_emit_label_asm,
+    .emit_jmp_asm = riscv_emit_jmp_asm,
+    .emit_jeq_asm = riscv_emit_jeq_asm,
+    .emit_jne_asm = riscv_emit_jne_asm,
+    .emit_jlt_asm = riscv_emit_jlt_asm,
+    .emit_jle_asm = riscv_emit_jle_asm,
+    .emit_jgt_asm = riscv_emit_jgt_asm,
+    .emit_jge_asm = riscv_emit_jge_asm,
+    .emit_load_fp_asm = riscv_emit_load_fp_asm,
+    .emit_store_fp_asm = riscv_emit_store_fp_asm,
+    .emit_fp_add_asm = riscv_emit_fp_add_asm,
+    .emit_fp_sub_asm = riscv_emit_fp_sub_asm,
+    .emit_fp_mul_asm = riscv_emit_fp_mul_asm,
+    .emit_fp_div_asm = riscv_emit_fp_div_asm,
+    .emit_fp_mov_asm = riscv_emit_fp_mov_asm,
+    .emit_fp_cvtsf_asm = riscv_emit_fp_cvtsf_asm,
+    .emit_fp_cvtsi_asm = riscv_emit_fp_cvtsi_asm,
+    .emit_vla_alloc_asm = riscv_emit_vla_alloc_asm,
+    .emit_param_save_int_asm = riscv_emit_param_save_int_asm,
+    .emit_param_save_fp_asm = riscv_emit_param_save_fp_asm,
+    
+    /* Vector instruction emission (RISC-V doesn't have vector yet) */
+    .emit_vload_asm = NULL,
+    .emit_vstore_asm = NULL,
+    .emit_vaddss_asm = NULL,
+    .emit_vsubss_asm = NULL,
+    .emit_vmulss_asm = NULL,
+    .emit_vdivss_asm = NULL,
+    .emit_vaddps_asm = NULL,
+    .emit_vsubps_asm = NULL,
+    .emit_vmulps_asm = NULL,
+    .emit_vdivps_asm = NULL,
+    .emit_vaddsd_asm = NULL,
+    .emit_vsubsd_asm = NULL,
+    .emit_vmulsd_asm = NULL,
+    .emit_vdivsd_asm = NULL,
+    .emit_vaddpd_asm = NULL,
+    .emit_vsubpd_asm = NULL,
+    .emit_vmulpd_asm = NULL,
+    .emit_vdivpd_asm = NULL,
+    .emit_vpaddd_asm = NULL,
+    .emit_vpsubd_asm = NULL,
+    .emit_vpmulld_asm = NULL,
+    .emit_vmovss_asm = NULL,
+    .emit_vmovsd_asm = NULL,
+    .emit_vmovaps_asm = NULL,
+    .emit_vmovapd_asm = NULL,
+    .emit_vandps_asm = NULL,
+    .emit_vorps_asm = NULL,
+    .emit_vxorps_asm = NULL,
+    .emit_vshufps_asm = NULL,
+    .emit_vcvt_si2ss_asm = NULL,
+    .emit_vcvt_ss2si_asm = NULL,
+    .emit_vcmpss_asm = NULL,
+    .emit_vcmpsd_asm = NULL,
 };
