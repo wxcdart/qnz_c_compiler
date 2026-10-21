@@ -952,9 +952,17 @@ static int compile_object(CompileOptions *opts) {
     return 0;
 }
 
+static int compile_and_emit_exe(CompileOptions *opts);
+
 static int compile_and_link(CompileOptions *opts) {
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+
+    /* ZC_RAW_AOT=1: use zerocc's raw binary emitter directly for RISC-V
+     * (bypass system linker). This is for the QEMU differential harness. */
+    if (getenv("ZC_RAW_AOT") && (target_isa == ISA_RISCV64 || target_isa == ISA_RISCV32)) {
+        return compile_and_emit_exe(opts);
+    }
 
     /* Cross-targets (aarch64/riscv) emit TEXT assembly and let the system
      * cross-assembler build the object: zerocc's raw binary emitters for those
@@ -1042,6 +1050,61 @@ static int compile_and_link(CompileOptions *opts) {
         printf("Executable created: %s\n", output);
     }
     
+    return 0;
+}
+
+/* Compile and emit executable directly using zerocc's raw emitter (for ZC_RAW_AOT=1) */
+static int compile_and_emit_exe(CompileOptions *opts) {
+    char *source = read_file(opts->input_file);
+    if (!source) return 1;
+
+    ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+    if (!comp) { perror("calloc"); free(source); return 1; }
+
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->opt_level = (OptLevel)opts->opt_level;
+
+    char *prep = preprocess_with_options(source, opts);
+    free(source);
+    if (!prep) { fprintf(stderr, "Preprocessing failed\n"); zero_cc_free_compiler(comp); return 1; }
+
+    zero_cc_tokenize_c99(prep, comp);
+    free(prep);
+
+    if (opts->dump_ir) comp->dump_ir = 1;
+    if (opts->dump_cfg) comp->dump_cfg = 1;
+    if (opts->profile_opts) { opt_profile_enable(1); opt_profile_reset(); }
+
+    zero_cc_compile_c99(comp);
+    if (comp->had_error) {
+        fprintf(stderr, "Compile error: %s\n", comp->error_msg);
+        zero_cc_buf_free(&comp->text_section);
+        zero_cc_buf_free(&comp->rodata_section);
+        zero_cc_buf_free(&comp->data_section);
+        free(comp->tokens);
+        zero_cc_free_compiler(comp);
+        return 1;
+    }
+
+    const char *output_path = opts->output_file ? opts->output_file : "a.out";
+    if (!zero_cc_emit_elf_exe(comp, output_path)) {
+        fprintf(stderr, "ELF executable emission failed\n");
+        zero_cc_buf_free(&comp->text_section);
+        zero_cc_buf_free(&comp->rodata_section);
+        zero_cc_buf_free(&comp->data_section);
+        free(comp->tokens);
+        zero_cc_free_compiler(comp);
+        return 1;
+    }
+
+    if (opts->verbose) printf("Executable created: %s\n", output_path);
+
+    zero_cc_buf_free(&comp->text_section);
+    zero_cc_buf_free(&comp->rodata_section);
+    zero_cc_buf_free(&comp->data_section);
+    free(comp->tokens);
+    zero_cc_free_compiler(comp);
     return 0;
 }
 

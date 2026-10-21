@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-21T15:21:35Z
+timestamp: 2026-10-21T15:45:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -269,3 +269,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-21 — Updated `isa-backends.md`
 - Fixed three RISC-V raw-emitter root causes: (1) internal call jal patching at codegen time instead of bare R_RISCV_CALL relocation; (2) RV64 prologue/leave/push/pop/store use sd/ld (f3=3) instead of sw/lw (f3=2); (3) completed RV32 backend vtable wiring all 144 slots using shared RV64 implementations and NULL for vector ops. RV64 text path verified (10_retcode.c returns 79). Remaining RAW emitter issues: startup code hangs (_dl_start→abort), rodata relocations, RV32 asm emitters need 32-bit variants.
+
+## 2026-10-21 — Updated `isa-backends.md`
+- Fixed RAW AOT startup for RISC-V: added custom _start code in elf_emitter.h that sets up stack, calls main via jal, and exits via sys_exit (a7=93). Bypasses system linker for ZC_RAW_AOT=1 by adding compile_and_emit_exe path in main.c. Core fixes: (1) internal call jal patching at codegen time; (2) RV64 prologue/leave sd/ld (f3=3); (3) RV32 vtable completion (144 slots). Verified: make test (142/142), make test-opt (106/106), sret_verifier (6/6), RV64 text path (10_retcode.c=79).
