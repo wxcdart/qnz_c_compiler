@@ -1,5 +1,24 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-21 - Raw Emitter Verification Suite: Encoding Oracle (T1), Relocation Pairing (T2), and VTable Auditor (T3)
+
+Added a systematic verification suite in `tools/` targeting raw machine code emitters and backend vtable conformance:
+
+### 1. `tools/riscv_enc_check.py` (T1: Encoding Oracle)
+- **Part A (Spec Round-Trip)**: Fuzzes encode/decode round trips across all canonical immediate formats (`I`, `S`, `B`, `J`, `U`). Corrected J-type immediate sampling to the full signed 21-bit range `[-1048576, 1048574]` (`1,175,204 / 1,175,204` ok).
+- **Part B (Independent Reference Oracle)**: Vendored pure-Python class-level encoders (`celebi_sb`, `celebi_uj`, `celebi_i`, `celebi_s`, `celebi_u`, `celebi_r`) operating via string bit-slice manipulation (`1,135,443 / 1,135,443` ok). Fixed an upstream bit-slice bug in S-type string packing. Optional `--as` cross-checks against `riscv64-linux-gnu-as` for I/S/U formats (`20,488 / 20,488` words match).
+- **Part C (Raw Output Text Scanner)**: Inspects zerocc-emitted raw `.text` instructions for alignment and valid branch/jump displacements.
+
+### 2. `tools/reloc_pair_check.py` (T2: Relocation Pairing & Section Validator) & `tools/elf_min.py`
+- Built on `tools/elf_min.py` (minimal read-only ELF32/64 reader with tolerance for raw-writer header offsets).
+- Audits RISC-V ELF relocations in raw objects: verifies that every `R_RISCV_PCREL_LO12_I`/`_S` is preceded by a matching `R_RISCV_PCREL_HI20` on the corresponding `auipc`.
+- Detects GNU ld fatal rejection causes including `SECTION_SYMBOL_ADDEND` (when a PC-relative load references a section symbol like `.rodata` with a non-zero addend) and section symbol `shndx` mismatches.
+
+### 3. `tools/vtable_check.py` (T3: VTable Conformance & Caller Auditor)
+- Audits backend struct definitions against `struct ZeroCCISABackend` in `isa_backend.h` and scans all `BE(c)->` / `backend->` call sites across `src/`.
+- Across 207 struct slots, 192 are actively called by the compiler pipeline.
+- Pinpointed the root cause of `riscv32 zerocc segfault`: `riscv32_backend` initializes only 71 slots (missing 113 slots present in `riscv64_backend`), leaving 130 actively called slots NULL (e.g. `get_hw_reg_name`, `emit_mov_reg`, `emit_extend`, `emit_cmp_zero`, `emit_load_32`).
+
 ## [Sprint 41] - 2026-10-21 - RISC-V Raw Binary Emitter Immediate & Relocation Pair Fixes
 
 Fixed critical instruction immediate encoding bugs and ELF relocation handling for the RISC-V raw machine-code emitter (`riscv.c`, `main.c`, `ir/ast_lowering_mc.c`):

@@ -22,6 +22,10 @@ This directory contains the active verification suites, test runners, and knowle
 | [`qemu_test_runner.py`](./qemu_test_runner.py) | Cross-ISA execution runner using QEMU user-mode emulation (superseded for raw-emitter testing by `isa_qemu_diff.py`) | `python3 tools/qemu_test_runner.py --isa aarch64 test/aot/` |
 | [`isa_qemu_diff.py`](./isa_qemu_diff.py) | **Raw binary emitter** differential test across all 4 ISAs under QEMU (`make test-isa-qemu`); needs qemu-user-static + a static-musl reference per ISA (`setup_musl_cross.sh`) | `python3 tools/isa_qemu_diff.py --isa aarch64` |
 | [`setup_musl_cross.sh`](./setup_musl_cross.sh) | Build a per-ISA **static-musl** cross toolchain (`musl-gcc-<arch>` + specs, and a rv32 libgcc shim) — the uniform reference for `isa_qemu_diff.py` | `tools/setup_musl_cross.sh --arch aarch64 --ccbin aarch64-linux-gnu-gcc` |
+| [`elf_min.py`](./elf_min.py) | Minimal read-only ELF32/ELF64 reader shared by raw-emitter verification tools | `python3 -c "import elf_min; e = elf_min.load('file.o')"` |
+| [`riscv_enc_check.py`](./riscv_enc_check.py) | RISC-V raw-emitter instruction encoding oracle (spec round-trip fuzz, vendored celebi reference cross-check, raw output branch target scanner) | `python3 tools/riscv_enc_check.py --zerocc` |
+| [`reloc_pair_check.py`](./reloc_pair_check.py) | RISC-V ELF relocation pairing verifier (PCREL_HI20/LO12 pairs, section symbol with addend checks, section-index alignment) | `python3 tools/reloc_pair_check.py --zerocc --test test/isa_qemu/01_arith.c` |
+| [`vtable_check.py`](./vtable_check.py) | Multi-ISA backend vtable slot conformance & caller auditor (`ZeroCCISABackend` slots across backends vs active `BE(c)->` call sites) | `python3 tools/vtable_check.py --diff riscv64 riscv32` |
 | [`elf_verify.py`](./elf_verify.py) | ELF64 relocatable object (`.o`) section, symbol, and relocation verifier | `python3 tools/elf_verify.py` |
 
 ## Quick Verification Commands

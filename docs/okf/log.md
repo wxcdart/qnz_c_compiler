@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-21T03:54:58Z
+timestamp: 2026-10-21T04:28:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -260,3 +260,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-21 — Updated `isa-backends.md`
 - Document RISC-V raw emitter B/J/S immediate fixes, ELF HI20/LO12 relocation pairs, and comparison live-range tracking
+
+## 2026-10-21 — Updated `build-and-verification.md`
+- Document T1 (riscv_enc_check), T2 (reloc_pair_check), and T3 (vtable_check) verification tools
+
+## 2026-10-21 — Updated `isa-backends.md`
+- Document raw-emitter verification tools and riscv32 130 active NULL vtable slots finding

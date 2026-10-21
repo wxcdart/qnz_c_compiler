@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-21T03:54:58Z
+timestamp: 2026-10-21T04:28:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -168,6 +168,23 @@ Differential testing under QEMU exposed several immediate-encoding and relocatio
   - Added `cmp_is_fp` flag in lowering state to track floating-point vs integer comparisons.
   - Extended live ranges across RISC-V comparisons so source registers are preserved until condition codes or predicates are materialized (`slt`, `seqz`, conditional branches).
   - In `OP_CMP_ZERO`, explicitly record `cmp_src1 = phys_src1` and `cmp_src2 = 0` (zero register).
+
+### Raw Emitter Verification Suite (`tools/`)
+
+To systematically eliminate raw-emitter and cross-target crashes, three dedicated verification tools were introduced:
+
+1. **`tools/riscv_enc_check.py` (T1: Encoding Oracle)**:
+   - Part A: Fuzzes the round-trip encoding/decoding of all canonical RISC-V instruction formats (`I`, `S`, `B`, `J`, `U`) across their full ranges (including 21-bit signed J-type range `[-1048576, 1048574]`).
+   - Part B: Cross-checks formulas against an independent pure-Python class-level reference (vendored from celebi with corrected S-type string packing), bypassing binutils `as` constant-displacement branch relaxation issues.
+   - Part C: Scans zerocc raw `.o` text to verify no compressed instructions and all branch/jump targets land on valid 4-byte aligned offsets in `.text`.
+2. **`tools/reloc_pair_check.py` (T2: Relocation Pairing & Section Validator)**:
+   - Uses `tools/elf_min.py` to audit `.rela.*` records and symbols in raw objects.
+   - Verifies every `R_RISCV_PCREL_LO12_I` / `_S` is preceded by a matching `R_RISCV_PCREL_HI20` on the corresponding `auipc`.
+   - Catches fatal GNU ld rejections like `SECTION_SYMBOL_ADDEND` (when a PC-relative load references a section symbol such as `.rodata` with a non-zero addend) and section symbol `shndx` mismatches.
+3. **`tools/vtable_check.py` (T3: VTable Conformance & Caller Auditor)**:
+   - Audits `ZeroCCISABackend` definitions against `isa_backend.h` and scans all `BE(c)->` / `backend->` call sites across `src/`.
+   - Out of 207 backend slots, 192 are actively invoked by the compiler pipeline.
+   - Identified the root cause of the `riscv32 zerocc segfault`: `riscv32_backend` only initializes 71 slots (missing 113 slots present in `riscv64_backend`), leaving 130 actively called slots NULL (e.g. `get_hw_reg_name`, `emit_mov_reg`, `emit_extend`, `emit_cmp_zero`, `emit_load_32`).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

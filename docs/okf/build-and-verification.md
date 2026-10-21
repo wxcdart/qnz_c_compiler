@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-20T22:21:24Z
+timestamp: 2026-10-21T04:28:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -154,6 +154,15 @@ repaired; x86-64 is the green baseline. Run a single ISA with
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c
+
+# RISC-V raw binary emitter encoding oracle (T1: spec round-trip + celebi independent oracle)
+python3 tools/riscv_enc_check.py --zerocc
+
+# RISC-V ELF relocation pairing & section symbol verifier (T2: HI20/LO12 pairs + section addends)
+python3 tools/reloc_pair_check.py --zerocc
+
+# Multi-ISA backend vtable slot auditor (T3: ZeroCCISABackend conformance vs active BE(c)-> calls)
+python3 tools/vtable_check.py --diff riscv64 riscv32
 
 # Validate the docs/okf/ Open Knowledge Format bundle (YAML frontmatter & graph links)
 python3 tools/okf.py lint
