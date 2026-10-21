@@ -59,6 +59,19 @@ typedef enum {
     ELF_MACHINE_RISCV32   = 244, // RISC-V 32-bit
 } ElfMachineType;
 
+// RISC-V e_flags EF_RISCV_FLOAT_ABI values, per the RISC-V psABI (SOFT=0,
+// SINGLE=0x2, DOUBLE=0x4). Named ZC_... to avoid colliding with the identical
+// macros the system <elf.h> defines (which is in the include chain via
+// core/utils.h). The system cross libc (musl/glibc) targets the double-float
+// ABI (lp64d for rv64, ilp32d for rv32); a RISC-V object must declare the same
+// or the linker rejects the link with "can't link soft-float modules with
+// double-float modules". (Sprint 41)
+enum {
+    ZC_EF_RISCV_FLOAT_ABI_SOFT   = 0x0,
+    ZC_EF_RISCV_FLOAT_ABI_SINGLE = 0x2,
+    ZC_EF_RISCV_FLOAT_ABI_DOUBLE = 0x4,
+};
+
 // ELF Section Types
 typedef enum {
     ELF_SHT_NULL          = 0,  // Undefined

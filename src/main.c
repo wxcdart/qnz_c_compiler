@@ -984,11 +984,11 @@ static int compile_and_link(CompileOptions *opts) {
         static_flag = "-static";
     } else if (target_isa == ISA_RISCV64) {
         linker = "riscv64-linux-gnu-gcc";
-        abi_flags = "-mabi=lp64 -march=rv64gc";
+        abi_flags = "-mabi=lp64d -march=rv64gc";
         static_flag = "-static";
     } else if (target_isa == ISA_RISCV32) {
         linker = "riscv64-linux-gnu-gcc";
-        abi_flags = "-mabi=ilp32 -march=rv32gc";
+        abi_flags = "-mabi=ilp32d -march=rv32gc";
         static_flag = "-static";
     }
     
@@ -1009,7 +1009,7 @@ static int compile_and_link(CompileOptions *opts) {
     ret = system(cmd);
     
     /* Clean up temporary object file */
-    unlink(obj_path);
+    if (!getenv("ZC_KEEP_OBJ")) unlink(obj_path);
     
     if (ret != 0) {
         fprintf(stderr, "Error: Linking failed\n");

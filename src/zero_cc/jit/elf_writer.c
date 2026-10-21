@@ -399,7 +399,14 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // Will be computed after all sections
 
     // e_flags
-    ehdr->e_flags = 0;
+    // RISC-V must declare the floating-point ABI. The system cross libc targets
+    // double-float (lp64d/ilp32d); leaving e_flags=0 (soft-float) makes the
+    // linker reject the link. See EF_RISCV_FLOAT_ABI_* in elf_writer.h. (Sprint 41)
+    if (ctx->machine == ELF_MACHINE_RISCV64 || ctx->machine == ELF_MACHINE_RISCV32) {
+        ehdr->e_flags = ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
+    } else {
+        ehdr->e_flags = 0;
+    }
 
     // e_ehsize
     ehdr->e_ehsize = sizeof(Elf64Header);
