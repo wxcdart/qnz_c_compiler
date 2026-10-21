@@ -195,7 +195,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 c->lowering.cmp_src2 = phys_src2;
                 RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
                 RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2);
-                if ((rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC || rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC) && BE(c)->emit_fp_cmp) {
+                int cmp_fp = (rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
+                              rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC);
+                c->lowering.cmp_is_fp = cmp_fp;
+                if (cmp_fp && BE(c)->emit_fp_cmp) {
                     BE(c)->emit_fp_cmp(c, phys_src1, phys_src2);
                 } else {
                     BE(c)->emit_cmp(c, phys_src1, phys_src2);
@@ -219,6 +222,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             
             case OP_CMP_ZERO:
+                /* RISC-V flags materialization: cmp-zero records the value
+                 * against the zero register so a later OP_COND_SET can
+                 * re-materialize the predicate (see live-range extension in
+                 * live_range_compute for RISC-V). */
+                {
+                    RegClass rc0 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
+                    c->lowering.cmp_src1 = phys_src1;
+                    c->lowering.cmp_src2 = 0;  /* zero register */
+                    c->lowering.cmp_is_fp = (rc0 == REG_CLASS_XMM || rc0 == REG_CLASS_VEC);
+                }
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 break;
             
@@ -666,10 +679,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (BE(c)->emit_mov_imm) {
                     BE(c)->emit_mov_imm(c, phys_dst, 0);
                 }
-                /* Store symbol name for relocation patching */
+                /* Store symbol name for relocation patching. x86-64 movabs is
+                 * 10 bytes (8-byte reloc field at the end); RISC-V emits an
+                 * auipc+addi pair (4-byte LO12 reloc field at the end, the
+                 * companion HI20 is added by the ELF writer). */
+                size_t reloc_field = (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) ? 4 : 8;
                 if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
                     ZeroCCReloc *r = &c->relocs[c->reloc_count++];
-                    r->text_patch_offset = BE(c)->get_code_offset(c) - 8;
+                    r->text_patch_offset = BE(c)->get_code_offset(c) - reloc_field;
                     snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
                     r->is_call = false;
                 }
@@ -786,14 +803,19 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_pop_reg(c, dst_reg);
                 }
                 
-                /* Load float arguments from spill slots into xmm0..xmmN */
+                /* Load float arguments from spill slots into the FP arg
+                 * registers of the target ABI (xmm0..7 / d0..7 / fa0..7).
+                 * Using the calling-convention table keeps x86/AArch64
+                 * (arg regs 0..7) identical while giving RISC-V fa0..fa7. */
                 if (call_idx < c->lowering.ir_ctx.call_count) {
                     int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
                     for (int f = 0; f < fp_count && f < 8; f++) {
                         int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
+                        int fp_arg_reg = backend_get_fp_arg_reg(BE(c), f);
+                        if (fp_arg_reg < 0) fp_arg_reg = f;
                         /* Load FP arg from stack slot into FP register */
                         if (BE(c)->emit_load_fp) {
-                            BE(c)->emit_load_fp(c, f, BE(c)->fp_reg, -spill_off);
+                            BE(c)->emit_load_fp(c, fp_arg_reg, BE(c)->fp_reg, -spill_off);
                         }
                     }
                     call_idx++;

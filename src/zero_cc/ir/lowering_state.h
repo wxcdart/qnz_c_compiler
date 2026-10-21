@@ -50,9 +50,14 @@ typedef struct {
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */
     
-    /* CMP operand tracking for RISC-V backend (flags materialization) */
+    /* CMP operand tracking for RISC-V backend (flags materialization):
+     * RISC-V has no flags register, so the last OP_CMP/OP_CMP_ZERO's
+     * operands (and class) are recorded here; the flag consumer
+     * (OP_COND_SET / OP_JCOND) re-materializes the predicate from them.
+     * For OP_CMP_ZERO, cmp_src2 is 0 (the zero register). */
     int cmp_src1;                      /* First operand of last CMP instruction */
     int cmp_src2;                      /* Second operand of last CMP instruction */
+    int cmp_is_fp;                     /* Last CMP had FP-class operands */
     
     /* Hybrid VLA enforcement state */
     VLAState vla;                      /* VLA tracking and enforcement */

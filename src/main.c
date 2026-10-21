@@ -820,8 +820,9 @@ static int compile_object(CompileOptions *opts) {
             addend_rodata = 0;
             break;
         case ISA_RISCV64:
-            reloc_type_call = 85;  /* R_RISCV_CALL */
-            reloc_type_rodata = 5; /* R_RISCV_PCREL_LO12_I */
+        case ISA_RISCV32:
+            reloc_type_call = 18;  /* R_RISCV_CALL */
+            reloc_type_rodata = 24; /* R_RISCV_PCREL_LO12_I */
             addend_call = 0;
             addend_rodata = 0;
             break;
@@ -834,6 +835,7 @@ static int compile_object(CompileOptions *opts) {
     }
     
     /* Add relocation entries for external function calls and symbol address loads */
+    int reloc_type_hi20 = 23;  /* R_RISCV_PCREL_HI20 (auipc half of a global load) */
     for (size_t i = 0; i < comp->reloc_count; i++) {
         ZeroCCReloc *r = &comp->relocs[i];
         int symbol_idx = 0;
@@ -856,6 +858,16 @@ static int compile_object(CompileOptions *opts) {
                                       symbol_idx,
                                       reloc_type_abs64,
                                       0);
+            /* RISC-V: the load is an auipc+addi pair - the auipc 4 bytes
+             * before the LO12 field needs the matching HI20 relocation. */
+            if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
+                r->text_patch_offset >= 4) {
+                elf_writer_add_relocation(&elf_ctx, 1,
+                                          r->text_patch_offset - 4,
+                                          symbol_idx,
+                                          reloc_type_hi20,
+                                          0);
+            }
         }
     }
     
@@ -869,6 +881,16 @@ static int compile_object(CompileOptions *opts) {
                                   rodata_symbol_idx,
                                   reloc_type_rodata,
                                   (int64_t)sr->rodata_offset + addend_rodata);
+        /* RISC-V: string/FP-literal loads are auipc+fld(+/addi) pairs; the
+         * auipc 4 bytes before needs the matching HI20 relocation. */
+        if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
+            sr->text_patch_offset >= 4) {
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      sr->text_patch_offset - 4,
+                                      rodata_symbol_idx,
+                                      reloc_type_hi20,
+                                      (int64_t)sr->rodata_offset + addend_rodata);
+        }
     }
     
     /* Relocations for .data pointer initializers (string literals -> .rodata,

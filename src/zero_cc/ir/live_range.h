@@ -223,6 +223,49 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         }
     }
 
+    /* RISC-V flag liveness: RISC-V has no flags register. The backend
+     * re-materializes a comparison predicate from the CMP/CMP_ZERO operand
+     * registers at the consumer (OP_COND_SET / OP_JCOND), so those operand
+     * intervals must extend from the flag producer to the consumer (or to
+     * the next flag producer / control-flow break, whichever comes first).
+     * On ISAs with real flags (x86-64, AArch64) the EFLAGS/NZCV state is
+     * independent of register allocation, so no extension is needed. */
+    if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) {
+        size_t *flag_end = (size_t *)malloc(instr_count * sizeof(size_t));
+        if (flag_end) {
+            for (size_t i = 0; i < instr_count; i++) flag_end[i] = i;
+            for (size_t i = 0; i < instr_count; i++) {
+                Instr *ins = ir_get(i);
+                if (!ins || ins->flags_out != REG_FLAGS) continue;
+                for (size_t j = i + 1; j < instr_count; j++) {
+                    Instr *nxt = ir_get(j);
+                    if (!nxt) break;
+                    if (nxt->flags_in == REG_FLAGS) { flag_end[i] = j; break; }
+                    if (nxt->flags_out == REG_FLAGS) { flag_end[i] = j - 1; break; }
+                    if (nxt->op == OP_LABEL || nxt->op == OP_JMP || nxt->op == OP_JMP_LABEL ||
+                        nxt->op == OP_JE || nxt->op == OP_JNE || nxt->op == OP_JL ||
+                        nxt->op == OP_JLE || nxt->op == OP_JG || nxt->op == OP_JCOND ||
+                        nxt->op == OP_CALL || nxt->op == OP_CALL_INDIRECT ||
+                        nxt->op == OP_RET || nxt->op == OP_EPILOGUE) {
+                        flag_end[i] = j - 1; break;
+                    }
+                }
+            }
+            for (size_t i = 0; i < instr_count; i++) {
+                Instr *ins = ir_get(i);
+                if (!ins || ins->flags_out != REG_FLAGS) continue;
+                int operands[2] = { (int)ins->temp_src1, (int)ins->temp_src2 };
+                for (int k = 0; k < 2; k++) {
+                    int t = operands[k];
+                    if (t == TEMP_NONE || (size_t)t >= lra->temp_capacity) continue;
+                    if (lra->temp_def_pos[t] == SIZE_MAX) continue;
+                    if (flag_end[i] > lra->temp_live_end[t]) lra->temp_live_end[t] = flag_end[i];
+                }
+            }
+            free(flag_end);
+        }
+    }
+    
     /* Process each temp that was defined */
     for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
         if (lra->temp_def_pos[temp_id] == SIZE_MAX) {

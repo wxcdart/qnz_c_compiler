@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-20T22:21:24Z
+timestamp: 2026-10-21T03:54:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -146,6 +146,28 @@ When `-S` is invoked, `emit_asm_data_sections()` emits all global symbols, align
 - **In-place NOT semantics**: `x86` and `riscv` emit `mv dst, src` (or the `xori`/`mvn` two-operand form on AArch64) when the allocator picked `dst != src`, mirroring the MC emitters (`x86_emit_not` in `x86_64.c`) — the first attempt that omitted the copy read a garbage register and only surfaced in `-S` execution.
 - Note: the Sprint 39 documentation listed `OP_SUB_INC`/`OP_ADD_INC` in this gap — those opcodes do not exist in the 127-opcode enum; the real list is the six above. `ir_emit_inc/dec/add_imm/sub_imm` had no lowering callers pre-Sprint 40 (in-place `i++` lowers to plain `ADD`/`SUB`), so the gap was latent until the emitters landed.
 - Verified: 0 `# UNKNOWN` comments across the 79-test `test/jit` `-S` corpus; all assemblable standalone outputs compile with `gcc -c` (16/16).
+
+## RISC-V Raw Binary Emitter & Relocation Fixes (Sprint 41)
+
+Differential testing under QEMU exposed several immediate-encoding and relocation issues in the RISC-V raw machine-code path (`riscv.c`, `main.c`):
+
+- **B-Type Immediate Encoding (`rv64_B` & `riscv64_patch_jmp`)**:
+  - RISC-V B-type format encodes `imm[12|10:5] rs2 rs1 funct3 imm[4:1|11] opcode`.
+  - Immediate bit 11 maps to instruction bit 7: requires `((u & 0x800u) >> 4)` (previously shifted `<< 4` into bit 15 clobbering `rs1`).
+  - `imm[4:1]` (bits 4:1) moves to instruction bits 11:8: requires `((u & 0x1Eu) << 7)`.
+- **J-Type Immediate Encoding (`rv64_J` & `riscv64_patch_jmp`)**:
+  - RISC-V J-type format encodes `imm[20|10:1|11|19:12] rd opcode`.
+  - `imm[10:1]` mask is `0x7FEu` (10 bits, 0b0111_1111_1110); previous `0x3FE` mask dropped bit 10.
+  - `imm[19:12]` mask is `0xFF000u` (bits 19:12); previous `0xFF00u` masked bits 15:8.
+- **S-Type Immediate Encoding (`rv64_S`)**:
+  - `imm[11:5]` is 7 bits (bits 11 to 5) with mask `0xFE0u` (previous `0xFF80u` mask dropped bits 5 and 6).
+- **ELF Relocations (`main.c`)**:
+  - Standardized RISC-V ELF relocation numbers (`R_RISCV_CALL = 18`, `R_RISCV_PCREL_LO12_I = 24`).
+  - Added paired `R_RISCV_PCREL_HI20 = 23` relocation on the preceding `auipc` for both symbol address loads and rodata literal references.
+- **Comparison & Flag-Lowering State (`ast_lowering_mc.c`, `lowering_state.h`, `live_range.h`)**:
+  - Added `cmp_is_fp` flag in lowering state to track floating-point vs integer comparisons.
+  - Extended live ranges across RISC-V comparisons so source registers are preserved until condition codes or predicates are materialized (`slt`, `seqz`, conditional branches).
+  - In `OP_CMP_ZERO`, explicitly record `cmp_src1 = phys_src1` and `cmp_src2 = 0` (zero register).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

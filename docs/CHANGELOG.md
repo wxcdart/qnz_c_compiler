@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-21 - RISC-V Raw Binary Emitter Immediate & Relocation Pair Fixes
+
+Fixed critical instruction immediate encoding bugs and ELF relocation handling for the RISC-V raw machine-code emitter (`riscv.c`, `main.c`, `ir/ast_lowering_mc.c`):
+
+### Immediate encoding corrections (`src/zero_cc/isa/riscv.c`)
+- **B-Type instructions (`rv64_B` & `riscv64_patch_jmp`)**: Fixed bit 11 shift from `((u & 0x800u) << 4)` to `((u & 0x800u) >> 4)`. The incorrect shift moved bit 11 into bit 15, clobbering the `rs1` register field. Fixed `imm[4:1]` shift to `((u & 0x1Eu) << 7)` targeting instruction bits 11:8.
+- **J-Type instructions (`rv64_J` & `riscv64_patch_jmp`)**: Corrected `imm[10:1]` mask to `0x7FEu` (10 bits) and `imm[19:12]` mask to `0xFF000u` (bits 19:12, was masking 15:8).
+- **S-Type instructions (`rv64_S`)**: Fixed `imm[11:5]` mask from `0xFF80u` to `0xFE0u` (was dropping bits 5 and 6).
+
+### ELF Relocation Pair Fixes (`src/main.c`)
+- Fixed standard RISC-V ELF relocation numbers (`R_RISCV_CALL = 18`, `R_RISCV_PCREL_LO12_I = 24`).
+- Added matching `R_RISCV_PCREL_HI20 = 23` relocation entries on the preceding `auipc` for symbol and rodata address loads.
+
+### Comparison Lowering & Live Range Extension (`src/zero_cc/ir/ast_lowering_mc.c`, `lowering_state.h`, `live_range.h`)
+- Added `cmp_is_fp` flag in lowering state to differentiate floating-point and integer comparison modes.
+- Preserved operand live ranges across comparisons in `live_range.h` so registers are not clobbered before condition code / predicate materialization.
+- In `OP_CMP_ZERO`, explicitly record `cmp_src1 = phys_src1` and `cmp_src2 = 0` (zero register).
+
+
+
 ## [Sprint 41] - 2026-10-20 - Uniform Static-Musl Cross Reference for All 4 ISAs
 
 The `make test-isa-qemu` QEMU differential harness now uses a **uniform static-musl reference across all 4 target ISAs** (x86_64, aarch64, riscv64, riscv32) instead of the system glibc cross-cc. This gives one consistent libc baseline for the differential and closes the riscv32 reference gap (glibc had no rv32 support at all).
