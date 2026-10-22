@@ -37,11 +37,7 @@ static int run_case(const char *src, ExpectKind expect, const char *expect_subst
         rc = 1;
     }
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return rc;
 }
 
@@ -72,11 +68,7 @@ static int run_case_absent(const char *src, ExpectKind expect, const char *absen
         rc = 1;
     }
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return rc;
 }
 

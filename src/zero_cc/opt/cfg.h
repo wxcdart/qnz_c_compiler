@@ -59,6 +59,10 @@ bool cfg_build(void);
  * version-bump hooks (ir_reset, optimizer passes, callee-save append). */
 void cfg_invalidate(void);
 
+/* Release the cached CFG snapshot (blocks, per-block pred arrays, loops).
+ * Public so zero_cc_compiler_free can tear down the last-built cache. */
+void zero_cc_cfg_cache_free(ZeroCCCFG *cfg);
+
 /* Bump the IR version counter (used by the invalidation hooks). */
 void zero_cc_cfg_bump_version(void);
 

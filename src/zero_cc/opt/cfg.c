@@ -73,6 +73,10 @@ static void cfg_free(ZeroCCCFG *cfg) {
     cfg->valid = false;
 }
 
+void zero_cc_cfg_cache_free(ZeroCCCFG *cfg) {
+    cfg_free(cfg);
+}
+
 static void cfg_add_pred(ZeroCCBlock *blk, int pred) {
     if (blk->pred_count >= blk->pred_cap) {
         int nc = blk->pred_cap ? blk->pred_cap * 2 : 4;

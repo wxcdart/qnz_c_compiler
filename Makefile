@@ -28,6 +28,7 @@ LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
 PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser/parser.o
 TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
 EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
+	src/zero_cc/core/compiler_free.o \
 	src/zero_cc/common/hash_table_tpht.o \
 	src/zero_cc/semantic/diagnostics.o \
 	src/zero_cc/semantic/type.o \

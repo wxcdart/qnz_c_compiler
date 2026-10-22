@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T15:24:02Z
+timestamp: 2026-10-22T16:37:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -326,3 +326,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `frontend-and-types.md`
 - SemContext single-canonical-definition invariant (decl.h/expr.h stale 8-field copies removed after the Sprint 42 multi-error-recovery work exposed a dormant cross-TU ABI stack overflow)
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- zero_cc_compiler_free public destroy API; asan-semantic 16/16 (LeakSanitizer-clean semantic harnesses); make asan documented as non-gate with the known remainder

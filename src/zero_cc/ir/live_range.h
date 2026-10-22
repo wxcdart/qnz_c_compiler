@@ -80,6 +80,7 @@ static void live_range_free(LiveRangeAnalyzer *lra) {
     free(lra->uses);
     free(lra->temp_def_pos);
     free(lra->temp_live_end);
+    free(lra->temp_reg_class);
     free(lra->rax_clobbered);
     free(lra->rdx_clobbered);
     free(lra->call_positions);
@@ -87,6 +88,7 @@ static void live_range_free(LiveRangeAnalyzer *lra) {
     lra->uses = NULL;
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
+    lra->temp_reg_class = NULL;
     lra->rax_clobbered = NULL;
     lra->rdx_clobbered = NULL;
     lra->call_positions = NULL;

@@ -40,11 +40,7 @@ static int run_case(const char *src, int expect_error) {
         rc = 0;
     }
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return rc;
 }
 

@@ -168,6 +168,15 @@ struct ZeroCCStrChunk {
 extern const char *zero_cc_intern_string(ZeroCCCompiler *c, const char *s);
 extern void zero_cc_free_string_pool(ZeroCCCompiler *c);
 
+/* Full teardown of a compiler instance (implemented in
+ * core/compiler_free.c): frees tokens, locals/hash tables, struct member
+ * arrays, IR arenas, the TU AST arena, the string pool, regalloc, the CFG
+ * cache, and the code sections, then the struct itself. Call after you no
+ * longer need the compiled code; `asm_out` is caller-owned and not closed.
+ * (The compile API has no other destroy path — without this, every
+ * multi-compile consumer leaks one IR arena per compile.) */
+extern void zero_cc_compiler_free(ZeroCCCompiler *c);
+
 int64_t decl_align_spec; /* alignment specifier from _Alignas */
 
 

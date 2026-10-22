@@ -22,32 +22,20 @@ int main(void) {
     /* Expect compilation to fail */
     if (!comp->had_error) {
         fprintf(stderr, "FAIL: Expected compile error but compilation succeeded\n");
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     }
 
     /* Check error message is reasonable */
     if (comp->error_msg[0] == '\0') {
         fprintf(stderr, "FAIL: Expected error message but got empty string\n");
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     }
 
     printf("PASS: Correctly caught failing _Static_assert\n");
     printf("Error message: %s\n", comp->error_msg);
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return 0;
 }

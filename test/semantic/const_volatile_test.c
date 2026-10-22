@@ -14,11 +14,7 @@ static int run_snippet(const char *src) {
     zero_cc_compile_c99(comp);
     assert(!comp->had_error && "Compilation failed unexpectedly");
     int ret = zero_cc_execute_jit(comp, NULL);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return ret;
 }
 
@@ -66,11 +62,7 @@ static void run_error_test(const char *src, const char *expected_msg) {
         assert(found && "Expected diagnostic message not found in output");
     }
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     if (diag_buf) free(diag_buf);
 }
 

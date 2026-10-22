@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - `zero_cc_compiler_free()`: Public Destroy API + `asan-semantic` Green
+
+Closes the resource-management gap the multi-error-recovery work exposed (the public compile API had no destroy path, so every multi-compile consumer leaked one IR arena per compile):
+
+- **New public API** `zero_cc_compiler_free(ZeroCCCompiler *c)` (`src/zero_cc/core/compiler_free.c`, declared in `types/symbols.h`): frees tokens (+ per-token strings), the locals table + hash tables, struct/union member arrays (owner-aware dedup so `typedef struct P {...} P2;` aliases don't double-free), `ir_arena`, `ir_call_args`, the TU AST arena, the interned string pool, the regallocator, the last-built CFG cache, and the three code sections, then the struct. Caller contract: call after the compiled code is no longer needed; `asm_out` is caller-owned. Type-pool `base` pointers are intentionally not touched (the pool is freed at the end of every compile).
+- **`zero_cc_cfg_cache_free(ZeroCCCFG*)`** exported from `opt/cfg.c` (the cache's `cfg_free` was static).
+- **Pre-existing leak fixed**: `live_range_free` (ir/live_range.h) never freed `temp_reg_class` — the reg-class array per lowering. One line; ASan trace-verified.
+- **`make asan-semantic` 11/16 → 16/16** (LeakSanitizer-clean): the five harness tests (`call_arity_fail`, `const_volatile_test`, `constraint_violations_fail`, `did_you_mean_test`, `static_assert_fail`) now use `zero_cc_compiler_free` instead of hand-rolling buf/token frees.
+- Known remainder (out of scope): the ~70 `test/jit|abi|unit` programs still compile in-process without the destroy call, so the combined `make asan` target still fails on those (it was never a green gate; the tracked gates are all green).
+
+Gates: `make test` 147/147, `make test-opt` 107/107, `make asan-semantic` 16/16, style 0 errors (130 files), diag battery 8/8 baseline OK, sret 6/6.
+
 ## [Sprint 42] - 2026-10-22 - Multi-Error Recovery + SemContext ABI Fix + INC010 Correction
 
 Closes the last open item of the diagnostics work (`docs/ZEROCC_Development_Plan.md` §11, now DONE):
