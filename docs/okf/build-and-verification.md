@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-21T04:28:08Z
+timestamp: 2026-10-22T02:18:14Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -139,18 +139,15 @@ A uniform musl-static reference is used across all 4 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
-**Current state** (raw emitters, Sprint 41): **x86-64 11/11** (the production
-path). **aarch64 1/11** -- register allocation clobbers live pointers (a
+**Current state** (raw emitters, Sprint 41): **x86-64 11/11** and **riscv64 11/11** are fully green. **aarch64 1/11** -- register allocation clobbers live pointers (a
 string-pointer + arithmetic miscompiles), `.data` relocations are malformed
 (linker rejects reloc type 0x1), `.data` global writes segfault, host calls
-(`printf`/`strlen`) return wrong, one infinite loop. **riscv64 0/11** -- objects
-don't link (`can't link soft-float modules with double-float modules`, i.e. an
-inconsistent FP-ABI object attribute). **riscv32 0/11** -- zerocc segfaults
+(`printf`/`strlen`) return wrong, one infinite loop. **riscv32 0/11** -- zerocc segfaults
 building rv32 (the static-musl rv32 reference itself builds and runs cleanly
 under `qemu-riscv32-static`; the failure is entirely on the zerocc side). The
-target therefore reports `Error 1` until the aarch64/riscv raw emitters are
-repaired; x86-64 is the green baseline. Run a single ISA with
-`python3 tools/isa_qemu_diff.py --isa aarch64`.
+target reports `Error 1` until the remaining raw emitters (aarch64, riscv32) are
+repaired; x86-64 and riscv64 are green baselines. Run a single ISA with
+`python3 tools/isa_qemu_diff.py --isa riscv64`.
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

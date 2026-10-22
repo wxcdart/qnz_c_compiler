@@ -248,7 +248,8 @@ static void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void riscv64_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 4));
+    /* div dst, src1, src2: opcode 0x33, funct3=4, funct7=1 */
+    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 4, 1));
 }
 
 static void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -348,7 +349,7 @@ static size_t riscv64_emit_jlt(ZeroCCCompiler *c, const char *label) {
 static size_t riscv64_emit_jle(ZeroCCCompiler *c, const char *label) {
     (void)label;
     size_t patch_pos = me_get_offset(c);
-    riscv_emit_u32(c, rv64_B(c->lowering.cmp_src1, c->lowering.cmp_src2, 6, 0));  /* ble a, b, 0 */
+    riscv_emit_u32(c, rv64_B(c->lowering.cmp_src2, c->lowering.cmp_src1, 5, 0));  /* bge b, a, 0 (i.e. a <= b) */
     return patch_pos;
 }
 
@@ -442,12 +443,23 @@ static void riscv64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
     riscv_emit_u32(c, rv64_S(RV_REG(base_reg), RV_REG(src_reg), 3, (int16_t)offset, 0x27));
 }
 
+static void riscv64_emit_vloadss(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    /* flw fd, offset(base) */
+    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(base), 2, (int16_t)offset, 0x07));
+}
+
+static void riscv64_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    /* fsw fs, offset(base) */
+    riscv_emit_u32(c, rv64_S(RV_REG(base), RV_REG(src), 2, (int16_t)offset, 0x27));
+}
+
 static void riscv64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
-    /* auipc dst, 0; fld dst, 0(dst) with a string relocation on the fld
-     * (the ELF writer attaches R_RISCV_PCREL_HI20 to the auipc). */
-    riscv_emit_u32(c, rv64_AUIPC(RV_REG(dst_reg), 0));
+    /* auipc t0, 0; fld dst, 0(t0) with a string relocation on the fld
+     * (the ELF writer attaches R_RISCV_PCREL_HI20 to the auipc).
+     * Note: dst_reg is an FP register; auipc requires an integer register (t0). */
+    riscv_emit_u32(c, rv64_AUIPC(RV64_T0, 0));
     size_t patch_pos = me_get_offset(c);
-    riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), RV_REG(dst_reg), 3, 0, 0x07));
+    riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), RV64_T0, 3, 0, 0x07));
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
         c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
         c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
@@ -457,24 +469,24 @@ static void riscv64_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t r
 }
 
 static void riscv64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 0));   /* fadd.d */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x01, 7));   /* fadd.d */
 }
 
 static void riscv64_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 8, 0));   /* fsub.d */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x05, 7));   /* fsub.d */
 }
 
 static void riscv64_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 16, 0));  /* fmul.d */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x09, 7));  /* fmul.d */
 }
 
 static void riscv64_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 24, 0));  /* fdiv.d */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x0D, 7));  /* fdiv.d */
 }
 
 static void riscv64_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
-    /* fneg.d fd, fs = fsgnjx.d fd, fs, fs */
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 17, 0));
+    /* fneg.d fd, fs = fsgnjn.d fd, fs, fs (rm=1) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 0x11, 1));
 }
 
 /* FP compare: no instruction is emitted - the consumer (cond_set/jcond) */
@@ -483,21 +495,21 @@ static void riscv64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
 }
 
 static void riscv64_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
-    /* fcvt.l.d rd, fs (round toward zero) - 64-bit result, matching the
+    /* fcvt.l.d rd, fs (round toward zero, rm=1) - 64-bit result, matching the
      * IR contract "CVTTSD2SI yields a 64-bit int" (narrower targets are
      * sign/zero-extended afterwards by the width fixup). */
-    riscv_emit_u32(c, rv64_FP(RV_REG(int_dst), RV_REG(fp_src), 0, 0x23, 0));
+    riscv_emit_u32(c, rv64_FP(RV_REG(int_dst), RV_REG(fp_src), 2, 0x61, 1));
 }
 
 static void riscv64_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
-    /* fcvt.d.w fd, rs (round to nearest even; 32-bit source, as in x86) */
-    riscv_emit_u32(c, rv64_FP(RV_REG(fp_dst), RV_REG(int_src), 0, 0x21, 1));
+    /* fcvt.d.w fd, rs (round to nearest even / dynamic rm=7; 32-bit source, as in x86) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(fp_dst), RV_REG(int_src), 0, 0x69, 7));
 }
 
 static void riscv64_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
-    /* fmv.d fd, fs = fsgnjn.d fd, fs, fs */
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 16, 0));
+    /* fmv.d fd, fs = fsgnj.d fd, fs, fs (rm=0) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 0x11, 0));
 }
 
 static void riscv64_emit_const(ZeroCCCompiler *c, int64_t value) {
@@ -563,8 +575,8 @@ static void riscv64_emit_cqo(ZeroCCCompiler *c) {
 }
 
 static void riscv64_emit_idiv(ZeroCCCompiler *c, int src) {
-    /* div a0, a0, src */
-    riscv_emit_u32(c, rv64_R(10, 10, RV_REG(src), 0, 4));
+    /* div a0, a0, src: opcode 0x33, funct3=4, funct7=1 */
+    riscv_emit_u32(c, rv64_R(10, 10, RV_REG(src), 4, 1));
 }
 
 static void riscv64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
@@ -572,11 +584,9 @@ static void riscv64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offse
     riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(base), 0, (int16_t)offset, 0x13));
 }
 
-
-
 static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* rem dst, src1, src2 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 8));
+    /* rem dst, src1, src2: opcode 0x33, funct3=6, funct7=1 */
+    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 6, 1));
 }
 
 /* Core emission functions */
@@ -605,10 +615,10 @@ static void riscv64_emit_shr(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 /* Memory operations */
 
-/* deref dst, [src] - pointer dereference (64-bit load) */
+/* deref dst, [src] - pointer dereference (64-bit load on RV64, 32-bit on RV32) */
 static void riscv64_emit_deref(ZeroCCCompiler *c, int dst, int src) {
-    /* ld dst, 0(src) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 2, 0, 0x03));
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
+    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), f3, 0, 0x03));
 }
 
 /* load_32 dst, [base] - 32-bit load from the address in base (offset 0). */
@@ -695,12 +705,12 @@ static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, size_t rodata_offse
 /* Emit the FP predicate for (fs1 OP fs2) into integer register rd. */
 static void riscv64_emit_fp_pred(ZeroCCCompiler *c, int rd, int fs1, int fs2, int cond) {
     switch (cond) {
-        case 0:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x51, 0)); break;  /* flt.d */
-        case 1:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x50, 0)); break;  /* fle.d */
-        case 2:  riscv_emit_u32(c, rv64_FP(rd, fs2, fs1, 0x51, 0)); break;  /* flt.d (swapped) */
-        case 3:  riscv_emit_u32(c, rv64_FP(rd, fs2, fs1, 0x50, 0)); break;  /* fle.d (swapped) */
-        case 4:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x52, 0)); break;  /* feq.d */
-        default: riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x52, 0));         /* feq.d */
+        case 0:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x51, 1)); break;  /* flt.d (rm=1) */
+        case 1:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x51, 0)); break;  /* fle.d (rm=0) */
+        case 2:  riscv_emit_u32(c, rv64_FP(rd, fs2, fs1, 0x51, 1)); break;  /* flt.d swapped */
+        case 3:  riscv_emit_u32(c, rv64_FP(rd, fs2, fs1, 0x51, 0)); break;  /* fle.d swapped */
+        case 4:  riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x51, 2)); break;  /* feq.d (rm=2) */
+        default: riscv_emit_u32(c, rv64_FP(rd, fs1, fs2, 0x51, 2));         /* feq.d */
                  riscv_emit_u32(c, rv64_I(rd, rd, 4, 1, 0x13));             /* xori rd, rd, 1 */
     }
 }
@@ -728,13 +738,13 @@ static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
             riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 2, 0));  /* slt */
             riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 4, 1, 0x13));           /* xori dst, dst, 1 */
             break;
-        case 4: /* CC_EQ: dst = (src1 - src2) == 0 (sub into dst, then seqz) */
+        case 4: /* CC_EQ: dst = (src1 - src2) == 0 (sub into dst, then seqz: sltiu dst, dst, 1) */
             riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 0x20));  /* sub dst, src1, src2 */
-            riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 5, 0, 0x13));              /* seqz dst, dst */
+            riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 3, 1, 0x13));              /* sltiu dst, dst, 1 (seqz) */
             break;
-        default: /* CC_NE: dst = (src1 - src2) != 0 */
+        default: /* CC_NE: dst = (src1 - src2) != 0 (sub into dst, then snez: sltu dst, zero, dst) */
             riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 0x20));  /* sub dst, src1, src2 */
-            riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 3, 0, 0x13));              /* snez dst, dst */
+            riscv_emit_u32(c, rv64_R(RV_REG(dst), 0, RV_REG(dst), 3, 0));                 /* sltu dst, zero, dst (snez) */
             break;
     }
 }
@@ -769,7 +779,7 @@ static size_t riscv64_emit_jcond(ZeroCCCompiler *c, int cond, const char *label)
     size_t patch_pos = me_get_offset(c);
     switch (cond) {
         case 0:  riscv_emit_u32(c, rv64_B(src1, src2, 4, 0)); break;  /* blt  a, b */
-        case 1:  riscv_emit_u32(c, rv64_B(src1, src2, 6, 0)); break;  /* ble  a, b */
+        case 1:  riscv_emit_u32(c, rv64_B(src2, src1, 5, 0)); break;  /* bge  b, a (i.e. a <= b) */
         case 2:  riscv_emit_u32(c, rv64_B(src2, src1, 4, 0)); break;  /* blt  b, a */
         case 3:  riscv_emit_u32(c, rv64_B(src1, src2, 5, 0)); break;  /* bge  a, b */
         case 4:  riscv_emit_u32(c, rv64_B(src1, src2, 0, 0)); break;  /* beq  a, b */
@@ -812,8 +822,8 @@ static void riscv64_emit_cmp_zero(ZeroCCCompiler *c, int src) {
 
 /* lnot dst, src - logical NOT (dst = !src) */
 static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
-    /* seqz dst, src */
-    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 5, 0, 0x13));
+    /* seqz dst, src: sltiu dst, src, 1 */
+    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 3, 1, 0x13));
 }
 
 /* Control flow */
@@ -948,6 +958,10 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
+    .emit_vloadss = riscv64_emit_vloadss,
+    .emit_vloadsd = riscv64_emit_load_fp,
+    .emit_vstoress = riscv64_emit_vstoress,
+    .emit_vstoredsd = riscv64_emit_store_fp,
     .emit_deref = riscv64_emit_deref,
     .emit_load_32 = riscv64_emit_load_32,
     .emit_load_16 = riscv64_emit_load_16,
@@ -1129,10 +1143,6 @@ static void riscv32_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
 
 static void riscv32_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (0 << 25));
-}
-
-static void riscv32_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    riscv_emit_u32(c, 0x02000033 | (RV_REG(dst) << 7) | (RV_REG(src1) << 15) | (RV_REG(src2) << 20) | (3 << 25));
 }
 
 static void riscv32_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1398,22 +1408,9 @@ static void riscv32_emit_cqo(ZeroCCCompiler *c) {
     (void)c;
 }
 
-static void riscv32_emit_idiv(ZeroCCCompiler *c, int src) {
-    /* div a0, a0, src */
-    riscv_emit_u32(c, 0x02000033 | (10 << 7) | (10 << 15) | (src << 20) | (3 << 25));
-}
-
 static void riscv32_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
     /* addi dst, base, offset */
     riscv_emit_u32(c, 0x00000113 | ((offset & 0xFFF) << 20) | ((base & 0x1F) << 15) | ((dst & 0x1F) << 7));
-}
-
-
-
-static void riscv32_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* Modulo: dst = src1 % src2
-     * RISC-V rem instruction */
-    riscv_emit_u32(c, 0x02000033 | (dst << 7) | (src1 << 15) | (src2 << 20) | (7 << 25));
 }
 
 /* RISC-V 32-bit backend instance */
@@ -1444,8 +1441,8 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_add = riscv32_emit_add,
     .emit_sub = riscv32_emit_sub,
     .emit_mul = riscv32_emit_mul,
-    .emit_div = riscv32_emit_div,
-    .emit_mod = riscv32_emit_mod,
+    .emit_div = riscv64_emit_div,
+    .emit_mod = riscv64_emit_mod,
     .emit_and = riscv32_emit_and,
     .emit_or = riscv32_emit_or,
     .emit_xor = riscv32_emit_xor,
@@ -1456,7 +1453,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_neg = riscv32_emit_neg,
     .emit_test = riscv32_emit_test,
     .emit_cqo = riscv32_emit_cqo,
-    .emit_idiv = riscv32_emit_idiv,
+    .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv32_emit_lea,
     .patch_jmp = riscv32_patch_jmp,
     .resolve_labels = NULL,  /* No label resolution needed for now */
@@ -1467,6 +1464,10 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     
     .emit_load = riscv32_emit_load,
     .emit_store = riscv32_emit_store,
+    .emit_vloadss = riscv64_emit_vloadss,
+    .emit_vloadsd = riscv64_emit_load_fp,
+    .emit_vstoress = riscv64_emit_vstoress,
+    .emit_vstoredsd = riscv64_emit_store_fp,
     
     .emit_jmp = riscv32_emit_jmp,
     .emit_jeq = riscv32_emit_jeq,

@@ -821,7 +821,7 @@ static int compile_object(CompileOptions *opts) {
             break;
         case ISA_RISCV64:
         case ISA_RISCV32:
-            reloc_type_call = 18;  /* R_RISCV_CALL */
+            reloc_type_call = 17;   /* R_RISCV_JAL (single 4-byte jal ra) */
             reloc_type_rodata = 24; /* R_RISCV_PCREL_LO12_I */
             addend_call = 0;
             addend_rodata = 0;
@@ -852,20 +852,37 @@ static int compile_object(CompileOptions *opts) {
                                       reloc_type_call,
                                       addend_call);
         } else if (symbol_idx > 0) {
-            int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
-            elf_writer_add_relocation(&elf_ctx, 1,
-                                      r->text_patch_offset,
-                                      symbol_idx,
-                                      reloc_type_abs64,
-                                      0);
-            /* RISC-V: the load is an auipc+addi pair - the auipc 4 bytes
-             * before the LO12 field needs the matching HI20 relocation. */
             if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
                 r->text_patch_offset >= 4) {
+                /* RISC-V psABI: The auipc instruction at (patch_offset - 4) gets
+                 * R_RISCV_PCREL_HI20 targeting symbol_idx (with addend 0).
+                 * The following instruction at patch_offset gets R_RISCV_PCREL_LO12_I
+                 * targeting a local label placed at the auipc's address (with addend 0). */
+                char lbl[64];
+                snprintf(lbl, sizeof(lbl), ".Lpcrel_sym_%zu", i);
+                elf_writer_add_symbol(&elf_ctx, lbl,
+                                      ELF_STB_LOCAL, ELF_STT_NOTYPE,
+                                      1 /* .text */,
+                                      r->text_patch_offset - 4,
+                                      0);
+                int label_sym_idx = elf_ctx.symbol_count;
+
                 elf_writer_add_relocation(&elf_ctx, 1,
                                           r->text_patch_offset - 4,
                                           symbol_idx,
                                           reloc_type_hi20,
+                                          0);
+                elf_writer_add_relocation(&elf_ctx, 1,
+                                          r->text_patch_offset,
+                                          label_sym_idx,
+                                          reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
+                                          0);
+            } else {
+                int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
+                elf_writer_add_relocation(&elf_ctx, 1,
+                                          r->text_patch_offset,
+                                          symbol_idx,
+                                          reloc_type_abs64,
                                           0);
             }
         }
@@ -876,26 +893,50 @@ static int compile_object(CompileOptions *opts) {
     
     for (size_t i = 0; i < comp->str_reloc_count; i++) {
         ZeroCCStringReloc *sr = &comp->str_relocs[i];
-        elf_writer_add_relocation(&elf_ctx, 1,
-                                  sr->text_patch_offset,
-                                  rodata_symbol_idx,
-                                  reloc_type_rodata,
-                                  (int64_t)sr->rodata_offset + addend_rodata);
-        /* RISC-V: string/FP-literal loads are auipc+fld(+/addi) pairs; the
-         * auipc 4 bytes before needs the matching HI20 relocation. */
         if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
             sr->text_patch_offset >= 4) {
+            /* RISC-V psABI: The auipc instruction at (patch_offset - 4) gets
+             * R_RISCV_PCREL_HI20 targeting .rodata section symbol with rodata_offset.
+             * The following instruction (addi/fld) at patch_offset gets
+             * R_RISCV_PCREL_LO12_I targeting a local label at the auipc with addend 0. */
+            char lbl[64];
+            snprintf(lbl, sizeof(lbl), ".Lpcrel_str_%zu", i);
+            elf_writer_add_symbol(&elf_ctx, lbl,
+                                  ELF_STB_LOCAL, ELF_STT_NOTYPE,
+                                  1 /* .text */,
+                                  sr->text_patch_offset - 4,
+                                  0);
+            int label_sym_idx = elf_ctx.symbol_count;
+
             elf_writer_add_relocation(&elf_ctx, 1,
                                       sr->text_patch_offset - 4,
                                       rodata_symbol_idx,
                                       reloc_type_hi20,
                                       (int64_t)sr->rodata_offset + addend_rodata);
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      sr->text_patch_offset,
+                                      label_sym_idx,
+                                      reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
+                                      0);
+        } else {
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      sr->text_patch_offset,
+                                      rodata_symbol_idx,
+                                      reloc_type_rodata,
+                                      (int64_t)sr->rodata_offset + addend_rodata);
         }
     }
     
     /* Relocations for .data pointer initializers (string literals -> .rodata,
-     * &global -> another global's address). The 8 bytes at data_patch_offset
-     * inside .data become an absolute 64-bit address (R_X86_64_64). */
+     * &global -> another global's address). */
+    int reloc_type_data_abs = 1; /* R_X86_64_64 */
+    switch (comp->isa) {
+        case ISA_X86_64:  reloc_type_data_abs = 1;   /* R_X86_64_64 */ break;
+        case ISA_AARCH64: reloc_type_data_abs = 257; /* R_AARCH64_ABS64 */ break;
+        case ISA_RISCV64: reloc_type_data_abs = 2;   /* R_RISCV_64 */ break;
+        case ISA_RISCV32: reloc_type_data_abs = 1;   /* R_RISCV_32 */ break;
+        default: break;
+    }
     if (comp->data_section.length > 0) {
         for (size_t i = 0; i < comp->data_reloc_count; i++) {
             ZeroCCDataReloc *dr = &comp->data_relocs[i];
@@ -903,7 +944,7 @@ static int compile_object(CompileOptions *opts) {
                 /* .rodata + rodata_offset: target the .rodata section symbol (idx 1) */
                 if (comp->rodata_section.length > 0) {
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                              1, 1 /* R_X86_64_64 */, (int64_t)dr->rodata_offset);
+                                              1, reloc_type_data_abs, (int64_t)dr->rodata_offset);
                 }
             } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
                        dr->target_global_idx < (int)global_var_count) {
@@ -915,7 +956,7 @@ static int compile_object(CompileOptions *opts) {
                 }
                 if (sym_idx > 0) {
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                              sym_idx, 1 /* R_X86_64_64 */, 0);
+                                              sym_idx, reloc_type_data_abs, 0);
                 }
             }
         }
@@ -952,17 +993,9 @@ static int compile_object(CompileOptions *opts) {
     return 0;
 }
 
-static int compile_and_emit_exe(CompileOptions *opts);
-
 static int compile_and_link(CompileOptions *opts) {
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
-
-    /* ZC_RAW_AOT=1: use zerocc's raw binary emitter directly for RISC-V
-     * (bypass system linker). This is for the QEMU differential harness. */
-    if (getenv("ZC_RAW_AOT") && (target_isa == ISA_RISCV64 || target_isa == ISA_RISCV32)) {
-        return compile_and_emit_exe(opts);
-    }
 
     /* Cross-targets (aarch64/riscv) emit TEXT assembly and let the system
      * cross-assembler build the object: zerocc's raw binary emitters for those
@@ -1050,61 +1083,6 @@ static int compile_and_link(CompileOptions *opts) {
         printf("Executable created: %s\n", output);
     }
     
-    return 0;
-}
-
-/* Compile and emit executable directly using zerocc's raw emitter (for ZC_RAW_AOT=1) */
-static int compile_and_emit_exe(CompileOptions *opts) {
-    char *source = read_file(opts->input_file);
-    if (!source) return 1;
-
-    ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
-    if (!comp) { perror("calloc"); free(source); return 1; }
-
-    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
-    zero_cc_init_compiler_with_target(comp, target_isa);
-    comp->opt_level = (OptLevel)opts->opt_level;
-
-    char *prep = preprocess_with_options(source, opts);
-    free(source);
-    if (!prep) { fprintf(stderr, "Preprocessing failed\n"); zero_cc_free_compiler(comp); return 1; }
-
-    zero_cc_tokenize_c99(prep, comp);
-    free(prep);
-
-    if (opts->dump_ir) comp->dump_ir = 1;
-    if (opts->dump_cfg) comp->dump_cfg = 1;
-    if (opts->profile_opts) { opt_profile_enable(1); opt_profile_reset(); }
-
-    zero_cc_compile_c99(comp);
-    if (comp->had_error) {
-        fprintf(stderr, "Compile error: %s\n", comp->error_msg);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        zero_cc_free_compiler(comp);
-        return 1;
-    }
-
-    const char *output_path = opts->output_file ? opts->output_file : "a.out";
-    if (!zero_cc_emit_elf_exe(comp, output_path)) {
-        fprintf(stderr, "ELF executable emission failed\n");
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        zero_cc_free_compiler(comp);
-        return 1;
-    }
-
-    if (opts->verbose) printf("Executable created: %s\n", output_path);
-
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    zero_cc_free_compiler(comp);
     return 0;
 }
 

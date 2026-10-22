@@ -2785,7 +2785,27 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         zero_cc_emit_int_extend(c, temp, &callee_fn->param_types[param_idx]);
                     }
                     param_idx++;
-                    if (c->last_expr_is_float) {
+                    bool is_callee_variadic = (callee_fn && callee_fn->is_variadic) ||
+                        (name && (strcmp(name, "printf") == 0 || strcmp(name, "sprintf") == 0 ||
+                                  strcmp(name, "snprintf") == 0 || strcmp(name, "fprintf") == 0));
+                    int named_params = callee_fn ? (int)callee_fn->param_count :
+                        (name && strcmp(name, "printf") == 0 ? 1 :
+                         (name && (strcmp(name, "sprintf") == 0 || strcmp(name, "fprintf") == 0) ? 2 :
+                          (name && strcmp(name, "snprintf") == 0 ? 3 : 0)));
+                    bool is_var_arg = is_callee_variadic && (param_idx > named_params);
+
+                    if (c->last_expr_is_float && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) && is_var_arg) {
+                        /* In RISC-V psABI, variadic FP arguments are passed in integer registers.
+                         * Spill the float temp into a stack slot, then pass that slot as an integer argument. */
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        int32_t slot = c->current_stack_frame;
+                        ir_emit_fstore((uint16_t)temp, TEMP_NONE, -slot);
+                        if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                            int_spill_offsets[int_arg_idx] = slot;
+                            int_arg_idx++;
+                        }
+                    } else if (c->last_expr_is_float) {
                         /* Float argument: spill it to a stack slot via IR */
                         if (fp_arg_idx < 8) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;

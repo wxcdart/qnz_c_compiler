@@ -676,7 +676,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_MOV_GLOBAL: {
                 /* Global variable load with relocation */
                 const char *symbol_name = (const char *)(intptr_t)instr->imm64;
-                if (BE(c)->emit_mov_imm) {
+                if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                    /* RISC-V: auipc dst, 0; addi dst, dst, 0 */
+                    int r = phys_dst & 0x1F;
+                    uint32_t auipc = (uint32_t)(((uint32_t)r << 7) | 0x17u);
+                    uint32_t addi  = (uint32_t)(((uint32_t)r << 15) | ((uint32_t)r << 7) | 0x13u);
+                    zero_cc_emit_u32(&c->text_section, auipc);
+                    zero_cc_emit_u32(&c->text_section, addi);
+                } else if (BE(c)->emit_mov_imm) {
                     BE(c)->emit_mov_imm(c, phys_dst, 0);
                 }
                 /* Store symbol name for relocation patching. x86-64 movabs is

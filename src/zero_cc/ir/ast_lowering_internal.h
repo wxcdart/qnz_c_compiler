@@ -17,6 +17,7 @@
 #include "ir_emitter.h"
 #include "ir_emit_ops.h"
 #include "../isa/isa_backend.h"
+#include "../types/emit_helpers.h"
 #include "../types/vregs.h"
 #include "../types/global_vars.h"
 #include "../semantic/type.h"

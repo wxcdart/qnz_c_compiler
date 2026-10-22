@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-22T01:32:13Z
+timestamp: 2026-10-22T02:18:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -33,7 +33,7 @@ The **raw binary** emitters for aarch64 (`aarch64.c`) and riscv (`riscv.c`) are 
 - **`-c`** (`compile_object_cross`): emit text to a temp `.s`, then `aarch64-linux-gnu-as tmp.s -o out.o`. x86-64 still writes a binary `.o` via `elf_writer`.
 - `-static` is required because the target dynamic loader isn't installed (the binary runs under `qemu-*-static`); the aarch64 link previously failed with an invalid `-mabi=lp64d` (now `-mabi=lp64`).
 
-The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv64 **2/11** (`10_retcode.c` rc=79, `11_retstruct.c` rc=17 passing with 0 timeouts and 0 build-fails; remaining 9 mismatch on external libc stdio calls); riscv32 **0/11** (zerocc segfaults building rv32; the static-musl rv32 reference itself builds and runs cleanly — the failure is on the zerocc side). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
+The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; riscv64 **11/11** (all 11 tests ok with 0 build failures, 0 timeouts, and 0 mismatches); aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv32 **0/11** (zerocc segfaults building rv32; the static-musl rv32 reference itself builds and runs cleanly — the failure is on the zerocc side). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 
@@ -149,7 +149,7 @@ When `-S` is invoked, `emit_asm_data_sections()` emits all global symbols, align
 
 ## RISC-V Raw Binary Emitter & Relocation Fixes (Sprint 41)
 
-Differential testing under QEMU exposed several immediate-encoding and relocation issues in the RISC-V raw machine-code path (`riscv.c`, `main.c`):
+Differential testing under QEMU exposed several immediate-encoding and relocation issues in the RISC-V raw machine-code path (`riscv.c`, `main.c`, `ast_lowering_mc.c`, `ast_lowering_expr.c`), which were resolved to bring `riscv64` raw execution to **11/11 passing**:
 
 - **B-Type Immediate Encoding (`rv64_B` & `riscv64_patch_jmp`)**:
   - RISC-V B-type format encodes `imm[12|10:5] rs2 rs1 funct3 imm[4:1|11] opcode`.
@@ -161,9 +161,23 @@ Differential testing under QEMU exposed several immediate-encoding and relocatio
   - `imm[19:12]` mask is `0xFF000u` (bits 19:12); previous `0xFF00u` masked bits 15:8.
 - **S-Type Immediate Encoding (`rv64_S`)**:
   - `imm[11:5]` is 7 bits (bits 11 to 5) with mask `0xFE0u` (previous `0xFF80u` mask dropped bits 5 and 6).
-- **ELF Relocations (`main.c`)**:
-  - Standardized RISC-V ELF relocation numbers (`R_RISCV_CALL = 18`, `R_RISCV_PCREL_LO12_I = 24`).
-  - Added paired `R_RISCV_PCREL_HI20 = 23` relocation on the preceding `auipc` for both symbol address loads and rodata literal references.
+- **ELF psABI Relocations (`main.c`)**:
+  - **Function Call Relocations**: `reloc_type_call` emits `R_RISCV_JAL` (17) instead of `R_RISCV_CALL` (18). `R_RISCV_CALL` expects an 8-byte `auipc + jalr` pair, whereas zerocc emits a 4-byte `jal ra`. Internal calls to defined functions are patched directly at codegen time.
+  - **PC-Relative Symbol Addressing (`%pcrel_hi` / `%pcrel_lo`)**: For global symbols and string literal relocations (`OP_MOV_GLOBAL`), lowered to an 8-byte `auipc rd, 0` + `addi rd, rd, 0` sequence. A local label symbol (`.L_pcrel_hi_<id>`) is created at the `auipc` offset in `.text`. The relocation pair emitted consists of `R_RISCV_PCREL_HI20` (23) at `patch_offset - 4` targeting the symbol with data addend, and `R_RISCV_PCREL_LO12_I` (24) at `patch_offset` targeting the local label symbol with **addend = 0**. This conforms strictly to the RISC-V ELF psABI and avoids GNU ld's fatal rejection (`dangerous relocation: %pcrel_lo section symbol with an addend`).
+  - **Data Pointer Relocations**: `reloc_type_data_abs` mapped to `R_RISCV_64` (2) on RV64, `R_RISCV_32` (1) on RV32/x86-64, and `R_AARCH64_ABS64` (257) on AArch64.
+- **Arithmetic & Comparison Codegen (`riscv.c`)**:
+  - `div` / `idiv`: `funct3=4`, `funct7=1` (was erroneous `funct3=0, funct7=4` producing illegal instructions).
+  - `mod`: `funct3=6`, `funct7=1` (was erroneous `funct3=0, funct7=8`).
+  - `deref`: 64-bit `ld` (`funct3=3`) on RV64, 32-bit `lw` (`funct3=2`) on RV32.
+  - `cond_set CC_EQ`: `sltiu dst, dst, 1` (`seqz`).
+  - `cond_set CC_NE`: `sltu dst, zero, dst` (`snez`).
+  - `lnot`: `sltiu dst, src, 1` (`seqz`).
+  - `jle` / `jcond CC_LE`: `bge src2, src1` (swapping source registers because RISC-V lacks a dedicated `ble`).
+- **Floating-Point & Variadic ABI Lowering (`riscv.c`, `ast_lowering_expr.c`)**:
+  - Encodings for double-precision: `fadd.d` (0x01), `fsub.d` (0x05), `fmul.d` (0x09), `fdiv.d` (0x0D), `fneg.d` (`fsgnjn.d`, 0x11, rm=1), `fmv.d` (`fsgnj.d`, 0x11, rm=0), `fcvt.l.d` (0x61, rs2=2, rm=1 RTZ), `fcvt.d.w` (0x69, rs2=0, rm=7), `flt.d` (0x51, rm=1), `fle.d` (0x51, rm=0), `feq.d` (0x51, rm=2).
+  - `load_fp_rodata`: uses integer temporary register `t0` (`x5`) for `auipc` address generation instead of FP register `dst_reg` (which mapped to `zero`/`x0`, causing null pointer faults).
+  - Wired backend vtable slots: `.emit_vloadsd = riscv64_emit_load_fp`, `.emit_vstoredsd = riscv64_emit_store_fp`, `.emit_vloadss`, `.emit_vstoress`.
+  - **Variadic Calling Convention**: Under standard RISC-V calling conventions, floating-point arguments to variadic functions (`printf`, etc.) must be passed in integer GPRs (`a0..a7`) rather than FP registers (`fa0..fa7`). Lowering in `ast_lowering_expr.c` spills FP values and reloads them into integer argument registers.
 - **Comparison & Flag-Lowering State (`ast_lowering_mc.c`, `lowering_state.h`, `live_range.h`)**:
   - Added `cmp_is_fp` flag in lowering state to track floating-point vs integer comparisons.
   - Extended live ranges across RISC-V comparisons so source registers are preserved until condition codes or predicates are materialized (`slt`, `seqz`, conditional branches).

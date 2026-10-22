@@ -1,5 +1,26 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-22 - Complete RISC-V 64 Raw AOT Binary Emitter & PSABI Relocation Conformance (11/11 Passing)
+
+Completed the RISC-V 64 raw machine-code and AOT binary emitter, bringing `tools/isa_qemu_diff.py --isa riscv64` to a full **11/11 passing** under QEMU against the static-musl reference:
+- **ELF Relocation Conformance (`main.c`)**:
+  - Replaced `reloc_type_call` with `R_RISCV_JAL` (17) instead of `R_RISCV_CALL` (18), correctly matching 4-byte `jal ra` calls rather than 8-byte macro sequences.
+  - Conformed PC-relative `%pcrel_hi` / `%pcrel_lo` relocations to the RISC-V psABI: created a local symbol at the `auipc` offset in `.text` and paired `R_RISCV_PCREL_HI20` (23) targeting the data symbol with `R_RISCV_PCREL_LO12_I` (24) targeting the local symbol with `addend = 0`. Eliminates GNU ld rejection (`dangerous relocation: %pcrel_lo section symbol with an addend`).
+  - Mapped absolute data pointer relocations (`reloc_type_data_abs`) to `R_RISCV_64` (2).
+- **Lowering & Machine Code Generation (`ast_lowering_mc.c`, `riscv.c`)**:
+  - `OP_MOV_GLOBAL`: Lowered to 8-byte `auipc rd, 0` + `addi rd, rd, 0` sequence.
+  - Arithmetic / Modulo: Fixed `div` and `idiv` (`funct3=4, funct7=1`) and `mod` (`funct3=6, funct7=1`).
+  - Pointer dereference: Emitted 64-bit `ld` (`funct3=3`) on RV64 instead of 32-bit `lw`.
+  - Condition code & branch synthesis: Lowered `CC_EQ` via `seqz` (`sltiu dst, dst, 1`), `CC_NE` via `snez` (`sltu dst, zero, dst`), `OP_LNOT` via `seqz`, and `CC_LE` via `bge src2, src1`.
+- **Double-Precision Floating-Point & Variadic ABI (`riscv.c`, `ast_lowering_expr.c`)**:
+  - Implemented full double-precision FP encodings: `fadd.d`, `fsub.d`, `fmul.d`, `fdiv.d`, `fneg.d` (`fsgnjn.d`), `fmv.d` (`fsgnj.d`), `fcvt.l.d`, `fcvt.d.w`, and FP predicates `flt.d`, `fle.d`, `feq.d`.
+  - Fixed `riscv64_emit_load_fp_rodata` to use integer scratch `t0` (`x5`) for `auipc` address generation instead of FP destination register `dst_reg` (which mapped to `zero`/`x0`).
+  - Wired backend vtable slots: `.emit_vloadsd = riscv64_emit_load_fp`, `.emit_vstoredsd = riscv64_emit_store_fp`, `.emit_vloadss`, `.emit_vstoress`.
+  - Standardized variadic floating-point calling convention: passed float arguments to variadic functions in integer GPRs (`a0..a7`) per RISC-V psABI.
+- **Verification (`tools/isa_qemu_diff.py --isa riscv64`)**:
+  - All 11 tests in `test/isa_qemu/` passing (`01_arith.c` through `11_retstruct.c`): **11 ok, 0 mismatch, 0 timeout, 0 build-fail**.
+  - Relocation pairing validator (`tools/reloc_pair_check.py --zerocc`): **11/11 PASS**.
+
 ## [Sprint 41] - 2026-10-21 - RISC-V 64 RAW AOT Standalone Execution Passing (10_retcode & 11_retstruct)
 
 Fixed critical codegen bugs in the RISC-V raw emitter unblocking standalone binary execution under QEMU:

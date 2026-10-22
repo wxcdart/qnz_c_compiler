@@ -135,22 +135,23 @@ def check_elf_relocs(elf: elf_min.ElfFile) -> list[str]:
                 )
             else:
                 used_hi20.add(hi.offset)
-                # Verify that LO12 and HI20 agree on target symbol or addend
-                if lo.sym != hi.sym:
-                    s_lo = elf.symbols[lo.sym].name if lo.sym < len(elf.symbols) else f"sym#{lo.sym}"
-                    s_hi = elf.symbols[hi.sym].name if hi.sym < len(elf.symbols) else f"sym#{hi.sym}"
-                    issues.append(
-                        f"PAIR_SYMBOL_MISMATCH: {sec_name}+{lo.offset:#x} LO12 targets {s_lo} but HI20 targets {s_hi}"
-                    )
-
-            # Check 2: Section symbol with addend rejection check
-            if lo.sym < len(elf.symbols):
-                sym = elf.symbols[lo.sym]
-                if sym.is_section_symbol and lo.addend != 0:
-                    issues.append(
-                        f"SECTION_SYMBOL_ADDEND: {sec_name}+{lo.offset:#x} {lo_name} targets section "
-                        f"symbol '{sym.name}' with non-zero addend {lo.addend}"
-                    )
+                # Verify that LO12 targets a local symbol at the auipc (hi.offset) per RISC-V psABI
+                if lo.sym < len(elf.symbols):
+                    sym = elf.symbols[lo.sym]
+                    if sym.is_section_symbol and lo.addend != 0:
+                        issues.append(
+                            f"SECTION_SYMBOL_ADDEND: {sec_name}+{lo.offset:#x} {lo_name} targets section "
+                            f"symbol '{sym.name}' with non-zero addend {lo.addend}"
+                        )
+                    elif sym.shndx != sec_idx or sym.value != hi.offset:
+                        issues.append(
+                            f"LO12_TARGET_MISMATCH: {sec_name}+{lo.offset:#x} {lo_name} targets symbol '{sym.name}' "
+                            f"(sec {sym.shndx}, val {sym.value:#x}) instead of auipc at {sec_name}+{hi.offset:#x}"
+                        )
+                    if lo.addend != 0:
+                        issues.append(
+                            f"LO12_NONZERO_ADDEND: {sec_name}+{lo.offset:#x} {lo_name} has non-zero addend {lo.addend}"
+                        )
 
         # Check for unreferenced HI20 relocations
         for off, hi in hi20_offsets.items():
