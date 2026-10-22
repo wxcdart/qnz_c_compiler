@@ -1,0 +1,180 @@
+{
+  "generated_by": "tools/diag_battery.py --update-baseline",
+  "note": "ratchet baseline: current runs must be a superset (no lost category, no dropped error count, no rc flip). Re-record after intentional improvements.",
+  "cases": {
+    "00_control_valid": {
+      "expect_rc_zero": true,
+      "zerocc_error_count": 0,
+      "zerocc_categories": [],
+      "gcc_error_count": 0,
+      "gcc_categories": []
+    },
+    "01_missing_semicolon": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 2,
+      "zerocc_categories": [
+        "expected-punctuator",
+        "undeclared-ident"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "expected-punctuator"
+      ]
+    },
+    "02_truncated_body": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "missing-delimiter"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "missing-delimiter"
+      ]
+    },
+    "03_typos_ident": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "undeclared-ident"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "undeclared-ident"
+      ]
+    },
+    "04_int_from_string": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "incompatible-types"
+      ],
+      "gcc_error_count": 0,
+      "gcc_categories": []
+    },
+    "05_arity_few": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "arg-count"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "arg-count"
+      ]
+    },
+    "06_arity_many": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "arg-count"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "arg-count"
+      ]
+    },
+    "07_arity_void": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "arg-count"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "arg-count"
+      ]
+    },
+    "08_struct_member": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "no-member"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "no-member"
+      ]
+    },
+    "09_goto_undefined": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "undefined-label"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "undefined-label"
+      ]
+    },
+    "10_return_type": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "incompatible-types"
+      ],
+      "gcc_error_count": 0,
+      "gcc_categories": []
+    },
+    "11_arrow_on_int": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "bad-member-base"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "bad-member-base"
+      ]
+    },
+    "12_undeclared_call": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "undeclared-ident"
+      ],
+      "gcc_error_count": 0,
+      "gcc_categories": []
+    },
+    "13_missing_brace_nested": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "missing-delimiter"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "missing-delimiter"
+      ]
+    },
+    "14_multi_error_3": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 5,
+      "zerocc_categories": [
+        "arg-count",
+        "undeclared-ident"
+      ],
+      "gcc_error_count": 2,
+      "gcc_categories": [
+        "arg-count",
+        "expected-punctuator"
+      ]
+    },
+    "15_multi_error_5": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 2,
+      "zerocc_categories": [
+        "arg-count",
+        "no-member"
+      ],
+      "gcc_error_count": 5,
+      "gcc_categories": [
+        "arg-count",
+        "bad-member-base",
+        "expected-punctuator",
+        "no-member",
+        "undefined-label"
+      ]
+    }
+  }
+}

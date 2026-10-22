@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - Diagnostics Battery: Differential Compiler-Diagnostic Gate vs gcc (`tools/diag_battery.py`)
+
+New differential harness for compiler diagnostics (the validation gate for the pending multi-error-recovery work, built first so it lands against a measured baseline):
+
+- **Corpus** `test/diag/*.c` — 16 deliberately-broken programs: the audit's miscompile cases (missing `;`, truncated body, typo'd ident, wrong arity ×3, bogus member, undefined goto, bad return type, `->` on int, undeclared call, nested missing brace) plus **multi-fault files** (`14_multi_error_3.c`, `15_multi_error_5.c`) that are the recovery target, and a valid control.
+- **Method**: runs zerocc (`-S`, compile-only) and gcc (`-fsyntax-only`) on each case, classifies every diagnostic into an error *category* (arg-count, undeclared-ident, no-member, expected-punctuator, missing-delimiter, undefined-label, incompatible-types, bad-member-base, implicit-decl, called-not-func) and compares coverage — categories, not wording, since the compilers phrase the same fault differently.
+- **Baseline ratchet** (`test/diag/baseline.json`): per-case zerocc error count + category set + rc expectation. A run regresses if it loses a category, drops an error count, or makes a previously-rejected file compile silently. `--update-baseline` re-records after an intentional improvement. gcc output is informational only (version-dependent).
+
+Baseline (pre-recovery) state it measured: category coverage vs gcc is already **8/8**; the gaps are in *multiplicity* — `15_multi_error_5.c` (5 distinct faults) is diagnosed at 2 errors by zerocc vs 5 by gcc, and `14_multi_error_3.c` misses the third fault (missing `;`) while double-reporting the arity one (two overlapping check paths). Baseline: `make test` 147/147, `make test-opt` 107/107.
+
+Wired into `AGENTS.md` (run after any parser/semantic/diagnostic change) and the OKF verification tool list.
+
 ## [Sprint 42] - 2026-10-22 - "Did You Mean" Suggestions for Undeclared Identifiers & Unknown Struct Members
 
 Clang/gcc-style fuzzy suggestions on the two most common typo diagnostics:

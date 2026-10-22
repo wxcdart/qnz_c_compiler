@@ -35,6 +35,11 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   python3 tools/style_check.py   # C style/convention checker (docs/coding_style.md rules)
   python3 tools/okf.py lint
   ```
+- **Diagnostics Battery (`tools/diag_battery.py`)**: differential-tests zerocc's compiler diagnostics against gcc on a corpus of deliberately-broken programs (`test/diag/*.c`), classifying each into an error *category* and ratcheting a per-case baseline (`test/diag/baseline.json`): a run regresses if it loses a category, drops an error count, or makes a previously-rejected file compile silently. Run after any parser/semantic/diagnostic change:
+  ```bash
+  python3 tools/diag_battery.py                # gate on baseline
+  python3 tools/diag_battery.py --update-baseline  # re-record after an intentional improvement (e.g. multi-error recovery)
+  ```
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: differential-tests **every** target ISA's *raw* binary emitter under QEMU (`test/isa_qemu/` battery; raw path via `ZC_RAW_AOT=1`, diffed against a **static-musl** reference, both run under `qemu-*-static`). **Dependency:** `qemu-user-static` + a per-ISA static-musl reference wrapper (`musl-gcc-<arch>`) built by `tools/setup_musl_cross.sh` (uniform musl-static baseline across all 4 ISAs; riscv32 also gets a small rv32 libgcc shim) — the harness preflights these and prints the setup command. **Status:** **All 4 target ISAs (44/44)** are fully green: **x86-64 (11/11)**, **aarch64 (11/11)**, **riscv64 (11/11)**, and **riscv32 (11/11)** pass cleanly under QEMU. Run one ISA: `python3 tools/isa_qemu_diff.py --isa riscv32`.
 - **Optimizer Changes Require the Sweep**: `make test` compiles test binaries with the host `gcc`, so it does **not** exercise zerocc's optimizer. Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt` (which runs every test at `-O0/-O1/-O2/-O3` in both JIT and AOT and compares against the `-O0` baseline). A `-O1` pass is not sufficient: later passes (CSE/GVN/LICM at `-O2`, strength reduction at `-O3`) can transform `-O1` output into something none of the earlier passes saw.
 

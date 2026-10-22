@@ -18,7 +18,10 @@ BUILD_DIR ?= build
 OBJ_DIR ?= $(BUILD_DIR)/obj
 TEST_BIN_DIR ?= $(BUILD_DIR)/test
 
-TEST_SRCS = $(wildcard test/*/*.c)
+# test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
+# consumed by tools/diag_battery.py) — not test drivers; keep it out of the
+# test binary glob.
+TEST_SRCS = $(filter-out test/diag/%,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
