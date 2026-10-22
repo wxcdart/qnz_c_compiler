@@ -12,6 +12,7 @@ A lightweight C compiler designed for embedding or standalone use. Modular archi
 - JIT execution via `mmap` + `dlsym` host symbol resolution
 - **Two-pass code generation** with register allocation
 - **Optimization levels** (-O0, -O1, -O2, -O3)
+- **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking, and "did you mean" suggestions
 - **Zero libc dependency** (uses standard C/POSIX functions directly)
 
 ## Directory Structure
@@ -129,12 +130,24 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 
 ## Test Results
 
-| Test Suite | Status | Count |
-|------------|--------|-------|
-| **JIT Tests** | ✅ Pass | 118/118 |
-| **x86-64 AOT** | ✅ Pass | 5/5 |
-| **AArch64 AOT** | ✅ Pass | 5/5 |
-| **RISC-V64 AOT** | 🟡 In Progress | — |
+| Suite | Status | Count |
+|-------|--------|-------|
+| **Main regression suite** (`make test`) | ✅ Pass | 147/147 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 107/107 |
+| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 44/44 (11/11 × x86-64, aarch64, riscv64, riscv32) |
+| **`sret` ABI verifier** | ✅ Pass | 6/6 |
+| **C11 verification suite** | ✅ Pass | 11/11 |
+| **Diagnostics battery** (`tools/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
+| **C style checker** (`tools/style_check.py`) | ✅ Pass | 0 errors |
+
+## Compiler Diagnostics
+
+Diagnostics aim for gcc/clang-style quality (Sprint 42):
+
+- **Format**: `file:line:col: error: message` with source carets; macro-expansion `note:` chains
+- **C99 constraint checking** (previously these invalid programs compiled silently): call argument count vs. prototype (6.7.5.3, variadic-aware), `goto` target must be a defined label (6.8.4.3), struct/union member must exist (6.5.2.1), block closing `}` required (6.8) — no-prototype `f()` calls stay unconstrained per the standard
+- **"Did you mean" suggestions** for undeclared identifiers and unknown struct members (Levenshtein ≤ 2, unique-best only — ambiguous matches are not suggested)
+- **In progress**: multi-error recovery (report all errors in one pass, clang-style; currently some paths stop at the first error) — gated by `tools/diag_battery.py`
 
 ## C11/C23 Support
 
@@ -163,6 +176,7 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 
 ### Known Limitations
 
+- **Multi-error recovery**: some error paths stop at the first diagnostic instead of continuing with an error budget (in progress, tracked in `docs/ZEROCC_Development_Plan.md` §11)
 - `_Thread_local`: Full system TLS support (fs/gs segments on x86-64)
 - `_Atomic`: JIT execution supported; ELF object/executable emission deferred
 - `_Generic`: Simplified type matching; full C11 compatibility rules not implemented
@@ -211,6 +225,13 @@ python3 tools/vla/test_vla.py
 
 # Verify System V AMD64 >16B struct return (sret) ABI
 python3 tools/sret_verifier.py --verify-all
+
+# Differential diagnostics battery vs gcc (ratchet baseline; run after
+# parser/semantic/diagnostic changes)
+python3 tools/diag_battery.py
+
+# C style/convention checker (docs/coding_style.md rules)
+python3 tools/style_check.py
 
 # Compare ISA compilation across x86-64, AArch64, and RISC-V
 python3 tools/cross_isa_comparator.py test/aot/hello_world.c

@@ -11,6 +11,14 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 42: Diagnostics Quality — C99 Constraint Checking, "Did You Mean", & the Diagnostics Battery ✅
+- **C99 constraint violations diagnosed** (previously silent miscompiles, JIT + AOT): call argument count vs. prototype (6.7.5.3, incl. the `()`-vs-`(void)` prototype distinction via `TypeInfo.function.is_prototype` / `ZeroCCFunction.has_prototype`; variadic at-least rules), `goto` to undefined label (6.8.4.3, labels pre-collected per function so forward gotos validate), unknown struct/union member (6.5.2.1 — previously defaulted to `int` at offset 0), truncated block (6.8p10 — `expected '}' to end block`). `test/semantic/call_arity_fail.c` + `constraint_violations_fail.c`.
+- **"Did you mean" suggestions** for undeclared identifiers (scope-chain candidates) and unknown members (field-table candidates): `diag_levenshtein` (early-exit DP) + `diag_best_match` (distance ≤ 2 and ≤ max(1, len/2), unique-best only). `test/semantic/did_you_mean_test.c`. Side-by-side parity with gcc on the audit cases.
+- **Diagnostics battery** (`tools/diag_battery.py` + `test/diag/` corpus, 16 broken-program cases incl. multi-fault files): classifies diagnostics into error categories, differential vs gcc, ratcheting baseline (`test/diag/baseline.json`). Baseline state: category coverage 8/8; multiplicity is the gap (5-fault file diagnosed at 2 errors vs gcc's 5).
+- **In progress (multi-error recovery)**: some paths stop at the first error; a ~20-error budget with parser/semantic continuation is next, gated by the battery. Baseline also exposed a double-report (legacy `expr_handle_call` + visitor `NODE_CALL` both fire on arity) to dedupe.
+- Also landed this sprint: preprocessor main-file-dir quoted-include resolution (C99 6.10.2p2) + missing-include diagnostics; 262 non-canonical `#include`s normalized to the include-root convention; `docs/coding_style.md` + `tools/style_check.py` (ruff-style C convention checker, 0 errors baseline).
+- AST-walker invariant documented: `aux.step`/`aux.alt` only exist on `NODE_FOR`/`NODE_IF`/`NODE_TERNARY` — on other tags they alias the payload union (a 4-char name reads as `aux.step == 4`). Walkers must be tag-aware.
+
 ### Sprint 36: mem2reg Loop-Promotion Cost — O(loops × 256 × |IR|) → O(loops × |IR|) ✅
 - **Status**: committed (`5b240e8`). Phase 1 of the agreed order **2 → 3 → 4 → 1** (mem2reg perf → static-local fix → CFG-enabled opt → T0 `-I`).
 - **Problem** (measured in Sprint 35 Phase 4): `opt_promote_loop_carried` rescanned the whole function once **per stack slot (up to 256) per loop (up to 64)** — ~85% of all optimizer time (1088 ms @-O1, 3374 ms @-O2, 4536 ms @-O3 on `test/bench/synth_large.c`).
@@ -175,6 +183,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ### ✅ Completed Features
 - **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, arena-allocated AST (`ZeroCCASTArena`), and `TypeInfo` semantic checker.
+- **Compiler Diagnostics (Sprint 42)**: gcc-format caret diagnostics; C99 constraint checking (call arity vs. prototype 6.7.5.3, goto-label 6.8.4.3, struct member 6.5.2.1, block terminator 6.8p10); "did you mean" suggestions (Levenshtein ≤ 2, unique-best) for undeclared identifiers and unknown members; macro-expansion `note:` chains. Multi-error recovery in progress (§11); differential gate: `tools/diag_battery.py` (16-case corpus vs gcc, ratcheting baseline).
 - **C99 Support**:
   - 1D and multi-dimensional fixed arrays (`a[M][N][K]`) and matrix VLAs (`a[n][M]`) with scope-exit stack restoration
   - Designated initializers (`.field = val`, `[idx] = val`) & compound literals
@@ -210,13 +219,15 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
   - Direct ELF64 and ELF32 relocatable object writer (`elf_writer.c`), freestanding `W^X` in-memory JIT (`execution.h`), and direct raw binary AOT compilation default (`-o`, `-c`) across all 4 target ISAs with `ZC_TEXT_AOT=1` escape hatch.
 
 ### 📊 Test & Verification Coverage
-- **Main Regression Suite (`make test`)**: 143/143 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
+- **Main Regression Suite (`make test`)**: 147/147 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the sources are standalone programs zerocc can compile, so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels. (`test/diag/*.c` is excluded from this glob — it is the diagnostics-battery corpus of deliberately broken programs.)
 - **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **107/107 passing**).
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11) differential-tested against static-musl reference binaries under QEMU.
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
 - **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
+- **Diagnostics Battery (`python3 tools/diag_battery.py`)**: differential-tests zerocc's compiler diagnostics against gcc on the 16-case broken-program corpus (`test/diag/*.c`), classifying each diagnostic into an error category and ratcheting `test/diag/baseline.json` (regression = lost category, dropped error count, or a previously-rejected file compiling silently). Baseline: **8/8 category coverage vs gcc**; the open gap is multi-error multiplicity (§11).
+- **C Style Checker (`python3 tools/style_check.py`)**: ruff-style convention checker codifying `docs/coding_style.md` (include rules, whitespace, EOF newline, header guards, `<module>_<action>` public-function prefix) — **0 errors** baseline.
 - **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **12 files valid** (11 concept pages + `log.md`), links & graph reachability verified
 
 ### ✅ Former Open Regressions — FIXED (Sprint 35 Phase 0, 2026-10-20; verified by `make test-opt` 88/88)
@@ -456,4 +467,26 @@ Closed the raw-binary emission gap across all target ISAs under QEMU differentia
   - `make test-opt`: **106/106 ok**.
   - `tools/sret_verifier.py --verify-all`: **6/6 passed**.
   - `tools/okf.py lint && tools/okf.py index`: **All passed**.
-- **Next**: Sprint 42 — T0 real `-I` include search (unblocks the 63 non-standalone tests; corpus → ~168) or zero_rt Phase 0 runtime. Loop unrolling is the next CFG opt after that.
+- **Next**: Sprint 42 landed the diagnostics-quality work (constraint checking, "did you mean", diagnostics battery — see §11) plus the preprocessor include-path conformance and include-convention normalization. Remaining from this line: T0 real `-I` include search (unblocks the non-standalone tests) and zero_rt Phase 0 runtime. Loop unrolling is the next CFG opt after that.
+
+### 11. Diagnostics Quality (Sprint 42+): Multi-Error Recovery & GCC Parity — IN PROGRESS
+
+**Motivation.** The Sprint 42 diagnostics audit found that zerocc's *wording* was close to gcc's but its *coverage* and *recovery* were not: four classes of invalid C (wrong-arity calls, undefined goto labels, unknown struct members, truncated blocks) compiled silently and ran with garbage, and a file with three hard errors typically produced one diagnostic. Sprint 42 closed the coverage classes (see Completed Sprints) and added "did you mean"; this section tracks the remainder.
+
+**Done (Sprint 42)**
+- C99 constraint checks: arity (6.7.5.3, prototype-aware), goto label (6.8.4.3), struct member (6.5.2.1), block terminator (6.8p10)
+- "Did you mean" suggestions (identifiers + members), tie-safe
+- `tools/diag_battery.py` + `test/diag/` corpus: differential diagnostic gate vs gcc with a ratcheting baseline; wired into `AGENTS.md`
+
+**In progress: multi-error recovery**
+- **Error budget (~20, clang-style)**: the parser and the per-function semantic pass currently stop (or behave inconsistently — the battery shows a 3-fault file surfacing 3+ errors via the decl-init path but a 5-fault file stopping at 2). One pass should report all faults.
+- **Deduplicate double-reported errors**: the battery caught the arity fault firing from both the legacy `expr_handle_call` (no position) and the live visitor `NODE_CALL` check — same fault, two diagnostics.
+- **Call-site positions**: `NODE_CALL` AST nodes carry no `line`/`col` (the parser never sets them), so call-arity errors print position-less (`<stdin>: error:`) while gcc prints `file:2:25`. Set at parse time.
+- After the above: `tools/diag_battery.py --update-baseline` re-records the improved multiplicity (expect `15_multi_error_5.c` 2→5 errors, `14_multi_error_3.c` to 3 distinct faults with no duplicates), and the ratchet locks it in.
+
+**Later (same parity goal, smaller items)**
+- Cross-reference notes (`note: declared here` for wrong-arity, `to match this '{'` for unclosed blocks)
+- Type names in messages (`assignment to 'int' from 'char *'` instead of `incompatible types in assignment`)
+- A `-Wall`-style warning family (unused variable, assignment-in-condition, unsigned `< 0`)
+
+**Gate.** `python3 tools/diag_battery.py` after any parser/semantic/diagnostic change (see `AGENTS.md`).
