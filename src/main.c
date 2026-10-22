@@ -22,16 +22,19 @@
 #include "zero_cc/isa/isa_backend.h"
 
 #include "zero_cc/types/global_vars.h"
+#include "zero_cc/core/multi_tu.h"
 
 #define VERSION "0.1.0-dev"
+
+#define ZERO_CC_MAX_INPUTS 32
 
 /* Forward declarations */
 static ZeroCCISA parse_target_arch(const char *target);
 static void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa);
-static void zero_cc_free_compiler(ZeroCCCompiler *comp);
 
 typedef struct {
-    const char *input_file;
+    const char *input_files[ZERO_CC_MAX_INPUTS];  /* T1: multiple inputs */
+    int input_count;
     const char *output_file;
     int emit_object;      /* -c */
     int emit_asm;         /* -S */
@@ -51,8 +54,10 @@ typedef struct {
     const char *target_arch; /* --target */
 } CompileOptions;
 
+static int compile_object_single(CompileOptions *opts, const char *input, const char *output);
+
 static void print_usage(const char *prog) {
-    fprintf(stderr, "Usage: %s [options] <source.c>\n", prog);
+    fprintf(stderr, "Usage: %s [options] <source.c> [more.c ...]\n", prog);
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -o <file>       Output file (executable or object with -c)\n");
@@ -175,7 +180,13 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->profile_opts = 1;
         }
         else if (arg[0] != '-') {
-            opts->input_file = arg;
+            if (opts->input_count < ZERO_CC_MAX_INPUTS) {
+                opts->input_files[opts->input_count++] = arg;
+            } else {
+                fprintf(stderr, "zerocc: error: too many input files (max %d)\n", ZERO_CC_MAX_INPUTS);
+                print_usage(argv[0]);
+                return -1;
+            }
         }
         else {
             fprintf(stderr, "Unknown option: %s\n", arg);
@@ -183,7 +194,7 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
     }
 
-    if (!opts->input_file) {
+    if (opts->input_count == 0) {
         fprintf(stderr, "Error: No input file specified\n");
         print_usage(argv[0]);
         return -1;
@@ -325,7 +336,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
 /* Run the preprocessor with the CLI-provided -I include dirs and -D
  * defines (Sprint 41).  Both are optional; with neither present this
  * is exactly the old `zero_cc_preprocess(source, NULL)` behavior. */
-static char *preprocess_with_options(const char *source, const CompileOptions *opts) {
+static char *preprocess_with_options(const char *source, const CompileOptions *opts,
+                                     const char *main_file) {
     ZeroCCIncludeDirs inc_dirs;
     ZeroCCDefines defines;
     memset(&inc_dirs, 0, sizeof(inc_dirs));
@@ -359,18 +371,19 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
     char include_err[PATH_MAX + 96];
     include_err[0] = '\0';
     char *out = zero_cc_preprocess_ext2(source, &inc_dirs, &defines,
-                                        opts->input_file, include_err, sizeof(include_err));
+                                        main_file, include_err, sizeof(include_err));
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }
     return out;
 }
 
-static int compile_jit(CompileOptions *opts) {
-    /* Read source file */
-    char *source = read_file(opts->input_file);
+/* Compile one translation unit for JIT execution. Returns the compiler on
+ * success (caller owns it), NULL on failure (diagnostics already printed). */
+static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
+    char *source = read_file(input);
     if (!source) {
-        return 1;
+        return NULL;
     }
 
     if (opts->verbose) {
@@ -381,133 +394,139 @@ static int compile_jit(CompileOptions *opts) {
             case 2: opt_name = "O2"; break;
             case 3: opt_name = "O3"; break;
         }
-        printf("Compiling %s with -O%s (target: %s)\n", opts->input_file, opt_name,
+        printf("Compiling %s with -O%s (target: %s)\n", input, opt_name,
                opts->target_arch ? opts->target_arch : "x86-64");
     }
 
-    /* Create compiler */
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
     if (!comp) {
         perror("calloc");
         free(source);
-        return 1;
+        return NULL;
     }
 
-    /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
-
-    /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
 
-    /* Preprocess (with -I include dirs and -D defines from the CLI) */
-    char *prep = preprocess_with_options(source, opts);
+    char *prep = preprocess_with_options(source, opts, input);
     free(source);
     if (getenv("ZERO_CC_DUMP_CPP") && prep) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
         if (df) { fputs(prep, df); fclose(df); }
     }
     if (!prep) {  /* include error already diagnosed by preprocess_with_options */
-        zero_cc_free_compiler(comp);
-        return 1;
+        zero_cc_compiler_free(comp);
+        return NULL;
     }
 
-    /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
 
-    /* Enable IR dump if requested */
-    if (opts->dump_ir) {
-        comp->dump_ir = 1;
-    }
-
-    /* Enable CFG dump if requested (Sprint 35 Phase 2) */
-    if (opts->dump_cfg) {
-        comp->dump_cfg = 1;
-    }
-
-    /* Enable optimization profiling if requested */
+    if (opts->dump_ir) comp->dump_ir = 1;
+    if (opts->dump_cfg) comp->dump_cfg = 1;
     if (opts->profile_opts) {
         opt_profile_enable(1);
         opt_profile_reset();
     }
 
-    /* Enable assembly emission if requested */
-    if (opts->emit_asm) {
-        comp->emit_asm = 1;
-        /* Open output file for assembly */
-        const char *out_path = opts->output_file;
-        if (!out_path) {
-            /* Generate output name from input: source.c -> source.s */
-            static char out_buf[512];
-            const char *base = opts->input_file;
-            const char *dot = strrchr(base, '.');
-            const char *slash = strrchr(base, '/');
-            if (slash && (!dot || slash > dot)) {
-                base = slash + 1;
-            }
-            if (dot) {
-                size_t len = dot - base;
-                if (len > sizeof(out_buf) - 4) len = sizeof(out_buf) - 4;
-                strncpy(out_buf, base, len);
-                out_buf[len] = '\0';
-                strcat(out_buf, ".s");
-            } else {
-                strncpy(out_buf, base, sizeof(out_buf) - 3);
-                strcat(out_buf, ".s");
-            }
-            out_path = out_buf;
-        }
-        comp->asm_out = fopen(out_path, "w");
-        if (!comp->asm_out) {
-            perror("fopen");
-            zero_cc_free_compiler(comp);
-            return 1;
-        }
-        if (opts->verbose) {
-            printf("Writing assembly to: %s\n", out_path);
-        }
-    }
-
-    /* Compile */
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Compile error: %s\n", comp->error_msg);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        zero_cc_free_compiler(comp);
+        zero_cc_compiler_free(comp);
+        return NULL;
+    }
+    return comp;
+}
+
+static int compile_jit(CompileOptions *opts) {
+    ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0]);
+    if (!comp) {
         return 1;
     }
 
-    /* Dump optimization profile if requested */
+    if (opts->input_count > 1) {
+        /* Multi-TU (T1): merge each remaining TU into the first one, then
+         * run the single merged image (text/rodata/data appended with
+         * re-based relocations; see zero_cc/core/multi_tu.h).
+         *
+         * Global-registry bookkeeping: every zero_cc_compile_c99 starts
+         * with reset_global_vars(), so compiling TU_i wipes the merged
+         * registry. We snapshot it before each compile and, after the
+         * TU's own entries are re-based into the merged data layout,
+         * re-append the snapshot (already in merged layout). */
+        ZeroCCGlobalVar *saved_globals = NULL;
+        for (int i = 1; i < opts->input_count; i++) {
+            size_t saved_count = global_var_count;
+            if (saved_count > 0) {
+                free(saved_globals);
+                saved_globals = malloc(saved_count * sizeof(ZeroCCGlobalVar));
+                if (saved_globals)
+                    memcpy(saved_globals, global_vars, saved_count * sizeof(ZeroCCGlobalVar));
+            } else {
+                saved_globals = NULL;
+            }
+
+            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i]);
+            if (!tu) {
+                free(saved_globals);
+                zero_cc_compiler_free(comp);
+                return 1;
+            }
+
+            /* The registry now holds exactly TU_i's globals (offsets into
+             * its own .data). Re-base them by the data base the merge will
+             * use, then restore the earlier TUs' entries. */
+            size_t data_base = zero_cc_align_up(comp->data_section.length, 8);
+            for (size_t g = 0; g < global_var_count; g++) {
+                global_vars[g].data_offset += data_base;
+            }
+            if (saved_globals && zero_cc_global_vars_reserve(saved_count) == 0) {
+                memcpy(&global_vars[global_var_count], saved_globals,
+                       saved_count * sizeof(ZeroCCGlobalVar));
+                global_var_count += saved_count;
+            }
+            free(saved_globals);
+            saved_globals = NULL;
+
+            char err[256];
+            if (zero_cc_tu_merge(comp, tu, err, sizeof(err)) != 0) {
+                fprintf(stderr, "zerocc: error: %s\n", err);
+                zero_cc_compiler_free(comp);
+                zero_cc_compiler_free(tu);
+                return 1;
+            }
+            /* Sections/tables were copied into `comp`; drop the per-TU one. */
+            zero_cc_compiler_free(tu);
+        }
+
+        ZeroCCFunction *main_fn = zero_cc_find_function(comp, "main");
+        if (!main_fn || main_fn->is_prototype) {
+            fprintf(stderr, "zerocc: error: undefined reference to 'main'\n");
+            zero_cc_compiler_free(comp);
+            return 1;
+        }
+
+        int result = zero_cc_execute_jit(comp, NULL);
+        if (opts->verbose) {
+            printf("JIT execution result: %d\n", result);
+        }
+        zero_cc_compiler_free(comp);
+        return result;
+    }
+
+    /* Single-TU: execute (the legacy -S branch here was unreachable - main()
+     * routes emit_asm through compile_object - so it is gone). */
     if (opts->profile_opts) {
         opt_profile_dump(stderr);
     }
 
-    /* Execute or emit assembly */
-    int result = 0;
-    if (opts->emit_asm) {
-        /* Assembly emission is handled in ast_lowering.c; emit .rodata and .data */
-        emit_asm_data_sections(comp);
-        if (opts->verbose) {
-            printf("Assembly emission complete\n");
-        }
-    } else {
-        result = zero_cc_execute_jit(comp, NULL);
-        if (opts->verbose) {
-            printf("JIT execution result: %d\n", result);
-        }
+    int result = zero_cc_execute_jit(comp, NULL);
+    if (opts->verbose) {
+        printf("JIT execution result: %d\n", result);
     }
 
-    /* Cleanup */
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    zero_cc_free_compiler(comp);
-
+    zero_cc_compiler_free(comp);
     return result;
 }
 
@@ -542,45 +561,32 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
 }
 
-static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
-    if (!comp) return;
-
-    /* Free the stable string pool (interned AST strings) */
-    zero_cc_free_string_pool(comp);
-
-    /* Free IR arenas */
-    ir_arena_free(&comp->ir_arena);
-    ir_call_args_arena_free(&comp->ir_call_args);
-    if (comp->locals) {
-        free(comp->locals);
-        comp->locals = NULL;
+static int compile_object(CompileOptions *opts) {
+    if (opts->output_file && opts->input_count > 1) {
+        fprintf(stderr, "zerocc: error: cannot specify -o with -c/-S and multiple input files\n");
+        return 1;
     }
-    if (comp->local_hash_buckets) {
-        free(comp->local_hash_buckets);
-        comp->local_hash_buckets = NULL;
+    /* T1: one object/assembly output per input file. A failure in one
+     * input does not stop the rest (matching gcc's batch behavior). */
+    int rc = 0;
+    for (int i = 0; i < opts->input_count; i++) {
+        int r = compile_object_single(opts, opts->input_files[i],
+                                      opts->output_file);
+        if (r != 0) rc = r;
     }
-    if (comp->local_hash_next) {
-        free(comp->local_hash_next);
-        comp->local_hash_next = NULL;
-    }
-    if (comp->tu_ast_arena) {
-        zero_cc_ast_arena_free((ZeroCCASTArena *)comp->tu_ast_arena);
-        free(comp->tu_ast_arena);
-        comp->tu_ast_arena = NULL;
-    }
-
-    free(comp);
+    return rc;
 }
 
-static int compile_object(CompileOptions *opts) {
+static int compile_object_single(CompileOptions *opts, const char *input,
+                                 const char *output) {
     /* Read source file */
-    char *source = read_file(opts->input_file);
+    char *source = read_file(input);
     if (!source) {
         return 1;
     }
 
     if (opts->verbose) {
-        printf("Compiling %s to object file (target: %s)\n", opts->input_file,
+        printf("Compiling %s to object file (target: %s)\n", input,
                opts->target_arch ? opts->target_arch : "x86-64");
     }
 
@@ -600,14 +606,14 @@ static int compile_object(CompileOptions *opts) {
     comp->opt_level = (OptLevel)opts->opt_level;
 
     /* Preprocess (with -I include dirs and -D defines from the CLI) */
-    char *prep = preprocess_with_options(source, opts);
+    char *prep = preprocess_with_options(source, opts, input);
     free(source);
     if (getenv("ZERO_CC_DUMP_CPP") && prep) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
         if (df) { fputs(prep, df); fclose(df); }
     }
     if (!prep) {  /* include error already diagnosed by preprocess_with_options */
-        zero_cc_free_compiler(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     }
 
@@ -636,11 +642,11 @@ static int compile_object(CompileOptions *opts) {
     if (opts->emit_asm) {
         comp->emit_asm = 1;
         /* Open output file for assembly */
-        const char *out_path = opts->output_file;
+        const char *out_path = output;
         if (!out_path) {
             /* Generate output name from input: source.c -> source.s */
             static char out_buf[512];
-            const char *base = opts->input_file;
+            const char *base = input;
             const char *dot = strrchr(base, '.');
             const char *slash = strrchr(base, '/');
             if (slash && (!dot || slash > dot)) {
@@ -661,7 +667,7 @@ static int compile_object(CompileOptions *opts) {
         comp->asm_out = fopen(out_path, "w");
         if (!comp->asm_out) {
             perror("fopen");
-            zero_cc_free_compiler(comp);
+            zero_cc_compiler_free(comp);
             return 1;
         }
         if (opts->verbose) {
@@ -673,11 +679,7 @@ static int compile_object(CompileOptions *opts) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Compile error: %s\n", comp->error_msg);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        zero_cc_free_compiler(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     }
 
@@ -687,11 +689,11 @@ static int compile_object(CompileOptions *opts) {
     }
 
     /* Determine output filename */
-    const char *output_path = opts->output_file;
+    const char *output_path = output;
     if (!output_path) {
         /* Generate output name from input: source.c -> source.o */
         static char output_buf[512];
-        const char *base = opts->input_file;
+        const char *base = input;
         const char *dot = strrchr(base, '.');
         const char *slash = strrchr(base, '/');
         if (slash && (!dot || slash > dot)) {
@@ -1008,11 +1010,7 @@ static int compile_object(CompileOptions *opts) {
     } else if (!elf_writer_write(&elf_ctx, output_path)) {
         fprintf(stderr, "ELF writer error: %s\n", elf_writer_get_error(&elf_ctx));
         elf_writer_cleanup(&elf_ctx);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        zero_cc_free_compiler(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     } else if (opts->verbose) {
         printf("Object file written successfully\n");
@@ -1020,11 +1018,7 @@ static int compile_object(CompileOptions *opts) {
 
     /* Cleanup */
     elf_writer_cleanup(&elf_ctx);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    zero_cc_free_compiler(comp);
+    zero_cc_compiler_free(comp);
 
     return 0;
 }
@@ -1041,34 +1035,47 @@ static int compile_and_link(CompileOptions *opts) {
      * the system cross-assembler. */
     int use_text = (getenv("ZC_TEXT_AOT") != NULL);
 
-    /* Generate temporary object file */
-    char obj_path[512];
+    /* T1: one intermediate object per input file; the system linker
+     * combines them. (With ZC_TEXT_AOT the intermediates are .s files, which
+     * gcc assembles and links in one step.) */
     if (opts->verbose) {
-        printf("Generating intermediate %s...\n", use_text ? "assembly" : "object file");
+        printf("Generating intermediate %s...\n",
+               use_text ? "assembly (per input)" : "object file(s)");
     }
 
-    /* Create temp object file path */
-    snprintf(obj_path, sizeof(obj_path), "/tmp/zerocc_%d%s", getpid(), use_text ? ".s" : ".o");
-
-    /* First, compile to object file (or text for cross targets) */
+    char obj_paths[ZERO_CC_MAX_INPUTS][512];
+    int obj_count = 0;
     CompileOptions obj_opts = *opts;
     obj_opts.emit_object = !use_text;
     obj_opts.emit_asm = use_text;
-    obj_opts.output_file = obj_path;
+    obj_opts.output_file = NULL;  /* explicit per-TU path passed below */
     obj_opts.verbose = 0;  /* Suppress verbose during object generation */
 
-    int ret = compile_object(&obj_opts);
-    if (ret != 0) {
-        fprintf(stderr, "Error: Compilation to object file failed\n");
-        return ret;
+    for (int i = 0; i < opts->input_count; i++) {
+        snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_%d_%d%s",
+                 getpid(), obj_count, use_text ? ".s" : ".o");
+        int r = compile_object_single(&obj_opts, opts->input_files[i],
+                                      obj_paths[obj_count]);
+        if (r != 0) {
+            fprintf(stderr, "Error: Compilation to object file failed\n");
+            return r;
+        }
+        obj_count++;
+    }
+
+    char all_objs[4096] = "";
+    for (int i = 0; i < obj_count; i++) {
+        strncat(all_objs, " ", sizeof(all_objs) - strlen(all_objs) - 1);
+        strncat(all_objs, obj_paths[i], sizeof(all_objs) - strlen(all_objs) - 1);
     }
 
     if (opts->verbose) {
         printf("Linking with system linker...\n");
     }
 
-    /* Invoke system linker (gcc) to create executable */
-    char cmd[2048];
+    /* Invoke system linker (gcc) to create executable. cmd is sized to
+     * hold all_objs (up to ZERO_CC_MAX_INPUTS temp paths) plus flags/libs. */
+    char cmd[16384];
     const char *output = opts->output_file ? opts->output_file : "a.out";
 
     /* Select appropriate linker based on target ISA */
@@ -1105,21 +1112,23 @@ static int compile_and_link(CompileOptions *opts) {
                  "/home/ubuntu/dev/musl-cross/riscv32/lib/libgcc.a "
                  "/home/ubuntu/dev/musl-cross/riscv32/lib/crtn.o "
                  "-o %s%s 2>&1",
-                 obj_path, output, lib_args);
+                 all_objs, output, lib_args);
     } else {
         snprintf(cmd, sizeof(cmd),
                  "%s %s %s -o %s %s -lc%s 2>&1",
-                 linker, abi_flags, static_flag, output, obj_path, lib_args);
+                 linker, abi_flags, static_flag, output, all_objs, lib_args);
     }
 
     if (opts->verbose) {
         printf("  %s\n", cmd);
     }
 
-    ret = system(cmd);
+    int ret = system(cmd);
 
-    /* Clean up temporary object file */
-    if (!getenv("ZC_KEEP_OBJ")) unlink(obj_path);
+    /* Clean up temporary object files */
+    for (int i = 0; i < obj_count; i++) {
+        if (!getenv("ZC_KEEP_OBJ")) unlink(obj_paths[i]);
+    }
 
     if (ret != 0) {
         fprintf(stderr, "Error: Linking failed\n");

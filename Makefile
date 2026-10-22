@@ -21,7 +21,7 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
 # consumed by tools/diag_battery.py) — not test drivers; keep it out of the
 # test binary glob.
-TEST_SRCS = $(filter-out test/diag/%,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/%,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
@@ -160,16 +160,19 @@ test: all
 test-opt: all
 	@python3 tools/opt_sweep.py
 
+# Multi-file driver tests (T1): run build/bin/zerocc on multiple .c inputs
+# (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).
+test-driver: build/bin/zerocc
+	@python3 tools/driver_tests.py
+
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter
 # (ZC_RAW_AOT=1) into a static executable, then diffs stdout+exit against the
 # system cross-gcc reference -- both run under the matching qemu-*-static.
 # DEPENDENCY: requires qemu-user-static (qemu-{x86_64,aarch64,riscv64,riscv32}-static)
 # and the cross toolchains (aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc).
-# The harness preflights these and reports exactly what is missing. NOTE: the
-# aarch64/riscv RAW emitters are known-incomplete (see docs/okf/isa-backends.md),
-# so this is expected to report failures for those ISAs until they are fixed;
-# x86-64 (the production raw path) is the green baseline.
+# The harness preflights these and reports exactly what is missing. As of
+# Sprint 41 all four ISAs are green (44/44); this gate keeps them honest.
 test-isa-qemu: all
 	@python3 tools/isa_qemu_diff.py
 

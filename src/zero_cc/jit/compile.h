@@ -272,46 +272,55 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     }
                     /* fall through to the comma/stuck-token handling below */
                 }
-                if (c->tokens[c->token_pos].type == TK_IDENT) {
+                /* Parameter type - shared by named and unnamed parameters
+                 * (C99 6.7.6.3): an unnamed parameter still constrains
+                 * the caller. Previously unnamed params were silently
+                 * dropped, so `int f(int);` parsed as a 0-parameter
+                 * prototype and legal calls were rejected. */
+                ZeroCCType pt;
+                if (is_typeof_param) {
+                    pt = typeof_pt;
+                } else if (pfound) {
+                    pt = *pfound;
+                    snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
+                } else if (ptt == TK_FLOAT_KW) {
+                    pt = zero_cc_type_float();
+                } else if (ptt == TK_DOUBLE_KW) {
+                    pt = zero_cc_type_double();
+                } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
+                    pt = zero_cc_type_char();
+                } else if (ptt == TK_SHORT) {
+                    pt = zero_cc_type_int16();
+                } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+                    pt = zero_cc_type_int();
+                } else if (ptt == TK_LONG) {
+                    pt = zero_cc_type_int64();
+                } else {
+                    pt = zero_cc_type_int64();
+                }
+                if (p_is_unsigned) {
+                    if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
+                    else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
+                    else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
+                    else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
+                }
+                pt.is_const = p_is_const;
+                pt.is_volatile = p_is_volatile;
+                for (int pd = 0; pd < ptr_depth; pd++) {
+                    pt = zero_cc_type_ptr(&pt);
+                    if (pd == ptr_depth - 1) {
+                        pt.is_const = p_ptr_is_const;
+                        pt.is_volatile = p_ptr_is_volatile;
+                        pt.is_restrict = p_ptr_is_restrict;
+                    }
+                }
+                /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
+                 * makes the declaration a prototype but adds no parameter. */
+                bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
+                                      ptr_depth == 0);
+                if (!is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
                     if (param_count < 8) {
                         snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
-                        ZeroCCType pt;
-                        if (is_typeof_param) {
-                            pt = typeof_pt;
-                        } else if (pfound) {
-                            pt = *pfound;
-                            snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
-                        } else if (ptt == TK_FLOAT_KW) {
-                            pt = zero_cc_type_float();
-                        } else if (ptt == TK_DOUBLE_KW) {
-                            pt = zero_cc_type_double();
-                        } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
-                            pt = zero_cc_type_char();
-                        } else if (ptt == TK_SHORT) {
-                            pt = zero_cc_type_int16();
-                        } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
-                            pt = zero_cc_type_int();
-                        } else if (ptt == TK_LONG) {
-                            pt = zero_cc_type_int64();
-                        } else {
-                            pt = zero_cc_type_int64();
-                        }
-                        if (p_is_unsigned) {
-                            if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
-                            else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
-                            else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
-                            else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
-                        }
-                        pt.is_const = p_is_const;
-                        pt.is_volatile = p_is_volatile;
-                        for (int pd = 0; pd < ptr_depth; pd++) {
-                            pt = zero_cc_type_ptr(&pt);
-                            if (pd == ptr_depth - 1) {
-                                pt.is_const = p_ptr_is_const;
-                                pt.is_volatile = p_ptr_is_volatile;
-                                pt.is_restrict = p_ptr_is_restrict;
-                            }
-                        }
                         param_types[param_count] = pt;
                         zero_cc_add_local(c, param_names[param_count], pt);
                         param_count++;
@@ -353,6 +362,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         }
                         param_types[param_count - 1] = zero_cc_type_ptr(&t);
                     }
+                } else if (!is_void_param && param_count < 8 &&
+                           c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_COMMA ||
+                            c->tokens[c->token_pos].type == TK_RPAREN)) {
+                    /* Unnamed parameter: record the type with an empty
+                     * name so the prototype keeps its parameter count.
+                     * No add_local (nothing to bind); the degenerate
+                     * `f(int [])` unnamed-array form skips the array
+                     * adjustment above. */
+                    param_names[param_count][0] = '\0';
+                    param_types[param_count] = pt;
+                    param_count++;
                 }
             }
         }

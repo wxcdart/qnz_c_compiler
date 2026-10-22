@@ -1,5 +1,24 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-22 - T1: Multi-File Driver (multi-TU JIT merge, AOT link, per-input -c/-S)
+
+`zerocc` now accepts multiple `.c` inputs across all three modes:
+
+- **`-o` (AOT link)**: one raw object per input → combined system-linker command. (The system linker was already the AOT linker; multi-file only needed per-TU intermediates.)
+- **`--run` (JIT)**: each TU compiles into its own `ZeroCCCompiler`, then `zero_cc_tu_merge` (`core/multi_tu.h`) folds them into the first one: sections appended at aligned bases, function table appended (duplicate *definition* = multiple-definition error; prototype+definition is the expected cross-TU shape), relocations re-based. Cross-TU calls/globals resolve by name at patch time against the merged tables.
+- **`-c` / `-S`**: one object/assembly per input; `-o` with `-c/-S` + multiple inputs is an error.
+- **Global-registry discipline**: `reset_global_vars()` runs at the start of every compile, so the driver snapshots the merged registry before each TU compile, re-bases the new TU's entries by the data base, and re-appends the snapshot before merging. This is the subtle part — without it, TU1's globals vanish when TU2 compiles.
+- **Driver gate**: `make test-driver` (`tools/driver_tests.py`, `test/driver/`): 19/19 — multi-TU JIT/AOT, cross-TU globals & doubles, 3-file chains, strings in TU2, per-input `-c`/`-S` (+ gcc re-link), duplicate-def, missing-`main`, `-o`+`-c`+multi errors. `test/driver/%` excluded from the `make test` glob.
+
+Two latent conformance bugs, both exposed by the multi-file cases (and both silent miscompiles):
+
+- **Unnamed prototype params dropped** (`int f(int, int *);` parsed as a 0-parameter prototype): the file-scope parser (`jit/compile.h`) and the statement-level loop (`parser/ast_stmt.h`) only created parameter nodes for *named* params. Unnamed params now get empty-name nodes in both loops (C99 6.7.6.3); `(void)` stays the zero-param marker. Legal calls were previously rejected by the Sprint-42 arity checker.
+- **Stores to extern-only globals emitted nowhere** (`g += 1` on a cross-TU global compiled to a no-op): the `NODE_ASSIGN` global path only handled registry-resident globals; an extern declaration lives in the function table (`is_external`), so the store fell off the end of the case. Added the function-table fallback (width/FP-correct), and fixed the matching `NODE_IDENT` load path to keep FP externs in the FP pipeline (`vloadss`/`vloadsd`, not an integer deref of the IEEE-754 bits).
+
+Also: `main.c`'s hand-rolled `zero_cc_free_compiler` is gone (uses the public `zero_cc_compiler_free`); the dead legacy `-S` branch in `compile_jit` removed (`main()` routes `-S` through `compile_object`); stale `test-isa-qemu` "known-incomplete" Makefile comment fixed.
+
+Gates: `make test` 147/147, `make test-opt` 107/107, **`make test-driver` 19/19**, `make asan` 147/147, `make test-isa-qemu` 44/44, diag battery 8/8 baseline OK, sret 6/6, style 0 errors.
+
 ## [Sprint 42] - 2026-10-22 - `make asan` Fully Green (147/147) — 70-Test Teardown Sweep + 3 Latent Bug Fixes
 
 Completed the ASan sweep the destroy-API work left as a known remainder. The combined `make asan` target (all 147 tests under ASan+UBSan) went **77/147 → 147/147**:

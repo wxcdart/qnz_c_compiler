@@ -25,6 +25,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - Lexer → Arena AST Parser → Semantic Analysis → AST-to-IR Lowering → IR Optimizations → Linear Scan Register Allocation → JIT / AOT Emission.
 - **[Frontend, Type System & Semantic Analysis](./frontend-and-types.md)**
   - `ZeroCCType` vs semantic `TypeInfo`, struct/union layout, function pointers (`is_func_ptr`), C99/C11 features (`_Generic`, `_Atomic`, `_Thread_local`, VLA, designated initializers).
+- **[Multi-Translation-Unit Driver (T1) & JIT Image Merge](./multi-tu.md)**
+  - Multi-input driver modes, the multi-TU JIT image merge (`zero_cc_tu_merge`), global-registry snapshot discipline, extern-object load/store paths, and unnamed prototype parameters.
 
 ---
 

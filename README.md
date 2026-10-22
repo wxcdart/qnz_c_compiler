@@ -120,6 +120,20 @@ make clean     # Clean build artifacts
 gcc -Isrc -Iinclude example.c -o example
 ```
 
+### Multi-file programs (T1, Sprint 43)
+
+`zerocc` accepts multiple inputs. The AOT path compiles each file to an object and hands them to the system linker; the JIT path merges all TUs into one image before running `main` (cross-TU calls and globals work):
+
+```bash
+build/bin/zerocc a.c b.c -o app      # multi-TU executable
+build/bin/zerocc a.c b.c --run       # multi-TU JIT run
+build/bin/zerocc -c a.c b.c          # one .o per input
+build/bin/zerocc a.c b.c             # JIT run (default)
+```
+
+Gate: `make test-driver` (`tools/driver_tests.py`, `test/driver/`). See
+`docs/okf/multi-tu.md` for the merge & registry model and known limitations.
+
 ### Using Musl
 
 For fully static, GLIBC-free binaries:
@@ -134,6 +148,7 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 |-------|--------|-------|
 | **Main regression suite** (`make test`) | ✅ Pass | 147/147 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 107/107 |
+| **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 19/19 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 44/44 (11/11 × x86-64, aarch64, riscv64, riscv32) |
 | **`sret` ABI verifier** | ✅ Pass | 6/6 |
 | **C11 verification suite** | ✅ Pass | 11/11 |

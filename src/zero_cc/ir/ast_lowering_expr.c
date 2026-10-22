@@ -503,6 +503,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int temp = c->next_temp_id++;
                     ir_emit_mov_global(temp, fn->name);
                     if (fn->is_external) {
+                        /* Extern object: load its value through the patched
+                         * address. FP types must stay in the FP pipeline -
+                         * an integer deref would load the IEEE-754 bits
+                         * (cross-TU `double g;` regression). */
+                        if (fn->return_type.tag == TYPE_FLOAT) {
+                            int ftemp = c->next_temp_id++;
+                            ir_emit_vloadss((uint16_t)ftemp, (uint16_t)temp);
+                            c->last_expr_is_float = 1;
+                            return ftemp;
+                        }
+                        if (fn->return_type.tag == TYPE_DOUBLE) {
+                            int ftemp = c->next_temp_id++;
+                            ir_emit_vloadsd((uint16_t)ftemp, (uint16_t)temp);
+                            c->last_expr_is_float = 1;
+                            return ftemp;
+                        }
                         int val_temp = c->next_temp_id++;
                         size_t ext_sz = fn->return_type.size > 0 ? fn->return_type.size : 8;
                         if (ext_sz == 1) ir_emit_load_byte(val_temp, temp);
@@ -1920,6 +1936,80 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                     c->last_expr_is_float = 0;
                     return final_val;
+                }
+                /* Extern object not defined in this TU (multi-TU / extern
+                 * declaration): the parser registered it in the function
+                 * table (is_external) - store through its address, mirroring
+                 * the NODE_IDENT load path above. Previously this fell
+                 * through and the store was silently dropped, so `g += 1`
+                 * on a cross-TU global compiled to a no-op. */
+                ZeroCCFunction *xfn = zero_cc_find_function(c, var);
+                if (xfn && xfn->is_external) {
+                    int xaddr = c->next_temp_id++;
+                    ir_emit_mov_global(xaddr, xfn->name);
+                    int xfinal = right_temp;
+                    /* The extern registration stores the declared scalar
+                     * type in return_type (same source the NODE_IDENT load
+                     * path uses). */
+                    const ZeroCCType *xt = &xfn->return_type;
+                    size_t xsz = (xt->size > 0) ? xt->size : 8;
+                    bool xflt = (xt->tag == TYPE_FLOAT || xt->tag == TYPE_DOUBLE);
+                    if (xflt && c->last_expr_is_float) {
+                        if (is_compound) {
+                            int curr_val = c->next_temp_id++;
+                            if (xsz == 4) ir_emit_vloadss((uint8_t)curr_val, (uint16_t)xaddr);
+                            else ir_emit_vloadsd((uint8_t)curr_val, (uint16_t)xaddr);
+                            int op_res = c->next_temp_id++;
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_fadd(op_res, curr_val, right_temp); break;
+                                case TK_SUB_ASSIGN: ir_emit_fsub(op_res, curr_val, right_temp); break;
+                                case TK_MUL_ASSIGN: ir_emit_fmul(op_res, curr_val, right_temp); break;
+                                case TK_DIV_ASSIGN: ir_emit_fdiv(op_res, curr_val, right_temp); break;
+                                default: ir_emit_fmov(op_res, right_temp); break;
+                            }
+                            xfinal = op_res;
+                        }
+                        if (xsz == 4) ir_emit_vstoress(xaddr, (uint8_t)xfinal);
+                        else ir_emit_vstoresd(xaddr, (uint8_t)xfinal);
+                        c->last_expr_is_float = 1;
+                        return xfinal;
+                    }
+                    if (xflt) {
+                        int flt_temp = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)flt_temp, (uint16_t)right_temp);
+                        if (xsz == 4) ir_emit_vstoress(xaddr, (uint16_t)flt_temp);
+                        else ir_emit_vstoresd(xaddr, (uint16_t)flt_temp);
+                        c->last_expr_is_float = 1;
+                        return flt_temp;
+                    }
+                    if (is_compound) {
+                        int curr_val = c->next_temp_id++;
+                        if (xsz == 1) ir_emit_load_byte(curr_val, xaddr);
+                        else if (xsz == 2) ir_emit_load_16(curr_val, xaddr);
+                        else if (xsz == 4) ir_emit_load_32(curr_val, xaddr);
+                        else ir_emit_deref(curr_val, xaddr);
+                        int op_res = c->next_temp_id++;
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
+                            case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
+                            case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, right_temp); break;
+                            case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
+                            case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
+                            case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
+                            case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
+                            case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
+                            default: op_res = right_temp; break;
+                        }
+                        xfinal = op_res;
+                    }
+                    if (xsz == 1) ir_emit_store_byte(xfinal, xaddr);
+                    else if (xsz == 2) ir_emit_store_16(xfinal, xaddr);
+                    else if (xsz == 4) ir_emit_store_32(xfinal, xaddr);
+                    else ir_emit_store_64(xfinal, xaddr);
+                    c->last_expr_is_float = 0;
+                    return xfinal;
                 }
             }
             c->last_expr_is_float = 0;

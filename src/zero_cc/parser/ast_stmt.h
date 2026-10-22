@@ -1113,8 +1113,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                             c->token_pos++;
                         }
                     }
+                    const char *pname = NULL;
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
-                        const char *pname = c->tokens[c->token_pos].str_val;
+                        pname = c->tokens[c->token_pos].str_val;
                         c->token_pos++;
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                             c->token_pos++;
@@ -1125,7 +1126,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                 c->token_pos++;
                             }
                             param_ptr_depth++;
-                        }
+                    }
+                    /* Create parameter node. Unnamed parameters (C99
+                     * 6.7.6.3: `int f(int);`) still constrain the caller -
+                     * the node is created with an empty name so the prototype
+                     * keeps its parameter count; previously nodes were only
+                     * created for named params, so `int f(int);` became a
+                     * 0-parameter prototype and legal calls were rejected
+                     * (and argument promotion to the param type was
+                     * skipped). */
+                    if (pname == NULL) pname = "";
                         /* Create parameter node */
                         ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                         ZeroCCASTNode *p_node = zero_cc_ast_get(arena, p_ref);

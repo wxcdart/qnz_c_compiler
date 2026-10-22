@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T19:21:34Z
+timestamp: 2026-10-22T21:53:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -335,3 +335,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `frontend-and-types.md`
 - Struct member array lifetime: freed per-compilation by zero_cc_free_all_struct_arrays while the type pool is live
+
+## 2026-10-22 — Updated `multi-tu.md`
+- New page: multi-TU driver (T1), JIT image merge, registry snapshot discipline, extern-object load/store, unnamed prototype params

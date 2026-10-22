@@ -32,6 +32,19 @@ static inline void reset_global_vars(void) {
     global_var_count = 0;
 }
 
+/* Ensure capacity for `global_var_count + extra` entries (multi-TU driver
+ * re-appends snapshot entries after each per-TU compile wipe). */
+static inline int zero_cc_global_vars_reserve(size_t extra) {
+    if (global_var_count + extra <= global_var_capacity) return 0;
+    size_t new_cap = global_var_capacity ? global_var_capacity : ZERO_CC_GLOBALS_INITIAL_CAPACITY;
+    while (new_cap < global_var_count + extra) new_cap *= 2;
+    ZeroCCGlobalVar *grown = (ZeroCCGlobalVar *)realloc(global_vars, new_cap * sizeof(ZeroCCGlobalVar));
+    if (!grown) return -1;
+    global_vars = grown;
+    global_var_capacity = new_cap;
+    return 0;
+}
+
 /* Add global variable, return index or -1 on allocation failure */
 static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) __attribute__((unused));
 static int add_global_var(const char *name, ZeroCCType type, size_t offset, size_t size, bool is_static, bool has_init) {

@@ -318,7 +318,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ### 6. Toolchain Tiers (multi-TU → standalone linking)
 - **T0** — build-system hygiene: `-MMD`-style `.d` dependency generation + a real `-I` include search (the flag currently discards its path, placeholder in `main.c`)
-- **T1** — multi-file driver: accept multiple `.c` inputs, per-TU compile, combined link
+- **T1** — multi-file driver: accept multiple `.c` inputs, per-TU compile, combined link — **done (Sprint 43)**: `zerocc a.c b.c -o out` (per-TU raw objects → system linker), `zerocc a.c b.c --run` (multi-TU JIT merge via `zero_cc_tu_merge`, `core/multi_tu.h`), `-c`/`-S` emit one object/asm per input. Driver gate: `make test-driver` (19/19, `tools/driver_tests.py`). Closed two latent conformance bugs found by the multi-file cases: unnamed prototype params (`int f(int);`) were silently dropped (0-param prototype), and stores to `extern`-only globals (cross-TU) were emitted nowhere (see `docs/okf/multi-tu.md`).
 - **T2** — own linker: `ar` archive reader, the static relocation set (`R_X86_64_{64,PC32,32,32S,RELATIVE}`, PLT32→PC32), multi-section `.rela`; zero_rt Phase 0 is its first customer
 - **T3** — zero_rt platform phases (see §5)
 

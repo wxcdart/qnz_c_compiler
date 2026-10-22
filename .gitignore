@@ -11,3 +11,4 @@ text.ext
 __pycache__/
 *.pyc
 
+test/driver/*.s
