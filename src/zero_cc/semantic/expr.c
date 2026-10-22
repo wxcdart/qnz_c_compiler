@@ -386,18 +386,21 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         arg_ref = arg_node->next;
     }
 
-    /* Verify argument count */
-    if (fn_t->details.function.is_variadic) {
-        if (arg_count < fn_t->details.function.param_cnt) {
-            expr_error(ctx, node, "too few arguments to function call (expected at least %zu, have %zu)",
-                       fn_t->details.function.param_cnt, arg_count);
-            return NULL;
-        }
-    } else {
-        if (arg_count != fn_t->details.function.param_cnt) {
-            expr_error(ctx, node, "argument count mismatch in function call (expected %zu, have %zu)",
-                       fn_t->details.function.param_cnt, arg_count);
-            return NULL;
+    /* Verify argument count — only against prototype types; no-prototype
+     * declarations (empty parens, implicit) constrain nothing (C99 6.7.5.3). */
+    if (fn_t->details.function.is_prototype) {
+        if (fn_t->details.function.is_variadic) {
+            if (arg_count < fn_t->details.function.param_cnt) {
+                expr_error(ctx, node, "too few arguments to function call (expected at least %zu, have %zu)",
+                           fn_t->details.function.param_cnt, arg_count);
+                return NULL;
+            }
+        } else {
+            if (arg_count != fn_t->details.function.param_cnt) {
+                expr_error(ctx, node, "argument count mismatch in function call (expected %zu, have %zu)",
+                           fn_t->details.function.param_cnt, arg_count);
+                return NULL;
+            }
         }
     }
 

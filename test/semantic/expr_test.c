@@ -384,9 +384,11 @@ int main(void) {
      * ------------------------------------------------------------- */
     printf("Testing function calls...\n");
     {
-        /* Register function int my_add(int, double) */
+        /* Register function int my_add(int, double) — a declaration with a
+         * parameter type list is a prototype (C99 6.7.5.3p9). */
         TypeInfo *params[2] = { t_int, t_double };
         TypeInfo *fn_t = type_function(perm, t_int, params, 2, false);
+        fn_t->details.function.is_prototype = true;
         scope_put_symbol(scope, "my_add", SYMBOL_FUNC, fn_t);
 
         /* Valid call: my_add(10, 3.14) */

@@ -65,6 +65,11 @@ struct TypeInfo {
             size_t     param_cnt;
             TypeInfo  *ret;
             bool       is_variadic;
+            /* True when the type came from a declaration with a parameter
+             * list (incl. explicit (void)).  Empty-paren () declarations and
+             * implicit declarations are NOT prototypes: C99 6.7.5.3 only
+             * constrains argument counts against prototype types. */
+            bool       is_prototype;
         } function; // TYPE_FUNCTION
         // Struct / union / enum representation extensions
         struct {

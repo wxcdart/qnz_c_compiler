@@ -147,6 +147,9 @@ typedef struct {
     bool is_variadic;
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */
+    bool has_prototype;                   /* True when the declaration has a parameter
+                                            * type list (incl. explicit (void)); empty-paren
+                                            * () declarations are not prototypes (C99 6.7.5). */
     bool is_external;                     /* True for extern declarations */
     bool is_inline;                       /* True for inline declarations (C99) */
     bool is_static;                       /* True for static functions (internal linkage) */

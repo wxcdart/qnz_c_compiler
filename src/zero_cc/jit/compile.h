@@ -148,6 +148,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     char param_names[8][128];
     size_t param_count = 0;
     bool is_variadic_fn = false;
+    bool has_prototype = false; /* set once the param list holds at least one entry */
     c->local_count = 0;
     if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
         for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
@@ -155,6 +156,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 
     while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
         size_t ppos = c->token_pos;
+        has_prototype = true; /* any entry (param or ...) makes this a prototype */
         if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             is_variadic_fn = true;
             c->token_pos++;
@@ -372,6 +374,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->is_variadic = is_variadic_fn;
             fn->noreturn = fn_noreturn;
             fn->is_prototype = true;
+            fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
             for (size_t i = 0; i < param_count && i < 8; i++) {
@@ -396,6 +399,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->is_variadic = is_variadic_fn;
         fn->noreturn = fn_noreturn;
         fn->is_prototype = false;
+        fn->has_prototype = has_prototype;
         fn->is_inline = fn_inline;
         fn->is_static = fn_static;
         /* Copy parameter types and names to function struct */
@@ -473,6 +477,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 }
             }
             TypeInfo *fn_t = type_function(perm, ret_t, params, f->param_count, f->is_variadic);
+            /* C99 6.7.5.3: a declaration with a parameter type list is a
+             * prototype; use it to constrain call argument counts. */
+            fn_t->details.function.is_prototype = f->has_prototype;
             scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
         }
         for (size_t i = 0; i < global_var_count; i++) {

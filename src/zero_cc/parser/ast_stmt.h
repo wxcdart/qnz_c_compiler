@@ -980,6 +980,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             /* Check if this is a function declarator */
             bool is_function = false;
             ASTRef param_list = AST_NULL;
+            bool has_explicit_params = false;
             if (!is_inline_func_ptr && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 is_function = true;
                 c->token_pos++; // consume '('
@@ -1155,6 +1156,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     c->token_pos++; // consume ')'
                 }
                 param_list = param_head;
+                /* first_param is still true only for an empty () list; an
+                 * explicit parameter list (incl. (void)) is a prototype. */
+                has_explicit_params = !first_param;
             }
 
             if (is_function) {
@@ -1179,6 +1183,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     cur_p = pn->next;
                 }
                 TypeInfo *fn_ti = type_function(ctx->perm_arena, ret_ti, param_cnt > 0 ? param_tis : NULL, param_cnt, false);
+                fn_ti->details.function.is_prototype = has_explicit_params;
 
                 /* Function definition or prototype */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {

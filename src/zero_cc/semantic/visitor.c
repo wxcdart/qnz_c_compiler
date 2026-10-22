@@ -233,21 +233,57 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_CALL: {
             TypeInfo *fn_t = sem_analyze_ref(ctx, node->left);
+            size_t arg_count = 0;
             ASTRef arg_ref = node->right;
             while (arg_ref != AST_NULL) {
                 ZeroCCASTNode *arg_node = sem_get_node(ctx, arg_ref);
                 if (arg_node) {
                     (void)sem_analyze_node(ctx, arg_node);
+                    arg_count++;
                     arg_ref = arg_node->next;
                 } else {
                     break;
                 }
             }
+            TypeInfo *proto_t = NULL;
             if (fn_t && type_is_function(fn_t)) {
+                proto_t = fn_t;
                 res = fn_t->details.function.ret;
             } else if (fn_t && type_is_pointer(fn_t) && fn_t->details.pointer.base &&
                        type_is_function(fn_t->details.pointer.base)) {
-                res = fn_t->details.pointer.base->details.function.ret;
+                proto_t = fn_t->details.pointer.base;
+                res = proto_t->details.function.ret;
+            }
+            /* C99 6.7.5.3p6: when the callee has a prototype, the argument
+             * count must match it (variadic: at least the named parameters).
+             * No-prototype function types (empty-paren decls, implicit
+             * declarations) place no constraint. */
+            if (proto_t && proto_t->details.function.is_prototype) {
+                size_t param_cnt = proto_t->details.function.param_cnt;
+                ZeroCCASTNode *callee_node = sem_get_node(ctx, node->left);
+                const char *callee_name = (callee_node && callee_node->tag == NODE_IDENT &&
+                                           callee_node->s.str) ? callee_node->s.str : NULL;
+                if (proto_t->details.function.is_variadic) {
+                    if (arg_count < param_cnt) {
+                        if (callee_name)
+                            sem_node_error(ctx, node,
+                                "too few arguments to call '%s': prototype requires at least %zu, %zu given",
+                                callee_name, param_cnt, arg_count);
+                        else
+                            sem_node_error(ctx, node,
+                                "too few arguments to call: prototype requires at least %zu, %zu given",
+                                param_cnt, arg_count);
+                    }
+                } else if (arg_count != param_cnt) {
+                    if (callee_name)
+                        sem_node_error(ctx, node,
+                            "argument count mismatch in call to '%s': prototype declares %zu parameter(s), %zu argument(s) given",
+                            callee_name, param_cnt, arg_count);
+                    else
+                        sem_node_error(ctx, node,
+                            "argument count mismatch in call: prototype declares %zu parameter(s), %zu argument(s) given",
+                            param_cnt, arg_count);
+                }
             }
             expr_node_set_type(ctx, node, res);
             break;
