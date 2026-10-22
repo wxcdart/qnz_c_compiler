@@ -54,16 +54,11 @@ int main(void) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Compile error: %s\n", comp->error_msg);
-        free(comp->tokens);
-        free(comp);
+               zero_cc_compiler_free(comp);
         return 1;
     }
     int result = zero_cc_execute_jit(comp, NULL);
     printf("Compound literal comprehensive JIT result: %d (expected 42)\n", result);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return result == 42 ? 0 : 1;
 }

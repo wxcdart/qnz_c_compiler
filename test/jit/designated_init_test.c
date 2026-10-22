@@ -16,16 +16,11 @@ static int run_snippet(const char *src) {
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Compile error: %s\n", comp->error_msg);
-        free(comp->tokens);
-        free(comp);
+               zero_cc_compiler_free(comp);
         return -1;
     }
     int ret = zero_cc_execute_jit(comp, NULL);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return ret;
 }
 
@@ -107,8 +102,7 @@ int main(void) {
         zero_cc_compile_c99(comp);
         assert(comp->had_error != 0);
         assert(strstr(comp->error_msg, "exceeds array bound") != NULL);
-        free(comp->tokens);
-        free(comp);
+               zero_cc_compiler_free(comp);
     }
 
     /* Test 7: VLA with initializer rejected */
@@ -126,8 +120,7 @@ int main(void) {
         zero_cc_compile_c99(comp);
         assert(comp->had_error != 0);
         assert(strstr(comp->error_msg, "cannot be initialized") != NULL);
-        free(comp->tokens);
-        free(comp);
+               zero_cc_compiler_free(comp);
     }
 
     printf("All Designated / Brace Initializer JIT tests passed!\n");

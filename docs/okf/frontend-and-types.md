@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-22T15:24:02Z
+timestamp: 2026-10-22T19:21:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -28,6 +28,10 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
 ## SemContext: Single Canonical Definition
 
 `SemContext` (the semantic-pass state: arenas, `diags`, current scope, label table) is defined **only** in `src/zero_cc/semantic/visitor.h`. `decl.h` and `expr.h` used to each carry a stale 8-field copy behind a shared `SEM_CONTEXT_DEFINED` first-include-wins guard, so any TU that included `decl.h`/`expr.h` before `visitor.h` (the JIT pipeline headers `compile.h`/`compile_unit.h`) compiled a **smaller** struct than `visitor.c` wrote into — a cross-TU ABI mismatch whose overflow was dormant until a stack-layout change moved a live variable into the spilled bytes (found by the Sprint 42 multi-error-recovery work; ASan stack-buffer-overflow in `sem_context_init`). The other two headers now `#include "zero_cc/semantic/visitor.h"`. **Invariant:** never redeclare `SemContext` (or any cross-TU pipeline struct) in a second header — one definition, included everywhere.
+
+## Struct Member Array Lifetime
+
+`ZeroCCType.members` is a heap array (realloc'd by `zero_cc_type_reserve_members`) owned by the type's registration site. **It is freed per-compilation**, not per-destroy: `zero_cc_free_all_struct_arrays(c)` (`parser.c`) runs at the end of `zero_cc_compile_c99` — while the global type pool is still live — and frees every distinct array found in the registration tables (structs/typedefs/locals/functions/thread-locals) **and** in the pool nodes (the pool nodes are the live holders of nested anonymous-struct arrays; after `zero_cc_type_pool_free` they are unreachable, and chasing `base` pointers from the tables at that point dangles). Distinct-pointer dedup keeps shared arrays (named struct + typedef alias + locals of that type) freed once; the `structs[]`/`typedefs[]` table roots are then nulled because those tables persist past the compile (`struct_count` is never reset). Consequently `zero_cc_compiler_free` does **not** touch member arrays, and any code that needs member metadata must run inside a compilation. A flattened anonymous-struct *member* (entries copied into the outer struct in `definitions.h`) has its inner array freed at the flatten site.
 
 ## Signedness & Narrow-Int Correctness (C1)
 

@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-22T16:37:07Z
+timestamp: 2026-10-22T19:21:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -52,12 +52,15 @@ make test-jit
 make test-semantic
 make test-unit
 
-# ASan+UBSan build of the semantic harnesses (must be LeakSanitizer-clean;
+# ASan+UBSan build of the semantic harnesses (LeakSanitizer-clean;
 # the harnesses tear down via zero_cc_compiler_free, see types/symbols.h)
 make asan-semantic   # 16/16 as of Sprint 42
-```
 
-The combined `make asan` target (all 147 under ASan) is **not** a tracked gate: the `test/jit`/`test/abi`/`test/unit` programs still compile in-process without the destroy call, so LSan flags their per-compile IR arenas. Sweeping those to `zero_cc_compiler_free` is the known remainder.
+# The full suite under ASan+UBSan — green (147/147) since the Sprint 42
+# teardown sweep; every in-process compile is destroyed via
+# zero_cc_compiler_free, so this gate also catches new per-compile leaks.
+make asan
+```
 
 ### Optimizer regression sweep (`make test-opt`)
 

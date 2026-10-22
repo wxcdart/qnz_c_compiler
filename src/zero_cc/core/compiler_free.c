@@ -19,23 +19,9 @@
 #include "zero_cc/types/symbols.h" /* pulls parser.h (ZeroCCASTArena + arena prototypes) via expr.h */
 #include "zero_cc/lexer/tokenize.h"
 
-/* Free one registered struct/union's member array if `m` is unique among
- * the registration sites that could own it (named struct defs and earlier
- * typedefs).  Copies that merely alias the owner (e.g. a local of struct
- * type, or `typedef struct P {...} P2;`) are skipped. */
-static bool free_unique_members(ZeroCCStructMember *m,
-                                const ZeroCCCompiler *c,
-                                size_t typedef_before) {
-    if (!m) return true;
-    for (size_t i = 0; i < c->struct_count; i++) {
-        if (c->structs[i].type.members == m) return false; /* struct owns it */
-    }
-    for (size_t i = 0; i < typedef_before; i++) {
-        if (c->typedefs[i].type.members == m) return false; /* earlier typedef owns it */
-    }
-    free(m);
-    return true;
-}
+/* NOTE: struct/union member arrays are freed per-compilation by
+ * zero_cc_free_all_struct_arrays (compile_unit.h teardown) — they must go
+ * while the type pool is still alive, so nothing here touches them. */
 
 void zero_cc_compiler_free(ZeroCCCompiler *c) {
     if (!c) return;
@@ -54,22 +40,7 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     c->local_capacity = 0;
     c->local_hash_bucket_count = 0;
 
-    /* Struct/union member arrays (heap, realloc'd by
-     * zero_cc_type_reserve_members).  Owner: the named struct def, else the
-     * first typedef that carries the array.  Copies alias the owner and
-     * must not be freed twice. */
-    for (size_t i = 0; i < c->typedef_count; i++) {
-        if (!c->typedefs[i].type.members) continue;
-        if (free_unique_members(c->typedefs[i].type.members, c, i)) {
-            c->typedefs[i].type.members = NULL;
-            c->typedefs[i].type.members_cap = 0;
-        }
-    }
-    for (size_t i = 0; i < c->struct_count; i++) {
-        free(c->structs[i].type.members);
-        c->structs[i].type.members = NULL;
-        c->structs[i].type.members_cap = 0;
-    }
+    /* (struct member arrays are freed per-compile — see note above) */
 
     /* IR arenas (one-time init, per-instance) */
     ir_arena_free(&c->ir_arena);
@@ -100,7 +71,12 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     c->diag_buf.count = 0;
     c->diag_buf.capacity = 0;
     c->sem_ctx = NULL; /* stack-lifetime, destroyed per compile */
-    c->diag_pragma_state.disabled_warning_count = 0; /* strings are global */
+    for (int i = 0; i < c->diag_pragma_state.disabled_warning_count && i < 64; i++) {
+        free(c->diag_pragma_state.disabled_warnings[i]); /* ownership was
+            * transferred from the global at tokenize time */
+        c->diag_pragma_state.disabled_warnings[i] = NULL;
+    }
+    c->diag_pragma_state.disabled_warning_count = 0;
 
     free(c);
 }

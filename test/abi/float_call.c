@@ -20,10 +20,6 @@ int main(void) {
     zero_cc_compile_c99(comp);
     int ret = zero_cc_execute_jit(comp, NULL);
     printf("Result: %d (expected 36 = 10 + 20 + (int)(2.5 + 3.5))\n", ret);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return ret == 36 ? 0 : 1;
 }

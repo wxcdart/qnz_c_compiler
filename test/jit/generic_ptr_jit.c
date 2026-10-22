@@ -19,10 +19,6 @@ int main(void) {
     }
     int result = zero_cc_execute_jit(comp, NULL);
     printf("Generic ptr JIT result: %d (expected 3)\n", result);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return result == 3 ? 0 : 1;
 }

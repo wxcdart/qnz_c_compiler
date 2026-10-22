@@ -208,26 +208,39 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
     ZeroCCFunction *main_fn = zero_cc_find_function(c, "main");
     int32_t main_rel = (int32_t)(main_fn ? main_fn->text_offset : 0);
 
-    uint8_t *start_code;
+    /* CRT0 start code. The bytes live in a function-scope buffer:
+     * block-scoped arrays assigned to `start_code` and then used after
+     * the if/else is a dangling pointer (ASan stack-use-after-scope). */
+    static const uint8_t rv_start[] = {
+        0x13, 0x01, 0x01, 0xff,   /* addi sp, sp, -16 */
+        0x23, 0x34, 0x11, 0x00,   /* sd ra, 8(sp) */
+        0x23, 0x30, 0x81, 0x00,   /* sd s0, 0(sp) */
+        0xef, 0x00, 0x00, 0x00,   /* jal ra, 0 (patched below) */
+        0x13, 0x05, 0x05, 0x00,   /* mv a0, a0 */
+        0x93, 0x08, 0xd0, 0x05,   /* li a7, 93 */
+        0x73, 0x00, 0x00, 0x00    /* ecall */
+    };
+    static const uint8_t x86_start[] = {
+        0x31, 0xED,                                 /* xor ebp, ebp (mark outermost frame) */
+        0x5F,                                       /* pop rdi (argc into 1st arg) */
+        0x48, 0x89, 0xE6,                           /* mov rsi, rsp (argv into 2nd arg) */
+        0x48, 0x83, 0xE4, 0xF0,                     /* and rsp, -16 (16-byte stack alignment) */
+        0xE8, 0x00, 0x00, 0x00, 0x00,               /* call main (offset patched below) */
+        0x89, 0xC7,                                 /* mov edi, eax (exit code) */
+        0xB8, 0x3C, 0x00, 0x00, 0x00,               /* mov eax, 60 (sys_exit) */
+        0x0F, 0x05                                  /* syscall */
+    };
+    uint8_t start_code_buf[32]; /* max CRT0 size is 24 bytes (x86_64) */
+    uint8_t *start_code = start_code_buf;
     size_t start_len;
 
     if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
         /* Freestanding Linux RISC-V CRT0: align stack, call main, exit */
-        /* addi sp, sp, -16; sd ra, 8(sp); sd s0, 0(sp); jal ra, 0; mv a0, a0; li a7, 93; ecall */
-        uint8_t rv64_start[] = {
-            0x13, 0x01, 0x01, 0xff,   /* addi sp, sp, -16 */
-            0x23, 0x34, 0x11, 0x00,   /* sd ra, 8(sp) */
-            0x23, 0x30, 0x81, 0x00,   /* sd s0, 0(sp) */
-            0xef, 0x00, 0x00, 0x00,   /* jal ra, 0 (patched below) */
-            0x13, 0x05, 0x05, 0x00,   /* mv a0, a0 */
-            0x93, 0x08, 0xd0, 0x05,   /* li a7, 93 */
-            0x73, 0x00, 0x00, 0x00    /* ecall */
-        };
-        start_code = rv64_start;
-        start_len = sizeof(rv64_start);
+        memcpy(start_code, rv_start, sizeof(rv_start));
+        start_len = sizeof(rv_start);
 
         /* Patch jal offset: jal at offset 12 in start_code.
-         * Payload layout: start_code (28 bytes) + text_section
+         * Payload layout: start_code (16 bytes) + text_section
          * jal VA = base + header_sz + 12
          * main VA = base + header_sz + start_len + main_rel
          * rel = main - jal = (start_len + main_rel) - 12 = start_len - 12 + main_rel */
@@ -239,17 +252,7 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
         memcpy(start_code + 12, &jal_enc, 4);
     } else {
         /* Freestanding Linux x86_64 CRT0: unpacks argc/argv, aligns stack, calls main(), exits cleanly */
-        uint8_t x86_start[] = {
-            0x31, 0xED,                                 /* xor ebp, ebp (mark outermost frame) */
-            0x5F,                                       /* pop rdi (argc into 1st arg) */
-            0x48, 0x89, 0xE6,                           /* mov rsi, rsp (argv into 2nd arg) */
-            0x48, 0x83, 0xE4, 0xF0,                     /* and rsp, -16 (16-byte stack alignment) */
-            0xE8, 0x00, 0x00, 0x00, 0x00,               /* call main (offset patched below) */
-            0x89, 0xC7,                                 /* mov edi, eax (exit code) */
-            0xB8, 0x3C, 0x00, 0x00, 0x00,               /* mov eax, 60 (sys_exit) */
-            0x0F, 0x05                                  /* syscall */
-        };
-        start_code = x86_start;
+        memcpy(start_code, x86_start, sizeof(x86_start));
         start_len = sizeof(x86_start);
 
         /* Patch call offset into crt0 start_code: relative offset from next instruction (start_code + 15) to main_fn */

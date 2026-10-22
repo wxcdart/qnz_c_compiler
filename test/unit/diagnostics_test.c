@@ -26,11 +26,7 @@ int main(void) {
     zero_cc_compile_c99(c);
     printf("had_error: %d (expected 1)\n", c->had_error);
     assert(c->had_error && "Expected had_error to be set");
-    zero_cc_buf_free(&c->text_section);
-    zero_cc_buf_free(&c->rodata_section);
-    zero_cc_buf_free(&c->data_section);
-    free(c->tokens);
-    free(c);
+    zero_cc_compiler_free(c);
     
     /* Test 2: Static assertion failure */
     printf("\n\nTest 2: Static assertion failure\n");
@@ -42,11 +38,7 @@ int main(void) {
     zero_cc_compile_c99(c);
     printf("had_error: %d (expected 1)\n", c->had_error);
     assert(c->had_error && "Expected had_error to be set");
-    zero_cc_buf_free(&c->text_section);
-    zero_cc_buf_free(&c->rodata_section);
-    zero_cc_buf_free(&c->data_section);
-    free(c->tokens);
-    free(c);
+    zero_cc_compiler_free(c);
     
     printf("\nAll diagnostics tests completed.\n");
     return 0;

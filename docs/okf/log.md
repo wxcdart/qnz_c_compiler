@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T16:37:07Z
+timestamp: 2026-10-22T19:21:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -329,3 +329,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - zero_cc_compiler_free public destroy API; asan-semantic 16/16 (LeakSanitizer-clean semantic harnesses); make asan documented as non-gate with the known remainder
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- make asan now a green tracked gate (147/147) after the full teardown sweep; per-compile struct member array teardown documented in frontend-and-types
+
+## 2026-10-22 — Updated `frontend-and-types.md`
+- Struct member array lifetime: freed per-compilation by zero_cc_free_all_struct_arrays while the type pool is live

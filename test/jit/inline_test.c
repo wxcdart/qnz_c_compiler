@@ -21,11 +21,7 @@ int main(void) {
         free(prep);
         zero_cc_compile_c99(comp);
         int res = zero_cc_execute_jit(comp, NULL);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         printf("Test 1 (static inline): %d (expected 49)\n", res);
         assert(res == 49);
     }
@@ -45,11 +41,7 @@ int main(void) {
         free(prep);
         zero_cc_compile_c99(comp);
         int res = zero_cc_execute_jit(comp, NULL);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         printf("Test 2 (inline func): %d (expected 30)\n", res);
         assert(res == 30);
     }
@@ -69,11 +61,7 @@ int main(void) {
         free(prep);
         zero_cc_compile_c99(comp);
         int res = zero_cc_execute_jit(comp, NULL);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         printf("Test 3 (inline static): %d (expected 42)\n", res);
         assert(res == 42);
     }

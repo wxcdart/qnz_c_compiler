@@ -25,5 +25,6 @@ int main(void) {
     comp->dump_ir = 0;
     zero_cc_compile_c99(comp);
     int res = zero_cc_execute_jit(comp, NULL);
+    zero_cc_compiler_free(comp);
     return res;
 }

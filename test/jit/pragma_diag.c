@@ -33,8 +33,7 @@ static int run_main(const char *src) {
     ZeroCCCompiler *comp = prep_tok(src, NULL, 0);
     zero_cc_compile_c99(comp);
     int ret = zero_cc_execute_jit(comp, NULL);
-    free(comp->tokens);
-    free(comp);
+       zero_cc_compiler_free(comp);
     return ret;
 }
 
@@ -46,7 +45,7 @@ int main(void) {
         const char *src = "#pragma message(\"hello pragma\")\nint main(void) { return 7; }\n";
         ZeroCCCompiler *c = prep_tok(src, out, sizeof(out));
         CHECK(strstr(out, "hello pragma") != NULL, "message text printed");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
         CHECK(run_main(src) == 7, "program with #pragma message runs");
     }
 
@@ -56,7 +55,7 @@ int main(void) {
         CHECK(diag_is_warning_disabled(c, "unused-variable"), "ignored disables warning");
         CHECK(diag_is_warning_disabled(c, "-Wunused-variable"), "-W prefix accepted");
         CHECK(!diag_is_warning_disabled(c, "shadow"), "other warnings unaffected");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
     }
 
     /* push / ignored / pop restores */
@@ -66,7 +65,7 @@ int main(void) {
             "#pragma GCC diagnostic ignored \"-Wshadow\"\n"
             "#pragma GCC diagnostic pop\n", NULL, 0);
         CHECK(!diag_is_warning_disabled(c, "shadow"), "pop restores state");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
     }
 
     /* warning re-enables; error -Werror sets flag */
@@ -77,7 +76,7 @@ int main(void) {
             "#pragma GCC diagnostic error \"-Werror\"\n", NULL, 0);
         CHECK(!diag_is_warning_disabled(c, "shadow"), "warning re-enables");
         CHECK(c->diag_pragma_state.warning_as_error, "error -Werror sets flag");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
     }
 
     /* state does not leak between translation units */
@@ -85,7 +84,7 @@ int main(void) {
         ZeroCCCompiler *c = prep_tok("int y;\n", NULL, 0);
         CHECK(!diag_is_warning_disabled(c, "shadow"), "fresh TU has no disabled warnings");
         CHECK(!c->diag_pragma_state.warning_as_error, "fresh TU has no -Werror");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
     }
 
     /* push_options / pop_options and _Pragma forms are consumed */
@@ -98,7 +97,7 @@ int main(void) {
         CHECK(run_main(src) == 3, "push/pop_options + _Pragma diagnostic compile");
         ZeroCCCompiler *c = prep_tok(src, NULL, 0);
         CHECK(diag_is_warning_disabled(c, "foo"), "_Pragma GCC diagnostic honoured");
-        free(c->tokens); free(c);
+        zero_cc_compiler_free(c);
     }
 
     /* unknown pragma does not break compilation */

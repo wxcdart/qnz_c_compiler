@@ -4,11 +4,7 @@
 
 static void cleanup_comp(ZeroCCCompiler *comp) {
     if (!comp) return;
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
 }
 
 int test_arithmetic_and_return(void) {

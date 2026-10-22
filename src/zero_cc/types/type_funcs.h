@@ -86,6 +86,14 @@ typedef struct ZeroCCTypeNode {
 } ZeroCCTypeNode;
 
 void zero_cc_type_pool_free(void);
+
+/* Free every heap struct/union member array owned by `c` (registration
+ * tables) plus the arrays held by the live type-pool nodes (nested
+ * anonymous structs). Call at the end of a compilation, while the pool is
+ * still alive — after zero_cc_type_pool_free those nested arrays are
+ * unreachable. Distinct arrays are freed exactly once (aliases share one).
+ * Implemented in parser.c (needs the pool list). */
+void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c);
 ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base);
 
 static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {

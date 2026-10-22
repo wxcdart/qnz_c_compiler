@@ -858,6 +858,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     sem_context_destroy(&shared_ctx);
     arena_destroy(tmp);
     arena_destroy(perm);
+    /* Struct member arrays must go while the pool is still alive (the
+     * pool nodes hold the nested anonymous-struct arrays). */
+    zero_cc_free_all_struct_arrays(c);
     zero_cc_type_pool_free();
 }
 

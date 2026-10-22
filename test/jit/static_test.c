@@ -21,11 +21,7 @@ int main(void) {
         free(prep);
         zero_cc_compile_c99(comp);
         int res = zero_cc_execute_jit(comp, NULL);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
         printf("Test (static func): %d (expected 49)\n", res);
         assert(res == 49);
     }

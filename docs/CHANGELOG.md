@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - `make asan` Fully Green (147/147) — 70-Test Teardown Sweep + 3 Latent Bug Fixes
+
+Completed the ASan sweep the destroy-API work left as a known remainder. The combined `make asan` target (all 147 tests under ASan+UBSan) went **77/147 → 147/147**:
+
+- **Sweep**: all ~70 `test/jit`/`test/abi`/`test/unit` programs that compile in-process now tear down via `zero_cc_compiler_free` (replacing hand-rolled buf/token frees; the 6 re-compile programs use a fresh compiler per case, so each gets one final free). `test/jit/ast_lowering.c`'s `cleanup_comp` helper and `test/jit/simd_loop_test.c` (which leaked the whole compiler) included.
+- **Real bug fixed — ELF-exe CRT0 dangling pointer** (`jit/elf_emitter.h`): the x86/RISC-V `crt0` byte arrays were block-scoped locals assigned to `start_code` and `fwrite`'d **after** the if/else — ASan stack-use-after-scope, UB that only worked because the stack slot wasn't reused. Now a function-scope buffer filled from `static const` source arrays.
+- **Real bug fixed — flattened anonymous-struct orphan array** (`parser/definitions.h`): an anonymous struct *member* is flattened into the outer struct (entries copied), orphaning the inner struct's heap members array — leaked per occurrence. Freed right after the flatten.
+- **Per-compile struct-member-array teardown** (`parser.c: zero_cc_free_all_struct_arrays`, called at the end of `zero_cc_compile_c99` while the type pool is still live): frees every distinct members array owned by the registration tables **and** the pool nodes (the live holders of nested anonymous-struct arrays; chasing `base` pointers at destroy time dangles, since the pool dies at compile end). Distinct-pointer dedup prevents double-freeing shared arrays; `structs[]`/`typedefs[]` roots are nulled (those tables persist past the compile).
+- **`zero_cc_compiler_free`**: now also frees the `#pragma GCC diagnostic` warning-name strings whose ownership `zero_cc_tokenize_c99` transfers from the global state to the compiler.
+
+Gates: `make asan` **147/147**, `make test` 147/147, `make test-opt` 107/107, `make test-isa-qemu` 44/44, style 0 errors, diag battery 8/8 baseline OK, sret 6/6.
+
 ## [Sprint 42] - 2026-10-22 - `zero_cc_compiler_free()`: Public Destroy API + `asan-semantic` Green
 
 Closes the resource-management gap the multi-error-recovery work exposed (the public compile API had no destroy path, so every multi-compile consumer leaked one IR arena per compile):

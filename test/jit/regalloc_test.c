@@ -21,11 +21,7 @@ static int run_snippet(const char *src) {
         return -1;
     }
     int ret = zero_cc_execute_jit(comp, NULL);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return ret;
 }
 
@@ -215,11 +211,7 @@ int main(void) {
         comp->asm_out = NULL;
         assert(asm_text != NULL && asm_len > 0 && !comp->had_error);
         free(asm_text);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp->tokens);
-        free(comp);
+        zero_cc_compiler_free(comp);
     }
 
     printf("All register allocation tests passed.\n");

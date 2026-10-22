@@ -44,10 +44,6 @@ int main(void) {
     int result = zero_cc_execute_jit(comp, NULL);
     fprintf(stderr, "DEBUG: execute result=%d\n", result);
     printf("JIT result: %d\n", result);
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return result == 1 ? 0 : 1;
 }

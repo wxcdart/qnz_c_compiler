@@ -119,11 +119,7 @@ static int test_jit_wx_execution(void) {
 
     int result = zero_cc_execute_jit(comp, NULL);
 
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
 
     if (result != 42) {
         fprintf(stderr, "JIT execution failed: expected 42, got %d\n", result);

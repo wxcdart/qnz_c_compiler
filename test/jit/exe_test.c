@@ -38,38 +38,22 @@ int main(void) {
             if (WIFEXITED(status)) {
                 int exit_code = WEXITSTATUS(status);
                 printf("Program exited with code %d\n", exit_code);
-                free(comp->tokens);
-                zero_cc_buf_free(&comp->text_section);
-                zero_cc_buf_free(&comp->rodata_section);
-                zero_cc_buf_free(&comp->data_section);
-                free(comp);
+                zero_cc_compiler_free(comp);
                 return (exit_code == 42) ? 0 : 1;
             } else {
                 fprintf(stderr, "Child did not exit normally\n");
-                free(comp->tokens);
-                zero_cc_buf_free(&comp->text_section);
-                zero_cc_buf_free(&comp->rodata_section);
-                zero_cc_buf_free(&comp->data_section);
-                free(comp);
+                zero_cc_compiler_free(comp);
                 return 1;
             }
         } else {
             perror("fork");
             unlink(outfile);
-            free(comp->tokens);
-            zero_cc_buf_free(&comp->text_section);
-            zero_cc_buf_free(&comp->rodata_section);
-            zero_cc_buf_free(&comp->data_section);
-            free(comp);
+            zero_cc_compiler_free(comp);
             return 1;
         }
     } else {
         fprintf(stderr, "Failed to emit ELF executable\n");
-        free(comp->tokens);
-        zero_cc_buf_free(&comp->text_section);
-        zero_cc_buf_free(&comp->rodata_section);
-        zero_cc_buf_free(&comp->data_section);
-        free(comp);
+        zero_cc_compiler_free(comp);
         return 1;
     }
 }

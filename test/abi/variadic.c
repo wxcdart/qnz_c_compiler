@@ -16,10 +16,6 @@ int main(void) {
     
     int result = zero_cc_execute_jit(comp, NULL);
     
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return result == 0 ? 0 : 1;
 }

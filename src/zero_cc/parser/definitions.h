@@ -197,6 +197,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->offset += anon_offset;
                     }
                 }
+                /* The flattened anonymous struct's own members array is
+                 * now orphaned (entries were copied above) — release it. */
+                free(inner_type.members);
                 continue;
             }
 

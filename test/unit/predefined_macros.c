@@ -19,10 +19,6 @@ int main(void) {
     
     printf("Line difference: %d (expected 1)\n", result);
     
-    zero_cc_buf_free(&comp->text_section);
-    zero_cc_buf_free(&comp->rodata_section);
-    zero_cc_buf_free(&comp->data_section);
-    free(comp->tokens);
-    free(comp);
+    zero_cc_compiler_free(comp);
     return result == 1 ? 0 : 1;
 }
