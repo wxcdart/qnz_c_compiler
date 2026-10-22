@@ -71,7 +71,7 @@ static int instr_is_pure(Instr *instr) {
         case OP_MOV_REG:
         case OP_MOV_IMM:
             return 1;
-        
+
         default:
             return 0;
     }
@@ -108,17 +108,17 @@ static int cse_equal(Instr *a, Instr *b) {
 static int cse_find(Instr *instr) {
     uint32_t key = cse_key(instr);
     uint32_t existing_key;
-    
+
     /* Search for exact match */
     for (size_t i = 0; i < g_cse_table->capacity; i++) {
         size_t slot = (key + i) % g_cse_table->capacity;
         existing_key = g_cse_table->keys[slot];
-        
+
         if (existing_key == UINT32_MAX) {
             /* Empty slot - not found */
             return -1;
         }
-        
+
         /* The value stores the instruction index */
         int existing_idx = (int)g_cse_table->vals[slot];
         Instr *existing = ir_get(existing_idx);
@@ -126,7 +126,7 @@ static int cse_find(Instr *instr) {
             return existing->temp_dest;  /* Return result temp */
         }
     }
-    
+
     return -1;
 }
 
@@ -135,7 +135,7 @@ static int cse_find(Instr *instr) {
  */
 static void cse_add(Instr *instr, int idx) {
     uint32_t key = cse_key(instr);
-    
+
     /* Store instruction index as the value */
     /* When we find a match, we look up the instruction to get its result temp */
     ht32_put(g_cse_table, key, (uint32_t)idx);
@@ -147,7 +147,7 @@ static void cse_add(Instr *instr, int idx) {
 static void replace_with_cse_copy(int instr_idx, int src_temp) {
     Instr *instr = ir_get(instr_idx);
     if (!instr) return;
-    
+
     instr->op = OP_MOV_REG;
     instr->temp_src1 = src_temp;
     instr->temp_src2= TEMP_NONE;
@@ -160,15 +160,15 @@ static void replace_with_cse_copy(int instr_idx, int src_temp) {
  */
 void opt_eliminate_cse(ZeroCCCompiler *c) {
     (void)c;
-    
+
     cse_init();
-    
+
     int count = (int)ir_get_count();
-    
+
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         /* Profile: count basic blocks */
         if (instr->op == OP_LABEL) {
             cse_clear_block();
@@ -176,25 +176,25 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
             opt_profile_count_cse_basic_block();
             continue;
         }
-        
+
         /* Profile: count instructions */
         opt_profile_count_cse_instruction();
-        
+
         /* Skip non-pure operations */
         if (!instr_is_pure(instr)) {
             continue;
         }
-        
+
         /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
         if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
             (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
             (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
             continue;
         }
-        
+
         /* Check if we've seen this expression before */
         int existing = cse_find(instr);
-        
+
         if (existing >= 0) {
             /* Found duplicate - replace with copy */
             replace_with_cse_copy(i, existing);
@@ -204,6 +204,6 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
             cse_add(instr, i);
         }
     }
-    
+
     cse_shutdown();
 }

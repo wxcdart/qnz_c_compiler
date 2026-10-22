@@ -60,7 +60,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
     while (changed && iteration < max_iterations) {
         changed = 0;
         iteration++;
-        
+
         /* Profile: count optimization iterations */
         opt_profile_count_iteration();
 
@@ -96,7 +96,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
             }
         }
     }
-    
+
     /* Profile: record final instruction count */
     opt_profile_set_instructions_after((size_t)ir_get_count());
 }

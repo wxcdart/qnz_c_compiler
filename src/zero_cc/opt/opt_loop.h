@@ -8,7 +8,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /**
  * Loop analysis and optimization framework
- * 
+ *
  * Provides:
  * - Loop detection in IR
  * - Dominator tree construction

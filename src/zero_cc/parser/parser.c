@@ -1,7 +1,7 @@
 /* =========================================================================
  *  parser.c
  *  C99 AST Parser and Code Generator
- *  
+ *
  *  This file acts as a wrapper that includes the split parser modules.
  *  ========================================================================= */
 

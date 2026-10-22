@@ -32,7 +32,7 @@ typedef struct {
     /* Loop contexts for nested break/continue */
     LoopContext loop_stack[16];
     int loop_depth;
-    
+
     /* User-defined labels (for goto) */
     UserLabel user_labels[256];
     int user_label_count;

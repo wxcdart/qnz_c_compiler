@@ -30,14 +30,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     /* Track block depth for VLA hybrid rule enforcement */
     c->lowering.vla.block_depth++;
-    
+
     ASTRef stmt = ref;
     while (stmt != AST_NULL) {
         lower_node(c, arena, stmt);
         ZeroCCASTNode *snode = zero_cc_ast_get(arena, stmt);
         stmt = snode ? snode->next : AST_NULL;
     }
-    
+
     c->lowering.vla.block_depth--;
 }
 
@@ -51,7 +51,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
     if (!node) return;
     if (node->flags & NODE_DECL_IS_VLA) {
         /* Variable Length Array (C99 VLA) - enforce hybrid rules */
-        
+
         /* Rule 1: multiple VLAs per function are supported (Sprint 40):
          * each VLA emits its own OP_VLA_ALLOC (sub rsp, aligned-size;
          * mov ptr, rsp) and stores the pointer in its own local slot;
@@ -59,19 +59,19 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
          * one-VLA-per-function restriction is lifted. */
         c->lowering.vla.has_runtime_vla = true;
         c->lowering.vla.vla_count++;
-        
+
         /* Rule 2: VLA must be at function scope (block_depth == 1) */
         if (c->lowering.vla.block_depth > 1) {
             diag_report_error_at_token(c, "VLA must be at function scope, not in nested blocks (hybrid VLA rule)");
             return;
         }
-        
+
         /* Rule 3: VLA not allowed in loops */
         if (c->lowering.vla.loop_depth > 0) {
             diag_report_error_at_token(c, "VLA not allowed inside loops (hybrid VLA rule)");
             return;
         }
-        
+
         const char *var = node->s.str;
         ZeroCCSym *sym = zero_cc_find_local(c, var);
         if (sym && node->right != AST_NULL) {
@@ -252,25 +252,25 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* System V AMD64 ABI: 9-16 byte struct returned across rax and rdx */
                 // 1. Load lower 8 bytes into rax (VREG_0) via IR
                 ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
-                
+
                 // 2. Load upper 8 bytes into rdx (VREG_2) via IR (or a1/x1)
                 int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
                 ir_emit_load(reg2, BE(c)->fp_reg, struct_offset + 8);
-                
+
                 // 3. Jump to epilogue (which will emit leave; ret)
                 ir_emit_jmp(c->lowering.epilogue_label);
                 return;
             }
-            
+
             /* System V AMD64 ABI: >16 byte struct returned via hidden pointer (sret) */
             /* RDI contains the hidden pointer to caller's buffer */
             else {
                 ZeroCCFunction *cur_fn = (c->function_count > 0) ? &c->functions[c->function_count - 1] : NULL;
                 int32_t sret_off = cur_fn ? cur_fn->sret_stack_offset : 0;
-                
+
                 /* Load hidden pointer directly into VREG_0 (RAX) from stack slot (RDI saved at -sret_off) */
                 ir_emit_load(VREG_0, BE(c)->fp_reg, -sret_off);
-                
+
                 /* Store each 8-byte chunk to [hidden_ptr + i*8] */
                 int num_chunks = (sym->type.size + 7) / 8;
                 for (int i = 0; i < num_chunks; i++) {
@@ -288,7 +288,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         addr_temp = c->next_temp_id++;
                         ir_emit_add(addr_temp, base_temp, off_temp);
                     }
-                    
+
                     /* Load chunk from local stack: local offset is -(sym->stack_offset - i*8) */
                     int32_t chunk_stack_off = -(sym->stack_offset - i * 8);
                     if (rem >= 8) {
@@ -311,7 +311,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         ir_emit_store_byte(chunk_temp, addr_temp);
                     }
                 }
-                
+
                 /* Return hidden pointer in RAX (VREG_0) */
                 ir_emit_load(VREG_0, BE(c)->fp_reg, -sret_off);
                 ir_emit_jmp(c->lowering.epilogue_label);
@@ -430,7 +430,7 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
 void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     /* Track loop depth for VLA hybrid rule enforcement */
     c->lowering.vla.loop_depth++;
-    
+
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
@@ -442,14 +442,14 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
-    
+
     c->lowering.vla.loop_depth--;
 }
 
 void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     /* Track loop depth for VLA hybrid rule enforcement */
     c->lowering.vla.loop_depth++;
-    
+
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_cond = c->ir_next_label++;
@@ -462,14 +462,14 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     ir_emit_jne((uint16_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
-    
+
     c->lowering.vla.loop_depth--;
 }
 
 void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     /* Track loop depth for VLA hybrid rule enforcement */
     c->lowering.vla.loop_depth++;
-    
+
     if (!node) return;
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
@@ -493,7 +493,7 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     ir_emit_jmp(loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
-    
+
     c->lowering.vla.loop_depth--;
 }
 

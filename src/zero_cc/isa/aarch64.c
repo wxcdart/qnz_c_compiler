@@ -557,7 +557,7 @@ static void aarch64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     /* bl label */
     size_t patch_pos = me_get_offset(c);
     arm64_emit_u32(c, 0x94000000);  /* bl . (placeholder) */
-    
+
     /* Add relocation entry for linker to patch */
     if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
         ZeroCCReloc *r = &c->relocs[c->reloc_count++];
@@ -586,7 +586,7 @@ static void aarch64_emit_call_reg(ZeroCCCompiler *c, int reg) {
 
 /* stack_align - ensure 16-byte stack alignment (AArch64 already handles this) */
 static void aarch64_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
-    /* AArch64 ABI requires 16-byte alignment. 
+    /* AArch64 ABI requires 16-byte alignment.
      * This is typically handled by prologue/epilogue. */
     (void)c;
     (void)alignment;
@@ -759,7 +759,7 @@ static void aarch64_emit_const(ZeroCCCompiler *c, int64_t value) {
 
 static void aarch64_emit_stack_adjust(ZeroCCCompiler *c, int32_t delta) {
     if (delta == 0) return;
-    
+
     /* ADD/SUB (immediate): unscaled 12-bit byte offset
      * Base for add sp, sp, #0: 0x910003FF
      * Base for sub sp, sp, #0: 0xD10003FF
@@ -804,11 +804,11 @@ static size_t aarch64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t t
      * - Conditional B.COND: 19-bit signed offset (bits 23:5), condition in bits [3:0]
      */
     int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
-    
+
     if (patch_offset + 4 <= c->text_section.length) {
         uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
-        
+
         /* Check if this is a conditional branch (0x54xxxxxx) or unconditional (0x14xxxxxx, 0x94xxxxxx) */
         if ((*insn & 0xFF000010) == 0x54000000) {
             /* B.COND: 19-bit offset in bits [23:5], preserve condition in bits [3:0] */
@@ -827,12 +827,12 @@ static void aarch64_resolve_labels(ZeroCCCompiler *c) {
         size_t target = c->labels[i].offset;
         for (int j = 0; j < c->labels[i].patch_count; j++) {
             size_t patch_offset = c->labels[i].patches[j];
-            
+
             if (patch_offset + 4 <= c->text_section.length) {
                 uint8_t *buf = (uint8_t *)c->text_section.data;
                 uint32_t *insn = (uint32_t*)(buf + patch_offset);
                 int32_t rel = (int32_t)((target - patch_offset) >> 2);
-                
+
                 /* Check if this is a conditional branch (0x54xxxxxx) or unconditional */
                 if ((*insn & 0xFF000010) == 0x54000000) {
                     /* B.COND: 19-bit offset in bits [23:5], preserve condition in bits [3:0] */
@@ -887,11 +887,11 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
      * ARM64: tmp = src1 / src2; dst = src1 - tmp * src2
      * Use x16 (IP0 - caller-saved scratch) as temporary */
     int tmp = 16; /* x16 */
-    
+
     /* tmp = src1 / src2 (sdiv tmp, src1, src2)
      * sdiv: 0x9AC00800 | (Rm << 16) | (Rn << 5) | Rd */
     arm64_emit_u32(c, 0x9AC00800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (tmp & 0x1F));
-    
+
     /* dst = src1 - (tmp * src2) (msub dst, tmp, src2, src1)
      * msub: 0x9B008000 | (Rm << 16) | (Ra << 10) | (Rn << 5) | Rd */
     arm64_emit_u32(c, 0x9B008000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 10) | ((tmp & 0x1F) << 5) | (dst & 0x1F));
@@ -914,17 +914,17 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* d15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* d14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: x19-x30 */
-    
+
     .emit_prologue = aarch64_emit_prologue,
     .emit_leave = aarch64_emit_leave,
     .emit_epilogue = aarch64_emit_epilogue,
     .get_code_offset = aarch64_get_code_offset,
-    
+
     .emit_prologue_asm = aarch64_emit_prologue_asm,
     .emit_epilogue_asm = aarch64_emit_epilogue_asm,
     .get_hw_reg_name = aarch64_get_hw_reg_name,
     .get_vec_reg_name = aarch64_get_vec_reg_name,
-    
+
     .emit_mov_imm = aarch64_emit_mov_imm,
     .emit_add = aarch64_emit_add,
     .emit_sub = aarch64_emit_sub,
@@ -948,14 +948,14 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_lea = aarch64_emit_lea,
     .patch_jmp = aarch64_patch_jmp,
     .resolve_labels = aarch64_resolve_labels,
-    
+
     /* VREG mapping */
     .get_int_reg = aarch64_get_int_reg,
     .get_fp_reg = aarch64_get_fp_reg,
-    
+
     .emit_load = aarch64_emit_load,
     .emit_store = aarch64_emit_store,
-    
+
     .emit_deref = aarch64_emit_deref,
     .emit_load_32 = aarch64_emit_load_32,
     .emit_load_16 = aarch64_emit_load_16,
@@ -964,7 +964,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_store_16 = aarch64_emit_store_16,
     .emit_store_byte = aarch64_emit_store_byte,
     .emit_lea_rip = aarch64_emit_lea_rip,
-    
+
     .emit_jmp = aarch64_emit_jmp,
     .emit_jeq = aarch64_emit_jeq,
     .emit_jne = aarch64_emit_jne,
@@ -984,7 +984,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_call = aarch64_emit_call,
     .emit_call_reg = aarch64_emit_call_reg,
     .emit_ret = aarch64_emit_ret,
-    
+
     .emit_load_fp = aarch64_emit_load_fp,
     .emit_store_fp = aarch64_emit_store_fp,
     .emit_vloadsd = aarch64_emit_load_fp,
@@ -1001,7 +1001,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_cvtsi = aarch64_emit_fp_cvtsi,
     .emit_fp_cvtsf = aarch64_emit_fp_cvtsf,
     .emit_fp_mov = aarch64_emit_fp_mov,
-    
+
     .emit_const = aarch64_emit_const,
     .emit_stack_adjust = aarch64_emit_stack_adjust,
     .emit_stack_align = aarch64_emit_stack_align,
@@ -1013,7 +1013,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_dec = aarch64_emit_dec,
     .emit_sar = aarch64_emit_sar,
     .emit_label = aarch64_emit_label,
-    
+
     /* ABI and special operations */
     .emit_param_save_int = aarch64_emit_param_save_int,
     .emit_param_save_fp = aarch64_emit_param_save_fp,
@@ -1024,7 +1024,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xadd = aarch64_emit_atomic_xadd,
     .emit_atomic_xchg = aarch64_emit_atomic_xchg,
     .emit_mfence = aarch64_emit_mfence,
-    
+
     /* Assembly emission for IR instructions (Option A) */
     .emit_mov_imm_asm = aarch64_emit_mov_imm_asm,
     .emit_mov_reg_asm = aarch64_emit_mov_reg_asm,

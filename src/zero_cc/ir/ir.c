@@ -39,7 +39,7 @@ void ir_reset(void) {
     if (arena && arena->buffer) {
         arena->count = 0;
     }
-    
+
     IRCallArgsArena *call_arena = ir_call_arena();
     if (call_arena && call_arena->table) {
         call_arena->count = 0;
@@ -72,12 +72,12 @@ void ir_insert_at(size_t idx, Instr instr) {
         fprintf(stderr, "Error: IR arena not initialized for insertion\n");
         exit(1);
     }
-    
+
     if (idx > arena->count) {
         fprintf(stderr, "Error: IR insert index %zu out of bounds (count=%zu)\n", idx, arena->count);
         exit(1);
     }
-    
+
     Instr *ptr = ir_arena_insert(arena, idx, instr);
     if (!ptr) {
         fprintf(stderr, "Error: IR arena insertion failed\n");
@@ -89,7 +89,7 @@ void ir_insert_at(size_t idx, Instr instr) {
 void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
     IRCallArgsArena *call_arena = ir_call_arena();
     if (!call_arena || !call_arena->table) return;
-    
+
     /* Dynamic growth handles capacity automatically */
     ir_call_args_arena_record(call_arena, instr_index, count, temps, is_fp);
 }
@@ -98,7 +98,7 @@ void ir_call_args_record(size_t instr_index, int count, const int *temps, const 
 const IRCallArgs *ir_call_args_find(size_t instr_index) {
     IRCallArgsArena *call_arena = ir_call_arena();
     if (!call_arena || !call_arena->table) return NULL;
-    
+
     for (size_t i = 0; i < call_arena->count; i++) {
         if (call_arena->table[i].instr_index == instr_index) {
             return &call_arena->table[i];
@@ -144,7 +144,7 @@ void ir_emit(Instr instr) {
                 break;
         }
     }
-    
+
     Instr *ptr = ir_arena_emit(arena, instr);
     if (!ptr) {
         fprintf(stderr, "Error: IR arena allocation failed\n");
@@ -188,7 +188,7 @@ void ir_clear(void) {
     if (arena && arena->buffer) {
         arena->count = 0;
     }
-    
+
     IRCallArgsArena *call_arena = ir_call_arena();
     if (call_arena && call_arena->table) {
         call_arena->count = 0;
@@ -199,17 +199,17 @@ void ir_clear(void) {
 void ir_dump(FILE *f) {
     IRArena *arena = ir_arena();
     if (!arena || !arena->buffer) return;
-    
+
     size_t count = arena->count;
     for (size_t i = 0; i < count; i++) {
         Instr *instr = &arena->buffer[i];
-        
+
         /* Print instruction index */
         fprintf(f, "%4zu: ", i);
-        
+
         /* Print instruction */
         switch (instr->op) {
-            case OP_MOV: 
+            case OP_MOV:
                          if (instr->temp_src1== TEMP_NONE) {
                              fprintf(f, "LOAD r%u, [fp%+lld]", instr->temp_dest, (long long)instr->imm64);
                          } else {
@@ -416,7 +416,7 @@ void ir_dump(FILE *f) {
             default: fprintf(f, "OP_%u", instr->op);
                      break;
         }
-        
+
         /* Print flag annotations */
         fprintf(f, " [flags_out=");
         if (instr->flags_out == REG_FLAGS) fprintf(f, "r0");

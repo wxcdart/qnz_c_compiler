@@ -395,7 +395,7 @@ static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
      * For external/prototype functions: emit R_RISCV_CALL_PLT relocation for linker. */
     ZeroCCFunction *fn = func_name ? zero_cc_find_function(c, func_name) : NULL;
     size_t pos = me_get_offset(c);
-    
+
     if (fn && !fn->is_prototype) {
         /* Internal function: compute relative offset and emit jal with correct displacement */
         int32_t rel = (int32_t)(fn->text_offset - pos);
@@ -699,10 +699,10 @@ static void riscv64_emit_lea_rip(ZeroCCCompiler *c, int dst, size_t rodata_offse
 
 /* cond_set dst, cond - set dst to 1 or 0 based on condition code
  * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
- * 
+ *
  * For RISC-V, we use SLT with the operands from the previous CMP instruction.
  * The CMP instruction stores the operands in c->lowering.cmp_src1/2.
- * 
+ *
  * Condition code mapping:
  * - CC_LT: slt dst, src1, src2 (dst = src1 < src2)
  * - CC_LE: slt dst, src2, src1; xnor dst, dst, zero (dst = !(src2 < src1) = src1 <= src2)
@@ -773,10 +773,10 @@ static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
 
 /* jcond cond, label - conditional jump based on condition code
  * IR condition codes: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5
- * 
+ *
  * For RISC-V, we use Bcc instructions with the operands from the previous CMP.
  * The CMP instruction stores the operands in c->lowering.cmp_src1/2.
- * 
+ *
  * Condition code mapping:
  * - CC_LT: blt src1, src2, label
  * - CC_LE: ble src1, src2, label
@@ -942,17 +942,17 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,   /* f15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,     /* f14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
-    
+
     .emit_prologue = riscv64_emit_prologue,
     .emit_leave = riscv64_emit_leave,
     .emit_epilogue = riscv64_emit_epilogue,
     .get_code_offset = riscv64_get_code_offset,
-    
+
     .emit_prologue_asm = riscv_emit_prologue_asm,
     .emit_epilogue_asm = riscv_emit_epilogue_asm,
     .get_hw_reg_name = riscv_get_hw_reg_name,
     .get_vec_reg_name = riscv_get_vec_reg_name,
-    
+
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_mov_reg = riscv64_emit_mov_reg,
     .emit_add = riscv64_emit_add,
@@ -977,7 +977,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
     .resolve_labels = NULL,
-    
+
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
     .emit_vloadss = riscv64_emit_vloadss,
@@ -992,7 +992,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_store_16 = riscv64_emit_store_16,
     .emit_store_byte = riscv64_emit_store_byte,
     .emit_lea_rip = riscv64_emit_lea_rip,
-    
+
     .emit_jmp = riscv64_emit_jmp,
     .emit_jeq = riscv64_emit_jeq,
     .emit_jne = riscv64_emit_jne,
@@ -1003,7 +1003,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_call = riscv64_emit_call,
     .emit_call_reg = riscv64_emit_call_reg,
     .emit_ret = riscv64_emit_ret,
-    
+
     .emit_setl = riscv64_emit_setl,
     .emit_setle = riscv64_emit_setle,
     .emit_setg = riscv64_emit_setg,
@@ -1012,21 +1012,21 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_setne = riscv64_emit_setne,
     .emit_cmp_zero = riscv64_emit_cmp_zero,
     .emit_lnot = riscv64_emit_lnot,
-    
+
     .emit_param_save_int = riscv64_emit_param_save_int,
     .emit_param_save_fp = riscv64_emit_param_save_fp,
     .emit_variadic_spill = riscv64_emit_variadic_spill,
     .emit_variadic_al_setup = riscv64_emit_variadic_al_setup,
-    
+
     .emit_vla_alloc = riscv64_emit_vla_alloc,
     .emit_atomic_cmpxchg = riscv64_emit_atomic_cmpxchg,
     .emit_atomic_xadd = riscv64_emit_atomic_xadd,
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
-    
+
     .get_int_reg = riscv_get_int_reg,
     .get_fp_reg = riscv_get_fp_reg,
-    
+
     .emit_load_fp = riscv64_emit_load_fp,
     .emit_store_fp = riscv64_emit_store_fp,
     .emit_load_fp_rodata = riscv64_emit_load_fp_rodata,
@@ -1039,7 +1039,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_cvtsi = riscv64_emit_fp_cvtsi,
     .emit_fp_cvtsf = riscv64_emit_fp_cvtsf,
     .emit_fp_mov = riscv64_emit_fp_mov,
-    
+
     .emit_const = riscv64_emit_const,
     .emit_stack_adjust = riscv64_emit_stack_adjust,
     .emit_stack_align = riscv64_emit_stack_align,
@@ -1051,7 +1051,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_dec = riscv64_emit_dec,
     .emit_sar = riscv64_emit_sar,
     .emit_label = riscv64_emit_label,
-    
+
     /* Assembly emission for IR instructions (Option A) */
     .emit_mov_imm_asm = riscv_emit_mov_imm_asm,
     .emit_mov_reg_asm = riscv_emit_mov_reg_asm,
@@ -1163,18 +1163,18 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,   /* f15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* f14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: s0-s11 */
-    
+
     .emit_prologue = riscv32_emit_prologue,
     .emit_leave = riscv32_emit_leave,
     .emit_epilogue = riscv32_emit_epilogue,
     .get_code_offset = riscv64_get_code_offset,
-    
+
     /* Assembly emission (shared with RV64) */
     .emit_prologue_asm = riscv_emit_prologue_asm,
     .emit_epilogue_asm = riscv_emit_epilogue_asm,
     .get_hw_reg_name = riscv_get_hw_reg_name,
     .get_vec_reg_name = riscv_get_vec_reg_name,
-    
+
     .emit_mov_imm = riscv64_emit_mov_imm,
     .emit_add = riscv64_emit_add,
     .emit_sub = riscv64_emit_sub,
@@ -1195,18 +1195,18 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
     .resolve_labels = NULL,  /* No label resolution needed for now */
-    
+
     /* VREG mapping */
     .get_int_reg = riscv_get_int_reg,
     .get_fp_reg = riscv_get_fp_reg,
-    
+
     .emit_load = riscv32_emit_load,
     .emit_store = riscv32_emit_store,
     .emit_vloadss = riscv64_emit_vloadss,
     .emit_vloadsd = riscv64_emit_load_fp,
     .emit_vstoress = riscv64_emit_vstoress,
     .emit_vstoredsd = riscv64_emit_store_fp,
-    
+
     .emit_jmp = riscv64_emit_jmp,
     .emit_jeq = riscv64_emit_jeq,
     .emit_jne = riscv64_emit_jne,
@@ -1217,7 +1217,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_call = riscv64_emit_call,
     .emit_call_reg = riscv64_emit_call_reg,
     .emit_ret = riscv64_emit_ret,
-    
+
     .emit_load_fp = riscv64_emit_load_fp,
     .emit_store_fp = riscv64_emit_store_fp,
     .emit_load_fp_rodata = riscv64_emit_load_fp_rodata,
@@ -1230,7 +1230,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_cvtsi = riscv64_emit_fp_cvtsi,
     .emit_fp_cvtsf = riscv64_emit_fp_cvtsf,
     .emit_fp_mov = riscv64_emit_fp_mov,
-    
+
     .emit_const = riscv64_emit_const,
     .emit_stack_adjust = riscv64_emit_stack_adjust,
     .emit_stack_align = riscv64_emit_stack_align,
@@ -1273,7 +1273,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_variadic_spill = riscv64_emit_variadic_spill,
     .emit_variadic_al_setup = riscv64_emit_variadic_al_setup,
     .emit_lea_rip = riscv64_emit_lea_rip,
-    
+
     /* Assembly emission for IR instructions (shared with RV64) */
     .emit_mov_imm_asm = riscv_emit_mov_imm_asm,
     .emit_mov_reg_asm = riscv_emit_mov_reg_asm,
@@ -1322,7 +1322,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vla_alloc_asm = riscv_emit_vla_alloc_asm,
     .emit_param_save_int_asm = riscv_emit_param_save_int_asm,
     .emit_param_save_fp_asm = riscv_emit_param_save_fp_asm,
-    
+
     /* Vector instruction emission (RISC-V doesn't have vector yet) */
     .emit_vload_asm = NULL,
     .emit_vstore_asm = NULL,

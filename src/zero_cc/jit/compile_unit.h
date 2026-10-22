@@ -59,12 +59,12 @@ static inline void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint
 /* Returns true if a top-level declaration was consumed, false otherwise */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
     if (c->token_pos >= c->token_count) return false;
-    
+
     ZeroCCTokType t = c->tokens[c->token_pos].type;
-    
+
     /* Typedef: check next token for struct/union/enum vs scalar */
     if (t == TK_TYPEDEF) {
-        if (c->token_pos + 1 < c->token_count && 
+        if (c->token_pos + 1 < c->token_count &&
             (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
              c->tokens[c->token_pos + 1].type == TK_UNION)) {
             zero_cc_stmt_typedef_struct(c);
@@ -77,7 +77,7 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
             return true;
         }
     }
-    
+
     /* Standalone Enum Declaration / Definition */
     if (t == TK_ENUM) {
         if (c->token_pos + 1 < c->token_count &&
@@ -90,10 +90,10 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
         }
         return false;
     }
-    
+
     /* Struct/Union definition */
     if (t == TK_STRUCT || t == TK_UNION) {
-        if (c->token_pos + 1 < c->token_count && 
+        if (c->token_pos + 1 < c->token_count &&
             (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
              (c->tokens[c->token_pos + 1].type == TK_IDENT &&
               c->token_pos + 2 < c->token_count && c->tokens[c->token_pos + 2].type == TK_LBRACE))) {
@@ -103,7 +103,7 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
         /* If not a struct/union definition, it's a variable declaration */
         return false;
     }
-    
+
     return false;
 }
 
@@ -137,7 +137,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->isa = zero_cc_get_native_backend()->isa;
         c->isa_backend = zero_cc_get_native_backend();
     }
-    
+
     /* Initialize IR arenas if not already initialized */
     if (!c->ir_arena.buffer) {
         if (!ir_arena_init(&c->ir_arena, 4096)) {

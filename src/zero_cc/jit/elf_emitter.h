@@ -89,11 +89,11 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     for (size_t i = 0; i < c->function_count; i++) {
         if (!c->functions[i].is_prototype) fn_count++;
     }
-    
+
     /* Allocate symbol table: 1 null entry + function entries */
     Elf64_Sym *syms = calloc(fn_count + 1, sizeof(Elf64_Sym));
     if (!syms) { fclose(f); return false; }
-    
+
     /* Build string table for function names */
     size_t strtab_size = 1;  /* null byte */
     for (size_t i = 0; i < c->function_count; i++) {
@@ -101,15 +101,15 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
             strtab_size += strlen(c->functions[i].name) + 1;
         }
     }
-    
+
     char *strtab = calloc(strtab_size, 1);
     if (!strtab) { free(syms); fclose(f); return false; }
     strtab[0] = '\0';
-    
+
     /* Populate symbols - local symbols first, then global symbols */
     size_t sym_idx = 1;  /* Skip null entry */
     size_t str_off = 1;  /* Skip null byte */
-    
+
     /* First pass: add local symbols (static functions) */
     for (size_t i = 0; i < c->function_count; i++) {
         ZeroCCFunction *fn = &c->functions[i];
@@ -125,7 +125,7 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
             sym_idx++;
         }
     }
-    
+
     /* Second pass: add global symbols (non-static functions) */
     for (size_t i = 0; i < c->function_count; i++) {
         ZeroCCFunction *fn = &c->functions[i];
@@ -141,9 +141,9 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
             sym_idx++;
         }
     }
-    
+
     size_t local_sym_count = sym_idx - 1;  /* Count of local symbols (excluding null entry) */
-    
+
     shdrs[4].sh_name = 25; shdrs[4].sh_type = SHT_SYMTAB; shdrs[4].sh_offset = offset;
     shdrs[4].sh_size = sizeof(Elf64_Sym) * (fn_count + 1); shdrs[4].sh_link = 5; shdrs[4].sh_info = 1 + local_sym_count;
     shdrs[4].sh_entsize = sizeof(Elf64_Sym); shdrs[4].sh_addralign = 8;
@@ -156,7 +156,7 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     /* Write symbol table and string table */
     fwrite(syms, sizeof(Elf64_Sym), fn_count + 1, f);
     fwrite(strtab, 1, strtab_size, f);
-    
+
     /* Cleanup */
     free(syms);
     free(strtab);

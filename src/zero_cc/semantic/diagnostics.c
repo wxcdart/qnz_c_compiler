@@ -336,7 +336,7 @@ bool diag_is_warning_disabled(const ZeroCCCompiler *c, const char *warn_name) {
     if (!c || !warn_name) return false;
     if (strncmp(warn_name, "-W", 2) == 0) warn_name += 2;
     for (int i = 0; i < c->diag_pragma_state.disabled_warning_count && i < 64; i++) {
-        if (c->diag_pragma_state.disabled_warnings[i] && 
+        if (c->diag_pragma_state.disabled_warnings[i] &&
             strcmp(c->diag_pragma_state.disabled_warnings[i], warn_name) == 0) {
             return true;
         }
@@ -350,7 +350,7 @@ void diag_report_warning_named(ZeroCCCompiler *c, uint32_t line, uint32_t col,
     if (!c || !fmt) return;
     /* Check if warning is disabled */
     if (warn_name && diag_is_warning_disabled(c, warn_name)) return;
-    
+
     uint32_t ln = line, cl = col;
     const char *file = "<stdin>";
     if (c->token_pos < c->token_count) {
@@ -371,7 +371,7 @@ void diag_report_warning_at_token_named(ZeroCCCompiler *c, const char *warn_name
     if (!c || !fmt) return;
     /* Check if warning is disabled */
     if (warn_name && diag_is_warning_disabled(c, warn_name)) return;
-    
+
     uint32_t line = 0, col = 0;
     const char *file = "<stdin>";
     if (c->token_pos < c->token_count) {

@@ -431,7 +431,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             sym->is_param = true;
             sym->param_reg_idx = (int)p;
             bool is_fp = (param_types[p].tag == TYPE_FLOAT || param_types[p].tag == TYPE_DOUBLE);
-            
+
             if (is_fp && xmm_reg_idx < 8) {
                 xmm_reg_idx++;
             } else if (!is_fp && int_reg_idx < 6) {
@@ -502,18 +502,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (sem_ok) {
             /* Set active compiler for IR emission */
             ir_set_compiler(c);
-            
+
             /* Reset register allocator for this function */
             regalloc_init(&c->regalloc);
             c->next_temp_id = VREG_USER_START;
             c->ir_next_label = 0;
-            
+
             /* Reset IR buffer for this function */
             ir_reset();
-            
+
             /* Pass 1: Lower AST to IR (instruction selection) */
             zero_cc_lower_ast(c, &arena, body);
-            
+
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
              * are executed inside zero_cc_lower_ast(). */
 

@@ -45,16 +45,16 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     size_t total_alloc = aligned_sz + 16; /* 16 bytes for ra and s0 above s0 */
-    
+
     fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
     fprintf(out, "\tsd\tra, %zu(sp)\n", aligned_sz + 8);
     fprintf(out, "\tsd\ts0, %zu(sp)\n", aligned_sz);
     fprintf(out, "\taddi\ts0, sp, %zu\n", aligned_sz);
-    
+
     /* Save callee-saved registers s1..s11 at -offset(s0) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 8) continue; /* s0 already saved above */
@@ -67,11 +67,11 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, restore ra/s0, deallocate frame, ret */
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
-    
+
     /* Restore callee-saved registers s1..s11 */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 8) continue;
@@ -79,7 +79,7 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tld\t%s, -%d(s0)\n", reg_name, offset);
     }
-    
+
     fprintf(out, "\taddi\tsp, s0, 0\n");
     fprintf(out, "\tld\tra, 8(sp)\n");
     fprintf(out, "\tld\ts0, 0(sp)\n");
@@ -320,14 +320,14 @@ static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t
 static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
     static const char *int_arg_regs[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
     static const char *fp_arg_regs[] = {"fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7"};
-    
+
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
     int indirect_temp = -1;
     int int_src_regs[8];
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
-    
+
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
@@ -335,7 +335,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
                                    ? BE(c)->regs->fp_regs[phys_reg]
                                    : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        
+
         if (arg_is_fp == 2) {
             indirect_temp = temp;
         } else if (arg_is_fp == 1 && fp_arg_idx < 8) {
@@ -348,7 +348,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             }
         }
     }
-    
+
     /* Save indirect callee into t1 before clobbering argument registers */
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
     if (!func_name && indirect_temp >= 0) {
@@ -361,7 +361,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             fprintf(out, "\tmv\tt1, %s\n", BE(c)->get_hw_reg_name(r_callee));
         }
     }
-    
+
     /* Arguments beyond a0-a7 (8 args) go on the stack: 16-byte aligned */
     int n_stack = (total_int_count > 8) ? total_int_count - 8 : 0;
     int stack_alloc = ((n_stack * 8) + 15) & ~15;
@@ -399,7 +399,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
         }
         fprintf(out, "\taddi\tsp, sp, %d\n", alloc_bytes);
     }
-    
+
     if (!func_name && indirect_temp >= 0) {
         fprintf(out, "\tjalr\tra, 0(t1)\n");
     } else if (func_name) {
@@ -814,7 +814,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_epilogue_asm = riscv_emit_epilogue_asm;
     be->get_hw_reg_name = riscv_get_hw_reg_name;
     be->get_vec_reg_name = riscv_get_vec_reg_name;
-    
+
     be->emit_mov_imm_asm = riscv_emit_mov_imm_asm;
     be->emit_mov_reg_asm = riscv_emit_mov_reg_asm;
     be->emit_load_asm = riscv_emit_load_asm;
@@ -862,7 +862,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vla_alloc_asm = riscv_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = riscv_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = riscv_emit_param_save_fp_asm;
-    
+
     /* Vector instruction emission (RVV) */
     be->emit_vload_asm = riscv_emit_vload_asm;
     be->emit_vstore_asm = riscv_emit_vstore_asm;

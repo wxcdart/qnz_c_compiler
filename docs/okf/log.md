@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T12:01:50Z
+timestamp: 2026-10-22T12:30:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -308,3 +308,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Documented include-order prescription and the flat include/ design decision (Sprint 42): why include/<project>/ subdirectory is deliberately not used (threads.h system emulation, single umbrella API) and the revisit trigger (second public header family, e.g. zero_rt); new docs/coding_style.md as the repo style reference
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- Added tools/style_check.py (ruff-style C convention checker codifying docs/coding_style.md: include rules, whitespace, EOF newline, header guards, <module>_<action> public-function prefix NAM001, unbounded-string-call warnings) to the verification tool list; corrected the naming convention to the actual per-module prefix scheme; trimmed 921 trailing-whitespace lines + 4 missing EOF newlines across 58 files

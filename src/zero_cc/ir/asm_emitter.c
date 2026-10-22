@@ -2,7 +2,7 @@
  *
  * This module implements ISA-agnostic assembly emission from IR.
  * It delegates to backend-specific functions for ISA-specific assembly generation.
- * 
+ *
  * Option A: Full Backend-Driven Architecture
  * All assembly emission is delegated to BE(c)->emit_*_asm() functions.
  */
@@ -23,7 +23,7 @@ static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
 void emit_function_label_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     size_t func_idx = c->function_count - 1;
-    
+
     /* Emit .globl and label (skip .globl for static functions) */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
         if (!c->functions[func_idx].is_static) {
@@ -56,7 +56,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_mov_imm_asm(c, phys_dst, instr->imm64, out);
             }
             return;
-            
+
         case OP_MOV_REG:
             /* Peephole: eliminate redundant register self-moves (mov reg, reg) */
             if (phys_dst == phys_src1) {
@@ -66,25 +66,25 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         case OP_MOV:  /* Load from stack */
             if (BE(c)->emit_load_asm) {
                 BE(c)->emit_load_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
-            
+
         case OP_MOV_MEM:  /* Store to stack */
             if (BE(c)->emit_store_asm) {
                 BE(c)->emit_store_asm(c, phys_src1, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
-            
+
         case OP_LEA:
             if (BE(c)->emit_lea_asm) {
                 BE(c)->emit_lea_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
             }
             return;
-            
+
         case OP_DEREF:
             if (BE(c)->emit_deref_asm) {
                 BE(c)->emit_deref_asm(c, phys_dst, phys_src1, out);
@@ -201,74 +201,74 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         /* Arithmetic */
         case OP_ADD:
             if (BE(c)->emit_add_asm) {
                 BE(c)->emit_add_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_SUB:
             if (BE(c)->emit_sub_asm) {
                 BE(c)->emit_sub_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_MUL:
             if (BE(c)->emit_mul_asm) {
                 BE(c)->emit_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_DIV:
             if (BE(c)->emit_div_asm) {
                 BE(c)->emit_div_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_MOD:
             if (BE(c)->emit_mod_asm) {
                 BE(c)->emit_mod_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_AND:
             if (BE(c)->emit_and_asm) {
                 BE(c)->emit_and_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_OR:
             if (BE(c)->emit_or_asm) {
                 BE(c)->emit_or_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_XOR:
             if (BE(c)->emit_xor_asm) {
                 BE(c)->emit_xor_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_SHL:
             if (BE(c)->emit_shl_asm) {
                 BE(c)->emit_shl_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_SHR:
             if (BE(c)->emit_shr_asm) {
                 BE(c)->emit_shr_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_SAR:
             if (BE(c)->emit_sar_asm) {
                 BE(c)->emit_sar_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_NEG:
             if (BE(c)->emit_neg_asm) {
                 BE(c)->emit_neg_asm(c, phys_dst, phys_src1, out);
@@ -337,7 +337,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         /* Comparison */
         case OP_CMP: {
             /* Float compare (ucomisd / fcmp) when either operand is an
@@ -353,7 +353,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         case OP_COND_SET:
             if (BE(c)->emit_cond_set_asm) {
                 BE(c)->emit_cond_set_asm(c, phys_dst, instr->cond, out);
@@ -376,7 +376,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         /* Control Flow */
         case OP_LABEL:
             if (BE(c)->emit_label_asm) {
@@ -385,7 +385,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_label_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JMP:
             if (BE(c)->emit_jmp_asm) {
                 char lbl_buf[64];
@@ -393,7 +393,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jmp_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JE:
             if (BE(c)->emit_jeq_asm) {
                 char lbl_buf[64];
@@ -410,7 +410,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jeq_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JNE:
             if (BE(c)->emit_jne_asm) {
                 char lbl_buf[64];
@@ -427,7 +427,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jne_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JL:
             if (BE(c)->emit_jlt_asm) {
                 char lbl_buf[64];
@@ -435,7 +435,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jlt_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JLE:
             if (BE(c)->emit_jle_asm) {
                 char lbl_buf[64];
@@ -443,7 +443,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jle_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JG:
             if (BE(c)->emit_jgt_asm) {
                 char lbl_buf[64];
@@ -451,9 +451,9 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jgt_asm(c, lbl_buf, out);
             }
             return;
-            
+
         case OP_JCOND:
-            if (BE(c)->emit_jeq_asm || BE(c)->emit_jne_asm || BE(c)->emit_jlt_asm || 
+            if (BE(c)->emit_jeq_asm || BE(c)->emit_jne_asm || BE(c)->emit_jlt_asm ||
                 BE(c)->emit_jle_asm || BE(c)->emit_jgt_asm || BE(c)->emit_jge_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
@@ -467,7 +467,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 }
             }
             return;
-            
+
         case OP_LEA_RIP: {
             size_t rodata_offset = (size_t)instr->imm64;
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
@@ -499,10 +499,10 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_CALL: {
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;
-            
+
             /* Look up recorded call arguments */
             const IRCallArgs *call_args = ir_call_args_find(idx);
-            
+
             if (BE(c)->emit_call_asm) {
                 if (call_args) {
                     /* Unpack uint8_t temps array into int array for backend */
@@ -519,13 +519,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         case OP_RET:
             if (BE(c)->emit_ret_asm) {
                 BE(c)->emit_ret_asm(c, out);
             }
             return;
-            
+
         /* Floating Point */
         case OP_FLOAD:
             if (BE(c)->emit_load_fp_asm) {
@@ -544,25 +544,25 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_fp_add_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_FSUB:
             if (BE(c)->emit_fp_sub_asm) {
                 BE(c)->emit_fp_sub_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_FMUL:
             if (BE(c)->emit_fp_mul_asm) {
                 BE(c)->emit_fp_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_FDIV:
             if (BE(c)->emit_fp_div_asm) {
                 BE(c)->emit_fp_div_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_FMOV:
             if (BE(c)->emit_fp_mov_asm) {
                 BE(c)->emit_fp_mov_asm(c, phys_dst, phys_src1, out);
@@ -580,7 +580,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_fp_cvtsi_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         /* VLA */
         case OP_VLA_ALLOC:
             if (BE(c)->emit_vla_alloc_asm) {
@@ -604,149 +604,149 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_variadic_spill_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
             }
             return;
-            
+
         /* SIMD/Vector Operations - Scalar Single-Precision */
         case OP_VADDSS:
             if (BE(c)->emit_vaddss_asm) {
                 BE(c)->emit_vaddss_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VSUBSS:
             if (BE(c)->emit_vsubss_asm) {
                 BE(c)->emit_vsubss_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMULSS:
             if (BE(c)->emit_vmulss_asm) {
                 BE(c)->emit_vmulss_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VDIVSS:
             if (BE(c)->emit_vdivss_asm) {
                 BE(c)->emit_vdivss_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMOVSS:
             if (BE(c)->emit_vmovss_asm) {
                 BE(c)->emit_vmovss_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         /* SIMD/Vector Operations - Scalar Double-Precision */
         case OP_VADDSD:
             if (BE(c)->emit_vaddsd_asm) {
                 BE(c)->emit_vaddsd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VSUBSD:
             if (BE(c)->emit_vsubsd_asm) {
                 BE(c)->emit_vsubsd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMULSD:
             if (BE(c)->emit_vmulsd_asm) {
                 BE(c)->emit_vmulsd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VDIVSD:
             if (BE(c)->emit_vdivsd_asm) {
                 BE(c)->emit_vdivsd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMOVSD:
             if (BE(c)->emit_vmovsd_asm) {
                 BE(c)->emit_vmovsd_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         /* SIMD/Vector Operations - Packed Single-Precision */
         case OP_VADDPS:
             if (BE(c)->emit_vaddps_asm) {
                 BE(c)->emit_vaddps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VSUBPS:
             if (BE(c)->emit_vsubps_asm) {
                 BE(c)->emit_vsubps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMULPS:
             if (BE(c)->emit_vmulps_asm) {
                 BE(c)->emit_vmulps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VDIVPS:
             if (BE(c)->emit_vdivps_asm) {
                 BE(c)->emit_vdivps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMOVAPS:
             if (BE(c)->emit_vmovaps_asm) {
                 BE(c)->emit_vmovaps_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         case OP_VANDPS:
             if (BE(c)->emit_vandps_asm) {
                 BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VORPS:
             if (BE(c)->emit_vorps_asm) {
                 BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VXORPS:
             if (BE(c)->emit_vxorps_asm) {
                 BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VSHUFPS:
             if (BE(c)->emit_vshufps_asm) {
                 BE(c)->emit_vshufps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
             }
             return;
-            
+
         /* SIMD/Vector Operations - Packed Double-Precision */
         case OP_VADDPD:
             if (BE(c)->emit_vaddpd_asm) {
                 BE(c)->emit_vaddpd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VSUBPD:
             if (BE(c)->emit_vsubpd_asm) {
                 BE(c)->emit_vsubpd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMULPD:
             if (BE(c)->emit_vmulpd_asm) {
                 BE(c)->emit_vmulpd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VDIVPD:
             if (BE(c)->emit_vdivpd_asm) {
                 BE(c)->emit_vdivpd_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         /* SIMD/Vector Operations - Packed 32-bit Integer */
         case OP_VPADDD:
             if (BE(c)->emit_vpaddd_asm) {
@@ -765,20 +765,20 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_vpmulld_asm(c, phys_dst, phys_src1, phys_src2, out);
             }
             return;
-            
+
         case OP_VMOVAPD:
             if (BE(c)->emit_vmovapd_asm) {
                 BE(c)->emit_vmovapd_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         /* SIMD/Vector Memory Operations */
         case OP_VLOAD:
             if (BE(c)->emit_vload_asm) {
                 BE(c)->emit_vload_asm(c, phys_dst, phys_src1, instr->imm, out);
             }
             return;
-            
+
         case OP_VLOADSS: {
             const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
@@ -814,7 +814,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
         }
-            
+
         case OP_VSTORE:
             if (BE(c)->emit_vstore_asm) {
                 BE(c)->emit_vstore_asm(c, phys_src2, phys_src1, instr->imm, out);
@@ -883,33 +883,33 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
-            
+
         /* SIMD/Vector Conversions */
         case OP_VCVT_SI2SS:
             if (BE(c)->emit_vcvt_si2ss_asm) {
                 BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         case OP_VCVT_SS2SI:
             if (BE(c)->emit_vcvt_ss2si_asm) {
                 BE(c)->emit_vcvt_ss2si_asm(c, phys_dst, phys_src1, out);
             }
             return;
-            
+
         /* SIMD/Vector Comparison */
         case OP_VCMPSS:
             if (BE(c)->emit_vcmpss_asm) {
                 BE(c)->emit_vcmpss_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
             }
             return;
-            
+
         case OP_VCMPSD:
             if (BE(c)->emit_vcmpsd_asm) {
                 BE(c)->emit_vcmpsd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
             }
             return;
-            
+
         default:
             /* Unknown opcode - emit comment */
             fprintf(out, "\t# UNKNOWN: %s\n", ir_opcode_name(instr->op));
@@ -1005,17 +1005,17 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 /* Emit all IR instructions as assembly */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     c->regalloc.spill_base_offset = spill_base_offset;
-    
+
     /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
     size_t func_idx = c->function_count > 0 ? c->function_count - 1 : 0;
-    
+
     /* Emit all IR instructions */
     for (size_t i = 0; i < count; i++) {
         asm_emit_instruction(c, &instrs[i], i, func_idx);
     }
-    
+
     /* Emit epilogue */
     if (BE(c)->emit_epilogue_asm) {
         BE(c)->emit_epilogue_asm(c);

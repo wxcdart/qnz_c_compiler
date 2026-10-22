@@ -1,7 +1,7 @@
 /* ==========================================================================
  *  core.h
  *  C99 Compiler Core - Preprocessor, Buffers, Compiler State
- *  
+ *
  *  This file acts as a wrapper that includes the split core modules.
  *  ========================================================================== */
 

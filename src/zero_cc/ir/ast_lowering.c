@@ -85,19 +85,19 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->lowering, 0, sizeof(c->lowering));
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
-    
+
     /* Initialize VLA state */
     c->lowering.vla.has_runtime_vla = false;
     c->lowering.vla.vla_count = 0;
     c->lowering.vla.block_depth = 0;
     c->lowering.vla.loop_depth = 0;
-    
+
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
     regalloc_set_isa(&c->regalloc, c->isa);  /* Set target ISA and reserved registers */
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
-    
+
     /* Reset label patcher state */
     label_patcher_init(&c->label_patcher);
 
@@ -113,7 +113,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int xmm_idx = 0;
         int int_idx = 0;
         int stack_idx = 0;
-        
+
         /* >16 byte struct returns use hidden sret pointer:
          * - System V AMD64 ABI (x86-64): RDI (param_idx=0), real params start at RSI (int_idx=1)
          * - RISC-V LP64D ABI: a0 (param_idx=0), real params start at a1 (int_idx=1)
@@ -229,12 +229,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             fn_name, c->next_temp_id - VREG_USER_START);
         return;
     }
-    
+
     /* 1. Run IR optimization passes FIRST (before register allocation) */
     opt_init(c->opt_level);
     opt_run_passes(c);
     opt_shutdown();
-    
+
     /* 2. Compute live ranges and allocate registers on optimized IR */
     LiveRangeAnalyzer lra;
     live_range_init(&lra);
@@ -258,10 +258,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         ir_emit_callee_save_stores(callee_save_mask);
         ir_emit_callee_save_loads(callee_save_mask);
     }
-    
+
     /* Callee-save IR append (Phase D) mutated the IR: invalidate CFG cache. */
     c->cfg_version++;
-    
+
     /* x86 float-compare CC remap (C12): on this host class (WSL2),
      * comisd/ucomisd sets CF/ZF but NOT SF/OF, so the signed condition
      * codes (setl/setle/setg/setge) misfire on float compares while
@@ -287,9 +287,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         /* In-place IR mutation: invalidate the cached CFG (Phase 2). */
         c->cfg_version++;
     }
-    
+
     live_range_free(&lra);
-    
+
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
     /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area */
@@ -307,7 +307,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
-    
+
     /* Emit machine code or assembly from IR with allocated registers */
     if (c->emit_asm) {
         /* For assembly: emit function label, then prologue, then IR (param saves in IR) */
@@ -320,22 +320,22 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         emit_ir_to_machine_code(c, spill_base_offset);
     }
 
-    
+
     /* Emit return jumps after IR-to-MC */
     emit_return_jumps(c);
-    
+
     /* Resolve all label patches */
     if (BE(c)->resolve_labels) {
         BE(c)->resolve_labels(c);
     }
-    
+
     /* Callee-saved register loads are now handled by OP_CALLEE_SAVE_LOADS IR instruction */
-    
+
     /* Emit epilogue */
     BE(c)->emit_leave(c);
     BE(c)->emit_ret(c);
     regalloc_destroy(&c->regalloc);
-    
+
     /* Debug: Dump IR if requested */
     if (c->dump_ir) {
         fprintf(stderr, "DEBUG: dump_ir flag is SET, function_count=%zu\n", c->function_count);
@@ -348,16 +348,16 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             fprintf(stderr, "DEBUG: No functions found!\n");
         }
     }
-    
+
     /* Debug: Dump CFG if requested (Sprint 35 Phase 2) */
     if (c->dump_cfg) {
         cfg_dump(stderr);
         fprintf(stderr, "\n");
     }
-    
+
     /* Clear IR buffer for next function */
     ir_clear();
-    
+
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
 }

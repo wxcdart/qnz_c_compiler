@@ -5,7 +5,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /**
  * Eliminate common subexpressions
- * 
+ *
  * Algorithm:
  * 1. Build hash table of expressions (op + operands)
  * 2. For each expression, check if we've seen it before

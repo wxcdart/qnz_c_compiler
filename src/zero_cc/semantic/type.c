@@ -278,17 +278,17 @@ void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t of
 /* Add a bit-field to a struct type */
 void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed) {
     if (!struct_t || !name || !field_type) return;
-    
+
     // Allocate or grow field array
     size_t new_count = struct_t->details.record.field_count + 1;
     void *new_fields = arena_alloc(perm, new_count * sizeof(struct StructField));
     if (!new_fields) return;
-    
+
     // Copy existing fields
     if (struct_t->details.record.fields) {
         memcpy(new_fields, struct_t->details.record.fields, struct_t->details.record.field_count * sizeof(struct StructField));
     }
-    
+
     // Add new field
     struct StructField *fields = (struct StructField *)new_fields;
     /* Copy the name into the permanent arena: callers may pass pointers into
@@ -303,7 +303,7 @@ void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t
     fields[new_count - 1].bit_offset = bit_offset;
     fields[new_count - 1].bit_width = bit_width;
     fields[new_count - 1].is_signed = is_signed;
-    
+
     struct_t->details.record.fields = fields;
     struct_t->details.record.field_count = new_count;
 }
@@ -312,7 +312,7 @@ void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t
 struct StructField *type_find_field_info(const TypeInfo *struct_t, const char *name) {
     if (!struct_t || !name) return NULL;
     if (!struct_t->details.record.fields) return NULL;
-    
+
     for (size_t i = 0; i < struct_t->details.record.field_count; i++) {
         if (strcmp(struct_t->details.record.fields[i].name, name) == 0) {
             return &struct_t->details.record.fields[i];

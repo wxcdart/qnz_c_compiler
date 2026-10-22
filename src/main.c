@@ -1,6 +1,6 @@
 /*
  * ZeroCC CLI Driver
- * 
+ *
  * A GCC-compatible command-line interface for the ZeroCC C compiler.
  * Supports JIT mode, object file output, and various optimization levels.
  */
@@ -80,10 +80,10 @@ static void print_version(void) {
 static int parse_args(int argc, char **argv, CompileOptions *opts) {
     memset(opts, 0, sizeof(*opts));
     opts->opt_level = 1; /* Default -O1 */
-    
+
     for (int i = 1; i < argc; i++) {
         const char *arg = argv[i];
-        
+
         if (strcmp(arg, "-o") == 0 && i + 1 < argc) {
             opts->output_file = argv[++i];
         }
@@ -182,13 +182,13 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             return -1;
         }
     }
-    
+
     if (!opts->input_file) {
         fprintf(stderr, "Error: No input file specified\n");
         print_usage(argv[0]);
         return -1;
     }
-    
+
     return 1; /* Continue with compilation */
 }
 
@@ -198,21 +198,21 @@ static char *read_file(const char *path) {
         perror(path);
         return NULL;
     }
-    
+
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    
+
     char *buf = malloc(size + 1);
     if (!buf) {
         fclose(f);
         return NULL;
     }
-    
+
     size_t read = fread(buf, 1, size, f);
     buf[read] = '\0';
     fclose(f);
-    
+
     return buf;
 }
 
@@ -372,7 +372,7 @@ static int compile_jit(CompileOptions *opts) {
     if (!source) {
         return 1;
     }
-    
+
     if (opts->verbose) {
         const char *opt_name = "O0";
         switch (opts->opt_level) {
@@ -384,7 +384,7 @@ static int compile_jit(CompileOptions *opts) {
         printf("Compiling %s with -O%s (target: %s)\n", opts->input_file, opt_name,
                opts->target_arch ? opts->target_arch : "x86-64");
     }
-    
+
     /* Create compiler */
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
     if (!comp) {
@@ -392,14 +392,14 @@ static int compile_jit(CompileOptions *opts) {
         free(source);
         return 1;
     }
-    
+
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
 
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
-    
+
     /* Preprocess (with -I include dirs and -D defines from the CLI) */
     char *prep = preprocess_with_options(source, opts);
     free(source);
@@ -411,27 +411,27 @@ static int compile_jit(CompileOptions *opts) {
         zero_cc_free_compiler(comp);
         return 1;
     }
-    
+
     /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
-    
+
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
         comp->dump_ir = 1;
     }
-    
+
     /* Enable CFG dump if requested (Sprint 35 Phase 2) */
     if (opts->dump_cfg) {
         comp->dump_cfg = 1;
     }
-    
+
     /* Enable optimization profiling if requested */
     if (opts->profile_opts) {
         opt_profile_enable(1);
         opt_profile_reset();
     }
-    
+
     /* Enable assembly emission if requested */
     if (opts->emit_asm) {
         comp->emit_asm = 1;
@@ -468,7 +468,7 @@ static int compile_jit(CompileOptions *opts) {
             printf("Writing assembly to: %s\n", out_path);
         }
     }
-    
+
     /* Compile */
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
@@ -480,12 +480,12 @@ static int compile_jit(CompileOptions *opts) {
         zero_cc_free_compiler(comp);
         return 1;
     }
-    
+
     /* Dump optimization profile if requested */
     if (opts->profile_opts) {
         opt_profile_dump(stderr);
     }
-    
+
     /* Execute or emit assembly */
     int result = 0;
     if (opts->emit_asm) {
@@ -500,14 +500,14 @@ static int compile_jit(CompileOptions *opts) {
             printf("JIT execution result: %d\n", result);
         }
     }
-    
+
     /* Cleanup */
     zero_cc_buf_free(&comp->text_section);
     zero_cc_buf_free(&comp->rodata_section);
     zero_cc_buf_free(&comp->data_section);
     free(comp->tokens);
     zero_cc_free_compiler(comp);
-    
+
     return result;
 }
 
@@ -529,7 +529,7 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
     comp->isa = target_isa;
     comp->isa_backend = backend;
-    
+
     /* Initialize IR arenas */
     if (!ir_arena_init(&comp->ir_arena, 4096)) {
         fprintf(stderr, "Error: Failed to initialize IR arena\n");
@@ -568,7 +568,7 @@ static void zero_cc_free_compiler(ZeroCCCompiler *comp) {
         free(comp->tu_ast_arena);
         comp->tu_ast_arena = NULL;
     }
-    
+
     free(comp);
 }
 
@@ -578,12 +578,12 @@ static int compile_object(CompileOptions *opts) {
     if (!source) {
         return 1;
     }
-    
+
     if (opts->verbose) {
-        printf("Compiling %s to object file (target: %s)\n", opts->input_file, 
+        printf("Compiling %s to object file (target: %s)\n", opts->input_file,
                opts->target_arch ? opts->target_arch : "x86-64");
     }
-    
+
     /* Create compiler */
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
     if (!comp) {
@@ -591,14 +591,14 @@ static int compile_object(CompileOptions *opts) {
         free(source);
         return 1;
     }
-    
+
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
 
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
-    
+
     /* Preprocess (with -I include dirs and -D defines from the CLI) */
     char *prep = preprocess_with_options(source, opts);
     free(source);
@@ -610,28 +610,28 @@ static int compile_object(CompileOptions *opts) {
         zero_cc_free_compiler(comp);
         return 1;
     }
-    
+
     /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
-    
+
     /* Enable IR dump if requested */
     if (opts->dump_ir) {
         comp->dump_ir = 1;
     }
-    
+
     /* Enable CFG dump if requested (Sprint 35 Phase 2) */
     if (opts->dump_cfg) {
         comp->dump_cfg = 1;
     }
-        
+
     /* Enable optimization profiling if requested (Sprint 35 Phase 4: the
      * AOT path previously dumped a disabled profile). */
     if (opts->profile_opts) {
         opt_profile_enable(1);
         opt_profile_reset();
     }
-    
+
     /* Enable assembly emission if requested */
     if (opts->emit_asm) {
         comp->emit_asm = 1;
@@ -668,7 +668,7 @@ static int compile_object(CompileOptions *opts) {
             printf("Writing assembly to: %s\n", out_path);
         }
     }
-    
+
     /* Compile */
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
@@ -680,12 +680,12 @@ static int compile_object(CompileOptions *opts) {
         zero_cc_free_compiler(comp);
         return 1;
     }
-    
+
     /* Dump optimization profile if requested */
     if (opts->profile_opts) {
         opt_profile_dump(stderr);
     }
-    
+
     /* Determine output filename */
     const char *output_path = opts->output_file;
     if (!output_path) {
@@ -709,11 +709,11 @@ static int compile_object(CompileOptions *opts) {
         }
         output_path = output_buf;
     }
-    
+
     if (opts->verbose) {
         printf("Writing object file: %s\n", output_path);
     }
-    
+
     /* Determine ELF machine type for target */
     ElfMachineType elf_machine;
     switch (comp->isa) {
@@ -723,11 +723,11 @@ static int compile_object(CompileOptions *opts) {
         case ISA_RISCV32: elf_machine = ELF_MACHINE_RISCV32; break;
         default: elf_machine = ELF_MACHINE_X86_64; break;
     }
-    
+
     /* Initialize ELF writer */
     ElfWriterCtx elf_ctx;
     elf_writer_init(&elf_ctx, elf_machine);
-    
+
     /* Add .text section */
     if (comp->text_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".text",
@@ -737,7 +737,7 @@ static int compile_object(CompileOptions *opts) {
                                ELF_SHF_ALLOC | ELF_SHF_EXECINSTR,
                                16);
     }
-    
+
     /* Add .rodata section */
     if (comp->rodata_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".rodata",
@@ -747,7 +747,7 @@ static int compile_object(CompileOptions *opts) {
                                ELF_SHF_ALLOC,
                                8);
     }
-    
+
     /* Add .data section */
     if (comp->data_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".data",
@@ -757,7 +757,7 @@ static int compile_object(CompileOptions *opts) {
                                ELF_SHF_ALLOC | ELF_SHF_WRITE,
                                8);
     }
-    
+
     /* Add .rodata section symbol first (needed for string literal relocations) */
     /* Section symbols must come before global symbols for correct sh_info calculation */
     if (comp->rodata_section.length > 0) {
@@ -766,7 +766,7 @@ static int compile_object(CompileOptions *opts) {
                               2,  /* .rodata section index */
                               0, 0);
     }
-    
+
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
@@ -781,7 +781,7 @@ static int compile_object(CompileOptions *opts) {
                 }
                 if (!referenced) continue;
             }
-            
+
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
             int section_idx = SHN_UNDEF;  // Default to undefined
@@ -797,7 +797,7 @@ static int compile_object(CompileOptions *opts) {
                                   fn_size);
         }
     }
-    
+
     /* Add symbols for global variables (.data section) */
     int data_section_idx = (comp->rodata_section.length > 0) ? 3 : 2;
     for (size_t i = 0; i < global_var_count; i++) {
@@ -811,11 +811,11 @@ static int compile_object(CompileOptions *opts) {
                                   gv->size);
         }
     }
-    
+
     /* Architecture-specific relocation types */
     int reloc_type_call, reloc_type_rodata;
     int addend_call, addend_rodata;
-    
+
     switch (comp->isa) {
         case ISA_X86_64:
             reloc_type_call = 4;   /* R_X86_64_PLT32 */
@@ -843,7 +843,7 @@ static int compile_object(CompileOptions *opts) {
             addend_rodata = -4;
             break;
     }
-    
+
     /* Add relocation entries for external function calls and symbol address loads */
     int reloc_type_hi20 = 23;  /* R_RISCV_PCREL_HI20 (auipc half of a global load) */
     for (size_t i = 0; i < comp->reloc_count; i++) {
@@ -910,10 +910,10 @@ static int compile_object(CompileOptions *opts) {
             }
         }
     }
-    
+
     /* Add relocation entries for string literals (.rodata references) */
     int rodata_symbol_idx = 1;
-    
+
     for (size_t i = 0; i < comp->str_reloc_count; i++) {
         ZeroCCStringReloc *sr = &comp->str_relocs[i];
         if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
@@ -962,7 +962,7 @@ static int compile_object(CompileOptions *opts) {
                                       (int64_t)sr->rodata_offset + addend_rodata);
         }
     }
-    
+
     /* Relocations for .data pointer initializers (string literals -> .rodata,
      * &global -> another global's address). */
     int reloc_type_data_abs = 1; /* R_X86_64_64 */
@@ -997,7 +997,7 @@ static int compile_object(CompileOptions *opts) {
             }
         }
     }
-    
+
     /* Write ELF file or emit assembly */
     if (opts->emit_asm) {
         /* Assembly emission is handled in ast_lowering.c; emit .rodata and .data */
@@ -1017,7 +1017,7 @@ static int compile_object(CompileOptions *opts) {
     } else if (opts->verbose) {
         printf("Object file written successfully\n");
     }
-    
+
     /* Cleanup */
     elf_writer_cleanup(&elf_ctx);
     zero_cc_buf_free(&comp->text_section);
@@ -1025,7 +1025,7 @@ static int compile_object(CompileOptions *opts) {
     zero_cc_buf_free(&comp->data_section);
     free(comp->tokens);
     zero_cc_free_compiler(comp);
-    
+
     return 0;
 }
 
@@ -1062,15 +1062,15 @@ static int compile_and_link(CompileOptions *opts) {
         fprintf(stderr, "Error: Compilation to object file failed\n");
         return ret;
     }
-    
+
     if (opts->verbose) {
         printf("Linking with system linker...\n");
     }
-    
+
     /* Invoke system linker (gcc) to create executable */
     char cmd[2048];
     const char *output = opts->output_file ? opts->output_file : "a.out";
-    
+
     /* Select appropriate linker based on target ISA */
     const char *linker = "gcc";
     const char *abi_flags = "-no-pie";
@@ -1088,7 +1088,7 @@ static int compile_and_link(CompileOptions *opts) {
         abi_flags = "-mabi=ilp32d -march=rv32gc";
         static_flag = "-static";
     }
-    
+
     char lib_args[1024] = "";
     for (int i = 0; i < opts->lib_count; i++) {
         strncat(lib_args, " ", sizeof(lib_args) - strlen(lib_args) - 1);
@@ -1111,25 +1111,25 @@ static int compile_and_link(CompileOptions *opts) {
                  "%s %s %s -o %s %s -lc%s 2>&1",
                  linker, abi_flags, static_flag, output, obj_path, lib_args);
     }
-    
+
     if (opts->verbose) {
         printf("  %s\n", cmd);
     }
-    
+
     ret = system(cmd);
-    
+
     /* Clean up temporary object file */
     if (!getenv("ZC_KEEP_OBJ")) unlink(obj_path);
-    
+
     if (ret != 0) {
         fprintf(stderr, "Error: Linking failed\n");
         return 1;
     }
-    
+
     if (opts->verbose) {
         printf("Executable created: %s\n", output);
     }
-    
+
     return 0;
 }
 
@@ -1189,12 +1189,12 @@ int main(int argc, char **argv) {
     }
 #endif
     CompileOptions opts;
-    
+
     int ret = parse_args(argc, argv, &opts);
     if (ret <= 0) {
         return ret == 0 ? 0 : 1;
     }
-    
+
     /* Determine mode: -c -> object file, -S -> assembly, -o without -c -> executable, else JIT */
     if (opts.emit_object || opts.emit_asm) {
         /* When ZC_TEXT_AOT=1 is set for cross targets, route -c through the text

@@ -5,7 +5,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /**
  * Fold constant expressions in IR
- * 
+ *
  * Performs:
  * - Constant arithmetic (2 + 3 → 5)
  * - Algebraic simplification (x + 0 → x, x * 1 → x)

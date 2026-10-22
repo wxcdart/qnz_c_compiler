@@ -27,7 +27,7 @@ typedef struct {
     TempVar temp_vars[256];
     size_t temp_var_count;
     int next_temp_id;
-    
+
     /* Float argument spill offsets per call index */
     int32_t call_fp_spills[64][8];
     int call_fp_spill_counts[64];
@@ -49,7 +49,7 @@ typedef struct {
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */
-    
+
     /* CMP operand tracking for RISC-V backend (flags materialization):
      * RISC-V has no flags register, so the last OP_CMP/OP_CMP_ZERO's
      * operands (and class) are recorded here; the flag consumer
@@ -58,10 +58,10 @@ typedef struct {
     int cmp_src1;                      /* First operand of last CMP instruction */
     int cmp_src2;                      /* Second operand of last CMP instruction */
     int cmp_is_fp;                     /* Last CMP had FP-class operands */
-    
+
     /* Hybrid VLA enforcement state */
     VLAState vla;                      /* VLA tracking and enforcement */
-    
+
     /* Alias group tracking for restrict pointers (temp -> alias_group ID) */
     uint8_t temp_alias_group[256];
 

@@ -108,14 +108,14 @@ typedef struct ZeroCCCompiler {
     size_t pack_ev_tok[256];
     int pack_ev_val[256];
     size_t pack_ev_n;
-    
+
     /* GCC diagnostic pragma state (from preprocessor) */
     struct {
         bool warning_as_error;
         char *disabled_warnings[64];
         int disabled_warning_count;
     } diag_pragma_state;
-    
+
     /* Debug flags */
     bool dump_ir;  /* Dump IR after lowering */
     bool dump_cfg; /* Dump CFG after lowering (-dump-cfg) */
@@ -140,7 +140,7 @@ typedef struct ZeroCCCompiler {
 
     /* Lowering state - Task 61/62: Encapsulated per-compiler-instance state */
     LoweringState lowering;
-    
+
     /* Label patcher state - Task 62: Unified label resolution */
     LabelPatcherState label_patcher;
 

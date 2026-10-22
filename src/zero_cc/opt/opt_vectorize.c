@@ -13,9 +13,9 @@
 
 /**
  * Auto-vectorization pass implementation
- * 
+ *
  * Transforms scalar loops into vectorized SIMD loops.
- * 
+ *
  * Algorithm:
  * 1. Detect countable loops over arrays
  * 2. Check for vectorizable patterns (element-wise ops)
@@ -43,11 +43,11 @@ typedef struct {
     int capacity;  /* Maximum number of loops */
     int vector_width;
     int target_isa;
-    
+
     /* Vector temp mappings */
     VectorTempMap vec_map[256];
     int vec_map_count;
-    
+
     /* Loop body indices */
     int *body_indices;
     size_t body_count;
@@ -73,7 +73,7 @@ void vectorization_init(VectorizationState *state, int target_isa) {
     state->capacity = MAX_VECTOR_LOOPS;
     state->vector_width = vectorization_get_width(target_isa);
     state->target_isa = target_isa;
-    
+
     for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
         state->loops[i].is_vectorizable = false;
         state->loops[i].vector_width = state->vector_width;
@@ -99,7 +99,7 @@ void vectorization_free(VectorizationState *state) {
  */
 static bool is_vec_arith(Instr *instr) {
     if (!instr) return false;
-    
+
     switch (instr->op) {
         case OP_ADD:
         case OP_SUB:
@@ -118,12 +118,12 @@ static bool is_vec_arith(Instr *instr) {
  */
 static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, LoopInfo *loop) {
     if (state->loop_count >= state->capacity) return;
-    
+
     VectorizationInfo *vinfo = &state->loops[state->loop_count];
     vinfo->is_vectorizable = false;
     vinfo->body_start_idx = loop->header_idx;
     vinfo->body_end_idx = loop->exit_idx;
-    
+
     /* Simple heuristic: check if loop body contains array load/store + arithmetic */
     int load_count = 0;
     int store_count = 0;
@@ -134,12 +134,12 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     bool has_fp = false;
     bool has_call = false;   /* C11: calls/returns in the body make it non-vectorizable */
     bool has_mid_body_cond = false;  /* Vectorizer hardening: conditional branches inside the loop body (not the backedge) make it non-vectorizable */
-    
+
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
         Instr *instr = ir_get(idx);
         if (!instr) continue;
-        
+
         /* C11: a function call (or return) in the loop body is a side effect
          * that cannot be replicated across vector lanes - the transform
          * would still widen the induction step (i += 1 -> i += vec_width)
@@ -149,7 +149,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             has_call = true;
             continue;
         }
-        
+
         /* Look for array access pattern */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             load_count++;
@@ -178,7 +178,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (is_vec_arith(instr)) {
             arith_count++;
         }
-        
+
         /* Look for loop variable increment */
         if (instr->op == OP_ADD) {
             if (instr->imm == 1) {
@@ -188,7 +188,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             }
         }
     }
-    
+
     /* Vectorizer hardening (Sprint 35 Phase 3): CFG-based mid-body
      * conditional check.  The legacy per-instruction span scan flagged the
      * loop's OWN header test (a forward JE-to-exit inside the span) as a
@@ -232,7 +232,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             has_mid_body_cond = true;
         }
     }
-    
+
     /* Vectorizer hardening (Sprint 35 Phase 3): loop-bound safety. The
      * transform widens the induction step (i += 1 -> i += vec_width) and
      * processes vec_width elements per iteration with NO remainder
@@ -305,7 +305,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             }
         }
     }
-    
+
     /* Vectorization criteria:
      * - At least 2 array loads (read operands)
      * - At least 1 array store (write result inside the loop body)
@@ -337,11 +337,11 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
  */
 void vectorization_analyze_full(VectorizationStateFull *state) {
     int count = (int)ir_get_count();
-    
+
     /* Build label-to-instruction-index map */
     int label_to_idx[256];
     for (int i = 0; i < 256; i++) label_to_idx[i] = -1;
-    
+
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
@@ -349,7 +349,7 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
             label_to_idx[instr->label_idx] = i;
         }
     }
-    
+
     /* Collect all backedges first so we can identify innermost loops */
     typedef struct {
         int target;
@@ -361,7 +361,7 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
     for (int i = 0; i < count && num_backedges < (int)(sizeof(backedges) / sizeof(backedges[0])); i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        int is_jump = (instr->op == OP_JMP || instr->op == OP_JE || 
+        int is_jump = (instr->op == OP_JMP || instr->op == OP_JE ||
             instr->op == OP_JNE || instr->op == OP_JL ||
             instr->op == OP_JLE || instr->op == OP_JG);
         if (is_jump) {
@@ -456,7 +456,7 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
 
 /**
  * Transform a vectorizable loop to use SIMD instructions
- * 
+ *
  * Phase 1: Precision Data-Flow & Memory Indexing
  * - Single-pass transformation with proper def-use wiring
  * - Accurate address calculation for VLOAD/VSTORE
@@ -466,18 +466,18 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     if (loop_idx < 0 || loop_idx >= state->loop_count) {
         return false;
     }
-    
+
     VectorizationInfo *vinfo = &state->loops[loop_idx];
     if (!vinfo->is_vectorizable) {
         return false;
     }
-    
+
     int vec_width = vinfo->vector_width;
-    
+
     /* Get loop body */
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
-    
+
     /* Guard: Only vectorize if loop has scalar increment (i += 1) */
     bool found_scalar_increment = false;
     int loop_var_temp = -1;
@@ -496,21 +496,21 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             }
         }
     }
-    
+
     if (!found_scalar_increment) {
         return false;
     }
-    
+
     /* Store the loop variable temp for use in the increment rewrite below */
     vinfo->loop_var_temp = loop_var_temp;
-    
+
     /* Change loop increment from i += 1 to i += vec_width (e.g. 4)
      * Only rewrite the SPECIFIC loop counter increment (matching loop_var_temp),
      * not any other ADD with constant 1 (which could be a non-counter increment). */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         if (instr->op == OP_ADD && instr->temp_src1 == loop_var_temp) {
             if (instr->imm == 1) {
                 instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
@@ -527,26 +527,26 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             }
         }
     }
-    
+
     /* Track scalar temp -> vector temp mapping for data flow.
      * Sprint 35 P4: full 16-bit temp-id space (static, memset per call).
      * The old [256] local went OOB for functions with >256 temps. */
     static int16_t s_scalar_to_vec_map[65536];
     int16_t *scalar_to_vec_map = s_scalar_to_vec_map;
     memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
-    
+
     /* Transform loads, arithmetic, and stores */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         /* Handle scalar loads -> VLOAD */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             int vec_temp = instr->temp_dest;
-            
+
             /* Map scalar dest to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_temp;
-            
+
             /* Replace with VLOAD */
             instr->op = OP_VLOAD;
             instr->temp_dest = vec_temp;
@@ -559,26 +559,26 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->flags_in = 0xFF;
             continue;
         }
-        
+
         /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
             /* Get vector operation */
             int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32);
-            
+
             /* Get source vector temps from map */
             int vec_src1 = scalar_to_vec_map[instr->temp_src1];
             int vec_src2 = scalar_to_vec_map[instr->temp_src2];
-            
+
             /* Skip if sources not mapped (loop invariants) */
             if (vec_src1 < 0 || vec_src2 < 0) {
                 continue;
             }
-            
+
             int vec_dest = instr->temp_dest;
-            
+
             /* Map result to vector temp */
             scalar_to_vec_map[instr->temp_dest] = vec_dest;
-            
+
             /* Replace with vector arithmetic */
             instr->op = vec_op;
             instr->temp_dest = vec_dest;
@@ -591,12 +591,12 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->flags_in = 0xFF;
             continue;
         }
-        
+
         /* Handle scalar stores -> VSTORE */
         if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
             int scalar_val_temp = -1;
             int scalar_addr_temp = -1;
-            
+
             if (instr->op == OP_STORE_32) {
                 /* STORE_32 [src2], src1: src1 is val, src2 is addr */
                 scalar_val_temp = instr->temp_src1;
@@ -606,15 +606,15 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                 scalar_val_temp = instr->temp_src2;
                 scalar_addr_temp = instr->temp_src1;
             }
-            
+
             /* Get vector value from map */
             int vec_value = (scalar_val_temp >= 0 && scalar_val_temp < 256) ? scalar_to_vec_map[scalar_val_temp] : -1;
-            
+
             /* Skip if value not mapped */
             if (vec_value < 0) {
                 continue;
             }
-            
+
             /* Replace with VSTORE [addr], vec_value */
             instr->op = OP_VSTORE;
             instr->temp_dest= TEMP_NONE;
@@ -629,7 +629,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             continue;
         }
     }
-    
+
     return true;
 }
 
@@ -642,14 +642,14 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
     state.vector_width = vectorization_get_width(state.target_isa);
     state.loop_count = 0;
     state.capacity = MAX_VECTOR_LOOPS;  /* Initialize capacity */
-    
+
     /* Analyze loops for vectorization opportunities */
     vectorization_analyze_full(&state);
-    
+
     if (state.loop_count == 0) {
         return;
     }
-    
+
     /* Transform vectorizable loops */
     int transformed = 0;
     for (int i = 0; i < state.loop_count; i++) {
@@ -657,6 +657,6 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
             transformed++;
         }
     }
-    
+
     (void)transformed;  /* Suppress unused warning */
 }

@@ -50,9 +50,9 @@ void opt_profile_dump(FILE *f) {
         fprintf(f, "[Profiling disabled]\n");
         return;
     }
-    
+
     fprintf(f, "\n=== Optimization Profile Statistics ===\n");
-    
+
     /* CSE statistics */
     fprintf(f, "\nCSE (Common Subexpression Elimination):\n");
     fprintf(f, "  Total instructions scanned: %zu\n", g_stats.cse_total_instructions);
@@ -62,7 +62,7 @@ void opt_profile_dump(FILE *f) {
         double elim_rate = (double)g_stats.cse_eliminated / g_stats.cse_total_instructions * 100.0;
         fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
     }
-    
+
     /* GVN statistics */
     fprintf(f, "\nGVN (Global Value Numbering):\n");
     fprintf(f, "  Total instructions scanned: %zu\n", g_stats.gvn_total_instructions);
@@ -71,11 +71,11 @@ void opt_profile_dump(FILE *f) {
         double elim_rate = (double)g_stats.gvn_eliminated / g_stats.gvn_total_instructions * 100.0;
         fprintf(f, "  Elimination rate: %.2f%%\n", elim_rate);
     }
-    
+
     /* Branchless select (Sprint 39) */
     fprintf(f, "\nBranchless select:\n");
     fprintf(f, "  Ternary branches converted: %zu\n", g_stats.branchless_selects);
-    
+
     /* Copy propagation statistics */
     fprintf(f, "\nCopy Propagation:\n");
     fprintf(f, "  Total instructions scanned: %zu\n", g_stats.copy_prop_instructions);
@@ -84,18 +84,18 @@ void opt_profile_dump(FILE *f) {
         double change_rate = (double)g_stats.copy_prop_changes / g_stats.copy_prop_instructions * 100.0;
         fprintf(f, "  Change rate: %.2f%%\n", change_rate);
     }
-    
+
     /* DCE statistics */
     fprintf(f, "\nDCE (Dead Code Elimination):\n");
     fprintf(f, "  Instructions eliminated: %zu\n", g_stats.dce_eliminated);
     fprintf(f, "  Iterations: %zu\n", g_stats.dce_iterations);
-    
+
     /* LICM statistics */
     fprintf(f, "\nLICM (Loop-Invariant Code Motion):\n");
     fprintf(f, "  Loops detected: %zu\n", g_stats.licm_loops_detected);
     fprintf(f, "  Invariants found: %zu\n", g_stats.licm_invariants_found);
     fprintf(f, "  Instructions moved: %zu\n", g_stats.licm_instructions_moved);
-    
+
     /* Register allocation statistics */
     fprintf(f, "\nRegister Allocation:\n");
     fprintf(f, "  Total live intervals: %zu\n", g_stats.regalloc_total_intervals);
@@ -106,7 +106,7 @@ void opt_profile_dump(FILE *f) {
         double spill_rate = (double)g_stats.regalloc_spilled / g_stats.regalloc_total_intervals * 100.0;
         fprintf(f, "  Spill rate: %.2f%%\n", spill_rate);
     }
-    
+
     /* Per-pass wall time (Sprint 35 Phase 4) */
     if (g_stats.pass_name_count > 0) {
         fprintf(f, "\nPer-pass wall time (ms, accumulated over all functions):\n");
@@ -125,11 +125,11 @@ void opt_profile_dump(FILE *f) {
     fprintf(f, "  Instructions after optimization: %zu\n", g_stats.total_instructions_after);
     fprintf(f, "  Optimization iterations: %zu\n", g_stats.optimization_iterations);
     if (g_stats.total_instructions_before > 0) {
-        double reduction = (double)(g_stats.total_instructions_before - g_stats.total_instructions_after) 
+        double reduction = (double)(g_stats.total_instructions_before - g_stats.total_instructions_after)
                           / g_stats.total_instructions_before * 100.0;
         fprintf(f, "  Instruction reduction: %.2f%%\n", reduction);
     }
-    
+
     fprintf(f, "\n=======================================\n");
 }
 

@@ -8,14 +8,14 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /**
  * Auto-vectorization pass
- * 
+ *
  * Transforms scalar loops into vectorized loops using SIMD instructions.
- * 
+ *
  * Supported patterns:
  * - Array element-wise operations (add, sub, mul)
  * - Countable loops with stride-1 accesses
  * - Simple reduction operations
- * 
+ *
  * Vector widths:
  * - x86-64 SSE2: 4x float32, 2x float64
  * - AArch64 NEON: 4x float32, 2x float64

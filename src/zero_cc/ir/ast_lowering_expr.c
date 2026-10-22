@@ -345,7 +345,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return TEMP_NONE;
-    
+
     switch (node->tag) {
         case NODE_INT: {
             int temp = c->next_temp_id++;
@@ -353,21 +353,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return temp;
         }
-        
+
         case NODE_BOOL: {
             int temp = c->next_temp_id++;
             ir_emit_mov_imm(temp, node->int_val);
             c->last_expr_is_float = 0;
             return temp;
         }
-        
+
         case NODE_NULLPTR: {
             int temp = c->next_temp_id++;
             ir_emit_mov_imm(temp, 0);
             c->last_expr_is_float = 0;
             return temp;
         }
-        
+
         case NODE_FLOAT: {
             /* Float literals: store in rodata and load via RIP-relative addressing.
              * A double must be 8-byte aligned in .rodata (AArch64 LDR D requires 8-
@@ -383,7 +383,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 1;
             return temp;
         }
-        
+
         case NODE_STRING: {
             int temp = c->next_temp_id++;
             if (node->s.str) {
@@ -399,10 +399,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return temp;
         }
-        
+
         case NODE_IDENT: {
             const char *name = node->s.str;
-            
+
             /* Special case: __func__ returns pointer to function name string */
             if (strcmp(name, "__func__") == 0) {
                 const char *fn_name = "";
@@ -418,7 +418,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 0;
                 return temp;
             }
-            
+
             /* Inlined function parameter substitution */
             if (c->lowering.inlining.active_depth > 0) {
                 for (int p = 0; p < c->lowering.inlining.param_count; p++) {
@@ -518,7 +518,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return TEMP_NONE;
             }
         }
-        
+
         case NODE_BINOP: {
             /* Logical AND (&&) / OR (||): compute (left != 0) and (right != 0)
              * as 0/1 integers, then combine with bitwise & / |. Straight-line
@@ -621,7 +621,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 c->last_expr_is_float = 1;
                 return result_temp;
             }
-            
+
             /* Integer arithmetic - use IR */
             int result_temp = c->next_temp_id++;
             switch (node->aux.op) {
@@ -712,14 +712,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return result_temp;
         }
-        
+
         case NODE_COMMA: {
             /* Comma operator: evaluate left, discard result, evaluate right, return right */
             lower_expr(c, arena, node->left);
             int right_temp = lower_expr(c, arena, node->right);
             return right_temp;
         }
-        
+
         case NODE_UNOP: {
             if (node->aux.op == TK_INC || node->aux.op == TK_DEC) {
                 ZeroCCASTNode *operand = zero_cc_ast_get(arena, node->left);
@@ -954,7 +954,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             int operand_temp = lower_expr(c, arena, node->left);
             int result_temp = c->next_temp_id++;
-            
+
             switch (node->aux.op) {
                 case TK_STAR: { /* Dereference */
                     size_t p_size = 0;
@@ -1022,7 +1022,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return result_temp;
         }
-        
+
         case NODE_CAST: {
             int result = lower_expr(c, arena, node->left);
             TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
@@ -1074,57 +1074,57 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             return result;
         }
-        
+
         case NODE_VA_START: {
             /* va_start(ap, last) - initialize va_list to point to variadic args */
             /* The variadic args are in the spill area after the fixed params */
             /* For System V AMD64: after saving rdi, rsi, rdx, rcx, r8, r9 */
             /* The first variadic arg is at offset after the last fixed param */
-            
+
             /* Get the ap variable name - node->left is an ASTRef to the ap identifier */
             ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
             const char *ap_var = (ap_node && ap_node->tag == NODE_IDENT) ? ap_node->s.str : "";
             ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
-            
+
             if (ap_sym) {
                 /* Get the 'last' parameter to find where variadic args start */
                 ZeroCCASTNode *last_node = zero_cc_ast_get(arena, node->right);
                 const char *last_var = (last_node && last_node->tag == NODE_IDENT) ? last_node->s.str : "";
                 ZeroCCSym *last_sym = zero_cc_find_local(c, last_var);
-                
+
                 if (last_sym) {
                     /* variadic args start 8 bytes after the last fixed param in stack */
                     int32_t va_start_offset = -(last_sym->stack_offset + 8);
-                    
+
                     /* Store address into ap: ap = (char*)fp_reg + va_start_offset */
                     int addr_temp = c->next_temp_id++;
                     ir_emit_lea(addr_temp, TEMP_NONE, va_start_offset);
                     ir_emit_store(addr_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
                 }
             }
-            
+
             c->last_expr_is_float = 0;
             return VREG_0;
         }
-        
+
         case NODE_VA_ARG: {
             /* va_arg(ap, type) - extract next variadic argument */
             /* Simplified: bump pointer by 8 bytes and load */
             /* Full implementation would check gp_offset for register args */
-            
+
             /* Get the va_list pointer */
             int ap_temp = lower_expr(c, arena, node->left);
-            
+
             /* Load the value from [ap] */
             int result_temp = c->next_temp_id++;
             ir_emit_deref(result_temp, ap_temp);
-            
+
             /* Bump ap by 8 bytes downward: ap -= 8 */
             int eight_temp = c->next_temp_id++;
             ir_emit_mov_imm(eight_temp, -8);
             int new_ap_temp = c->next_temp_id++;
             ir_emit_add(new_ap_temp, ap_temp, eight_temp);
-            
+
             /* Store back to ap variable */
             ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
             const char *ap_var = ap_node ? ap_node->s.str : "";
@@ -1132,18 +1132,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             if (ap_sym) {
                 ir_emit_store(new_ap_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
             }
-            
+
             c->last_expr_is_float = 0;
             return result_temp;
         }
-        
+
         case NODE_ASSIGN: {
             /* Check if this is a compound assignment (+=, -=, etc.) */
             bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
-            
+
             int right_temp = lower_expr(c, arena, node->right);
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
-            
+
             if (left_node && left_node->tag == NODE_MEMBER) {
                 /* Struct member assignment: traverse chain of member accesses */
                 int32_t member_offset = 0;
@@ -1381,9 +1381,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     return right_temp;
                 }
-                
+
                 int32_t total_offset = base_stack_offset + member_offset;
-                                
+
                 if (left_node->flags & NODE_MEMBER_IS_BITFIELD) {
                     uint8_t bit_offset = (uint8_t)(left_node->aux.step & 0xFF);
                     uint8_t bit_width = (uint8_t)((left_node->aux.step >> 8) & 0xFF);
@@ -1925,7 +1925,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return right_temp;
         }
-        
+
         case NODE_TERNARY: {
             /* Ternary (cond ? then : else) using standard IR.
              *
@@ -1986,7 +1986,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = fp_result;
             return res_temp;
         }
-        
+
         case NODE_COMPOUND_LIT: {
             ZeroCCSym *sym = (node->s.str && node->s.str[0]) ? zero_cc_find_local(c, node->s.str) : NULL;
             if (!sym) {
@@ -2166,7 +2166,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return val_temp;
             }
         }
-        
+
         case NODE_INDEX: {
             /* Array indexing: base[index] */
             int array_temp = lower_expr(c, arena, node->left);
@@ -2255,7 +2255,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             return result_temp;
         }
-        
+
         case NODE_MEMBER: {
             /* Load member value from memory (Rvalue context) */
             int32_t member_offset = 0;
@@ -2520,7 +2520,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return val_temp;
         }
-        
+
         case NODE_CALL: {
             /* Function call - handle float args directly in machine code, int args via IR */
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
@@ -2666,7 +2666,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 0;
                     return bool_res;
                 }
-                
+
                 /* Collect argument temps for both integer and FP args */
                 ASTRef arg = node->right;
                 int all_arg_temps[IR_CALL_MAX_ARGS];
@@ -2677,7 +2677,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
                 int param_idx = 0;  /* declaration-order index into callee param_types */
-                
+
                 ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
                 ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
                 bool is_indirect_call = (callee_fn == NULL && callee_sym != NULL);
@@ -2845,11 +2845,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     arg_node = zero_cc_ast_get(arena, arg);
                     arg = arg_node ? arg_node->next : AST_NULL;
                 }
-                
+
                 /* Reload arguments from stack slots immediately before call */
                 int int_reload_idx = 0;
                 int fp_reload_idx = 0;
-                
+
                 bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
                 int sret_buf_temp = 0;
                 int32_t buf_stack_off = 0;
@@ -2880,7 +2880,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     all_arg_count++;
                     int_reload_idx++;
                 }
-                
+
                 /* Then reload FP arguments */
                 for (int f = 0; f < fp_arg_idx; f++) {
                     int reload_temp = c->next_temp_id++;
@@ -2899,13 +2899,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     all_arg_is_fp[all_arg_count] = 2; /* 2 marks indirect callee register */
                     all_arg_count++;
                 }
-                
+
                 /* Total integer arguments in standard arg registers (x0..x7 on AArch64 excludes x8 sret) */
                 int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
 
                 /* Emit IR call (NULL name for indirect calls) */
                 ir_emit_call(is_indirect_call ? NULL : name);
-                
+
                 /* Pack argument info into the instruction.
                  * C2b: args 0/1 go in the widened temp_src1/src2 fields;
                  * the full argument list (all args, indirect callee, sret)
@@ -2925,7 +2925,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* Store fp_arg_idx in label_idx for variadic handling */
                     last_instr->label_idx = (uint16_t)fp_arg_idx;
                 }
-                
+
                 /* Record float spill offsets for this call */
                 if (c->lowering.ir_ctx.call_count < 64) {
                     int cidx = c->lowering.ir_ctx.call_count++;
@@ -2934,7 +2934,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
                 }
-                
+
                 if (call_ret_type.tag == TYPE_FLOAT || call_ret_type.tag == TYPE_DOUBLE) {
                     c->last_expr_is_float = 1;
                     /* Materialize the FP result into a tracked temp (C8):
@@ -2949,9 +2949,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 c->last_expr_is_float = 0;
-                
+
                 /* Check if function returns a 9-16 byte struct/union */
-                if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && 
+                if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&
                     call_ret_type.size > 8 && call_ret_type.size <= 16) {
                     /* Store struct return info in label_idx: high byte = 1, low byte = size */
                     if (ir_get_count() > 0) {
@@ -2961,7 +2961,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* 9-16 byte struct return uses integer register pair */
                     return VREG_0;
                 }
-                
+
                 /* If function returns >16 byte struct, return pointer to allocated buffer */
                 if (callee_uses_sret) {
                     int call_res_temp = c->next_temp_id++;
@@ -2982,7 +2982,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             c->last_expr_is_float = 0;
             return VREG_0;
         }
-        
+
         default:
             return TEMP_NONE;
     }

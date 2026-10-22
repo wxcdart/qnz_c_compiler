@@ -32,6 +32,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test
   make test-opt            # optimizer sweep: -O0..-O3, JIT + AOT, via zerocc itself
   python3 tools/sret_verifier.py --verify-all
+  python3 tools/style_check.py   # C style/convention checker (docs/coding_style.md rules)
   python3 tools/okf.py lint
   ```
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: differential-tests **every** target ISA's *raw* binary emitter under QEMU (`test/isa_qemu/` battery; raw path via `ZC_RAW_AOT=1`, diffed against a **static-musl** reference, both run under `qemu-*-static`). **Dependency:** `qemu-user-static` + a per-ISA static-musl reference wrapper (`musl-gcc-<arch>`) built by `tools/setup_musl_cross.sh` (uniform musl-static baseline across all 4 ISAs; riscv32 also gets a small rv32 libgcc shim) — the harness preflights these and prints the setup command. **Status:** **All 4 target ISAs (44/44)** are fully green: **x86-64 (11/11)**, **aarch64 (11/11)**, **riscv64 (11/11)**, and **riscv32 (11/11)** pass cleanly under QEMU. Run one ISA: `python3 tools/isa_qemu_diff.py --isa riscv32`.

@@ -4,10 +4,10 @@
 /* Virtual Register (VREG) Definitions for ZeroCC
  *
  * Design: Simple Index-Based Approach
- * 
+ *
  * Virtual registers are just numbers (0-15 for int, 0-15 for float).
  * Each ISA backend interprets them as its native register encodings.
- * 
+ *
  * This works because most ISAs use sequential encodings:
  *   x86-64: 0=rax, 1=rcx, 2=rdx, 3=rbx, 4=rsp, 5=rbp, 6=rsi, 7=rdi, 8=r8...
  *   aarch64: 0=x0, 1=x1, 2=x2, 3=x3, 4=x4, 5=x5, 6=x6, 7=x7, 8=x8...

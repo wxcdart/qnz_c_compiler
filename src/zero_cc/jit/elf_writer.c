@@ -223,7 +223,7 @@ bool elf_writer_add_relocation(ElfWriterCtx* ctx, uint16_t section_idx,
     if (!ctx) {
         return false;
     }
-    
+
     if (ctx->relocation_count >= ctx->reloc_capacity) {
         int new_cap = ctx->reloc_capacity ? ctx->reloc_capacity * 2 : ELF_INITIAL_RELOCATIONS;
         uint64_t *o = (uint64_t *)realloc(ctx->reloc_offsets, (size_t)new_cap * sizeof(uint64_t));
@@ -247,14 +247,14 @@ bool elf_writer_add_relocation(ElfWriterCtx* ctx, uint16_t section_idx,
         ctx->reloc_section_indices = s;
         ctx->reloc_capacity = new_cap;
     }
-    
+
     ctx->reloc_offsets[ctx->relocation_count] = offset;
     ctx->reloc_symbol_indices[ctx->relocation_count] = symbol_idx;
     ctx->reloc_types[ctx->relocation_count] = rel_type;
     ctx->reloc_addends[ctx->relocation_count] = addend;
     ctx->reloc_section_indices[ctx->relocation_count] = section_idx;
     ctx->relocation_count++;
-    
+
     return true;
 }
 
@@ -682,7 +682,7 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
         }
     }
     shstrtab_size += strlen(".note.GNU-stack") + 1;
-    
+
     offset = (offset + 7) & ~7;  // Align to 8 bytes
     offset += shstrtab_size;
 
@@ -832,7 +832,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
         return false;
     }
     uint16_t cur_symtab_idx = 1;
-    
+
     // First pass: add local symbols
     for (int i = 0; i < ctx->symbol_count; i++) {
         ElfWriterSymbol* sym = &ctx->symbols[i];
@@ -909,7 +909,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".symtab");
     size_t shstrtab_name_idx = ctx->shstrtab_size;
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".shstrtab");
-    
+
     // Add .rela.<sec> section names if we have relocations
     if (ctx->relocation_count > 0) {
         for (int g = 0; g < n_rela_groups; g++) {
@@ -923,11 +923,11 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
             add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), rela_nm);
         }
     }
-    
+
     // Add .note.GNU-stack section name
     size_t note_gnu_stack_name_idx = ctx->shstrtab_size;
     add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".note.GNU-stack");
-    
+
     offset = (offset + 7) & ~7;
     shstrtab_offset = offset;
     memcpy(buffer + offset, ctx->shstrtab, ctx->shstrtab_size);

@@ -7,11 +7,11 @@
 
 /**
  * Global Value Numbering (GVN) - Conservative Implementation
- * 
+ *
  * This is a simplified GVN that works within basic blocks.
  * It tracks which temps hold the same value and eliminates
  * redundant computations.
- * 
+ *
  * Note: This is a conservative implementation. Full GVN would require
  * more sophisticated data-flow analysis across basic blocks.
  */
@@ -101,7 +101,7 @@ static uint32_t gvn_key(Instr *instr) {
 static int gvn_find(Instr *instr) {
     uint32_t key = gvn_key(instr);
     uint32_t val_num;
-    
+
     if (ht32_get(g_value_map, key, &val_num)) {
         return (int)val_num;
     }
@@ -113,13 +113,13 @@ static int gvn_find(Instr *instr) {
  */
 static void gvn_add(Instr *instr, int val_num) {
     uint32_t key = gvn_key(instr);
-    
+
     g_values[val_num].op = instr->op;
     g_values[val_num].src1 = instr->temp_src1;
     g_values[val_num].src2 = instr->temp_src2;
     g_values[val_num].imm = instr->imm;
     g_values[val_num].result_temp = instr->temp_dest;
-    
+
     ht32_put(g_value_map, key, (uint32_t)val_num);
 }
 
@@ -129,7 +129,7 @@ static void gvn_add(Instr *instr, int val_num) {
 static void replace_with_gvn_copy(int instr_idx, uint16_t src_temp) {
     Instr *instr = ir_get(instr_idx);
     if (!instr) return;
-    
+
     instr->op = OP_MOV_REG;
     instr->temp_src1 = src_temp;
     instr->temp_src2= TEMP_NONE;
@@ -352,41 +352,41 @@ static void opt_restrict_memory_forward(void) {
  */
 void opt_eliminate_gvn(ZeroCCCompiler *c) {
     (void)c;
-    
+
     int count = (int)ir_get_count();
-    
+
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         opt_profile_count_gvn_instruction();
-        
+
         /* Reset at basic block boundaries */
         if (instr->op == OP_LABEL) {
             gvn_reset_block();
             continue;
         }
-        
+
         /* Skip non-numberable instructions */
         if (!instr_is_numberable(instr)) {
             continue;
         }
-        
+
         /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
         if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
             (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
             (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
             continue;
         }
-        
+
         /* Check if we've seen this computation before */
         int existing = gvn_find(instr);
-        
+
         if (existing >= 0 && g_temp_has_value[g_values[existing].result_temp]) {
             /* Found duplicate - replace with copy */
             replace_with_gvn_copy(i, g_values[existing].result_temp);
             opt_profile_count_gvn_eliminated();
-            
+
             /* Update: this temp now holds the same value as the existing one */
             g_temp_has_value[instr->temp_dest] = 1;
             g_temp_value_num[instr->temp_dest] = (uint16_t)existing;

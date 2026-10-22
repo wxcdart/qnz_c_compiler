@@ -1,5 +1,5 @@
 /* IR Emitter - Operation Emission Functions
- * 
+ *
  * Additional IR emission functions beyond those in ir.h
  * Provides more complete coverage for IR-based codegen.
  */

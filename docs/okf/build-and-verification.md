@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-22T12:01:50Z
+timestamp: 2026-10-22T12:30:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -109,6 +109,12 @@ python3 tools/vla/test_vla.py
 
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
 python3 tools/sret_verifier.py --verify-all
+
+# C style/convention checker (ruff-style; codifies docs/coding_style.md):
+# include conventions, tab-free indentation, EOF newline, header guards,
+# <module>_<action> public-function prefix. Errors gate, warnings report.
+# --fix repairs trailing whitespace + missing EOF newline in place.
+python3 tools/style_check.py
 
 # Cross-verify sret (>16B struct return) execution across x86-64, AArch64, and RISC-V under QEMU
 python3 tools/sret_verifier.py --target-all

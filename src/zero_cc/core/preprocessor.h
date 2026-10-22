@@ -255,7 +255,7 @@ static inline void zero_cc_cpp_undef(ZeroCCPreprocessor *cpp, const char *name) 
         m->name[0] = '\0';
     }
 }
- 
+
 
 static inline char* zero_cc_read_file(const char *filepath) {
     FILE *f = fopen(filepath, "rb");
@@ -1113,7 +1113,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     while (*p && *p != delim_end && *p != '\n' && inl < 255) inc_name[inl++] = *p++;
                     inc_name[inl] = '\0';
                     if (*p == delim_end) p++;
-                    
+
                     char resolved_path[PATH_MAX];
                     int saved_inc_depth = 0;
                     char *inc_content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys, resolved_path, sizeof(resolved_path));
@@ -1270,7 +1270,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             char ident[128]; size_t il = 0;
             while (*p && (isalnum((unsigned char)*p) || *p == '_') && il < 127) ident[il++] = *p++;
             ident[il] = '\0';
-            
+
             /* Handle special predefined macros with dynamic values */
             if (strcmp(ident, "__FILE__") == 0) {
                 zero_cc_buf_putc(out, '"');

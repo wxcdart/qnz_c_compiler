@@ -114,29 +114,29 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_MOV_IMM:
                 BE(c)->emit_mov_imm(c, phys_dst, instr->imm64);
                 break;
-            
+
             case OP_MOV_MEM:
                 BE(c)->emit_store(c, phys_src1, phys_src2, (int32_t)instr->imm64);
                 break;
-            
+
             case OP_MOV:
                 BE(c)->emit_load(c, phys_dst, phys_src1, (int32_t)instr->imm64);
                 break;
-            
+
             case OP_MOV_REG:
                 if (phys_dst != phys_src1) {
                     BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
                 }
                 break;
-            
+
             case OP_LEA:
                 BE(c)->emit_lea(c, phys_dst, phys_src1, (int32_t)instr->imm64);
                 break;
-            
+
             case OP_ADD:
                 BE(c)->emit_add(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_SUB:
                 BE(c)->emit_sub(c, phys_dst, phys_src1, phys_src2);
                 break;
@@ -156,39 +156,39 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_extend(c, phys_dst, phys_src1, ext_width, ext_sign);
                 }
                 break;
-            
+
             case OP_MUL:
                 BE(c)->emit_mul(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_DIV:
                 BE(c)->emit_div(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_MOD:
                 BE(c)->emit_mod(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_AND:
                 BE(c)->emit_and(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_OR:
                 BE(c)->emit_or(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_XOR:
                 BE(c)->emit_xor(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_SHL:
                 BE(c)->emit_shl(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_SHR:
                 BE(c)->emit_shr(c, phys_dst, phys_src1, phys_src2);
                 break;
-            
+
             case OP_CMP: {
                 /* Store operands for RISC-V backend (flags materialization) */
                 c->lowering.cmp_src1 = phys_src1;
@@ -205,22 +205,22 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
             }
-            
+
             case OP_COND_SET:
                 /* set dst based on flags and condition code */
                 if (BE(c)->emit_cond_set) {
                     BE(c)->emit_cond_set(c, phys_dst, (int)instr->cond);
                 }
                 break;
-            
+
             case OP_DEREF:
                 BE(c)->emit_deref(c, phys_dst, phys_src1);
                 break;
-            
+
             case OP_LOAD_BYTE:
                 BE(c)->emit_load_byte(c, phys_dst, phys_src1);
                 break;
-            
+
             case OP_CMP_ZERO:
                 /* RISC-V flags materialization: cmp-zero records the value
                  * against the zero register so a later OP_COND_SET can
@@ -234,13 +234,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 break;
-            
+
             case OP_CVTTSD2SI:
                 if (BE(c)->emit_fp_cvtsi) {
                     BE(c)->emit_fp_cvtsi(c, phys_dst, phys_src1);  /* convert xmm<src> to GPR dst */
                 }
                 break;
-            
+
             case OP_CVTSI2SD:
                 if (BE(c)->emit_fp_cvtsf) {
                     BE(c)->emit_fp_cvtsf(c, phys_dst, phys_src1);  /* convert GPR src to xmm<dst> */
@@ -718,7 +718,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_CALL: {
                 /* Extract function name from imm64 (stored as pointer during lowering) */
                 const char *fn_name = (const char *)(intptr_t)instr->imm64;
-                
+
                 /* Extract integer argument info packed into the instruction */
                 int arg_count = instr->temp_dest;
                 int arg_temps[IR_CALL_MAX_ARGS] = {0};
@@ -744,7 +744,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     if (arg_count > 0) arg_temps[0] = instr->temp_src1;
                     if (arg_count > 1) arg_temps[1] = instr->temp_src2;
                 }
-                
+
                 /* If indirect call, save callee register into scratch_reg2 before argument setup */
                 if (!fn_name && indirect_callee_temp >= 0) {
                     int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_callee_temp);
@@ -774,7 +774,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if ((instr->label_idx & 0xFF00) == 0x0100) {
                     fp_reg_idx = 0;
                 }
-                
+
                 /* Args beyond int_arg_count go on the stack:
                  * so push them in reverse order, padding to keep stack 16-byte aligned. */
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
@@ -793,7 +793,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         BE(c)->emit_push_reg(c, r);
                     }
                 }
-                
+
                 /* Safe parallel move: push all src registers then pop into dst registers */
                 int n_args = (arg_count < int_arg_count) ? arg_count : int_arg_count;
                 int src_regs[8];
@@ -816,7 +816,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     BE(c)->emit_pop_reg(c, dst_reg);
                 }
-                
+
                 /* Load float arguments from spill slots into the FP arg
                  * registers of the target ABI (xmm0..7 / d0..7 / fa0..7).
                  * Using the calling-convention table keeps x86/AArch64
@@ -834,13 +834,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     call_idx++;
                 }
-                
+
                 /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */
                 /* TODO: Check if function is variadic - for now emit for all calls */
                 if (BE(c)->emit_variadic_al_setup) {
                     BE(c)->emit_variadic_al_setup(c, fp_reg_idx);
                 }
-                
+
                 /* Caller-saved register fix for AArch64:
                  * x0-x18 are caller-saved. The callee may clobber these registers.
                  * We need to save/restore any caller-saved registers that contain
@@ -859,14 +859,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         }
                     }
                 }
-                
+
                 /* Emit the call */
                 if (!fn_name && indirect_callee_temp >= 0 && BE(c)->emit_call_reg) {
                     BE(c)->emit_call_reg(c, BE(c)->scratch_reg2 /* r11 */);
                 } else {
                     BE(c)->emit_call(c, fn_name);
                 }
-                
+
                 /* Restore x3-x7 after the call */
                 if (c->isa == ISA_AARCH64) {
                     for (int r = 3; r <= 7; r++) {
@@ -894,11 +894,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
             }
-            
+
             case OP_NOT:
                 BE(c)->emit_not(c, phys_dst, phys_src1);
                 break;
-            
+
             case OP_LNOT:  /* Logical NOT: cmp_zero src; cond_set dst, EQ */
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 if (BE(c)->emit_cond_set) {
@@ -964,78 +964,78 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
             }
-            
+
             case OP_CALL_INDIRECT:
                 /* Call through register pointer */
                 if (BE(c)->emit_call_reg) {
                     BE(c)->emit_call_reg(c, phys_src1);
                 }
                 break;
-            
+
             case OP_PUSH:
                 /* Push register to stack */
                 if (BE(c)->emit_push_reg) {
                     BE(c)->emit_push_reg(c, phys_src1);
                 }
                 break;
-            
+
             case OP_POP:
                 /* Pop register from stack */
                 if (BE(c)->emit_pop_reg) {
                     BE(c)->emit_pop_reg(c, phys_dst);
                 }
                 break;
-            
+
             case OP_ADD_IMM:
                 /* Add immediate to register */
                 if (BE(c)->emit_add_imm) {
                     BE(c)->emit_add_imm(c, phys_dst, (int16_t)instr->imm);
                 }
                 break;
-            
+
             case OP_SUB_IMM:
                 /* Subtract immediate from register */
                 if (BE(c)->emit_sub_imm) {
                     BE(c)->emit_sub_imm(c, phys_dst, (int16_t)instr->imm);
                 }
                 break;
-            
+
             case OP_INC:
                 /* Increment register */
                 if (BE(c)->emit_inc) {
                     BE(c)->emit_inc(c, phys_dst);
                 }
                 break;
-            
+
             case OP_DEC:
                 /* Decrement register */
                 if (BE(c)->emit_dec) {
                     BE(c)->emit_dec(c, phys_dst);
                 }
                 break;
-            
+
             case OP_SAR:
                 /* Arithmetic shift right */
                 if (BE(c)->emit_sar) {
                     BE(c)->emit_sar(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
-            
+
             case OP_RET:
                 /* Return from function - already handled by emit_leave/emit_ret after loop */
                 break;
-            
+
             case OP_EPILOGUE:
                 /* Function epilogue - already handled by emit_leave/emit_ret after loop */
                 break;
-            
+
             case OP_STACK_ALIGN:
                 /* Align stack pointer */
                 if (BE(c)->emit_stack_align) {
                     BE(c)->emit_stack_align(c, (uint8_t)instr->imm);
                 }
                 break;
-            
+
             default:
                 break;
         }

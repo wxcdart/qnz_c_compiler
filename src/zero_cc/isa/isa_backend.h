@@ -55,19 +55,19 @@ typedef struct ZeroCCISABackend {
     ZeroCCISA isa;
     const ISARegInfo *regs;
     const ISACallingConvention *conv;  /* Calling convention tables */
-    
+
     /* Function prologue/epilogue */
     void (*emit_prologue)(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask);
     void (*emit_leave)(ZeroCCCompiler *c);
     void (*emit_epilogue)(ZeroCCCompiler *c);
     size_t (*get_code_offset)(ZeroCCCompiler *c);
-    
+
     /* Assembly emission (text output) */
     void (*emit_prologue_asm)(ZeroCCCompiler *c, size_t stack_size);
     void (*emit_epilogue_asm)(ZeroCCCompiler *c);
     const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
     const char *(*get_vec_reg_name)(int vec_reg_idx);  /* Get vector register name */
-    
+
     /* Assembly emission for IR instructions */
     void (*emit_mov_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
     void (*emit_mov_reg_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -125,7 +125,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_param_save_int_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
     void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
     void (*emit_variadic_spill_asm)(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out);
-    
+
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
@@ -160,7 +160,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcmpss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
     void (*emit_vcmpsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
-    
+
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);
     void (*emit_add)(ZeroCCCompiler *c, int dst, int src1, int src2);
@@ -180,7 +180,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_cqo)(ZeroCCCompiler *c);
     void (*emit_idiv)(ZeroCCCompiler *c, int src);
     void (*emit_lea)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
-    
+
     /* Vector operations for binary JIT emission */
     void (*emit_vload)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     void (*emit_vstore)(ZeroCCCompiler *c, int src, int base, int32_t offset);
@@ -203,14 +203,14 @@ typedef struct ZeroCCISABackend {
     void (*emit_vpsubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
-    
+
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */
-    
+
     /* Load/store */
     void (*emit_load)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
     void (*emit_store)(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
-    
+
     /* Additional operations for IR-based codegen */
     void (*emit_mov_reg)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_push_reg)(ZeroCCCompiler *c, int reg);
@@ -256,7 +256,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_call)(ZeroCCCompiler *c, const char *func_name);
     void (*emit_call_reg)(ZeroCCCompiler *c, int reg);
     void (*emit_ret)(ZeroCCCompiler *c);
-    
+
     /* Floating point */
     void (*emit_load_fp)(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
     void (*emit_store_fp)(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
@@ -270,40 +270,40 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_cvtsi)(ZeroCCCompiler *c, int int_dst, int fp_src);  /* float->int */
     void (*emit_fp_cvtsf)(ZeroCCCompiler *c, int fp_dst, int int_src);  /* int->float */
     void (*emit_fp_mov)(ZeroCCCompiler *c, int dst, int src);           /* reg to reg */
-    
+
     /* Parameter spilling / function setup */
     void (*emit_param_save_int)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
     void (*emit_param_save_fp)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
     void (*emit_variadic_spill)(ZeroCCCompiler *c, int param_count, int32_t base_offset);
     void (*emit_variadic_al_setup)(ZeroCCCompiler *c, int num_fp_args);
-    
+
     /* RIP-relative addressing for string literals */
     void (*emit_lea_rip)(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset);
-    
+
     /* Immediate values */
     void (*emit_const)(ZeroCCCompiler *c, int64_t value);
-    
+
     /* Stack frame */
     void (*emit_stack_adjust)(ZeroCCCompiler *c, int32_t delta);
     void (*emit_stack_align)(ZeroCCCompiler *c, uint8_t alignment);
 
     /* Labels */
     void (*emit_label)(ZeroCCCompiler *c, const char *name);
-    
+
     /* VREG mapping (ISA-independent virtual to physical register) */
     int (*get_int_reg)(int vreg);  /* Map VREG_INT_* to physical */
     int (*get_fp_reg)(int vreg);   /* Map VREG_FP_* to physical */
-    
+
     /* Frame pointer */
     int fp_reg;        /* Frame pointer register index */
     int sp_reg;        /* Stack pointer register index */
-    
+
     /* Scratch registers for spilling (ISA-specific, non-argument/return registers) */
     int scratch_reg1;  /* First scratch register (e.g., r10 on x86, x9 on AArch64, t0 on RISC-V) */
     int scratch_reg2;  /* Second scratch register (e.g., r11 on x86, x10 on AArch64, t1 on RISC-V) */
     int fp_scratch_reg1; /* FP scratch for spilled FP src1/dest (outside the 0-7 XMM pool) */
     int fp_scratch_reg2; /* FP scratch for spilled FP src2 */
-    
+
     /* Callee-save frame reserve in bytes (ISA-specific: 48 for x86, 96 for AArch64/RISC-V) */
     int callee_save_frame_reserve;
 } ZeroCCISABackend;

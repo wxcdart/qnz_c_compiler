@@ -146,12 +146,12 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
         me_emit_u8(c, 0xec);
         me_emit_u32(c, (uint32_t)stack_size);
     }
-    
+
     /* Emit callee-saved register stores (after prologue, when mask is populated) */
     /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
     static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
     static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
-    
+
     for (int i = 0; i < 5; i++) {
         int reg = callee_saved_regs[i];
         if ((callee_save_mask >> reg) & 1u) {
@@ -523,20 +523,20 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
     /* Save rdx if it holds a live temp that is not the result register. */
     bool save_rdx = (dst != X86_RDX && src1 != X86_RDX && src2 != X86_RDX && divisor != X86_RDX);
     bool save_rax = (dst != X86_RAX && src1 != X86_RAX && src2 != X86_RAX && divisor != X86_RAX);
-    
+
     if (save_rdx) me_emit_u8(c, 0x52);  /* push rdx */
     if (save_rax) me_emit_u8(c, 0x50);  /* push rax */
-    
+
     x86_mov_rr(c, X86_RAX, src1);
     x86_emit_cqo(c);
     x86_emit_idiv(c, divisor);
-    
+
     /* Move result to dst before restoring */
     if (dst != X86_RAX && dst != X86_RDX) {
         x86_mov_rr(c, dst, want_rem ? X86_RDX : X86_RAX);
     }
     /* If dst is rax or rdx, result is already there */
-    
+
     if (save_rax) me_emit_u8(c, 0x58);  /* pop rax */
     if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */
 }
@@ -871,12 +871,12 @@ static size_t x86_emit_jge(ZeroCCCompiler *c, const char *label) {
 static size_t x86_emit_jcond(ZeroCCCompiler *c, int cond, const char *label) {
     /* Condition code mapping: CC_LT=0, CC_LE=1, CC_GT=2, CC_GE=3, CC_EQ=4, CC_NE=5 */
     static const uint8_t jcc_codes[] = {0x8C, 0x8D, 0x8F, 0x8E, 0x84, 0x85};
-    
+
     if (cond < 0 || cond > 5) {
         fprintf(stderr, "Invalid condition code in x86_emit_jcond: %d\n", cond);
         abort();
     }
-    
+
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, jcc_codes[cond]);
     size_t patch_pos = me_get_offset(c);  /* rel32 field */
@@ -900,19 +900,19 @@ static void x86_emit_ret(ZeroCCCompiler *c) {
 /* Function call - direct call with relative offset */
 static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     ZeroCCFunction *fn = zero_cc_find_function(c, fn_name);
-    
+
     /* Always use direct call (E8 rel32) for both internal and external functions */
     /* For external functions, the linker will patch this with PLT entry */
     me_emit_u8(c, 0xE8);
     size_t patch_pos = me_get_offset(c);
-    
+
     /* Emit placeholder offset (0 for external, calculated for internal) */
     int32_t rel = 0;
     if (fn && !fn->is_prototype) {
         rel = (int32_t)(fn->text_offset - (patch_pos + 4));
     }
     me_emit_u32(c, (uint32_t)rel);
-    
+
     /* Add relocation entry for linker to patch */
     if (c->reloc_count < 512) {
         ZeroCCReloc *r = &c->relocs[c->reloc_count++];
@@ -957,7 +957,7 @@ static void x86_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodat
     x86_modrm(c, 0, dst_reg & 7, 5);  /* Mod=00, rm=5 (RIP-relative) */
     size_t patch_pos = me_get_offset(c);
     me_emit_u32(c, 0);
-    
+
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
         c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
         c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
@@ -1190,7 +1190,7 @@ static void x86_emit_call_reg(ZeroCCCompiler *c, int reg) {
 
 /* stack_align - ensure 16-byte stack alignment (x86-64 already handles this) */
 static void x86_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
-    /* x86-64 ABI requires 16-byte alignment before call. 
+    /* x86-64 ABI requires 16-byte alignment before call.
      * This is typically handled by prologue/epilogue. */
     (void)c;
     (void)alignment;
@@ -1612,17 +1612,17 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* xmm15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* xmm14 - outside XMM pool 0-7 */
     .callee_save_frame_reserve = 48,           /* 5 callee-saved regs: rbx, r12-r15 */
-    
+
     .emit_prologue = x86_emit_prologue,
     .emit_leave = x86_emit_leave,
     .emit_epilogue = x86_emit_epilogue,
     .get_code_offset = x86_get_code_offset,
-    
+
     .emit_prologue_asm = x86_emit_prologue_asm,
     .emit_epilogue_asm = x86_emit_epilogue_asm,
     .get_hw_reg_name = x86_get_hw_reg_name,
     .get_vec_reg_name = x86_get_vec_reg_name,
-    
+
     .emit_mov_imm = x86_emit_mov_imm,
     .emit_add = x86_emit_add,
     .emit_sub = x86_emit_sub,
@@ -1641,7 +1641,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_cqo = x86_emit_cqo,
     .emit_idiv = x86_emit_idiv,
     .emit_lea = x86_emit_lea,
-    
+
     /* Vector operations for JIT binary emission */
     .emit_vload = x86_emit_vload,
     .emit_vstore = x86_emit_vstore,
@@ -1663,14 +1663,14 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vmovaps = x86_emit_vmovaps,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
-    
+
     /* VREG mapping */
     .get_int_reg = x86_get_int_reg,
     .get_fp_reg = x86_get_fp_reg,
-    
+
     .emit_load = x86_emit_load,
     .emit_store = x86_emit_store,
-    
+
     .emit_jmp = x86_emit_jmp,
     .emit_jeq = x86_emit_jeq,
     .emit_jne = x86_emit_jne,
@@ -1682,7 +1682,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_call = x86_emit_call,
     .emit_call_reg = x86_emit_call_reg,
     .emit_ret = x86_emit_ret,
-    
+
     .emit_load_fp = x86_emit_load_fp,
     .emit_store_fp = x86_emit_store_fp,
     .emit_load_fp_rodata = x86_emit_load_fp_rodata,
@@ -1695,13 +1695,13 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_fp_cvtsi = x86_emit_fp_cvtsi,
     .emit_fp_cvtsf = x86_emit_fp_cvtsf,
     .emit_fp_mov = x86_emit_fp_mov,
-    
+
     .emit_const = x86_emit_const,
     .emit_stack_adjust = x86_emit_stack_adjust,
     .emit_stack_align = x86_emit_stack_align,
     .emit_push_reg = x86_emit_push_reg,
     .emit_pop_reg = x86_emit_pop_reg,
-    
+
     /* Additional operations for IR-based codegen */
     .emit_mov_reg = x86_mov_rr,
     .emit_add_imm = x86_emit_add_imm,
@@ -1734,13 +1734,13 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,
     .emit_label = x86_emit_label,
-    
+
     .emit_param_save_int = x86_emit_param_save_int,
     .emit_param_save_fp = x86_emit_param_save_fp,
     .emit_variadic_spill = x86_emit_variadic_spill,
     .emit_variadic_al_setup = x86_emit_variadic_al_setup,
     .emit_lea_rip = x86_emit_lea_rip,
-    
+
     /* Assembly emission for IR instructions (Option A) */
     .emit_mov_imm_asm = x86_emit_mov_imm_asm,
     .emit_mov_reg_asm = x86_emit_mov_reg_asm,
@@ -1781,7 +1781,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_fp_div_asm = x86_emit_fp_div_asm,
     .emit_fp_mov_asm = x86_emit_fp_mov_asm,
     .emit_vla_alloc_asm = x86_emit_vla_alloc_asm,
-    
+
     /* Vector operations for ASM emission */
     .emit_vload_asm = x86_emit_vload_asm,
     .emit_vstore_asm = x86_emit_vstore_asm,

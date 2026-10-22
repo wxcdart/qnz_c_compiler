@@ -4,7 +4,7 @@
    - Windows/macOS x86-64: gs segment (UCRT/libc)
    - aarch64: x28 register (TLS register per ABI)
    - riscv64: tp register (TLS register)
-   
+
    Full C11 _Thread_local support:
    - Read access: mov rax, fs:[offset]
    - Write access: mov fs:[offset], rax
@@ -36,13 +36,13 @@ static void* tls_declare(ZeroCCCompiler* c, const char* name,
 {
     (void)c;
     if (tls_slot_count >= 64) return NULL;
-    
+
     TLSSlot* slot = &tls_slots[tls_slot_count++];
     strncpy(slot->name, name, sizeof(slot->name) - 1);
     slot->init_value = init;
     slot->offset = tls_slot_count * 8;  /* 8 bytes per slot pointer */
     slot->type = *type;
-    
+
     return slot;
 }
 
@@ -51,7 +51,7 @@ static void tls_emit_load(ZeroCCCompiler* c, const void* handle)
 {
     const TLSSlot* slot = (const TLSSlot*)handle;
     size_t offset = slot->offset;
-    
+
     /* System TLS: mov rax, fs:[offset] (Linux) or gs:[offset] (Windows/macOS) */
     /* FS segment override (0x64) for Linux, GS (0x65) for Windows/macOS */
 #ifdef _WIN32
@@ -70,7 +70,7 @@ static void tls_emit_store(ZeroCCCompiler* c, const void* handle)
 {
     const TLSSlot* slot = (const TLSSlot*)handle;
     size_t offset = slot->offset;
-    
+
     /* System TLS: mov fs:[offset], rax (Linux) or gs:[offset], rax (Windows/macOS) */
 #ifdef _WIN32
     zero_cc_emit_u8(&c->text_section, 0x65);  /* GS segment (Windows) */
@@ -87,7 +87,7 @@ static void tls_emit_address(ZeroCCCompiler* c, const void* handle)
 {
     const TLSSlot* slot = (const TLSSlot*)handle;
     size_t offset = slot->offset;
-    
+
     /* System TLS: lea rax, [fs:offset] (Linux) or [gs:offset] (Windows/macOS) */
     /* Note: This gives the effective address, not the absolute address */
 #ifdef _WIN32

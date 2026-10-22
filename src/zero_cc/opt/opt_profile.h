@@ -7,9 +7,9 @@
 
 /**
  * Optimization Profiling
- * 
+ *
  * Tracks statistics for optimization passes to measure effectiveness.
- * 
+ *
  * Usage:
  *   opt_profile_reset();
  *   opt_run_passes(c);
@@ -22,33 +22,33 @@ typedef struct {
     size_t cse_total_instructions;
     size_t cse_eliminated;
     size_t cse_basic_blocks;
-    
+
     /* GVN statistics */
     size_t gvn_total_instructions;
     size_t gvn_eliminated;
-    
+
     /* Branchless select (Sprint 39) */
     size_t branchless_selects;
-    
+
     /* Copy propagation statistics */
     size_t copy_prop_instructions;
     size_t copy_prop_changes;
-    
+
     /* DCE statistics */
     size_t dce_eliminated;
     size_t dce_iterations;
-    
+
     /* LICM statistics */
     size_t licm_loops_detected;
     size_t licm_invariants_found;
     size_t licm_instructions_moved;
-    
+
     /* Register allocation statistics */
     size_t regalloc_total_intervals;
     size_t regalloc_spilled;
     size_t regalloc_cost_based_spills;
     size_t regalloc_max_loop_depth;
-    
+
     /* General statistics */
     size_t total_instructions_before;
     size_t total_instructions_after;

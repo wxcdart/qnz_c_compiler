@@ -11,50 +11,50 @@ extern __thread ZeroCCCompiler *g_compiler;
 
 /**
  * Flag DCE: Remove CMP instructions whose flags are never used
- * 
+ *
  * This pass runs BEFORE general DCE and specifically targets flag-setting
  * instructions (OP_CMP, OP_CMP_ZERO) that have no flag-reading successors.
  */
 void opt_flag_dce(ZeroCCCompiler *c) {
     (void)c;
-    
+
     int count = (int)ir_get_count();
     if (count == 0) {
         return;
     }
-    
+
     // Forward pass: find dead flag-setting instructions
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         // Only analyze flag-setting instructions
         if (instr->op != OP_CMP && instr->op != OP_CMP_ZERO) {
             continue;
         }
-        
+
         // Check if flags are used by subsequent instructions
         bool flags_used = false;
         for (int j = i + 1; j < count; j++) {
             Instr *next = ir_get(j);
             if (!next) continue;
-            
+
             // Stop at control flow boundary
-            if (next->op == OP_JMP || next->op == OP_JCOND || 
+            if (next->op == OP_JMP || next->op == OP_JCOND ||
                 next->op == OP_JE || next->op == OP_JNE ||
                 next->op == OP_JL || next->op == OP_JLE ||
-                next->op == OP_JG || next->op == OP_RET || 
+                next->op == OP_JG || next->op == OP_RET ||
                 next->op == OP_LABEL || next->op == OP_CALL) {
                 break;
             }
-            
+
             // Check if this instruction reads flags
             if (next->flags_in == REG_FLAGS) {
                 flags_used = true;
                 break;
             }
         }
-        
+
         // Mark as dead if flags never used
         if (!flags_used) {
             instr->op = OP_DEAD;
@@ -133,19 +133,19 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_CMP_ZERO:
         case OP_COND_SET:
             return 1;
-        
+
         // Stack operations have side effects
         case OP_PUSH:
         case OP_POP:
         case OP_STACK_ALIGN:
             return 1;
-        
+
         // Parameter saves have side effects (write caller-passed values to stack)
         case OP_PARAM_SAVE_INT:
         case OP_PARAM_SAVE_FP:
         case OP_VARIADIC_SPILL:
             return 1;
-        
+
         default:
             return 0;
     }
@@ -157,7 +157,7 @@ static int instr_has_side_effects(Instr *instr) {
  */
 static void mark_call_args_live(Instr *instr) {
     int arg_count = instr->temp_dest;
-    
+
     // Args 1-2 from temp_src1/temp_src2
     if (arg_count > 0 && instr->temp_src1!= TEMP_NONE) {
         mark_live(instr->temp_src1);
@@ -165,7 +165,7 @@ static void mark_call_args_live(Instr *instr) {
     if (arg_count > 1 && instr->temp_src2!= TEMP_NONE) {
         mark_live(instr->temp_src2);
     }
-    
+
     // Args 3-4 packed in imm (byte 0 = arg3, byte 1 = arg4)
     // Note: instr->imm is int16_t, so we extract bytes, not 16-bit words
     if (arg_count > 2) {
@@ -180,7 +180,7 @@ static void mark_call_args_live(Instr *instr) {
             mark_live(arg4);
         }
     }
-    
+
     // Args 5+ from call args table
     if (g_compiler) {
         IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
@@ -209,7 +209,7 @@ static void mark_uses(Instr *instr) {
             // Special handling for call - mark all argument temps
             mark_call_args_live(instr);
             return;
-        
+
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
             // Atomic compare-and-exchange uses label_idx as the expected operand temp
@@ -224,7 +224,7 @@ static void mark_uses(Instr *instr) {
                 mark_live(instr->label_idx);
             }
             return;
-        
+
         default:
             // Standard handling for most instructions
             // Note: temp 0 (VREG_0/rax) is valid, only 0xFF means "no temp"
@@ -312,12 +312,12 @@ static int compute_liveness_fixpoint(int count) {
  */
 void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     (void)c;
-    
+
     int count = (int)ir_get_count();
     if (count == 0) {
         return;
     }
-    
+
     /* Phase 1: liveness to a fixpoint (see compute_liveness_fixpoint). */
     if (!compute_liveness_fixpoint(count)) {
         /* Non-convergent liveness: mark everything live so that nothing
@@ -325,7 +325,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
          * live instruction. */
         memset(g_live_temp, 1, sizeof(g_live_temp));
     }
-    
+
     /* Phase 2: mark instructions whose result is dead and which have no
      * side effects. */
     for (int i = 0; i < count; i++) {
@@ -336,20 +336,20 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
         if (is_live(instr->temp_dest) || instr_has_side_effects(instr)) continue;
         instr->op = OP_DEAD;
     }
-    
+
     // Forward pass: compact IR (remove dead instructions)
     int write_idx = 0;
-    
+
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         if (instr->op != OP_DEAD) {
             // Keep this instruction
             if (write_idx != i) {
                 Instr *dst = ir_get(write_idx);
                 *dst = *instr;
-                
+
                 // Update call args table index if this is a call
                 if (instr->op == OP_CALL && g_compiler) {
                     IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
@@ -365,7 +365,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
             write_idx++;
         }
     }
-    
+
     // Update IR count
     if (g_compiler) {
         g_compiler->ir_arena.count = (size_t)write_idx;

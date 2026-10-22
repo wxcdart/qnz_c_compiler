@@ -6,12 +6,12 @@
 
 /**
  * Copy Propagation Implementation (Safe)
- * 
+ *
  * This implementation tracks copies only for temps that are:
  * 1. Not the return register (temp 0)
  * 2. Not set by flag-setting instructions (CMP, TEST, etc.)
  * 3. Not used as sources for flag-setting instructions
- * 
+ *
  * This is conservative but safe - it won't break ABI.
  */
 
@@ -55,13 +55,13 @@ static uint16_t copy_prop_get_source(uint16_t temp) {
     if (temp == TEMP_NONE || temp < 16 || temp >= COPY_MAP_SIZE) {
         return temp;
     }
-    
+
     /* Follow copy chain */
     int max_depth = COPY_MAP_SIZE;  /* Prevent infinite loops */
     while (g_copy_map[temp] != TEMP_NONE && max_depth-- > 0) {
         temp = g_copy_map[temp];
     }
-    
+
     return temp;
 }
 
@@ -72,10 +72,10 @@ static void copy_prop_invalidate(uint16_t temp) {
     if (temp == TEMP_NONE || temp < 16 || temp >= COPY_MAP_SIZE) {
         return;
     }
-    
+
     /* Invalidate this temp */
     g_copy_map[temp] = TEMP_NONE;
-    
+
     /* Invalidate anything that copies from this temp */
     for (int i = 0; i < COPY_MAP_SIZE; i++) {
         if (g_copy_map[i] == temp) {
@@ -141,7 +141,7 @@ static int instr_uses_flags(Instr *instr) {
  */
 static int copy_prop_replace(Instr *instr) {
     int changed = 0;
-    
+
     /* Replace first source */
     if (instr->temp_src1 != TEMP_NONE && instr->temp_src1 >= 16 && instr->temp_src1 < COPY_MAP_SIZE) {
         uint16_t new_src1 = copy_prop_get_source(instr->temp_src1);
@@ -150,7 +150,7 @@ static int copy_prop_replace(Instr *instr) {
             changed = 1;
         }
     }
-    
+
     /* Replace second source */
     if (instr->temp_src2 != TEMP_NONE && instr->temp_src2 >= 16 && instr->temp_src2 < COPY_MAP_SIZE) {
         uint16_t new_src2 = copy_prop_get_source(instr->temp_src2);
@@ -159,7 +159,7 @@ static int copy_prop_replace(Instr *instr) {
             changed = 1;
         }
     }
-    
+
     return changed;
 }
 
@@ -168,49 +168,49 @@ static int copy_prop_replace(Instr *instr) {
  */
 void opt_copy_propagate(ZeroCCCompiler *c) {
     (void)c;
-    
+
     int count = (int)ir_get_count();
     int total_changes = 0;
-    
+
     /* Reset at the start */
     copy_prop_reset_block();
-    
+
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         opt_profile_count_copy_prop_instruction();
-        
+
         /* Reset at basic block boundaries */
         if (instr->op == OP_LABEL) {
             copy_prop_reset_block();
             continue;
         }
-        
+
         /* Skip instructions that use flags */
         if (instr_uses_flags(instr)) {
             /* Invalidate all copies - flags may have changed */
             copy_prop_reset_block();
             continue;
         }
-        
+
         /* First, replace source temps with their copy sources */
         int changed = copy_prop_replace(instr);
         if (changed) {
             opt_profile_count_copy_prop_changed();
             total_changes++;
         }
-        
+
         /* Then, handle the definition */
         if (instr_defines_temp(instr)) {
             /* Don't track copies for physical registers */
             if (copy_prop_is_return_reg(instr->temp_dest)) {
                 continue;
             }
-            
+
             /* Invalidate the destination temp */
             copy_prop_invalidate(instr->temp_dest);
-            
+
             /* If this is a MOV between temps, record the copy */
             if (instr->op == OP_MOV_REG) {
                 uint16_t src = copy_prop_get_source(instr->temp_src1);
@@ -222,6 +222,6 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
             }
         }
     }
-    
+
     opt_profile_set_copy_prop_changes(total_changes);
 }

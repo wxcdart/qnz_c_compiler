@@ -222,17 +222,17 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             if (strcmp(tok->str_val, "__builtin_va_arg") == 0) {
                 c->token_pos++; /* skip __builtin_va_arg */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++; /* skip '(' */
-                
+
                 ASTRef va_arg_ref = zero_cc_ast_alloc_node(arena, NODE_VA_ARG);
                 ZeroCCASTNode *va_arg_node = zero_cc_ast_get(arena, va_arg_ref);
-                
+
                 /* Parse the va_list argument */
                 ASTRef ap_ref = parse_assignment_ast(c, arena);
                 va_arg_node = zero_cc_ast_get(arena, va_arg_ref);
                 va_arg_node->left = ap_ref;
-                
+
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++; /* skip ',' */
-                
+
                 /* Parse the type (e.g., int, double, char*, StructName) */
                 ZeroCCType va_t = zero_cc_parse_type_name(c);
                 va_arg_node = zero_cc_ast_get(arena, va_arg_ref);
@@ -244,29 +244,29 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                         va_arg_node->aux.step = (uint32_t)(off + 1);
                     }
                 }
-                
+
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* skip ')' */
                 return va_arg_ref;
             }
-            
+
             /* Check for __builtin_va_start(ap, last) - special variadic start initialization */
             if (strcmp(tok->str_val, "__builtin_va_start") == 0) {
                 c->token_pos++; /* skip __builtin_va_start */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++; /* skip '(' */
-                
+
                 ASTRef va_start_ref = zero_cc_ast_alloc_node(arena, NODE_VA_START);
                 ZeroCCASTNode *va_start_node = zero_cc_ast_get(arena, va_start_ref);
-                
+
                 /* Parse the va_list argument (ap) */
                 va_start_node->left = parse_assignment_ast(c, arena);
-                
+
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++; /* skip ',' */
-                
+
                 /* Parse the last fixed argument */
                 va_start_node->right = parse_assignment_ast(c, arena);
-                
+
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* skip ')' */
-                
+
                 return va_start_ref;
             }
 
@@ -279,7 +279,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 n->int_val = ec->value;
                 return ref;
             }
-            
+
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->line = (uint32_t)tok->line;
@@ -589,7 +589,7 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
             c->token_pos = pos;
             size_t sz = ty.size;
-            
+
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->int_val = (int64_t)sz;
@@ -617,7 +617,7 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
             c->token_pos = pos;
             size_t align = ty.align ? ty.align : 1;
-            
+
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->int_val = (int64_t)align;

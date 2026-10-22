@@ -14,7 +14,7 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
     c->default_pack = zero_cc_get_pack_value();
     c->pack_ev_n = 0;
     int pack_stack[32]; int pack_depth = 0; int cur_pack = 0;
-    
+
     /* Initialize diagnostic pragma state from preprocessor */
     c->diag_pragma_state.warning_as_error = zero_cc_global_diag_state.warning_as_error;
     c->diag_pragma_state.disabled_warning_count = zero_cc_global_diag_state.disabled_warning_count;

@@ -93,17 +93,20 @@ root-relative like everything else.
 
 | Thing | Convention | Examples |
 |---|---|---|
-| Public API functions | `zero_cc_<module>_<action>` | `zero_cc_preprocess_ext2`, `zero_cc_emit_elf_obj` |
+| Top-level public functions | `<module>_<action>` — per-module prefixes, never bare words | core library `zero_cc_preprocess_ext2`; `opt_licm`, `diag_report`, `type_is_void`, `stmt_handle_block`, `ir_get`, `lower_expr`, `emit_ir_to_asm`, `elf_writer_write`, `vectorization_analyze_full`, `riscv64_emit_call` / `aarch64_*` / `x86_*` for ISA backends, `pthread_*` for the `<threads.h>` emulation (deliberately mirroring the system API) |
 | Module-private functions | `static`, module-prefixed | `static void riscv64_emit_call(...)`, `static int opt_licm(...)` |
 | Structs / typedefs | `ZeroCC<PascalCase>` | `ZeroCCPreprocessor`, `ZeroCCIncludeDirs` |
 | Macros / constants | `ZERO_CC_*` / module `SCREAMING_SNAKE` | `ZERO_CC_MAX_RELOCS`, `VREG_0`, `OP_MUL` |
 | Enum tags | module `SCREAMING_SNAKE` or `ZeroCC<Pascal>` | `TYPE_INT32`, `ZeroCCISA` |
 | Files | `snake_case.c` / `snake_case.h` | `ast_lowering_expr.c` |
-| Header guards | `ZERO_CC_<PATH>_H` (upper snake of the path) | `ZERO_CC_CORE_PREPROCESSOR_H` |
+| Header guards | `#pragma once` or `ZERO_CC_<PATH>_H` (either accepted; every `.h` must have one) | `ZERO_CC_CORE_PREPROCESSOR_H` |
 
-Prefix discipline: anything reachable through `zero_cc.h` is `zero_cc_*`;
-everything else in a module is `static` (or module-prefixed when it must be
-shared within a `.c`-include pair).
+Prefix discipline: a top-level non-`static` function is *module API* and
+must carry its module prefix (`<module>_<action>`); everything else in a
+module is `static` (or module-prefixed when it must be shared within a
+`.c`-include pair). A new module gets its own prefix — do not invent
+bare-word public functions. `tools/style_check.py` (rule NAM001) enforces
+the prefix presence.
 
 ## 4. Code style
 
@@ -129,7 +132,26 @@ shared within a `.c`-include pair).
 - **No compiler warnings** on a clean `make rebuild` (the tree is warning-free
   under `-Wall -Wextra`; keep it that way).
 
-## 5. IR / optimization / codegen invariants
+## 5. Style checker (`tools/style_check.py`)
+
+Ruff-style, stdlib-only, fast — codifies the rules in this file so drift is
+catchable in seconds:
+
+```bash
+python3 tools/style_check.py            # check src/ include/ (errors gate, warnings report)
+python3 tools/style_check.py --fix      # repair trailing whitespace + missing EOF newline
+python3 tools/style_check.py --quiet    # failures only
+```
+
+Rules: include conventions (no `../`/`./`, no bare subfolder names, no
+angled project headers, order as warning), tab-free indentation,
+trailing whitespace, EOF newline, header-guard presence, the
+`<module>_<action>` public-function prefix (NAM001), and unbounded
+string calls (STR010, warning). Exit code reflects errors only; the
+warning set (include order, `strcpy`/`strcat`/`sprintf`) tracks accepted
+legacy instances so the tree is not churned.
+
+## 6. IR / optimization / codegen invariants
 
 Do not duplicate invariant knowledge here — the OKF bundle is the source of
 truth:
@@ -143,7 +165,7 @@ Any change to a pass, lowering, or emitter must pass the gates in
 `AGENTS.md` §2 (`make test`, `make test-opt` for optimizer changes, the
 QEMU gate for raw-emitter changes).
 
-## 6. Commits & documentation discipline
+## 7. Commits & documentation discipline
 
 - **Commit message**: `type(scope): imperative summary` —
   `fix(riscv):`, `feat(c23):`, `style(build):`, `test:`, `tools:`. Body

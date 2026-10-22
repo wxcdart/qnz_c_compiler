@@ -43,7 +43,7 @@ static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
 /* Prologue: stp x29, x30, [sp, #-16]!, mov x29, sp, sub sp, sp, #frame_size, save callee-saved */
 static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
-    
+
     /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp */
     fprintf(out, "\tstp\tx29, x30, [sp, #-16]!\n");
     fprintf(out, "\tmov\tx29, sp\n");
@@ -51,11 +51,11 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     if (aligned_sz > 0) {
         fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
     }
-    
+
     /* Save callee-saved registers x19..x28 at [x29, #-offset] */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 29 || reg == 30) continue; /* x29, x30 already saved by stp */
@@ -68,11 +68,11 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, mov sp, x29, ldp x29, x30, [sp], #16, ret */
 static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
-    
+
     /* Restore callee-saved registers */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 29 || reg == 30) continue;
@@ -80,7 +80,7 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tldr\t%s, [x29, #-%d]\n", reg_name, offset);
     }
-    
+
     fprintf(out, "\tmov\tsp, x29\n");
     fprintf(out, "\tldp\tx29, x30, [sp], #16\n");
     fprintf(out, "\tret\n");
@@ -348,7 +348,7 @@ static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32
 static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
     static const char *int_arg_regs[] = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     static const char *fp_arg_regs[] = {"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7"};
-    
+
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
     int indirect_temp = -1;
@@ -356,7 +356,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
     int int_src_regs[8];
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
-    
+
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
@@ -364,7 +364,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
                                    ? BE(c)->regs->fp_regs[phys_reg]
                                    : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        
+
         if (arg_is_fp == 2) {
             indirect_temp = temp;
         } else if (arg_is_fp == 3) {
@@ -380,7 +380,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             }
         }
     }
-    
+
     /* Save indirect callee into x10 before clobbering argument registers */
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
     if (!func_name && indirect_temp >= 0) {
@@ -393,7 +393,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             fprintf(out, "\tmov\tx10, %s\n", BE(c)->get_hw_reg_name(r_callee));
         }
     }
-    
+
     /* Save AAPCS64 sret pointer into x8 before clobbering argument registers */
     if (sret_temp >= 0) {
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, sret_temp);
@@ -405,7 +405,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             fprintf(out, "\tmov\tx8, %s\n", BE(c)->get_hw_reg_name(r_sret));
         }
     }
-    
+
     /* Arguments beyond x0-x7 (8 args) go on the stack: 16-byte aligned */
     int n_stack = (total_int_count > 8) ? total_int_count - 8 : 0;
     int stack_alloc = ((n_stack * 8) + 15) & ~15;
@@ -443,7 +443,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         }
         fprintf(out, "\tadd\tsp, sp, #%d\n", alloc_bytes);
     }
-    
+
     if (!func_name && indirect_temp >= 0) {
         fprintf(out, "\tblr\tx10\n");
     } else if (func_name) {
@@ -874,7 +874,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_epilogue_asm = aarch64_emit_epilogue_asm;
     be->get_hw_reg_name = aarch64_get_hw_reg_name;
     be->get_vec_reg_name = aarch64_get_vec_reg_name;
-    
+
     be->emit_mov_imm_asm = aarch64_emit_mov_imm_asm;
     be->emit_mov_reg_asm = aarch64_emit_mov_reg_asm;
     be->emit_load_asm = aarch64_emit_load_asm;
@@ -924,7 +924,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = aarch64_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = aarch64_emit_param_save_fp_asm;
-    
+
     /* Vector instruction emission (NEON) */
     be->emit_vload_asm = aarch64_emit_vload_asm;
     be->emit_vstore_asm = aarch64_emit_vstore_asm;

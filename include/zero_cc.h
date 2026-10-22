@@ -1,7 +1,7 @@
 /* ==========================================================================
  *  zero_cc.h
  *  Single-Header C99 Freestanding Compiler, JIT Engine & ELF64 Linker.
- *  
+ *
  *  Pipeline:
  *    [Source C Code / zero.h Headers]
  *          │

@@ -11,14 +11,14 @@ extern __thread ZeroCCCompiler *g_compiler;
 
 /**
  * Local Memory-to-Register Promotion Pass (Safe Version)
- * 
+ *
  * Exploits the SSA-like nature of ZeroCC temps with safety checks:
  * - Only promotes local scalar variables with STATIC stack offsets (not VLA)
  * - Tracks VLA via OP_VLA_ALLOC (all slots become dynamic after VLA)
- * 
+ *
  * This enables mem2reg to work safely alongside VLA while still
  * providing optimization benefits for regular local variables.
- * 
+ *
  * Algorithm:
  * 1. Track stack slot -> temp mappings for local variables
  * 2. Mark all slots as "dynamic" when OP_VLA_ALLOC is seen (conservative)
@@ -73,16 +73,16 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_CALL:
         case OP_CALL_INDIRECT:
             return 1;
-        
+
         /* Unconditional control flow leaves the basic block */
         case OP_JMP:
         case OP_JMP_LABEL:
             return 1;
-        
+
         /* Conditional branches (OP_JE, OP_JNE, OP_JL, OP_JLE, OP_JG, OP_JCOND):
          * The fallthrough path continues straight-line execution without touching memory.
          * The branch target block will be invalidated when its OP_LABEL is encountered. */
-        
+
         /* Any indirect memory write or other store may alias local stack slots */
         case OP_STORE_BYTE:
         case OP_STORE_16:
@@ -106,7 +106,7 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_PUSH:
         case OP_POP:
             return 1;
-        
+
         default:
             return 0;
     }
@@ -400,35 +400,35 @@ static void opt_promote_loop_carried(void) {
 
 /**
  * Local Memory-to-Register Promotion pass (safe version)
- * 
+ *
  * This pass exploits the SSA-like property that expression temps are
  * immutable. When we see a store followed by a load from the same
  * stack location, we can forward the temp directly.
- * 
+ *
  * SAFETY CHECKS:
  * - Skip all slots if VLA has been seen (conservative)
  * - Only promote simple scalar variables
  */
 void opt_promote_mem2reg(ZeroCCCompiler *c) {
     (void)c;
-    
+
     /* First promote loop-carried variables across loop boundaries */
     opt_promote_loop_carried();
-    
+
     Mem2RegState state;
     memset(&state, 0, sizeof(state));
-    
+
     state.instruction_count = ir_get_count();
     state.has_vla = false;  /* No VLA yet */
-    
+
     /* Initialize slot tracking */
     for (int i = 0; i < MAX_STACK_SLOTS; i++) {
         state.slot_to_temp[i] = 0xFF;
         state.slot_valid[i] = false;
     }
-    
+
     size_t count = ir_get_count();
-    
+
     /* Pre-pass: scan for max label index and record all jump targets */
     int max_label = -1;
     for (size_t i = 0; i < count; i++) {
@@ -438,7 +438,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             max_label = (int)ins->label_idx;
         }
     }
-    
+
     bool *label_targeted = NULL;
     if (max_label >= 0) {
         label_targeted = (bool *)calloc(max_label + 1, sizeof(bool));
@@ -456,11 +456,11 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             }
         }
     }
-    
+
     for (size_t i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         /* Check for VLA allocation - disable all promotion after this */
         if (instr->op == OP_VLA_ALLOC) {
             state.has_vla = true;
@@ -469,12 +469,12 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             }
             continue;
         }
-        
+
         /* Skip if VLA has been seen - all slots are potentially dynamic */
         if (state.has_vla) {
             continue;
         }
-        
+
         /* Check for invalidation points (control flow, calls, stores through pointers, etc.) */
         if (instr_invalidates_slots(instr, label_targeted, max_label)) {
             for (int s = 0; s < MAX_STACK_SLOTS; s++) {
@@ -482,7 +482,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             }
             continue;
         }
-        
+
         /* Invalidate any slot holding a temp that is redefined as a destination */
         if (instr->temp_dest != TEMP_NONE) {
             for (int s = 0; s < MAX_STACK_SLOTS; s++) {
@@ -496,7 +496,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         if (instr_is_stack_store(instr)) {
             int offset = get_frame_offset(instr);
             int slot = slot_from_offset(offset);
-            
+
             if (slot >= 0 && slot < MAX_STACK_SLOTS) {
                 if (instr->temp_src1 >= 16) {
                     /* Track that this slot now holds the virtual source temp */
@@ -514,12 +514,12 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                 if (s2 >= 0 && s2 < MAX_STACK_SLOTS) state.slot_valid[s2] = false;
             }
         }
-        
+
         /* Handle stack loads: OP_LOAD reg, [fp+offset] */
         else if (instr_is_stack_load(instr)) {
             int offset = get_frame_offset(instr);
             int slot = slot_from_offset(offset);
-            
+
             if (slot >= 0 && slot < MAX_STACK_SLOTS) {
                 if (state.slot_valid[slot]) {
                     int known_temp = state.slot_to_temp[slot];
@@ -545,6 +545,6 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             }
         }
     }
-    
+
     if (label_targeted) free(label_targeted);
 }

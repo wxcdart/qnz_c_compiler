@@ -39,7 +39,7 @@ static const char *x86_get_vec_reg_name(int vec_reg_idx) {
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
 static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out;
-    
+
     fprintf(out, "\tpushq\t%%rbp\n");
     fprintf(out, "\tmovq\t%%rsp, %%rbp\n");
     /* Stack probing for frames > 4KB (Linux guard page): touch every page,
@@ -53,11 +53,11 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         }
     }
     fprintf(out, "\tsubq\t$%zu, %%rsp\n", stack_size);
-    
+
     /* Save callee-saved registers */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
@@ -69,18 +69,18 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, leave, ret */
 static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out;
-    
+
     /* Restore callee-saved registers */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
-    
+
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tmovq\t-%d(%%rbp), %%%s\n", offset, reg_name);
     }
-    
+
     fprintf(out, "\tleave\n");
     fprintf(out, "\tret\n");
 }
@@ -117,7 +117,7 @@ static void x86_emit_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst == src2) {
         fprintf(out, "\taddq\t%%%s,%%%s\n", src1_name, dst_name);
     } else {
@@ -133,7 +133,7 @@ static void x86_emit_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst == src2) {
         fprintf(out, "\tsubq\t%%%s,%%%s\n", src1_name, dst_name);
     } else {
@@ -149,7 +149,7 @@ static void x86_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst == src2) {
         fprintf(out, "\timulq\t%%%s,%%%s\n", src1_name, dst_name);
     } else {
@@ -165,7 +165,7 @@ static void x86_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (src1 != 0) {  /* RAX */
         fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
     }
@@ -181,7 +181,7 @@ static void x86_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (src1 != 0) {  /* RAX */
         fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
     }
@@ -197,7 +197,7 @@ static void x86_emit_and_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst != src1) {
         fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
     }
@@ -209,7 +209,7 @@ static void x86_emit_or_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst != src1) {
         fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
     }
@@ -221,7 +221,7 @@ static void x86_emit_xor_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    
+
     if (dst != src1) {
         fprintf(out, "\tmovq\t%%%s,%%%s\n", src1_name, dst_name);
     }
@@ -233,7 +233,7 @@ static void x86_emit_shl_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *shift_name = BE(c)->get_hw_reg_name(shift);
-    
+
     /* Handle RCX conflict (shift uses CL) */
     if (dst == 4) {  /* RCX */
         fprintf(out, "\tmovq\t%%%s,%%r10\n", src_name);
@@ -254,7 +254,7 @@ static void x86_emit_shr_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *shift_name = BE(c)->get_hw_reg_name(shift);
-    
+
     if (dst == 4) {  /* RCX */
         fprintf(out, "\tmovq\t%%%s,%%r10\n", src_name);
         fprintf(out, "\tmovq\t%%%s,%%rcx\n", shift_name);
@@ -274,7 +274,7 @@ static void x86_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *shift_name = BE(c)->get_hw_reg_name(shift);
-    
+
     if (dst == 4) {  /* RCX */
         fprintf(out, "\tmovq\t%%%s,%%r10\n", src_name);
         fprintf(out, "\tmovq\t%%%s,%%rcx\n", shift_name);
@@ -420,13 +420,13 @@ static void x86_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
 static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
     /* x86-64 System V ABI argument registers */
     static const char *int_arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
-    static const char *fp_arg_regs[] = {"xmm0", "xmm1", "xmm2", "xmm3", 
+    static const char *fp_arg_regs[] = {"xmm0", "xmm1", "xmm2", "xmm3",
                                          "xmm4", "xmm5", "xmm6", "xmm7"};
-    
+
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
-    
+
     /* Check if this is an indirect call (func_name == NULL) */
     const char *indirect_reg_name = NULL;
     for (int i = 0; i < arg_count; i++) {
@@ -511,7 +511,7 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     for (int i = n_int_args - 1; i >= 0; i--) {
         fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
     }
-    
+
     if (indirect_reg_name) {
         fprintf(out, "\tcall\t*%%r11\n");
     } else {
@@ -969,7 +969,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_epilogue_asm = x86_emit_epilogue_asm;
     be->get_hw_reg_name = x86_get_hw_reg_name;
     be->get_vec_reg_name = x86_get_vec_reg_name;
-    
+
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;
     be->emit_load_asm = x86_emit_load_asm;
@@ -1020,7 +1020,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_param_save_int_asm = x86_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = x86_emit_param_save_fp_asm;
     be->emit_variadic_spill_asm = x86_emit_variadic_spill_asm;
-    
+
     /* Vector instruction emission (SSE2) */
     be->emit_vload_asm = x86_emit_vload_asm;
     be->emit_vstore_asm = x86_emit_vstore_asm;

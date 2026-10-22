@@ -72,57 +72,57 @@ static int fold_binop(int op, int left, int right) {
 
 /**
  * Constant folding pass
- * 
+ *
  * Strategy: Only fold binary operations where BOTH operands are constants.
  * We replace the entire instruction with OP_MOV_IMM to the result.
- * 
+ *
  * IMPORTANT: This pass runs BEFORE register allocation, so we can safely
  * modify the IR structure without breaking live range analysis.
  */
 void opt_fold_constants(ZeroCCCompiler *c) {
     (void)c;
-    
+
     clear_constants();
-    
+
     int count = (int)ir_get_count();
-    
+
     // First pass: collect all constant definitions from OP_MOV_IMM
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         int dest = instr->temp_dest;
         if (dest == 0xFF || dest == 0) continue;
-        
+
         // Track constants from OP_MOV_IMM
         if (instr->op == OP_MOV_IMM) {
             // Use imm64 for full 64-bit precision
             mark_constant(dest, (int)instr->imm64);
         }
     }
-    
+
     // Second pass: fold binary operations with two constant operands
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
-        
+
         // Fold binary operations with constants
-        if (instr->op == OP_ADD || instr->op == OP_SUB || 
+        if (instr->op == OP_ADD || instr->op == OP_SUB ||
             instr->op == OP_MUL || instr->op == OP_DIV ||
             instr->op == OP_MOD || instr->op == OP_AND ||
             instr->op == OP_OR || instr->op == OP_XOR ||
             instr->op == OP_SHL || instr->op == OP_SHR ||
             instr->op == OP_SAR) {
-            
+
             int left_const = ir_is_constant(instr->temp_src1);
             int right_const = ir_is_constant(instr->temp_src2);
-            
+
             if (left_const && right_const) {
                 // Both operands are constants - fold them
                 int left_val = ir_get_constant(instr->temp_src1);
                 int right_val = ir_get_constant(instr->temp_src2);
                 int result = fold_binop(instr->op, left_val, right_val);
-                
+
                 // Replace with MOV_IMM - preserve dest, set src to 0xFF
                 int dest = instr->temp_dest;
                 instr->op = OP_MOV_IMM;
@@ -132,7 +132,7 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 instr->temp_src1= TEMP_NONE;
                 instr->temp_src2= TEMP_NONE;
                 instr->label_idx = 0;
-                
+
                 // Mark the result as constant for future folding
                 mark_constant(dest, result);
             }
