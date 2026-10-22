@@ -488,3 +488,27 @@ Closed the raw-binary emission gap across all target ISAs under QEMU differentia
 - Positions for non-call expression nodes (e.g. `y->x = 2` member errors still print position-less)
 
 **Gate.** `python3 tools/diag_battery.py` after any parser/semantic/diagnostic change (see `AGENTS.md`).
+
+---
+
+### 12. Runtime Sanitizers & Security Hardening (UBSan, Stack Protector & ASan) (PLANNED)
+
+**Goal:** Provide lightweight, zero-dependency runtime bug detection and hardening across both JIT (`--run`) and AOT (`-o`, `-c`), organized as a dedicated sprint covering Phases 1–3, with full ASan (Phase 4) deferred until `zero_rt` matures.
+
+#### Sprint: Lightweight Runtime Sanitizers (Phases 1–3)
+- **Phase 1: Trap-Based UBSan (`-fsanitize-trap=undefined`, `-fsanitize=bounds`, `-fsanitize=integer-divide-by-zero`, `-fsanitize=null`)**
+  - **Zero-runtime trap emission**: Lower inline checks directly into IR, triggering an architecture trap on violation (`ud2` on x86-64, `brk #0` on AArch64, `ebreak` on RISC-V). Self-contained with no external runtime or `libubsan` dependency.
+  - **Division by Zero**: Check divisor == 0 before emitting integer `div`/`idiv`.
+  - **Array Bounds (`-fsanitize=bounds`)**: Emit upper and lower bound comparisons (`0 <= index < N`) on fixed-size array indexing.
+  - **Null & Pointer Alignment**: Check `ptr != NULL` and `(ptr & (align - 1)) == 0` prior to dereferences.
+- **Phase 2: Signed Integer Overflow Trap (`-ftrapv`, `-fsanitize=signed-integer-overflow`)**
+  - Detect signed arithmetic overflow on `add`, `sub`, `imul` operations via overflow condition code testing (`jo` on x86, overflow condition branches on AArch64/RISC-V) jumping to the architecture trap.
+- **Phase 3: Stack Smashing Protection (`-fstack-protector` / `-fstack-protector-strong`)**
+  - **Canary placement**: Place a guard word (`__stack_chk_guard` or `%fs:0x28` on x86-64) in the function frame immediately before the saved frame pointer and return address during prologue generation.
+  - **Epilogue verification**: Compare the canary before restoring registers and returning; jump to `__stack_chk_fail` or trigger an inline trap on mismatch.
+  - Delivers robust stack buffer overflow detection with negligible execution overhead and zero shadow memory requirements.
+
+#### Deferred (Post-`zero_rt`): Full AddressSanitizer (`-fsanitize=address`) (Phase 4)
+- **Prerequisite**: Mature `zero_rt` ([`docs/zero-rt-plan.md`](./zero-rt-plan.md)) with ZeroCC-owned memory allocators (`malloc`/`free`).
+- **Scope**: 16 TB virtual shadow memory mapping (`0x00007fff8000`–`0x10007fff8000`), allocator poisoning, global and stack frame redzones, and 3–5 instruction shadow-byte checks instrumented on every load and store.
+

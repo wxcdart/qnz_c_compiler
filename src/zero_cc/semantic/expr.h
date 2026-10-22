@@ -85,11 +85,7 @@ extern "C" {
 #define AST_MEMBER_ACCESS  NODE_MEMBER
 #endif
 
-/**
- * Forward declaration of SemContext.
- * Defined in visitor.h if present, or self-contained.
- */
-/* (SemContext comes from visitor.h — see include block above.) */
+/* SemContext comes from visitor.h — see the include block above. */
 
 /**
  * Retrieve the TypeInfo pointer associated with an AST node.
