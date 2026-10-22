@@ -16,6 +16,9 @@ bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, 
     ctx->in_loop = false;
     ctx->in_switch = false;
     ctx->ast_arena = ast_arena;
+    ctx->label_count = 0;
+    ctx->label_cap = 0;
+    ctx->labels = NULL;
 
     /* Enter global scope */
     if (!scope_enter(&ctx->current_scope, ctx->perm_arena)) {
@@ -30,6 +33,65 @@ void sem_context_destroy(SemContext *ctx) {
     while (ctx->current_scope) {
         scope_leave(&ctx->current_scope);
     }
+}
+
+/* ---------------- user labels (C99 6.8.4.3) ---------------- */
+
+void sem_reset_labels(SemContext *ctx) {
+    if (ctx) ctx->label_count = 0;
+}
+
+static void sem_register_label(SemContext *ctx, const char *name, size_t len) {
+    if (!ctx || !name) return;
+    if (len == 0) len = strlen(name);
+    if (ctx->label_count >= ctx->label_cap) {
+        size_t newcap = ctx->label_cap ? ctx->label_cap * 2 : 16;
+        ctx->labels = (char **)arena_alloc(ctx->tmp_arena, newcap * sizeof(char *));
+        ctx->label_cap = newcap;
+    }
+    char *copy = (char *)arena_alloc(ctx->tmp_arena, len + 1);
+    if (!copy) return;
+    memcpy(copy, name, len);
+    copy[len] = '\0';
+    ctx->labels[ctx->label_count++] = copy;
+}
+
+bool sem_find_label(SemContext *ctx, const char *name, size_t len) {
+    if (!ctx || !name) return false;
+    if (len == 0) len = strlen(name);
+    for (size_t i = 0; i < ctx->label_count; i++) {
+        size_t l = strlen(ctx->labels[i]);
+        if (l == len && memcmp(ctx->labels[i], name, len) == 0) return true;
+    }
+    return false;
+}
+
+static void sem_collect_labels_impl(SemContext *ctx, ASTRef ref, int depth) {
+    if (!ctx || !ctx->ast_arena || ref == AST_NULL || depth > 128) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(ctx->ast_arena, ref);
+    if (!n) return;
+    if (n->tag == NODE_LABEL) {
+        sem_register_label(ctx, n->s.str, n->s.len);
+    }
+    /* Tag-aware child edges: aux.step/aux.alt only exist on NODE_FOR
+     * (step, body) and NODE_IF / NODE_TERNARY (else).  On every other
+     * tag they alias s.str / int_val in the payload union — following
+     * them walks garbage thin-pointers (the label/goto name length ends
+     * up in aux.step). */
+    if (n->left != AST_NULL) sem_collect_labels_impl(ctx, n->left, depth + 1);
+    if (n->right != AST_NULL) sem_collect_labels_impl(ctx, n->right, depth + 1);
+    if (n->tag == NODE_FOR) {
+        if (n->aux.step != AST_NULL) sem_collect_labels_impl(ctx, n->aux.step, depth + 1);
+        if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
+    } else if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
+        if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
+    }
+    if (n->next != AST_NULL) sem_collect_labels_impl(ctx, n->next, depth + 1);
+}
+
+void sem_collect_labels(SemContext *ctx, ASTRef root) {
+    if (ctx) sem_reset_labels(ctx);
+    sem_collect_labels_impl(ctx, root, 0);
 }
 
 void sem_node_error(SemContext *ctx, const ZeroCCASTNode *node, const char *fmt, ...) {
@@ -358,6 +420,24 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_RETURN: {
             stmt_handle_return(ctx, node);
+            break;
+        }
+        case NODE_LABEL: {
+            /* Register and keep traversing: the labeled statement must be
+             * analyzed too (it was previously skipped entirely). */
+            sem_register_label(ctx, node->s.str, node->s.len);
+            if (node->left != AST_NULL) {
+                (void)sem_analyze_ref(ctx, node->left);
+            }
+            break;
+        }
+        case NODE_GOTO: {
+            /* C99 6.8.4.3p1: the label must be defined in the enclosing
+             * function (labels are pre-collected over the whole body, so
+             * forward gotos are validated). */
+            if (node->s.str && !sem_find_label(ctx, node->s.str, node->s.len)) {
+                sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
+            }
             break;
         }
         case NODE_DECL: {

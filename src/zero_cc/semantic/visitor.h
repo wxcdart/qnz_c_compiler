@@ -30,6 +30,11 @@ typedef struct SemContext {
     bool          in_loop;              /* True if inside a loop body (for break / continue validation) */
     bool          in_switch;            /* True if inside a switch statement (for break / case validation) */
     ZeroCCASTArena *ast_arena;          /* AST Arena owning the ZeroCCASTNode pool (optional, may be NULL) */
+    /* User labels of the function currently being analyzed, collected
+     * before traversal so forward gotos validate (C99 6.8.4.3). */
+    size_t          label_count;
+    size_t          label_cap;
+    char          **labels;
 } SemContext;
 #endif
 
@@ -38,6 +43,23 @@ typedef struct SemContext {
  * Returns true on success, false on failure (e.g. invalid arguments or scope allocation failure).
  */
 bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena);
+
+/**
+ * Clear the per-function user-label table (call before analyzing each body).
+ */
+void sem_reset_labels(SemContext *ctx);
+
+/**
+ * Walk a function body and record every NODE_LABEL name so that goto
+ * targets can be validated in one pass (labels may appear after their
+ * goto in the source). */
+void sem_collect_labels(SemContext *ctx, ASTRef root);
+
+/**
+ * True if a user label with the given name was collected for the current
+ * function body (see sem_collect_labels).
+ */
+bool sem_find_label(SemContext *ctx, const char *name, size_t len);
 
 /**
  * Destroy/clean up a semantic analysis context, leaving any open scopes.

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T12:30:13Z
+timestamp: 2026-10-22T14:23:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -311,3 +311,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Added tools/style_check.py (ruff-style C convention checker codifying docs/coding_style.md: include rules, whitespace, EOF newline, header guards, <module>_<action> public-function prefix NAM001, unbounded-string-call warnings) to the verification tool list; corrected the naming convention to the actual per-module prefix scheme; trimmed 921 trailing-whitespace lines + 4 missing EOF newlines across 58 files
+
+## 2026-10-22 — Updated `architecture-pipeline.md`
+- Pipeline stage 3 rewritten: the live semantic pass is sem_analyze_ref over each function body from jit/compile.h (new diagnostics set had_error); documented the four enforced C99 constraint violations (6.7.5.3p6 arity via TypeInfo.function.is_prototype / ZeroCCFunction.has_prototype, 6.8.4.3p1 goto labels via sem_collect_labels, 6.5.2.1p3 struct members, 6.8p10 block terminator) and the tag-aware AST-walker requirement (aux.step/aux.alt alias the payload union on non-FOR/IF/TERNARY tags)
+
+## 2026-10-22 — Updated `frontend-and-types.md`
+- NODE_CALL now enforces C99 6.7.5.3p6 argument counts against prototype types (is_prototype); unprototyped/enum conversions still accepted

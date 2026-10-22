@@ -472,6 +472,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {
             c->token_pos++;
+        } else {
+            /* Block ran into end of input without its closing '}':
+             * truncated source (C99 6.8p10).  Previously accepted
+             * silently, so a pasted-without-the-end file compiled and
+             * ran garbage. */
+            diag_report_error_at_token(c, "expected '}' to end block");
         }
         bn = zero_cc_ast_get(arena, block_ref);
         if (bn) bn->left = head;

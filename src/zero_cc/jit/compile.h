@@ -503,6 +503,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         ctx->current_fn_ret_type = fn_ret_ti;
 
         size_t err_count_before = ctx->diags ? ctx->diags->count : 0;
+        /* Pre-collect user labels so goto targets validate in one pass
+         * (a label may textually follow its goto). */
+        sem_collect_labels(ctx, body);
         (void)sem_analyze_ref(ctx, body);
         bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
 

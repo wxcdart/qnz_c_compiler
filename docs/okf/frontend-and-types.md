@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-22T11:17:43Z
+timestamp: 2026-10-22T14:23:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -42,7 +42,7 @@ All C int types carry an explicit signedness tag end-to-end, and every narrow-in
 - In `zero_cc_type_to_typeinfo()` (`src/zero_cc/jit/type_info.h`):
   - If `zt.tag == TYPE_PTR && zt.is_func_ptr`, it constructs `TYPE_KIND_POINTER` → `TYPE_KIND_FUNCTION` whose `.details.function.ret` preserves the return `TypeInfo` (including `TYPE_STRUCT` with its full byte size).
 - In `sem_analyze_node()` (`src/zero_cc/semantic/visitor.c`):
-  - `case NODE_CALL:` inspects the callee's `TypeInfo *fn_t` (supporting both direct `type_is_function(fn_t)` and indirect `type_is_pointer(fn_t)` to function) and annotates the `NODE_CALL` AST node with `res` via `expr_node_set_type(ctx, node, res)` without rejecting unprototyped/enum conversions.
+  - `case NODE_CALL:` inspects the callee's `TypeInfo *fn_t` (supporting both direct `type_is_function(fn_t)` and indirect `type_is_pointer(fn_t)` to function) and annotates the `NODE_CALL` AST node with `res` via `expr_node_set_type(ctx, node, res)`. It additionally enforces the C99 6.7.5.3p6 argument-count constraint **only when the callee type is a prototype** (`fn_t->details.function.is_prototype`); variadic prototypes require at least the named parameters, and non-prototype (empty-paren / implicit) function types are unconstrained. Unprototyped/enum conversions remain accepted.
 
 ## Struct & Union Layout, Nested Initializers & Declarator Rules
 

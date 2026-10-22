@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - C99 Constraint-Violation Diagnostics: Calls, Gotos, Struct Members, Truncated Blocks
+
+The four "silent miscompile" classes found by the diagnostics audit (invalid C that compiled and ran with garbage, JIT and AOT alike) are now diagnosed. Each has a dedicated negative regression test under `test/semantic/`.
+
+- **C99 6.7.5.3p6 call argument count** (`test/semantic/call_arity_fail.c`, 9 cases): the full checker existed in `semantic/expr.c` but was dormant — the live pass is `sem_analyze_ref` over each function body from `jit/compile.h`, whose `NODE_CALL` handler had no check. `TypeInfo.function` gained `is_prototype` (parameter-type-list declarations incl. explicit `(void)`; empty-paren `()` and implicit declarations stay unconstrained), `ZeroCCFunction` gained `has_prototype` recorded at parse time, and the visitor's `NODE_CALL` now enforces the constraint (variadic: at least the named parameters). `add(1)` / `add(1,2,3)` / `f(void)`-with-args are rejected; `f()`-with-args (legal C99) is not.
+- **C99 6.8.4.3p1 goto label** (`test/semantic/constraint_violations_fail.c`): labels are pre-collected over the whole function body (`sem_collect_labels` in `semantic/visitor.c`) so forward gotos validate; `goto nowhere;` → "label 'nowhere' used but not defined". `NODE_LABEL`/`NODE_GOTO` previously fell to the visitor's `default:` (untraversed — the labeled statement was never analyzed either; fixed).
+- **C99 6.5.2.1p3 struct member**: a member missing from an existing field table is now an error ("'P' has no member named 'y2'") instead of silently defaulting to `int` at offset 0; structs with no field table recorded keep the lenient default (no false positives).
+- **C99 6.8p10 block terminator**: truncated source (EOF before the closing `}`) now reports "expected '}' to end block" in both JIT and AOT instead of compiling.
+- **AST-walker footgun documented**: `aux.step`/`aux.alt` only exist on `NODE_FOR`/`NODE_IF`/`NODE_TERNARY`; on other tags they alias `s.str`/`int_val` in the payload union (a 4-char label name reads as `aux.step == 4`). Walkers must be tag-aware (the first `sem_collect_labels` implementation walked a garbage-pointer "cycle" from this). Documented in `docs/okf/architecture-pipeline.md`.
+
+Verified: `make test` 146/146, `make test-opt` 107/107, direct CLI (JIT + AOT) on all four invalid programs and their valid counterparts. OKF: `architecture-pipeline.md` (pipeline stage 3 rewritten: live pass, constraint list, walker idiom), `frontend-and-types.md` (NODE_CALL arity behavior).
+
+## [Sprint 42] - 2026-10-22 - Ruff-Style C Convention Checker (`tools/style_check.py`)
+
+New stdlib-only checker codifying `docs/coding_style.md`: `INC001/002/003` include conventions (root-relative, resolvable, no navigation), `ANG001` no angled project headers, `WS101/102/103` tabs/trailing-whitespace/EOF-newline (`--fix` repairs the latter two), `HDR001` include guards, `NAM001` module-prefixed public functions, plus warning-only `INC010` include order and `STR010` unbounded string calls. Tree brought to 0 errors (921 trailing-whitespace lines + 4 missing EOF newlines across 58 files, whitespace-only diff). Wired into `AGENTS.md`, `docs/coding_style.md` §5, and the OKF tool list.
+
 ## [Sprint 42] - 2026-10-22 - Normalize Project-Header Include Convention to Include-Root Relative Paths
 
 Hygiene: eliminated the three-way mix of `../`-parent-relative (110), bare-sibling (155), and include-root-relative (87) quoted `#include` styles in `src/` and `include/`. All 262 non-canonical project includes across 74 files were rewritten to the single include-root convention (`-Isrc -Iinclude`): `src/zero_cc/core/core.h` is now always `#include "zero_cc/core/core.h"`, `include/zero_cc.h` is `#include "zero_cc.h"`. Trailing comments preserved; system headers untouched; the two dormant freestanding placeholders (`"zero_elf.h"`, `"zero_posix_baremetal.h"` — headers not yet created) intentionally left as-is. Convention documented in `AGENTS.md` and `docs/okf/build-and-verification.md`.

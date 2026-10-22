@@ -568,11 +568,21 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
                                  (((uint32_t)fld->bit_width) << 8) |
                                  (((uint32_t)(fld->is_signed ? 1 : 0)) << 16);
             }
+        } else {
+            /* A field table exists but has no such member: C99 6.5.2.1p3
+             * constraint violation.  (Previously silently defaulted to
+             * int, so `p.y2 = 2` on a field-less struct compiled and the
+             * write went to offset 0 — a miscompile.) */
+            expr_error(ctx, node, "'%s' has no member named '%s'",
+                       struct_t->details.record.tag ? struct_t->details.record.tag : "struct",
+                       member_name);
+            return NULL;
         }
     }
 
     if (!member_t) {
-        /* Default to int if struct fields not yet recorded */
+        /* No field table recorded (incomplete/late struct info): keep the
+         * legacy lenient default rather than a false positive. */
         member_t = type_int(ctx->perm_arena);
     }
 

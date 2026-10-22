@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-10-18T12:13:36Z
+timestamp: 2026-10-22T14:23:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -23,6 +23,13 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
    - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.h`).
 3. **Semantic Analysis (`src/zero_cc/semantic/`)**
    - Validates types, scopes, and promotions (`visitor.c`, `expr.c`, `stmt.c`, `promote.c`) and annotates AST nodes with `TypeInfo *`.
+   - The **live pass** is `sem_analyze_ref` over each function body (invoked from `zero_cc_compile_function` in `src/zero_cc/jit/compile.h` after the previously-compiled functions are registered in the global scope); new diagnostics set `ZeroCCCompiler.had_error` and stop compilation. The standalone `semantic_analyze()` facade (with its `DiagBuf`) is exercised separately by `test/semantic/semantic_facade_test.c`.
+   - Enforced C99 constraint violations (each with a dedicated negative test in `test/semantic/`):
+     - **6.7.5.3p6** call argument count vs. a *prototype* (variadic: at least the named parameters). `TypeInfo.function.is_prototype` distinguishes parameter-type-list declarations (incl. explicit `(void)`) from empty-paren `()` / implicit declarations, which stay unconstrained; `ZeroCCFunction.has_prototype` carries the flag from parse time.
+     - **6.8.4.3p1** `goto` target must be a label of the enclosing function — labels are pre-collected over the whole body (`sem_collect_labels`) so forward gotos validate.
+     - **6.5.2.1p3** struct/union member must exist in the field table (previously a missing member silently defaulted to `int` at offset 0).
+     - **6.8p10** a compound block's closing `}` — truncated source now reports `expected '}' to end block` instead of compiling.
+   - AST walkers must follow child edges **tag-aware**: `aux.step`/`aux.alt` only exist on `NODE_FOR` (step/body) and `NODE_IF`/`NODE_TERNARY` (else); on every other tag they alias `s.str`/`int_val` in the payload union (a goto's target *name length* ends up in `aux.step`). See `zero_cc_ast_addr_of_param_impl` and `sem_collect_labels_impl` for the idiom.
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
 4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**
    - Lowers each function's AST into a linear buffer of 51-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
