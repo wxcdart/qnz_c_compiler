@@ -21,6 +21,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
 
 - **Build Targets**: Use `make all` or `make build/bin/zerocc` (or `make rebuild` when Makefile/headers change). Note that there is no `make build` target.
 - **Project-Header Include Convention**: All project headers in `src/` and `include/` are included relative to the include roots (`-Isrc -Iinclude`): `#include "zero_cc/core/core.h"`, `#include "zero_cc.h"`. Do **not** add `../`-parent-relative (`"../types/types.h"`) or bare-sibling (`"ir.h"`) project includes — they are fragile under file moves. System headers keep the angled form.
+- **Code Style**: Follow [`docs/coding_style.md`](docs/coding_style.md) — directory layout, include rules & order, naming (`zero_cc_*` / `ZeroCC*` / `ZERO_CC_*`), header-only `static inline` patterns, error-handling shape, and the commit/sprint/OKF documentation discipline.
 - **Direct Compiler Verification**: `build/test/abi/*` binaries built by `make all` are compiled with host `$(CC)` (`gcc`), whereas `test/jit/*` runs `./build/bin/zerocc`. Whenever modifying parser, IR, optimization, or ABI codegen, **always verify the test directly with `./build/bin/zerocc` in both AOT and JIT modes**:
   ```bash
   ./build/bin/zerocc path/to/test.c -o /tmp/test_bin && /tmp/test_bin

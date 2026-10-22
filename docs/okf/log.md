@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T11:55:11Z
+timestamp: 2026-10-22T12:01:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -305,3 +305,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Project-header include convention (Sprint 42): single include-root relative style (-Isrc -Iinclude); 262 non-canonical project includes across 74 files normalized; ../ and bare-sibling project includes disallowed
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- Documented include-order prescription and the flat include/ design decision (Sprint 42): why include/<project>/ subdirectory is deliberately not used (threads.h system emulation, single umbrella API) and the revisit trigger (second public header family, e.g. zero_rt); new docs/coding_style.md as the repo style reference

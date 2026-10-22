@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-22T11:55:11Z
+timestamp: 2026-10-22T12:01:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -36,6 +36,9 @@ make rebuild
 ### Project-header include convention
 
 All project headers are included **relative to the include roots `-Isrc -Iinclude`** (the single include-root convention, normalized in Sprint 42): `src/zero_cc/core/core.h` is included as `#include "zero_cc/core/core.h"`, and `include/zero_cc.h` as `#include "zero_cc.h"`. Do **not** use `../`-parent-relative (`"../types/types.h"`) or bare-sibling (`"ir.h"`) forms for project headers — they are fragile under file moves. System/external headers keep the angled form (`<stdio.h>`). Two dormant freestanding placeholders are exempt: `"zero_elf.h"` (elf_emitter.h `#else` branch) and `"zero_posix_baremetal.h"` (posix_libc.h, `ZERO_NOLIBC`/`ZERO_FREESTANDING` guard) — both reference headers not yet created.
+
+- **Include order**: prescribed for new/touched files — sibling header first, then system (`<...>`), then project ("zero_cc/..."). The existing tree is mixed (≈half the files lead with project headers); untouched files are not churned.
+- **Why `include/` is flat (design decision)**: the common `include/<project>/` subdirectory pattern is deliberately **not** used. `threads.h` emulates the *system* `<threads.h>` and must resolve as a bare root name for test binaries compiled with host gcc + `-Iinclude`; `zero_cc.h` is a single-file umbrella API, and the collision risk the subdirectory pattern guards against only materializes when multiple projects share an include path (this tree does not). **Revisit trigger:** a second public header family (e.g. the `zero_rt` runtime API) → migrate to `include/zero_cc/` + `include/zero_rt/` in one step, keeping a `zero_cc.h` shim for compatibility. Full style reference: `docs/coding_style.md`.
 
 ## 2. Running the Test Suite
 
