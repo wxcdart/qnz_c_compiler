@@ -17,8 +17,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
-#include "ir.h"
-#include "../types/symbols.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/types/symbols.h"
 
 /*
  * Emit function label (.globl and func:).

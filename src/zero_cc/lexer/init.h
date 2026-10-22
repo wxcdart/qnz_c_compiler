@@ -5,7 +5,7 @@
 #include <string.h>
 #include "zero_cc/lexer/state.h"
 #include "zero_cc/types/token.h"
-#include "keywords.inc"
+#include "zero_cc/lexer/keywords.inc"
 
 /* Initialize lexer with source and filename */
 static inline void zero_cc_lexer_init_file(ZeroCCLexer *lx, const char *src, const char *filename) {

@@ -1,6 +1,6 @@
 /* AST Lowering - Statement Handlers and Dispatcher */
 
-#include "ast_lowering_internal.h"
+#include "zero_cc/ir/ast_lowering_internal.h"
 
 #define ZERO_CC_PARSER_AST_LOWERING_STMT_H
 
@@ -11,18 +11,18 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types/types.h"
-#include "../parser/parser.h"
-#include "ir_emitter.h"
-#include "ir_emit_ops.h"
-#include "machine_emitter.h"
-#include "../isa/isa_backend.h"
-#include "../types/vregs.h"
-#include "../types/global_vars.h"
-#include "../semantic/type.h"
-#include "../common/arena.h"
-#include "abi_classify.h"
-#include "label_patcher.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/ir/ir_emitter.h"
+#include "zero_cc/ir/ir_emit_ops.h"
+#include "zero_cc/ir/machine_emitter.h"
+#include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/types/vregs.h"
+#include "zero_cc/types/global_vars.h"
+#include "zero_cc/semantic/type.h"
+#include "zero_cc/common/arena.h"
+#include "zero_cc/ir/abi_classify.h"
+#include "zero_cc/ir/label_patcher.h"
 
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);

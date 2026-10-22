@@ -8,11 +8,11 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types/types.h"
-#include "../types/global_vars.h"
-#include "parser.h"
-#include "const_eval.h"
-#include "../jit/type_info.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/types/global_vars.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/parser/const_eval.h"
+#include "zero_cc/jit/type_info.h"
 
 /* Forward declaration for statement parsing */
 ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx);

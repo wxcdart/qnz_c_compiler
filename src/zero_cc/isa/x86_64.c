@@ -1,6 +1,6 @@
-#include "isa_backend.h"
+#include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/ir/machine_emitter.h"
-#include "x86_64_asm.c"  /* Include assembly emission functions */
+#include "zero_cc/isa/x86_64_asm.c"  /* Include assembly emission functions */
 #include <string.h>
 
 /* x86-64 register info */

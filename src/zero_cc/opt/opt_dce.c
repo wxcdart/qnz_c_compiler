@@ -1,8 +1,8 @@
-#include "opt_dce.h"
-#include "../ir/ir.h"
-#include "../ir/ir_arena.h"
-#include "../ir/regalloc.h"
-#include "../types/symbols.h"
+#include "zero_cc/opt/opt_dce.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/ir/regalloc.h"
+#include "zero_cc/types/symbols.h"
 #include <stdlib.h>
 #include <string.h>
 

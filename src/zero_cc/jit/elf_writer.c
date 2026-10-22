@@ -3,7 +3,7 @@
  * @brief ELF64 Object File Generation Implementation
  */
 
-#include "elf_writer.h"
+#include "zero_cc/jit/elf_writer.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,6 +1,6 @@
-#include "opt_constant_fold.h"
-#include "../ir/ir.h"
-#include "../ir/ir_emitter.h"
+#include "zero_cc/opt/opt_constant_fold.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_emitter.h"
 #include <stdlib.h>
 #include <string.h>
 

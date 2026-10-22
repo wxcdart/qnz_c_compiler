@@ -1,4 +1,4 @@
-#include "promote.h"
+#include "zero_cc/semantic/promote.h"
 #include <string.h>
 
 /* Token values matching ZeroCCTokType from types_lexer.h */

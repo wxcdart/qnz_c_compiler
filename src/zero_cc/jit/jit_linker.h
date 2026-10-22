@@ -6,10 +6,10 @@
 #ifndef ZERO_CC_JIT_LINKER_H
 #define ZERO_CC_JIT_LINKER_H
 
-#include "type_info.h"
-#include "compile.h"
-#include "compile_unit.h"
-#include "execution.h"
-#include "elf_emitter.h"
+#include "zero_cc/jit/type_info.h"
+#include "zero_cc/jit/compile.h"
+#include "zero_cc/jit/compile_unit.h"
+#include "zero_cc/jit/execution.h"
+#include "zero_cc/jit/elf_emitter.h"
 
 #endif /* ZERO_CC_JIT_LINKER_H */

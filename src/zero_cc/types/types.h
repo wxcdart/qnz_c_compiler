@@ -22,12 +22,12 @@
 #ifndef ZERO_CC_TYPES_H
 #define ZERO_CC_TYPES_H
 
-#include "token.h"
-#include "type_system.h"
-#include "symbols.h"
-#include "type_funcs.h"
-#include "registry.h"
-#include "emit_helpers.h"
-#include "symbol_mgmt.h"
+#include "zero_cc/types/token.h"
+#include "zero_cc/types/type_system.h"
+#include "zero_cc/types/symbols.h"
+#include "zero_cc/types/type_funcs.h"
+#include "zero_cc/types/registry.h"
+#include "zero_cc/types/emit_helpers.h"
+#include "zero_cc/types/symbol_mgmt.h"
 
 #endif /* ZERO_CC_TYPES_H */

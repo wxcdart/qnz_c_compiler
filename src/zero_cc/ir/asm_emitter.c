@@ -7,10 +7,10 @@
  * All assembly emission is delegated to BE(c)->emit_*_asm() functions.
  */
 
-#include "asm_emitter.h"
-#include "ir.h"
-#include "regalloc.h"
-#include "../isa/isa_backend.h"
+#include "zero_cc/ir/asm_emitter.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/regalloc.h"
+#include "zero_cc/isa/isa_backend.h"
 #include <stdio.h>
 #include <string.h>
 

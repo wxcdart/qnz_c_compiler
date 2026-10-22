@@ -1,7 +1,7 @@
-#include "isa_backend.h"
+#include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/ir/machine_emitter.h"
 #include "zero_cc/ir/asm_emitter.h"
-#include "aarch64_asm.c"  /* Include assembly emission functions */
+#include "zero_cc/isa/aarch64_asm.c"  /* Include assembly emission functions */
 #include <stdint.h>
 
 /* ARM64 register info */

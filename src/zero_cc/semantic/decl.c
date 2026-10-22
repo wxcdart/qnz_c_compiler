@@ -1,4 +1,4 @@
-#include "decl.h"
+#include "zero_cc/semantic/decl.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>

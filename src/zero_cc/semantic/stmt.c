@@ -1,5 +1,5 @@
-#include "stmt.h"
-#include "promote.h"
+#include "zero_cc/semantic/stmt.h"
+#include "zero_cc/semantic/promote.h"
 
 static bool is_scalar_type(const TypeInfo *t) {
     if (!t) return false;

@@ -1,13 +1,13 @@
-#include "opt_vectorize.h"
-#include "opt_loop.h"
-#include "opt_constant_fold.h"
-#include "cfg.h"
-#include "../ir/ir.h"
-#include "../ir/ir_arena.h"
-#include "../ir/ir_emit_ops.h"
-#include "../ir/regalloc.h"
-#include "../types/symbols.h"
-#include "../isa/isa_backend.h"
+#include "zero_cc/opt/opt_vectorize.h"
+#include "zero_cc/opt/opt_loop.h"
+#include "zero_cc/opt/opt_constant_fold.h"
+#include "zero_cc/opt/cfg.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/ir/ir_emit_ops.h"
+#include "zero_cc/ir/regalloc.h"
+#include "zero_cc/types/symbols.h"
+#include "zero_cc/isa/isa_backend.h"
 #include <stdlib.h>
 #include <string.h>
 

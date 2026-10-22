@@ -1,6 +1,6 @@
-#include "opt_copy_prop.h"
-#include "opt_profile.h"
-#include "../ir/ir.h"
+#include "zero_cc/opt/opt_copy_prop.h"
+#include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/ir/ir.h"
 #include <stdlib.h>
 #include <string.h>
 

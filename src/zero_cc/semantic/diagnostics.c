@@ -1,4 +1,4 @@
-#include "diagnostics.h"
+#include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/types/symbols.h"
 #include <stdio.h>
 #include <string.h>

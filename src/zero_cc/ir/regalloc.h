@@ -6,11 +6,11 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ir.h"
-#include "../isa/isa_backend.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/isa/isa_backend.h"
 
-#include "../types/vregs.h"
-#include "../opt/opt_profile.h"
+#include "zero_cc/types/vregs.h"
+#include "zero_cc/opt/opt_profile.h"
 
 /* Forward declaration to avoid circular includes */
 typedef struct ZeroCCCompiler ZeroCCCompiler;

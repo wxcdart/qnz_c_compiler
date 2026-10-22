@@ -3,12 +3,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
-#include "../common/arena.h"
-#include "../parser/parser.h"
-#include "diagnostics.h"
-#include "scope.h"
-#include "type.h"
-#include "promote.h"
+#include "zero_cc/common/arena.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/semantic/diagnostics.h"
+#include "zero_cc/semantic/scope.h"
+#include "zero_cc/semantic/type.h"
+#include "zero_cc/semantic/promote.h"
 
 #ifdef __cplusplus
 extern "C" {

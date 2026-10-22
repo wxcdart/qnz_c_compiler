@@ -1,4 +1,4 @@
-#include "type.h"
+#include "zero_cc/semantic/type.h"
 #include <string.h>
 
 /* Allocate and initialize a basic type */

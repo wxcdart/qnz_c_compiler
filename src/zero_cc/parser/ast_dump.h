@@ -8,8 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types/types.h"
-#include "parser.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
 
 static const char *op_to_str(uint32_t op) {
     switch (op) {

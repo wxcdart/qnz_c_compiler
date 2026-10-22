@@ -1,7 +1,7 @@
-#include "visitor.h"
-#include "stmt.h"
-#include "decl.h"
-#include "expr.h"
+#include "zero_cc/semantic/visitor.h"
+#include "zero_cc/semantic/stmt.h"
+#include "zero_cc/semantic/decl.h"
+#include "zero_cc/semantic/expr.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>

@@ -1,4 +1,4 @@
-#include "scope.h"
+#include "zero_cc/semantic/scope.h"
 #include <string.h>
 #include <stdlib.h>
 

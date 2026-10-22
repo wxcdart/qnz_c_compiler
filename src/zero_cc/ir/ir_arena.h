@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ir.h"
+#include "zero_cc/ir/ir.h"
 
 /**
  * IR Arena - Dynamic growing instruction buffer

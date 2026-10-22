@@ -7,7 +7,7 @@
 #ifndef ZERO_CC_PARSER_IR_EMIT_OPS_H
 #define ZERO_CC_PARSER_IR_EMIT_OPS_H
 
-#include "ir.h"
+#include "zero_cc/ir/ir.h"
 
 /* =========================================================================
  * Data Movement Operations

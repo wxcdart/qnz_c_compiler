@@ -7,8 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../types/types.h"
-#include "parser.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
 
 void zero_cc_ast_arena_init(ZeroCCASTArena *arena, size_t initial_cap) {
     if (!arena) return;

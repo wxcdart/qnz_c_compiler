@@ -1,7 +1,7 @@
 /* AST Lowering - Expression Lowering (AST to IR) */
 
-#include "ast_lowering_internal.h"
-#include "../isa/isa_backend.h"
+#include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/isa/isa_backend.h"
 
 static bool struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, size_t *cur_idx,
                                        size_t base_off, size_t *out_off, size_t *out_sz,

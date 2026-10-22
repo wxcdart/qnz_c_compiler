@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-22T04:02:21Z
+timestamp: 2026-10-22T11:55:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -32,6 +32,10 @@ make rebuild
 ### Stale-build guard
 
 `main()` (src/main.c) runs a layout check before anything else: `zero_cc_ast_node_size() != sizeof(ZeroCCASTNode)`. `zero_cc_ast_node_size` is declared in `src/zero_cc/parser/parser.h` and defined in `src/zero_cc/parser/parser.c`; it returns the `ZeroCCASTNode` size compiled into the `parser` object file, which `main` compares against its own `sizeof`. If they differ, an object file was built against an older AST-node layout and would corrupt the AST at runtime, so the binary aborts with a "stale build objects" message. **Implication: any change to the `ZeroCCASTNode` struct layout (adding/removing/reordering fields) requires a full `make clean && make build/bin/zerocc`** — an incremental build that recompiles only some objects leaves the mismatch in place.
+
+### Project-header include convention
+
+All project headers are included **relative to the include roots `-Isrc -Iinclude`** (the single include-root convention, normalized in Sprint 42): `src/zero_cc/core/core.h` is included as `#include "zero_cc/core/core.h"`, and `include/zero_cc.h` as `#include "zero_cc.h"`. Do **not** use `../`-parent-relative (`"../types/types.h"`) or bare-sibling (`"ir.h"`) forms for project headers — they are fragile under file moves. System/external headers keep the angled form (`<stdio.h>`). Two dormant freestanding placeholders are exempt: `"zero_elf.h"` (elf_emitter.h `#else` branch) and `"zero_posix_baremetal.h"` (posix_libc.h, `ZERO_NOLIBC`/`ZERO_FREESTANDING` guard) — both reference headers not yet created.
 
 ## 2. Running the Test Suite
 

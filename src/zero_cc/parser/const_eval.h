@@ -8,9 +8,9 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types/types.h"
-#include "../types/registry.h"
-#include "../types/global_vars.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/types/registry.h"
+#include "zero_cc/types/global_vars.h"
 
 /* Forward declarations for recursive functions */
 static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos);

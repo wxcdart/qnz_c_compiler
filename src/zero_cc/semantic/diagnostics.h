@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include "../common/arena.h"
+#include "zero_cc/common/arena.h"
 
 /* Forward declaration */
 typedef struct ZeroCCCompiler ZeroCCCompiler;

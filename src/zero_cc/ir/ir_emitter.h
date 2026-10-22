@@ -7,10 +7,10 @@
 #include <stdbool.h>
 #include <string.h>
 #include "zero_cc/types/types.h"
-#include "ir.h"
-#include "regalloc.h"
-#include "live_range.h"
-#include "lowering_state.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/regalloc.h"
+#include "zero_cc/ir/live_range.h"
+#include "zero_cc/ir/lowering_state.h"
 
 /* Forward declarations */
 typedef struct ZeroCCCompiler ZeroCCCompiler;

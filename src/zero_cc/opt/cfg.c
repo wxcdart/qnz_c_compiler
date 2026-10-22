@@ -3,11 +3,11 @@
  * See cfg.h for the invariants.  The CFG is a pure view: it reads the
  * IRArena, never writes to it.
  */
-#include "cfg.h"
-#include "../types/types.h"
-#include "../ir/ir.h"
-#include "../ir/ir_arena.h"
-#include "../types/symbols.h"
+#include "zero_cc/opt/cfg.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/types/symbols.h"
 #include <stdlib.h>
 #include <string.h>
 

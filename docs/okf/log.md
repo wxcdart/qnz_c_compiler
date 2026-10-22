@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T11:17:43Z
+timestamp: 2026-10-22T11:55:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -302,3 +302,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `frontend-and-types.md`
 - Preprocessor include-path conformance (Sprint 42): main-file-dir quoted include resolution (C99 6.10.2p2) via zero_cc_preprocess_ext2, missing-include hard error with gcc-style diagnostic, __FILE__ main-file expansion, legacy API contract preserved
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- Project-header include convention (Sprint 42): single include-root relative style (-Isrc -Iinclude); 262 non-canonical project includes across 74 files normalized; ../ and bare-sibling project includes disallowed

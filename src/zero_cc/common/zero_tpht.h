@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "zero_posix.h"
+#include "zero_cc/common/zero_posix.h"
 
 #ifdef __cplusplus
 extern "C" {

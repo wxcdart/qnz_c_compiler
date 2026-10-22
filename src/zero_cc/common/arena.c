@@ -1,4 +1,4 @@
-#include "arena.h"
+#include "zero_cc/common/arena.h"
 #include <stdlib.h>
 
 /* Helper: round up size to 8‑byte alignment */

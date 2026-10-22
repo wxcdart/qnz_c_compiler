@@ -1,6 +1,6 @@
 /* AST Lowering - IR to Machine Code Emission */
 
-#include "ast_lowering_internal.h"
+#include "zero_cc/ir/ast_lowering_internal.h"
 
 /* Emit function prologue directly (without IR instruction) */
 void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {

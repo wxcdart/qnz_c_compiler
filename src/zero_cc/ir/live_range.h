@@ -6,8 +6,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ir.h"
-#include "regalloc.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/regalloc.h"
 
 /* Forward declarations to avoid circular includes */
 typedef struct RegAllocator RegAllocator;

@@ -1,5 +1,5 @@
-#include "expr.h"
-#include "../types/token.h"
+#include "zero_cc/semantic/expr.h"
+#include "zero_cc/types/token.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>

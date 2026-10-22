@@ -1,7 +1,7 @@
 #pragma once
 
-#include "type.h"
-#include "diagnostics.h"
+#include "zero_cc/semantic/type.h"
+#include "zero_cc/semantic/diagnostics.h"
 #include <stdbool.h>
 #include <stdint.h>
 

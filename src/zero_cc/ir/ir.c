@@ -1,9 +1,9 @@
-#include "../types/types.h"
+#include "zero_cc/types/types.h"
 #define ZERO_CC_GLOBAL_VARS_IMPL
-#include "../types/global_vars.h"
-#include "ir.h"
-#include "ir_arena.h"
-#include "../types/symbols.h"
+#include "zero_cc/types/global_vars.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/types/symbols.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,7 +1,7 @@
 #ifndef ZERO_CC_TYPES_SYMBOLS_H
 #define ZERO_CC_TYPES_SYMBOLS_H
 
-#include "../isa/isa_backend.h"
+#include "zero_cc/isa/isa_backend.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -11,12 +11,12 @@
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/semantic/expr.h"
 #include "zero_cc/semantic/diagnostics.h"
-#include "../ir/regalloc.h"
-#include "../ir/lowering_state.h"
-#include "../ir/label_patcher.h"
-#include "../ir/ir_arena.h"
-#include "../opt/opt_pass.h"
-#include "../opt/cfg.h"
+#include "zero_cc/ir/regalloc.h"
+#include "zero_cc/ir/lowering_state.h"
+#include "zero_cc/ir/label_patcher.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/opt/opt_pass.h"
+#include "zero_cc/opt/cfg.h"
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCStrChunk ZeroCCStrChunk;

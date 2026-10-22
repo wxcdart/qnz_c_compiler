@@ -8,12 +8,12 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../types/types.h"
-#include "../types/global_vars.h"
-#include "parser.h"
-#include "../jit/type_info.h"
-#include "../semantic/decl.h"
-#include "definitions.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/types/global_vars.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/jit/type_info.h"
+#include "zero_cc/semantic/decl.h"
+#include "zero_cc/parser/definitions.h"
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);

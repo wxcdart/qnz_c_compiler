@@ -21,12 +21,12 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#include "ir.h"
-#include "ir_emit_ops.h"
-#include "../types/types.h"
-#include "../parser/parser.h"
-#include "../isa/isa_backend.h"
-#include "../types/vregs.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_emit_ops.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/types/vregs.h"
 
 /* Forward declaration */
 static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);

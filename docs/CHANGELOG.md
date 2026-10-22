@@ -1,5 +1,11 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - Normalize Project-Header Include Convention to Include-Root Relative Paths
+
+Hygiene: eliminated the three-way mix of `../`-parent-relative (110), bare-sibling (155), and include-root-relative (87) quoted `#include` styles in `src/` and `include/`. All 262 non-canonical project includes across 74 files were rewritten to the single include-root convention (`-Isrc -Iinclude`): `src/zero_cc/core/core.h` is now always `#include "zero_cc/core/core.h"`, `include/zero_cc.h` is `#include "zero_cc.h"`. Trailing comments preserved; system headers untouched; the two dormant freestanding placeholders (`"zero_elf.h"`, `"zero_posix_baremetal.h"` — headers not yet created) intentionally left as-is. Convention documented in `AGENTS.md` and `docs/okf/build-and-verification.md`.
+
+**Verification** (after `make rebuild` clean build): `make test` **144/144**, `make test-opt` **107/107 ok**, `sret_verifier.py --verify-all` **6/6**, `tools/isa_qemu_diff.py` **44/44**.
+
 ## [Sprint 42] - 2026-10-22 - Preprocessor Include-Path Conformance: Main-File-Dir Quoted Includes (C99 6.10.2p2) & Missing-Include Diagnostics
 
 Fixed two C99 6.10.2 conformance gaps in the preprocessor (`src/zero_cc/core/preprocessor.h`, `src/zero_cc/core/compiler_state.h`, `src/main.c`):

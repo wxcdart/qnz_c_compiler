@@ -5,12 +5,12 @@
  *  This file acts as a wrapper that includes the split parser modules.
  *  ========================================================================= */
 
-#include "../types/types.h"
-#include "parser.h"
-#include "ast_arena.h"
-#include "ast_expr.h"
-#include "ast_stmt.h"
-#include "ast_dump.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/parser/ast_arena.h"
+#include "zero_cc/parser/ast_expr.h"
+#include "zero_cc/parser/ast_stmt.h"
+#include "zero_cc/parser/ast_dump.h"
 
 static __thread ZeroCCTypeNode *g_type_pool_head = NULL;
 

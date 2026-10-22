@@ -3,9 +3,9 @@
  * ISA-specific assembly emission for GNU Assembler (GAS) syntax
  */
 
-#include "isa_backend.h"
-#include "../ir/ir.h"
-#include "../ir/regalloc.h"
+#include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/regalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

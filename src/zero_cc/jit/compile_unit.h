@@ -14,7 +14,7 @@
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/ir/ir_arena.h"
-#include "../isa/isa_backend.h"
+#include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
 #include "zero_cc/parser/definitions.h"

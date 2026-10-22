@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "visitor.h"
+#include "zero_cc/semantic/visitor.h"
 
 #ifdef __cplusplus
 extern "C" {

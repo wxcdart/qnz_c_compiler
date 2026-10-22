@@ -5,6 +5,6 @@
 #include <ctype.h>
 #include <limits.h>
 #include <errno.h>
-#include "lexer.h"
-#include "../types/types.h"
-#include "keywords.inc"
+#include "zero_cc/lexer/lexer.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/lexer/keywords.inc"

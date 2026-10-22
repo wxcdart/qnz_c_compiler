@@ -10,8 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "zero_posix.h"
-#include "zero_tinyptr.h"
+#include "zero_cc/common/zero_posix.h"
+#include "zero_cc/common/zero_tinyptr.h"
 
 #ifdef __cplusplus
 extern "C" {
