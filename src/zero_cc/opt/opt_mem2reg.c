@@ -483,17 +483,11 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             continue;
         }
         
-        /* Invalidate any slot holding a temp that is redefined as a destination
-         * (unless it's an in-place sign/zero extension of the same temp) */
+        /* Invalidate any slot holding a temp that is redefined as a destination */
         if (instr->temp_dest != TEMP_NONE) {
-            bool in_place_ext = (instr->op == OP_SEXT8 || instr->op == OP_SEXT16 || instr->op == OP_SEXT32 ||
-                                 instr->op == OP_ZEXT8 || instr->op == OP_ZEXT16 || instr->op == OP_ZEXT32) &&
-                                (instr->temp_dest == instr->temp_src1);
-            if (!in_place_ext) {
-                for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-                    if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
-                        state.slot_valid[s] = false;
-                    }
+            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+                if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
+                    state.slot_valid[s] = false;
                 }
             }
         }

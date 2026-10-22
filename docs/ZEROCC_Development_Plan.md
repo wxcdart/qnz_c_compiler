@@ -184,6 +184,12 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
   - `switch` (arbitrary case count, O(n) dispatch) & `goto`/user labels; C11-conformant cast expressions
   - 32-bit `int` wraparound & end-to-end signedness (`SEXT*/ZEXT*` width extension, signed `>>`), pointer-member chains (`o.p->v`, `(*pp)->w`) with width-safe deref stores
   - 16-bit temp ids (up to 65534 per function); C89 implicit-`int` accepted with a diagnostic (robustness)
+- **C23 Support**:
+  - `typeof` and `typeof_unqual` (plus `__typeof__`, `__typeof`, `__typeof_unqual__`, `__typeof_unqual`) across locals, parameters, return types, struct members, typedefs, casts (`(typeof(T))val`), and `sizeof(typeof(...))`
+  - Early parameter scope registration enabling dependent parameter type deduction (`typeof(int) add(typeof(int) a, typeof(a) b)`)
+  - Empty `{}` initializers (C23 6.7.10) for automatic locals, static locals, compound literals, and globals
+  - Predefined object macro `__STDC_NO_COMPLEX__ 1` formally signaling complex number type non-support (C11/C23)
+  - Predefined compiler identification macros `__zerocc__ 1` and `__ZEROCC__ 1`
 - **C11 Support**:
   - `_Alignas` & `_Alignof` on types, struct fields, and local variables
   - Anonymous `struct` and `union` field flattening
@@ -204,8 +210,8 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
   - Direct ELF64 and ELF32 relocatable object writer (`elf_writer.c`), freestanding `W^X` in-memory JIT (`execution.h`), and direct raw binary AOT compilation default (`-o`, `-c`) across all 4 target ISAs with `ZC_TEXT_AOT=1` escape hatch.
 
 ### 📊 Test & Verification Coverage
-- **Main Regression Suite (`make test`)**: 142/142 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
-- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **106/106 passing**).
+- **Main Regression Suite (`make test`)**: 143/143 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
+- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **107/107 passing**).
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11) differential-tested against static-musl reference binaries under QEMU.
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**

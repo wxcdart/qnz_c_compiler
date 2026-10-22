@@ -8,6 +8,7 @@
 #include "zero_cc/core/core.h"
 #include "zero_cc/types/types.h"
 #include "zero_cc/types/global_vars.h"
+#include "zero_cc/parser/const_eval.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/scope.h"
@@ -53,7 +54,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
         }
     }
-    if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
+    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+        fn_ret_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    } else if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             ZeroCCType *st = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
@@ -145,6 +148,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     char param_names[8][128];
     size_t param_count = 0;
     bool is_variadic_fn = false;
+    c->local_count = 0;
+    if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
+        for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
+    }
 
     while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
         size_t ppos = c->token_pos;
@@ -161,7 +168,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
                 c->token_pos++;
             }
-            if (c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
+            ZeroCCType typeof_pt;
+            bool is_typeof_param = false;
+            if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+                is_typeof_param = true;
+                typeof_pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            }
+            if (is_typeof_param || c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
                 c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
                 c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
                 c->tokens[c->token_pos].type == TK_ENUM ||
@@ -169,15 +182,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
                 c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
                 c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
-                ZeroCCTokType ptt = c->tokens[c->token_pos].type;
-                const char *ptname = c->tokens[c->token_pos].str_val;
-                ZeroCCType *pfound = zero_cc_find_typedef(c, ptname);
-                if (!pfound) pfound = zero_cc_find_struct(c, ptname);
-                if (!pfound) pfound = zero_cc_find_enum(c, ptname);
-                c->token_pos++;
+                ZeroCCTokType ptt = is_typeof_param ? TK_TYPEOF : c->tokens[c->token_pos].type;
+                const char *ptname = is_typeof_param ? "" : c->tokens[c->token_pos].str_val;
+                ZeroCCType *pfound = is_typeof_param ? NULL : zero_cc_find_typedef(c, ptname);
+                if (!pfound && !is_typeof_param) pfound = zero_cc_find_struct(c, ptname);
+                if (!pfound && !is_typeof_param) pfound = zero_cc_find_enum(c, ptname);
+                if (!is_typeof_param) c->token_pos++;
                 /* signed/unsigned qualifier (C11 6.7.5): consume and remember */
-                bool p_is_unsigned = (ptt == TK_UNSIGNED);
-                if (ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+                bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
+                if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED)) {
                     if (c->token_pos < c->token_count &&
                         (c->tokens[c->token_pos].type == TK_INT ||
                          c->tokens[c->token_pos].type == TK_CHAR ||
@@ -240,6 +253,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         ZeroCCType fpt = zero_cc_type_ptr(&pt);
                         fpt.is_func_ptr = true;
                         param_types[param_count] = fpt;
+                        zero_cc_add_local(c, param_names[param_count], fpt);
                         param_count++;
                     }
                     c->token_pos++; /* name */
@@ -260,7 +274,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     if (param_count < 8) {
                         snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
                         ZeroCCType pt;
-                        if (pfound) {
+                        if (is_typeof_param) {
+                            pt = typeof_pt;
+                        } else if (pfound) {
                             pt = *pfound;
                             snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
                         } else if (ptt == TK_FLOAT_KW) {
@@ -295,6 +311,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                             }
                         }
                         param_types[param_count] = pt;
+                        zero_cc_add_local(c, param_names[param_count], pt);
                         param_count++;
                     }
                     c->token_pos++;

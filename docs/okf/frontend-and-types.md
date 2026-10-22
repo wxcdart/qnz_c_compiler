@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-20T03:21:15Z
+timestamp: 2026-10-22T04:37:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -98,6 +98,18 @@ Multi-dimensional fixed arrays (e.g. `int a[2][3]`, `b[2][2][2]`) and matrix-sha
 - **`goto label;` and `label: stmt`** (`src/zero_cc/parser/ast_stmt.h`): the statement parser handles `TK_GOTO` (`NODE_GOTO`, name in `s.str`) and a statement-leading `IDENT` immediately followed by `TK_COLON` (`NODE_LABEL`, name in `s.str`, `left` = the labeled statement). Lowering (`lower_stmt_goto`/`lower_stmt_label` in `src/zero_cc/ir/ast_lowering_stmt.c`) maps user names to IR labels through `label_patcher_find_or_create_user_label` + `get_or_create_user_ir_label` (names persist in `c->label_patcher.user_labels`; labels are created lazily on first goto/label, supporting forward references).
 - **`switch` dispatch** (`lower_stmt_switch`, `src/zero_cc/ir/ast_lowering_stmt.c`): evaluates the controlling expression, pre-scans the body block's top-level statement chain for `NODE_CASE`/`NODE_DEFAULT`, emits a `CMP`/`COND_SET`/`JNE` dispatch chain per case (jump-if-**nonzero** — see the conditional-branch note in [isa-backends.md](./isa-backends.md)), stores each case's IR label in `node->aux.alt`, and registers the switch exit as the current break target via `label_patcher_enter_loop(..., switch_exit, 0)` so `break` works. A non-matching value skips the body entirely (unconditional jump past the body, per C semantics); fallthrough between case labels is natural code order. `NODE_CASE`/`NODE_DEFAULT` lowering emits their stored label (when set by a switch) and lowers the attached statement.
 - **Known limitation**: `case` constants are lowered as runtime expressions (no compile-time deduplication); deeply nested `continue` inside a bare switch (no loop) is a no-op, matching prior behavior.
+
+## C23 Features & Standard Conformance
+
+- **`typeof` and `typeof_unqual`** (C23 6.7.2.5, GNU `__typeof__` / `__typeof`):
+  - Supported everywhere type specifiers appear: local and global declarations, function return types, function parameters, struct/union members, typedefs, casts (`(typeof(T))val`), and `sizeof(typeof(...))`.
+  - Deduced at parse-time via `zero_cc_parse_type_name_at_pos()` or `zero_cc_type_of_equality()` in `src/zero_cc/parser/const_eval.h`.
+  - Supports both type names (`typeof(int)`) and expressions (`typeof(a + b)`, `typeof(p.x)`, `typeof(*ptr)`, `typeof(fn(x))`).
+  - `typeof_unqual` strips `const`, `volatile`, `restrict`, and `_Atomic` qualifiers from the evaluated type.
+- **Empty `{}` Initializers** (C23 6.7.10):
+  - Standard zero-initialization syntax (`= {}`) supported across all storage classes: automatic locals (scalars, structs, arrays), static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), and global variables (`compile_unit.h`).
+- **`__STDC_NO_COMPLEX__ 1` Conformance**:
+  - Predefined object macro `__STDC_NO_COMPLEX__ 1` in `src/zero_cc/core/preprocessor.h` formally signaling non-support for complex number types in accordance with ISO C11/C23 standards.
 
 ## C11 Core Keywords, Alignment, Atomics & Threading
 

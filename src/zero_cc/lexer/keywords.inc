@@ -66,6 +66,10 @@ static const KeywordEntry keyword_table[] = {
     {"true",           TK_TRUE},
     {"typeof",         TK_TYPEOF},
     {"typeof_unqual",  TK_TYPEOF_UNQUAL},
+    {"__typeof",       TK_TYPEOF},
+    {"__typeof__",     TK_TYPEOF},
+    {"__typeof_unqual", TK_TYPEOF_UNQUAL},
+    {"__typeof_unqual__", TK_TYPEOF_UNQUAL},
 };
 
 #define KEYWORD_COUNT (sizeof(keyword_table) / sizeof(keyword_table[0]))

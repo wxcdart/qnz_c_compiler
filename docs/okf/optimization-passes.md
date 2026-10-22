@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-10-20T22:06:45Z
+timestamp: 2026-10-22T04:37:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -49,10 +49,12 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - **Critical Safety Invariants**:
      - Only tracks 8-byte aligned stack slots (`offset % 8 == 0`) whose stored source is a virtual register (`temp_src1 >= 16`). Reserved physical registers (`VREG_0`..`VREG_15`, `< 16`) are never forwarded across instructions by `opt_mem2reg.c`, `opt_copy_prop.c`, `opt_cse.c`, or `opt_gvn.c` because their live ranges are not tracked by the general register allocator.
      - When a sub-8-byte or unaligned store occurs (e.g., writing a 4-byte struct field at `-68(%rbp)` via `OP_LEA` + `OP_STORE_32`), **both** overlapping 8-byte boundary slots (`(-offset)/8` and `(-offset + 7)/8`) must be invalidated so stale 64-bit values are never forwarded to subsequent 8-byte struct loads.
+     - Invalidate any slot holding a temp whenever that temp is redefined (`temp_dest == instr->temp_dest`). An earlier attempt to exempt in-place sign/zero extensions (`in_place_ext`) was unsound: if a 64-bit stack slot held an aggregate (e.g. `struct { int x, y; }`) and the lower 32-bit field was loaded into a temp and sign-extended via `OP_SEXT32`, preserving the slot mapping caused subsequent 64-bit struct loads to reuse the clobbered temp whose upper 32 bits were replaced with sign extension.
      - Address-taken variables (`OP_LEA`), indirect writes (`OP_STORE_*`), and calls inside loops invalidate or disqualify loop promotion to maintain memory consistency.
 7. **Loop-Invariant Code Motion (`opt_loop.c`)**
    - Identifies natural loops via **CFG backedges (Sprint 35 Phase 3)**: `detect_loops` iterates `cfg->loops[]` (header = `blocks[header].start`, body = `[blocks[header].start .. blocks[backedge_from].end)`); no private `label_to_idx` map remains. Note `detect_loops` may produce **multiple `LoopInfo` entries sharing one header** (several backedges into the same label, e.g. `continue` + main backedge).
    - Uses a **Two-Pass Rebuild** into a new `IRArena`: hoists pure loop-invariant instructions immediately before the loop header label, turns their in-loop originals into `OP_NOP`, and updates `c->ir_call_args` instruction indices.
+   - **Fixed Register Protection Invariant**: Instructions whose destination is a fixed machine/ABI register (`temp_dest < VREG_USER_START`, e.g. `VREG_0` / `%rax` used for function return values) must **never** be hoisted by LICM (`instr_has_moving_side_effects`). Hoisting a return register assignment out of a conditionally executed branch in a loop clobbered the register before the loop started.
    - **Shared-Header Emission (Sprint 35 Phase 0)**: when several loops share a header, the rebuild must emit the UNION of all those loops' invariants before the header (deduplicated via `emitted_at_header`). Emitting only the first matching loop's invariants loses definitions: the in-loop copies of the later loops' invariants are still NOP'd, leaving the temps undefined (Sprint 33 regression: `MOV_IMM r51, 1` in `break_continue.c` hoisted for loop A but the in-loop copy NOP'd under loop B's marking).
    - **Stack Load & Extension Invariant Hoisting**: Detects read-only stack slots (loaded but never stored to in the loop body, no pointer aliasing, no calls) and hoists `OP_MOV` and downstream `OP_SEXT`/`OP_ZEXT` instructions out of the loop into the preheader (e.g. loop bound `n`).
    - **Call-Spanning Safety Invariant**: Does not hoist loop-invariant constants/expressions out of loops that contain `OP_CALL` or `OP_CALL_INDIRECT`, preventing hoisted temporaries from exceeding the 5 callee-saved GPRs on x86-64 and spilling into caller-saved registers across calls.

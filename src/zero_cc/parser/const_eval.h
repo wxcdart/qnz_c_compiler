@@ -43,7 +43,8 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
         t == TK_UNION || t == TK_ENUM || t == TK_FLOAT_KW || t == TK_DOUBLE_KW ||
         t == TK_BOOL_KW || t == TK_SIGNED || t == TK_UNSIGNED ||
         t == TK_SHORT || t == TK_LONG || t == TK_ATOMIC ||
-        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT) {
+        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
+        t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
         return true;
     }
     if (t == TK_IDENT) {
@@ -570,6 +571,9 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_FLOAT_KW) { (*pos)++; return zero_cc_type_float(); }
     if (t == TK_DOUBLE_KW) { (*pos)++; return zero_cc_type_double(); }
     if (t == TK_BOOL_KW) { (*pos)++; return zero_cc_type_bool(); }
+    if (t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
+        return zero_cc_parse_type_name_at_pos(c, pos);
+    }
     if (t == TK_SHORT || t == TK_LONG || t == TK_SIGNED || t == TK_UNSIGNED) {
         /* Multi-word types (long long, unsigned long, signed short, ...) */
         return zero_cc_parse_type_name_at_pos(c, pos);
@@ -582,7 +586,8 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         bool is_type = (next == TK_INT || next == TK_CHAR || next == TK_VOID ||
                         next == TK_STRUCT || next == TK_UNION || next == TK_ENUM ||
                         next == TK_FLOAT_KW || next == TK_DOUBLE_KW || next == TK_BOOL_KW ||
-                        next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC);
+                        next == TK_SIGNED || next == TK_UNSIGNED || next == TK_SHORT || next == TK_LONG || next == TK_ATOMIC ||
+                        next == TK_TYPEOF || next == TK_TYPEOF_UNQUAL);
         if (!is_type && next == TK_IDENT) {
             const char *name = c->tokens[*pos].str_val;
             if (zero_cc_find_typedef(c, name) || zero_cc_find_struct(c, name) || zero_cc_find_enum(c, name)) {
@@ -605,11 +610,54 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_IDENT) {
         const char *name = c->tokens[*pos].str_val;
         (*pos)++;
+        /* Check for function call: func(...) */
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+            (*pos)++;
+            int pdepth = 1;
+            while (*pos < c->token_count && pdepth > 0) {
+                if (c->tokens[*pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[*pos].type == TK_RPAREN) pdepth--;
+                (*pos)++;
+            }
+            ZeroCCFunction *fn = zero_cc_find_function(c, name);
+            if (fn) return fn->return_type;
+            return zero_cc_type_int();
+        }
         /* Check for local variable */
         ZeroCCSym *sym = zero_cc_find_local(c, name);
         if (sym) {
             ZeroCCType ty = sym->type;
             /* Handle member access: sym->member or sym.member */
+            while (true) {
+                ZeroCCTokType mt = c->tokens[*pos].type;
+                if (mt == TK_DOT || mt == TK_ARROW) {
+                    (*pos)++;
+                    if (c->tokens[*pos].type == TK_IDENT) {
+                        const char *mem_name = c->tokens[*pos].str_val;
+                        (*pos)++;
+                        ty = zero_cc_type_find_member(c, ty, mem_name);
+                    }
+                    continue;
+                }
+                if (mt == TK_LBRACKET) { /* array indexing */
+                    (*pos)++;
+                    zero_cc_type_of_equality(c, pos); /* consume index */
+                    if (c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    if (ty.tag == TYPE_ARRAY && ty.base) {
+                        ty = *ty.base;
+                    } else if (ty.tag == TYPE_PTR && ty.base) {
+                        ty = *ty.base;
+                    }
+                    continue;
+                }
+                break;
+            }
+            return ty;
+        }
+        /* Check for global variable */
+        ZeroCCGlobalVar *gv = find_global_var(name);
+        if (gv) {
+            ZeroCCType ty = gv->type;
             while (true) {
                 ZeroCCTokType mt = c->tokens[*pos].type;
                 if (mt == TK_DOT || mt == TK_ARROW) {
@@ -785,6 +833,28 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* [int] */
             ty = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
         }
+    } else if (t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
+        bool unqual = (t == TK_TYPEOF_UNQUAL);
+        (*pos)++;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+            (*pos)++;
+            if (zero_cc_tok_is_type_start(c, *pos)) {
+                ty = zero_cc_parse_type_name_at_pos(c, pos);
+            } else {
+                ty = zero_cc_type_of_equality(c, pos);
+            }
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) {
+                (*pos)++;
+            }
+        } else {
+            ty = zero_cc_type_int();
+        }
+        if (unqual) {
+            ty.is_const = false;
+            ty.is_volatile = false;
+            ty.is_restrict = false;
+            ty.is_atomic = false;
+        }
     } else {
         ty = zero_cc_type_int();
     }
@@ -829,7 +899,9 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         c->token_pos++;
     }
     ZeroCCType ty;
-    if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
+    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+        ty = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    } else if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
         c->token_pos++;
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             const char *name = c->tokens[c->token_pos].str_val;

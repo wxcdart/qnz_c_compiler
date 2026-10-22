@@ -305,7 +305,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
         if (mt == TK_IDENT || mt == TK_INT || mt == TK_CHAR || mt == TK_VOID ||
             mt == TK_FLOAT_KW || mt == TK_DOUBLE_KW || mt == TK_BOOL_KW ||
-            mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG || mt == TK_ATOMIC) {
+            mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT || mt == TK_LONG || mt == TK_ATOMIC ||
+            mt == TK_TYPEOF || mt == TK_TYPEOF_UNQUAL) {
             bool is_unsigned = (mt == TK_UNSIGNED || mt == TK_BOOL_KW);
             char type_ident[128] = "";
             if (mt == TK_IDENT) {
@@ -351,6 +352,30 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 }
             }
             c->token_pos++;
+            ZeroCCType typeof_type;
+            memset(&typeof_type, 0, sizeof(typeof_type));
+            bool is_typeof = false;
+            if (mt == TK_TYPEOF || mt == TK_TYPEOF_UNQUAL) {
+                is_typeof = true;
+                bool unqual = (mt == TK_TYPEOF_UNQUAL);
+                if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                    c->token_pos++;
+                    if (zero_cc_tok_is_type_start(c, c->token_pos)) {
+                        typeof_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                    } else {
+                        typeof_type = zero_cc_type_of_equality(c, &c->token_pos);
+                    }
+                    if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                        c->token_pos++;
+                    }
+                }
+                if (unqual) {
+                    typeof_type.is_const = false;
+                    typeof_type.is_volatile = false;
+                    typeof_type.is_restrict = false;
+                    typeof_type.is_atomic = false;
+                }
+            }
             if (mt == TK_UNSIGNED) {
                 is_unsigned = true;
                 if (c->tokens[c->token_pos].type == TK_INT) { mt = TK_INT; c->token_pos++; }
@@ -392,7 +417,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 }
             }
             size_t base_align = 8, base_size = 8;
-            if (mt == TK_CHAR || mt == TK_BOOL_KW) { base_align = 1; base_size = 1; }
+            if (is_typeof) {
+                base_align = typeof_type.align > 0 ? typeof_type.align : 8;
+                base_size = typeof_type.size;
+            } else if (mt == TK_CHAR || mt == TK_BOOL_KW) { base_align = 1; base_size = 1; }
             else if (mt == TK_SHORT) { base_align = 2; base_size = 2; }
             else if (mt == TK_INT || mt == TK_FLOAT_KW) { base_align = 4; base_size = 4; }
             else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) { base_align = 8; base_size = 8; }
@@ -490,7 +518,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                     m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                     m->is_atomic = member_is_atomic;
-                    if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                    if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                     else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                     else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                     else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -570,7 +602,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                                 m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                                 m->is_atomic = member_is_atomic;
-                                if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                                if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                                 else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                                 else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -602,7 +638,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                                 m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                                 m->is_atomic = member_is_atomic;
-                                if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                                if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                                 else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                                 else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                                 else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -633,7 +673,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                         m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
-                        if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                        if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -760,7 +804,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = c_is_ptr ? c_member_ptr_is_const : member_is_const;
                         m->is_volatile = c_is_ptr ? c_member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
-                        if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                        if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -825,7 +873,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = c_is_ptr ? c_member_ptr_is_const : member_is_const;
                         m->is_volatile = c_is_ptr ? c_member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
-                        if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                        if (is_typeof) {
+                        m->tag = typeof_type.tag;
+                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                    }
+                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1109,7 +1161,10 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     if (t == TK_UNSIGNED) { is_unsigned = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
     else if (t == TK_SIGNED) { is_signed = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
 
-    if (t == TK_INT) { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); c->token_pos++; }
+    if (t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
+        ttype = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    }
+    else if (t == TK_INT) { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); c->token_pos++; }
     else if (t == TK_CHAR) { ttype = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char(); c->token_pos++; }
     else if (t == TK_VOID) { ttype = zero_cc_type_void(); c->token_pos++; }
     else if (t == TK_FLOAT_KW) { ttype = zero_cc_type_float(); c->token_pos++; }

@@ -272,6 +272,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
  */
 static bool instr_has_moving_side_effects(Instr *instr) {
     if (!instr) return true;
+    if (instr->temp_dest != TEMP_NONE && instr->temp_dest < VREG_USER_START) return true;
     
     switch (instr->op) {
         case OP_CALL:

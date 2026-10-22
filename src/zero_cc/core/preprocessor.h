@@ -199,6 +199,9 @@ static inline void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char 
 static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__STDC__", "1");
     zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "199901L");
+    zero_cc_cpp_define_obj(cpp, "__STDC_NO_COMPLEX__", "1");
+    zero_cc_cpp_define_obj(cpp, "__zerocc__", "1");
+    zero_cc_cpp_define_obj(cpp, "__ZEROCC__", "1");
     zero_cc_cpp_define_obj(cpp, "__GNUC__", "4");
     zero_cc_cpp_define_obj(cpp, "__GNUC_MINOR__", "2");
     zero_cc_cpp_define_obj(cpp, "__linux__", "1");

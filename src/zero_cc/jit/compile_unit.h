@@ -314,6 +314,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
             c->tokens[c->token_pos].type == TK_ENUM ||
             c->tokens[c->token_pos].type == TK_ATOMIC ||
+            c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL ||
             c->tokens[c->token_pos].type == TK_IDENT)) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;

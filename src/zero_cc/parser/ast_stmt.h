@@ -56,6 +56,23 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
  * A non-literal initializer leaves the stream where the caller skips
  * it and reports the diagnostic (the run then fails, no binary). */
 static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym) {
+    /* Empty initializer `{}` (C23): zero-fill static local storage */
+    if (c->token_pos + 1 < c->token_count &&
+        c->tokens[c->token_pos].type == TK_LBRACE &&
+        c->tokens[c->token_pos + 1].type == TK_RBRACE) {
+        c->token_pos += 2; /* consume '{' and '}' */
+        size_t total = (sym->type.size > 0) ? sym->type.size : 8;
+        size_t cap_end = sym->static_data_offset + total;
+        if (c->data_section.length < cap_end) {
+            size_t grow = cap_end - c->data_section.length;
+            zero_cc_buf_ensure(&c->data_section, grow);
+            memset(c->data_section.data + c->data_section.length, 0, grow);
+            c->data_section.length = cap_end;
+        }
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        memset(dst, 0, total);
+        return true;
+    }
     bool is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
     if (c->token_pos < c->token_count &&
         (c->tokens[c->token_pos].type == TK_MINUS || c->tokens[c->token_pos].type == TK_PLUS)) {
@@ -823,6 +840,32 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ZeroCCTokType type_tok = t;
         bool decl_is_unsigned = false;
         c->token_pos++;
+        ZeroCCType typeof_base_type;
+        memset(&typeof_base_type, 0, sizeof(typeof_base_type));
+        bool has_typeof_base = false;
+        if (type_tok == TK_TYPEOF || type_tok == TK_TYPEOF_UNQUAL) {
+            has_typeof_base = true;
+            bool unqual = (type_tok == TK_TYPEOF_UNQUAL);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+                if (zero_cc_tok_is_type_start(c, c->token_pos)) {
+                    typeof_base_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                } else {
+                    typeof_base_type = zero_cc_type_of_equality(c, &c->token_pos);
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++;
+                }
+            } else {
+                typeof_base_type = zero_cc_type_int();
+            }
+            if (unqual) {
+                typeof_base_type.is_const = false;
+                typeof_base_type.is_volatile = false;
+                typeof_base_type.is_restrict = false;
+                typeof_base_type.is_atomic = false;
+            }
+        }
         /* Consume a leading signed/unsigned qualifier: `unsigned char x;`,
          * `signed short y;`, bare `unsigned z;`. Without this the base
          * specifier is misread and narrow-int locals/params get the wrong
@@ -980,6 +1023,32 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         break; // error
                     }
                     c->token_pos++;
+                    ZeroCCType param_typeof_type;
+                    memset(&param_typeof_type, 0, sizeof(param_typeof_type));
+                    bool param_has_typeof = false;
+                    if (param_type_tok == TK_TYPEOF || param_type_tok == TK_TYPEOF_UNQUAL) {
+                        param_has_typeof = true;
+                        bool unqual = (param_type_tok == TK_TYPEOF_UNQUAL);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                            c->token_pos++;
+                            if (zero_cc_tok_is_type_start(c, c->token_pos)) {
+                                param_typeof_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                            } else {
+                                param_typeof_type = zero_cc_type_of_equality(c, &c->token_pos);
+                            }
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                                c->token_pos++;
+                            }
+                        } else {
+                            param_typeof_type = zero_cc_type_int();
+                        }
+                        if (unqual) {
+                            param_typeof_type.is_const = false;
+                            param_typeof_type.is_volatile = false;
+                            param_typeof_type.is_restrict = false;
+                            param_typeof_type.is_atomic = false;
+                        }
+                    }
                     /* signed/unsigned parameter qualifier (C11 6.7.5): the
                      * signedness token precedes the base specifier. */
                     bool param_is_unsigned = false;
@@ -1052,7 +1121,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         p_node->s.len = strlen(pname);
                         /* Store parameter type info via canonical resolver and bridge */
                         const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
-                        ZeroCCType ptype = zero_cc_resolve_base_type(c, param_type_tok, ptname);
+                        ZeroCCType ptype = param_has_typeof ? param_typeof_type : zero_cc_resolve_base_type(c, param_type_tok, ptname);
                         /* Apply the signedness qualifier (resolver returns signed variants). */
                         if (param_is_unsigned) {
                             if (ptype.tag == TYPE_INT8) ptype.tag = TYPE_UINT8;
@@ -1090,7 +1159,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
             if (is_function) {
                 /* Build canonical return type and function TypeInfo */
-                ZeroCCType ret_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                ZeroCCType ret_type = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
                 if (decl_is_unsigned) {
                     if (ret_type.tag == TYPE_INT8) ret_type.tag = TYPE_UINT8;
                     else if (ret_type.tag == TYPE_INT16) ret_type.tag = TYPE_UINT16;
@@ -1230,7 +1299,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
                 }
 
-                ZeroCCType decl_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                ZeroCCType decl_type = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
                 /* Apply the signedness qualifier (zero_cc_resolve_base_type
                  * always returns the signed variant for int base types). */
                 if (decl_is_unsigned) {
@@ -1432,7 +1501,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     const char *next_vname = next_var_tok->allocated_str ? next_var_tok->allocated_str : next_var_tok->str_val;
                     c->token_pos++;
 
-                    ZeroCCType next_type = zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                    ZeroCCType next_type = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
                     next_type.is_const = is_const;
                     next_type.is_volatile = is_volatile;
                     next_type.is_atomic = is_atomic;

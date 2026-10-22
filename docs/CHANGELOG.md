@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - C23 Feature Support (`typeof`, `typeof_unqual`, `{}` Initializers, `__STDC_NO_COMPLEX__`) & Optimizer Hardening
+
+Implemented key C23 language features and standard conformance items across the frontend, parser, types, and compiler pipeline:
+- **`typeof` and `typeof_unqual` (C23 6.7.2.5)**:
+  - Added keywords `typeof`, `typeof_unqual`, `__typeof__`, `__typeof`, `__typeof_unqual__`, `__typeof_unqual`.
+  - Integrated into type starts and type specifier recognizers (`is_type_specifier_at`, `zero_cc_tok_is_type_start`).
+  - Added expression and type parsing in `zero_cc_parse_type_name_at_pos()` and `zero_cc_type_of_primary()`, supporting primitives, globals, local variables, structs, pointers, and function calls.
+  - Wired into local variable declarations, function parameters, function return types, struct/union members, scalar typedefs, casts (`(typeof(T))val`), and `sizeof(typeof(...))`.
+  - Implemented parameter scope tracking during signature parsing in `compile.h`, enabling later parameters to deduce types from preceding parameters (e.g. `typeof(int) add(typeof(int) a, typeof(a) b)`).
+- **Empty `{}` Initializers (C23 6.7.10)**:
+  - Standard zero-initialization syntax (`= {}`) supported across automatic locals, static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), compound literals, and globals (`compile_unit.h`).
+- **`__STDC_NO_COMPLEX__ 1` Conformance**:
+  - Predefined object macro `__STDC_NO_COMPLEX__ 1` in `src/zero_cc/core/preprocessor.h` formally signaling non-support for complex number types in accordance with ISO C11/C23 standards.
+- **Optimizer Hardening (`opt_loop.c`, `opt_mem2reg.c`)**:
+  - Fixed LICM (`opt_loop.c`): Prohibited hoisting of instructions whose destination is a fixed machine/ABI register (`temp_dest < VREG_USER_START`, e.g. `VREG_0` / `%rax` return register), preventing return value setup inside conditional branches within loops from clobbering registers pre-loop.
+  - Fixed mem2reg (`opt_mem2reg.c`): Invalidates stack slot mapping whenever a temporary destination is redefined, eliminating unsound in-place sign/zero extension exemptions that corrupted multi-word / struct slots.
+- **Verification Results**:
+  - Direct C23 test suite (`test/jit/c23_features.c`): **Passed across -O0..-O3 in both JIT and AOT**.
+  - `make test`: **143/143 passed**.
+  - `make test-opt`: **107/107 ok**.
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**.
+  - `python3 tools/isa_qemu_diff.py`: **44/44 passed**.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: **All passed**.
+
 ## [Sprint 41] - 2026-10-22 - Cross-ISA Raw AOT QEMU Gate Fully Green: AArch64 and RISC-V 32 Complete (44/44 Passing)
 
 Completed raw binary AOT code generation (`ZC_RAW_AOT=1`) and ELF object/linking support for the two remaining ISAs under `tools/isa_qemu_diff.py`, bringing the cross-ISA QEMU gate to **100% green (44/44 tests passing)**:
@@ -19,8 +43,8 @@ Completed raw binary AOT code generation (`ZC_RAW_AOT=1`) and ELF object/linking
   - Struct Return ABI: fixed 5-8 byte struct return lowering across callee and caller to load/store the lower 4 bytes in `a0` (VREG_0) and the upper 4 bytes in `a1` (VREG_2).
 - **Verification Results**:
   - `make test-isa-qemu`: **44/44 tests PASS** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11).
-  - `make test`: **142/142 passed**.
-  - `make test-opt`: **106/106 ok**.
+  - `make test`: **143/143 passed**.
+  - `make test-opt`: **107/107 ok**.
   - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**.
   - `python3 tools/okf.py lint && python3 tools/okf.py index`: **All passed**.
 

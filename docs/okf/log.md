@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T04:02:21Z
+timestamp: 2026-10-22T04:37:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -293,3 +293,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Document RAW binary AOT default and cross-ISA QEMU verification instructions
+
+## 2026-10-22 — Updated `frontend-and-types.md`
+- Document C23 typeof/typeof_unqual, {} empty initializers, and __STDC_NO_COMPLEX__
+
+## 2026-10-22 — Updated `optimization-passes.md`
+- Document LICM fixed-register protection invariant and mem2reg redefinition slot invalidation

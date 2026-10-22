@@ -911,7 +911,8 @@ static bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t)
         t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_BOOL_KW ||
         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG ||
         t == TK_AUTO || t == TK_ATOMIC ||
-        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT) {
+        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
+        t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
         return true;
     }
     if (t == TK_IDENT && pos < c->token_count) {
