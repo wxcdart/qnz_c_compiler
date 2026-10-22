@@ -1130,6 +1130,16 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         cpp->filename = saved_filename;
                         zero_cc_cpp_pop_include_dir(cpp, saved_inc_depth);
                         free(inc_content);
+                    } else if (cpp->include_error[0] == '\0') {
+                        /* C99 6.10.2p1: if the named file cannot be found,
+                         * a diagnostic is required (gcc: "fatal error").
+                         * Record the first failure; the ext2 entry point
+                         * aborts preprocessing with it instead of silently
+                         * skipping the missing file. */
+                        snprintf(cpp->include_error, sizeof(cpp->include_error),
+                                 "%s:%zu: fatal error: %s: No such file or directory",
+                                 cpp->filename ? cpp->filename : "<stdin>",
+                                 cpp->line_num, inc_name);
                     }
                 } else if (active && strcmp(directive, "pragma") == 0) {
                     while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
@@ -1593,7 +1603,16 @@ typedef struct {
     size_t count;
 } ZeroCCDefines;
 
-static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
+/* Full-control entry point (Sprint 42): `main_file` names the command-line
+ * source file.  Per C99 6.10.2p2 a quoted include in the main file is
+ * searched first in the main file's own directory, and `__FILE__` in the
+ * main file expands to this path.  If any include file cannot be found,
+ * the return is NULL and `err_out` (when provided) receives the diagnostic.
+ * main_file=NULL / err_out=NULL reproduces the legacy zero_cc_preprocess_ext
+ * behavior exactly (missing includes are skipped, no error channel). */
+static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
+                                            ZeroCCDefines *defines, const char *main_file,
+                                            char *err_out, size_t err_cap) {
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
@@ -1610,13 +1629,31 @@ static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs
             zero_cc_cpp_add_include_dir(cpp, inc_dirs->paths[i]);
         }
     }
+    if (main_file && main_file[0]) {
+        /* Main file identity for __FILE__ / #pragma once, and its directory
+         * as the first search location for quoted includes (C99 6.10.2p2). */
+        cpp->filename = (char *)main_file;
+        zero_cc_cpp_push_include_dir(cpp, main_file);
+    }
     ZeroCCBuffer out;
     zero_cc_buf_init(&out, 4096);
     zero_cc_cpp_process_text(cpp, source, &out);
+    int include_failed = cpp->include_error[0] != '\0';
+    if (include_failed && err_out && err_cap) {
+        snprintf(err_out, err_cap, "%s", cpp->include_error);
+    }
     zero_cc_cpp_publish_diag_state(cpp);
     zero_cc_cpp_destroy(cpp);
     free(cpp);
+    if (include_failed) {
+        free(out.data);
+        return NULL;
+    }
     return out.data;
+}
+
+static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
+    return zero_cc_preprocess_ext2(source, inc_dirs, defines, NULL, NULL, 0);
 }
 
 static inline char* zero_cc_preprocess(const char *source, ZeroCCIncludeDirs *inc_dirs) {

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <sys/resource.h>
 #endif
@@ -351,7 +352,18 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         defines.defs[defines.count].value = value_copy;
         defines.count++;
     }
-    return zero_cc_preprocess_ext(source, &inc_dirs, &defines);
+    /* Sprint 42: pass the main file path so (a) quoted includes in the
+     * main file resolve relative to its own directory (C99 6.10.2p2,
+     * not the process CWD), and (b) a missing include file becomes a
+     * hard error with a diagnostic instead of a silent skip. */
+    char include_err[PATH_MAX + 96];
+    include_err[0] = '\0';
+    char *out = zero_cc_preprocess_ext2(source, &inc_dirs, &defines,
+                                        opts->input_file, include_err, sizeof(include_err));
+    if (!out && include_err[0]) {
+        fprintf(stderr, "%s\n", include_err);
+    }
+    return out;
 }
 
 static int compile_jit(CompileOptions *opts) {
@@ -395,8 +407,7 @@ static int compile_jit(CompileOptions *opts) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
         if (df) { fputs(prep, df); fclose(df); }
     }
-    if (!prep) {
-        fprintf(stderr, "Preprocessing failed\n");
+    if (!prep) {  /* include error already diagnosed by preprocess_with_options */
         zero_cc_free_compiler(comp);
         return 1;
     }
@@ -595,8 +606,7 @@ static int compile_object(CompileOptions *opts) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
         if (df) { fputs(prep, df); fclose(df); }
     }
-    if (!prep) {
-        fprintf(stderr, "Preprocessing failed\n");
+    if (!prep) {  /* include error already diagnosed by preprocess_with_options */
         zero_cc_free_compiler(comp);
         return 1;
     }

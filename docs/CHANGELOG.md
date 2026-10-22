@@ -1,5 +1,14 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - Preprocessor Include-Path Conformance: Main-File-Dir Quoted Includes (C99 6.10.2p2) & Missing-Include Diagnostics
+
+Fixed two C99 6.10.2 conformance gaps in the preprocessor (`src/zero_cc/core/preprocessor.h`, `src/zero_cc/core/compiler_state.h`, `src/main.c`):
+- **Quoted includes in the main file now resolve relative to the main file's directory** (C99 6.10.2p2), not the process CWD. `src/main.c` passes the command-line file path into the new `zero_cc_preprocess_ext2(source, inc_dirs, defines, main_file, err_out, err_cap)` entry point, which pushes the main file's directory onto the `include_file_dirs` search stack. `__FILE__` in the main file now expands to the main file's path.
+- **Missing include files are a hard error** with a gcc-style diagnostic (`<file>:<line>: fatal error: <name>: No such file or directory`) instead of a silent skip that previously surfaced as confusing "undeclared identifier" errors downstream. The first failure is recorded in `ZeroCCPreprocessor.include_error`; `zero_cc_preprocess_ext2` returns NULL and the CLI exits 1.
+- **Legacy API contract preserved**: `zero_cc_preprocess` / `zero_cc_preprocess_ext` delegate to `ext2` with `main_file = NULL` / `err_out = NULL`, reproducing the old behavior exactly (verified by the existing test suite).
+- **Regression test**: `test/semantic/include_path_test.c` (main-file-dir resolution from a foreign CWD, missing-include diagnostic, `__FILE__` main-file expansion, legacy `-I`-dir path).
+- **Verification**: `make test` **144/144**, `make test-opt` **107/107 ok**, `tools/isa_qemu_diff.py --isa x86_64` **11/11**, direct `zerocc` JIT + AOT checks of `#include "sub/local.h"` from a CWD other than the file's directory.
+
 ## [Sprint 42] - 2026-10-22 - C23 Feature Support (`typeof`, `typeof_unqual`, `{}` Initializers, `__STDC_NO_COMPLEX__`) & Optimizer Hardening
 
 Implemented key C23 language features and standard conformance items across the frontend, parser, types, and compiler pipeline:

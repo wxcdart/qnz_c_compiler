@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-22T04:37:07Z
+timestamp: 2026-10-22T11:17:43Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -110,6 +110,14 @@ Multi-dimensional fixed arrays (e.g. `int a[2][3]`, `b[2][2][2]`) and matrix-sha
   - Standard zero-initialization syntax (`= {}`) supported across all storage classes: automatic locals (scalars, structs, arrays), static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), and global variables (`compile_unit.h`).
 - **`__STDC_NO_COMPLEX__ 1` Conformance**:
   - Predefined object macro `__STDC_NO_COMPLEX__ 1` in `src/zero_cc/core/preprocessor.h` formally signaling non-support for complex number types in accordance with ISO C11/C23 standards.
+
+## Preprocessor Include-Path Semantics (Sprint 42)
+
+Quoted `#include` resolution follows C99 6.10.2 and failures are no longer silent:
+
+- **Main-file directory search (C99 6.10.2p2)**: `src/main.c` passes the command-line file path into the preprocessor via `zero_cc_preprocess_ext2(source, inc_dirs, defines, main_file, err_out, err_cap)` (new entry point in `src/zero_cc/core/preprocessor.h`). The main file's directory is pushed as the first entry of the `include_file_dirs` search stack, so `#include "sub/x.h"` in the top-level file resolves relative to that file's directory — not the process CWD. Nested includes keep the existing nearest-file-directory-first behavior (stack scanned from top). `__FILE__` in the main file now expands to the main file's path (previously empty).
+- **Missing include is a hard error**: when `zero_cc_cpp_resolve_include` finds no candidate, the first failure is recorded in `ZeroCCPreprocessor.include_error` (gcc-style `<file>:<line>: fatal error: <name>: No such file or directory`) and `zero_cc_preprocess_ext2` returns NULL with the diagnostic in `err_out`. The CLI (`preprocess_with_options` in `src/main.c`) prints it and exits 1. Previously a missing include was silently skipped, producing confusing downstream "undeclared identifier" errors.
+- **Legacy contract preserved**: `zero_cc_preprocess` / `zero_cc_preprocess_ext` delegate to `ext2` with `main_file = NULL` / `err_out = NULL`, reproducing the old behavior exactly (CWD-relative fallback, no error channel). Regression test: `test/semantic/include_path_test.c` (main-file-dir resolution, missing-include diagnostic, `__FILE__`, legacy `-I` dirs).
 
 ## C11 Core Keywords, Alignment, Atomics & Threading
 

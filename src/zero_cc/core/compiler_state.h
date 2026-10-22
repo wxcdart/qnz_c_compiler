@@ -68,6 +68,11 @@ typedef struct {
     char include_file_dirs[32][PATH_MAX];
     int include_dir_depth;
 
+    /* First missing-include diagnostic (C99 6.10.2: a diagnostic is
+     * required if the named file cannot be found).  Empty if every
+     * include resolved; zeroed by zero_cc_cpp_init's memset. */
+    char include_error[PATH_MAX + 96];
+
     /* Pragma state */
     int pack_stack[32];
     int pack_stack_depth;
