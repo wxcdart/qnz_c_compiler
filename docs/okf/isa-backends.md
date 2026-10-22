@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-21T15:45:46Z
+timestamp: 2026-10-22T01:32:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -33,7 +33,7 @@ The **raw binary** emitters for aarch64 (`aarch64.c`) and riscv (`riscv.c`) are 
 - **`-c`** (`compile_object_cross`): emit text to a temp `.s`, then `aarch64-linux-gnu-as tmp.s -o out.o`. x86-64 still writes a binary `.o` via `elf_writer`.
 - `-static` is required because the target dynamic loader isn't installed (the binary runs under `qemu-*-static`); the aarch64 link previously failed with an invalid `-mabi=lp64d` (now `-mabi=lp64`).
 
-The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv64 **0/11** (objects don't link: `can't link soft-float modules with double-float modules` -- inconsistent FP-ABI attribute); riscv32 **0/11** (zerocc segfaults building rv32; the static-musl rv32 reference itself builds and runs cleanly — the failure is on the zerocc side). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
+The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv64 **2/11** (`10_retcode.c` rc=79, `11_retstruct.c` rc=17 passing with 0 timeouts and 0 build-fails; remaining 9 mismatch on external libc stdio calls); riscv32 **0/11** (zerocc segfaults building rv32; the static-musl rv32 reference itself builds and runs cleanly — the failure is on the zerocc side). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 
@@ -168,6 +168,11 @@ Differential testing under QEMU exposed several immediate-encoding and relocatio
   - Added `cmp_is_fp` flag in lowering state to track floating-point vs integer comparisons.
   - Extended live ranges across RISC-V comparisons so source registers are preserved until condition codes or predicates are materialized (`slt`, `seqz`, conditional branches).
   - In `OP_CMP_ZERO`, explicitly record `cmp_src1 = phys_src1` and `cmp_src2 = 0` (zero register).
+- **Execution & Calling Convention Fixes**:
+  - `riscv64_emit_extend`: Corrected `slli` `funct3` to 1 (was erroneously 0 `addi`), resolving an infinite loop in 64-bit loop-counter sign extensions.
+  - `riscv64_emit_param_save_int`: Fixed incoming parameter save to store `a0..a7` (`x10..x17`) into `-offset(s0)` (was storing `x0` to a positive offset from `sp`), unblocking recursive function arguments in `fact(4)`.
+  - `riscv64_emit_load`: Fixed 64-bit load to use `ld` (`funct3=3`) rather than `lw` (`funct3=2`) on RV64, correctly loading 64-bit structs returned by value (`11_retstruct.c`).
+  - `elf_emitter.h`: Skipped generic 4-byte call relocation patching on RISC-V to prevent corrupting `jal` opcodes with raw offsets.
 
 ### Raw Emitter Verification Suite (`tools/`)
 

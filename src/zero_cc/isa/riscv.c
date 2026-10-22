@@ -290,20 +290,21 @@ static void riscv64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
 static void riscv64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
     if (sign) {
         int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
-        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 0, shamt, 0x13));          /* slli */
-        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 5, shamt, 0x13) | (1u << 30)); /* srai */
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 1, shamt, 0x13));          /* slli (f3=1) */
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 5, shamt, 0x13) | (1u << 30)); /* srai (f3=5, bit 30) */
     } else if (width == 1) {
         riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 7, 0xFF, 0x13));           /* andi rd, rs, 0xff */
     } else {
         int shamt = (width == 2) ? 48 : 32;
-        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 0, shamt, 0x13));          /* slli */
-        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 5, shamt, 0x13));          /* srli */
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 1, shamt, 0x13));          /* slli (f3=1) */
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 5, shamt, 0x13));          /* srli (f3=5) */
     }
 }
 
 static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    /* ld dst, offset(base) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), RV_REG(base_reg), 2, (int16_t)offset, 0x03));
+    /* ld dst, offset(base) for RV64 (f3=3), lw for RV32 (f3=2) */
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
+    riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), RV_REG(base_reg), f3, (int16_t)offset, 0x03));
 }
 
 static void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
@@ -819,16 +820,20 @@ static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 
 /* Function ABI */
 
-/* param_save_int reg, slot - save integer param to stack slot */
-static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg, int slot) {
-    /* sd reg, slot*8(sp) */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 3, (int16_t)(slot * 8), 0x23));
+/* param_save_int reg_idx, offset - save incoming integer parameter a0..a7 to -offset(s0) */
+static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int slot) {
+    if (reg_idx < 0 || reg_idx >= 8) return;
+    int reg = 10 + reg_idx;  /* a0..a7 = x10..x17 */
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* sw (32-bit) vs sd (64-bit) */
+    riscv_emit_u32(c, rv64_S(RV64_S0, reg, f3, (int16_t)(-slot), 0x23));
 }
 
-/* param_save_fp reg, slot - save FP param to stack slot */
-static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg, int slot) {
-    /* fsd reg, slot*8(sp) */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV_REG(reg), 3, (int16_t)(slot * 8), 0x27));
+/* param_save_fp reg_idx, offset - save incoming FP parameter fa0..fa7 to -offset(s0) */
+static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot) {
+    if (reg_idx < 0 || reg_idx >= 8) return;
+    int reg = 10 + reg_idx;  /* fa0..fa7 = f10..f17 */
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* fsw (32-bit) vs fsd (64-bit) */
+    riscv_emit_u32(c, rv64_S(RV64_S0, reg, f3, (int16_t)(-slot), 0x27));
 }
 
 /* variadic_spill - spill variadic arguments */

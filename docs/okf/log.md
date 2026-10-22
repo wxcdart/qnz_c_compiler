@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-21T15:45:46Z
+timestamp: 2026-10-22T01:32:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -272,3 +272,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-21 — Updated `isa-backends.md`
 - Fixed RAW AOT startup for RISC-V: added custom _start code in elf_emitter.h that sets up stack, calls main via jal, and exits via sys_exit (a7=93). Bypasses system linker for ZC_RAW_AOT=1 by adding compile_and_emit_exe path in main.c. Core fixes: (1) internal call jal patching at codegen time; (2) RV64 prologue/leave sd/ld (f3=3); (3) RV32 vtable completion (144 slots). Verified: make test (142/142), make test-opt (106/106), sret_verifier (6/6), RV64 text path (10_retcode.c=79).
+
+## 2026-10-22 — Updated `isa-backends.md`
+- Document RISC-V 64 raw AOT execution fixes (slli f3=1, param_save_int -slot(s0), ld f3=3, 10_retcode/11_retstruct passing under QEMU)

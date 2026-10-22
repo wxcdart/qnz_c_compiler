@@ -188,20 +188,17 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
         default:           e_machine = EM_X86_64;   break;
     }
 
-    /* Patch internal function calls and string literal RIP offsets */
-    for (size_t i = 0; i < c->reloc_count; i++) {
-        if (c->relocs[i].is_call) {
-            ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
-            if (target_fn && !target_fn->is_prototype) {
-                int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
-                memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
-            }
-        }
-    }
+    /* Patch string literal RIP offsets */
     for (size_t i = 0; i < c->str_reloc_count; i++) {
         int32_t rel = (int32_t)((c->text_section.length + c->str_relocs[i].rodata_offset) - (c->str_relocs[i].text_patch_offset + 4));
         memcpy(c->text_section.data + c->str_relocs[i].text_patch_offset, &rel, 4);
     }
+
+    /* RISC-V: calls are patched at codegen time (riscv64_emit_call/riscv32_emit_call).
+     * Internal calls have correct jal displacement; external calls use PLT relocations
+     * handled by the linker. Skip the generic call reloc patching which corrupts
+     * jal encoding (overwrites opcode/rd along with immediate). */
+    (void)c->reloc_count;
 
     uint64_t base_vaddr = 0x400000;
     size_t header_sz = sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);

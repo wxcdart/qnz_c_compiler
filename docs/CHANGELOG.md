@@ -1,5 +1,19 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-21 - RISC-V 64 RAW AOT Standalone Execution Passing (10_retcode & 11_retstruct)
+
+Fixed critical codegen bugs in the RISC-V raw emitter unblocking standalone binary execution under QEMU:
+- **Loop Hang / Sign Extension (`riscv.c`)**: Corrected `riscv64_emit_extend` `slli` `funct3` to 1 (was 0 `addi`), fixing loop-counter sign extensions that caused infinite loops in `main`.
+- **Parameter Spilling (`riscv.c`)**: Fixed `riscv64_emit_param_save_int` to store `a0..a7` (`x10..x17`) to `-slot(s0)` (was storing `x0` relative to `sp`), enabling correct argument passing in recursive function calls (`fact(4)`).
+- **64-bit Struct Loads (`riscv.c`)**: Fixed `riscv64_emit_load` on RV64 to emit `ld` (`funct3=3`) instead of `lw` (`funct3=2`), correctly returning 64-bit structs by value (`11_retstruct.c`).
+- **Call Patching (`elf_emitter.h`)**: Skipped generic 4-byte call relocation patching on RISC-V that was overwriting `jal` instruction opcodes.
+- **Results (`tools/isa_qemu_diff.py --isa riscv64`)**:
+  - `10_retcode.c`: **ok (rc=79)**, finished in 0.05s (0 timeouts).
+  - `11_retstruct.c`: **ok (rc=17)**, struct by-value return verified.
+  - Overall battery: 2 ok, 0 timeout, 0 build-fail.
+
+
+
 ## [Sprint 41] - 2026-10-21 - Raw Emitter Verification Suite: Encoding Oracle (T1), Relocation Pairing (T2), and VTable Auditor (T3)
 
 Added a systematic verification suite in `tools/` targeting raw machine code emitters and backend vtable conformance:
