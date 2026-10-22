@@ -80,6 +80,14 @@ Symbol *scope_lookup_current(const Scope *s, const char *name);
 Symbol *scope_lookup(const Scope *s, const char *name);
 
 /**
+ * Collect the names of all visible symbols (entire scope chain, innermost
+ * to outermost) into `out`, writing at most `cap` entries.  Returns the
+ * number of names actually written (<= cap).  Feeds "did you mean" for
+ * undeclared identifiers.
+ */
+size_t scope_chain_names(const Scope *s, const char **out, size_t cap);
+
+/**
  * Compatibility helper to retrieve TypeInfo* by name in the scope hierarchy (Milestone M3 spec).
  * Returns TypeInfo* if found, NULL otherwise.
  */

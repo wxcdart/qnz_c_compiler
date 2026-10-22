@@ -180,7 +180,18 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                            strncmp(ident_name, "__atomic_", 9) == 0) {
                     res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
                 } else {
-                    sem_node_error(ctx, node, "use of undeclared identifier '%s'", ident_name);
+                    /* "did you mean" against every visible symbol in the
+                     * scope chain (vars, functions, typedefs, tags). */
+                    const char *names[1024];
+                    size_t n = scope_chain_names(ctx->current_scope, names, 1024);
+                    const char *sugg = diag_best_match(ident_name, strlen(ident_name), names, n);
+                    if (sugg) {
+                        sem_node_error(ctx, node,
+                            "use of undeclared identifier '%s'; did you mean '%s'?",
+                            ident_name, sugg);
+                    } else {
+                        sem_node_error(ctx, node, "use of undeclared identifier '%s'", ident_name);
+                    }
                 }
             }
             break;

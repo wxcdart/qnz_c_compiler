@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-10-22T14:23:57Z
+timestamp: 2026-10-22T14:30:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -29,6 +29,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
      - **6.8.4.3p1** `goto` target must be a label of the enclosing function — labels are pre-collected over the whole body (`sem_collect_labels`) so forward gotos validate.
      - **6.5.2.1p3** struct/union member must exist in the field table (previously a missing member silently defaulted to `int` at offset 0).
      - **6.8p10** a compound block's closing `}` — truncated source now reports `expected '}' to end block` instead of compiling.
+   - **"Did you mean" suggestions** (clang/gcc-style) on undeclared identifiers (candidates = every visible symbol in the scope chain via `scope_chain_names`) and unknown struct/union members (candidates = the field table). `diag_levenshtein` (early-exit at 3) + `diag_best_match` in `semantic/diagnostics.c`: a candidate qualifies at distance ≤ 2 **and** ≤ `max(1, name_len/2)` (tight leash on short names), and must be the **unique** best — tied or distant names are not suggested. Regression: `test/semantic/did_you_mean_test.c` (incl. tie-rejection and no-bogus-suggestion cases).
    - AST walkers must follow child edges **tag-aware**: `aux.step`/`aux.alt` only exist on `NODE_FOR` (step/body) and `NODE_IF`/`NODE_TERNARY` (else); on every other tag they alias `s.str`/`int_val` in the payload union (a goto's target *name length* ends up in `aux.step`). See `zero_cc_ast_addr_of_param_impl` and `sem_collect_labels_impl` for the idiom.
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
 4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**

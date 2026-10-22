@@ -386,3 +386,58 @@ void diag_report_warning_at_token_named(ZeroCCCompiler *c, const char *warn_name
     diag_report_warning_file(&c->diag_buf, file, line, col, NULL, fmt, ap);
     va_end(ap);
 }
+
+/* ---------------- "did you mean" support ---------------- */
+
+int diag_levenshtein(const char *a, size_t alen, const char *b, size_t blen) {
+    if (alen > blen) { size_t t = alen; alen = blen; blen = t; const char *ta = a; a = b; b = ta; }
+    size_t diff = blen - alen;
+    if (diff > 2) return 3;
+
+    int prev[64], cur[64];
+    if (blen > 63) return 3; /* identifiers this long don't need suggestions */
+    for (size_t j = 0; j <= alen; j++) prev[j] = (int)j;
+    for (size_t i = 1; i <= blen; i++) {
+        cur[0] = (int)i;
+        int row_min = cur[0];
+        for (size_t j = 1; j <= alen; j++) {
+            int cost = (a[j - 1] == b[i - 1]) ? 0 : 1;
+            int v = prev[j] + 1;          /* deletion */
+            if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;   /* insertion */
+            if (prev[j - 1] + cost < v) v = prev[j - 1] + cost; /* substitution */
+            cur[j] = v;
+            if (v < row_min) row_min = v;
+        }
+        if (row_min > 2) return 3; /* whole row too far — cannot improve */
+        for (size_t j = 0; j <= alen; j++) prev[j] = cur[j];
+    }
+    return prev[alen];
+}
+
+const char *diag_best_match(const char *name, size_t name_len,
+                            const char *const *candidates, size_t n) {
+    if (!name || !candidates || n == 0) return NULL;
+    size_t max_dist = name_len / 2;
+    if (max_dist < 1) max_dist = 1;
+    if (max_dist > 2) max_dist = 2;
+
+    int best = 3, second = 3;
+    const char *winner = NULL;
+    for (size_t i = 0; i < n; i++) {
+        const char *cand = candidates[i];
+        if (!cand) continue;
+        size_t clen = strlen(cand);
+        if (clen < name_len - 2 || clen > name_len + 2) continue;
+        int d = diag_levenshtein(name, name_len, cand, clen);
+        if (d > (int)max_dist) continue;
+        if (d < best) {
+            second = best;
+            best = d;
+            winner = cand;
+        } else if (d == best) {
+            second = d; /* tie — the match becomes ambiguous */
+        }
+    }
+    if (best <= (int)max_dist && second > best) return winner;
+    return NULL;
+}

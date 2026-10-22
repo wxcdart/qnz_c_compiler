@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T14:23:57Z
+timestamp: 2026-10-22T14:30:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -317,3 +317,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `frontend-and-types.md`
 - NODE_CALL now enforces C99 6.7.5.3p6 argument counts against prototype types (is_prototype); unprototyped/enum conversions still accepted
+
+## 2026-10-22 — Updated `architecture-pipeline.md`
+- Added 'did you mean' suggestion machinery to the semantic stage: diag_levenshtein (early exit at 3) + diag_best_match (distance <= 2 and <= max(1,len/2), unique-best only — ties suppressed), candidates from scope_chain_names (scope.c) for identifiers and the field table for members; test/semantic/did_you_mean_test.c

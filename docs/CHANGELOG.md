@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - "Did You Mean" Suggestions for Undeclared Identifiers & Unknown Struct Members
+
+Clang/gcc-style fuzzy suggestions on the two most common typo diagnostics:
+
+- `use of undeclared identifier 'countr'; did you mean 'counter'?` — candidates are every visible symbol in the scope chain (`scope_chain_names`, new in `semantic/scope.c`).
+- `'P' has no member named 'y2'; did you mean 'y'?` — candidates are the struct/union field table.
+
+Matching: `diag_levenshtein` (two-row DP, early exit at distance 3) + `diag_best_match` in `semantic/diagnostics.c`. A candidate qualifies at distance ≤ 2 **and** ≤ `max(1, name_len/2)` (a 2-char name won't match at distance 2), and must be the **unique** best — tied candidates produce no suggestion (an ambiguous guess is worse than none). `int adc, xbc; ... abc` → no suggestion; `int counter; ... zzz` → no suggestion.
+
+Regression: `test/semantic/did_you_mean_test.c` (6 cases: var typo, function-name typo, member typo, distant-no-suggestion, tie-no-suggestion, valid-program control). Side-by-side vs gcc 13.3 on the audit cases matches its suggestions exactly.
+
+Verified: `make test` 147/147, `make test-opt` 107/107, style_check 0 errors. OKF `architecture-pipeline.md` documents the matcher rules.
+
 ## [Sprint 42] - 2026-10-22 - C99 Constraint-Violation Diagnostics: Calls, Gotos, Struct Members, Truncated Blocks
 
 The four "silent miscompile" classes found by the diagnostics audit (invalid C that compiled and ran with garbage, JIT and AOT alike) are now diagnosed. Each has a dedicated negative regression test under `test/semantic/`.

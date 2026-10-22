@@ -117,6 +117,25 @@ void diag_merge(DiagBuf *dest, const DiagBuf *src);
 /** Check if a warning is disabled by #pragma GCC diagnostic. */
 bool diag_is_warning_disabled(const ZeroCCCompiler *c, const char *warn_name);
 
+/* ---------------- "did you mean" support ---------------- */
+
+/**
+ * Classic Levenshtein edit distance with early exit at 3
+ * (only distances <= 2 are of interest; 3 means "too far").
+ */
+int diag_levenshtein(const char *a, size_t alen, const char *b, size_t blen);
+
+/**
+ * Find the closest candidate to `name` for a "did you mean" suggestion.
+ * A candidate qualifies when: distance <= 2 AND distance <= max(1,
+ * name_len/2) (short names get a tighter leash so 2-letter typos don't
+ * match everything).  Ties (two candidates at the best distance) return
+ * NULL — an ambiguous suggestion is worse than none.
+ * Returns the winning candidate pointer or NULL.
+ */
+const char *diag_best_match(const char *name, size_t name_len,
+                            const char *const *candidates, size_t n);
+
 /** Report a warning diagnostic with warning name for #pragma GCC diagnostic support. */
 void diag_report_warning_named(ZeroCCCompiler *c, uint32_t line, uint32_t col,
                                 DiagMacroContext *macro_ctx, const char *warn_name, const char *fmt, ...);

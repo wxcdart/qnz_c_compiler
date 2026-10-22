@@ -573,9 +573,21 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
              * constraint violation.  (Previously silently defaulted to
              * int, so `p.y2 = 2` on a field-less struct compiled and the
              * write went to offset 0 — a miscompile.) */
-            expr_error(ctx, node, "'%s' has no member named '%s'",
-                       struct_t->details.record.tag ? struct_t->details.record.tag : "struct",
-                       member_name);
+            const char *tag_or_struct = struct_t->details.record.tag ?
+                                        struct_t->details.record.tag : "struct";
+            const char *names[128];
+            size_t nn = 0;
+            for (size_t fi = 0; fi < struct_t->details.record.field_count && nn < 128; fi++) {
+                if (struct_t->details.record.fields[fi].name) names[nn++] = struct_t->details.record.fields[fi].name;
+            }
+            const char *sugg = diag_best_match(member_name, strlen(member_name), names, nn);
+            if (sugg) {
+                expr_error(ctx, node, "'%s' has no member named '%s'; did you mean '%s'?",
+                           tag_or_struct, member_name, sugg);
+            } else {
+                expr_error(ctx, node, "'%s' has no member named '%s'",
+                           tag_or_struct, member_name);
+            }
             return NULL;
         }
     }

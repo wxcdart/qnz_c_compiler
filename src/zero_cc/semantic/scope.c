@@ -131,6 +131,26 @@ Symbol *scope_lookup(const Scope *s, const char *name) {
     return NULL;
 }
 
+/**
+ * Collect the names of all visible symbols (entire scope chain, innermost
+ * to outermost) into `out`, writing at most `cap` entries.  Used to build
+ * "did you mean" candidate lists for undeclared identifiers.
+ * Returns the number of names actually written (<= cap).
+ */
+size_t scope_chain_names(const Scope *s, const char **out, size_t cap) {
+    if (!s || !out || cap == 0) return 0;
+    size_t n = 0;
+    for (const Scope *cur = s; cur != NULL && n < cap; cur = cur->parent) {
+        if (!cur->buckets || cur->bucket_count == 0) continue;
+        for (size_t b = 0; b < cur->bucket_count && n < cap; b++) {
+            for (const Symbol *sym = cur->buckets[b]; sym != NULL && n < cap; sym = sym->next_in_bucket) {
+                if (sym->name) out[n++] = sym->name;
+            }
+        }
+    }
+    return n;
+}
+
 TypeInfo *scope_get(const Scope *s, const char *name) {
     Symbol *sym = scope_lookup(s, name);
     return sym ? sym->type : NULL;
