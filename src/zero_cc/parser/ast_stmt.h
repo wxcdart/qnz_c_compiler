@@ -499,6 +499,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
             c->token_pos++;
+        } else if (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type != TK_RBRACE) {
+            /* A return statement always ends in ';' (C99 6.8.4.1).  The
+             * missing-';' case used to be silently swallowed, so
+             * `return x + 5 return;` only surfaced as a misleading
+             * "should return a value" on the next token. */
+            diag_report_error_at_token(c, "expected ';' after return statement");
         }
         return ret_ref;
     }

@@ -124,7 +124,18 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
             expr_node_set_type(ctx, node, res);
             return res;
         }
-        expr_error(ctx, node, "use of undeclared identifier '%s'", name);
+        /* "did you mean" against every visible symbol in the scope chain
+         * (same policy as the visitor's NODE_IDENT check). */
+        const char *names[1024];
+        size_t n = scope_chain_names(ctx->current_scope, names, 1024);
+        const char *sugg = diag_best_match(name, strlen(name), names, n);
+        if (sugg) {
+            expr_error(ctx, node,
+                       "use of undeclared identifier '%s'; did you mean '%s'?",
+                       name, sugg);
+        } else {
+            expr_error(ctx, node, "use of undeclared identifier '%s'", name);
+        }
         return NULL;
     }
 

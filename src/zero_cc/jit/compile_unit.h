@@ -185,7 +185,13 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     // Register standard library functions if any
 
     size_t file_scope_prev_pos = (size_t)-1; /* sentinel: first iteration always has "progress" */
-    while (c->tokens[c->token_pos].type != TK_EOF && !c->had_error) {
+    /* Multi-error recovery (dev-plan §11): do not stop at the first error.
+     * Continue parsing/compiling subsequent top-level declarations until the
+     * error budget is spent, so a broken file reports all its faults in one
+     * pass.  had_error stays set, so rc/error_msg behavior is unchanged. */
+    while (c->tokens[c->token_pos].type != TK_EOF &&
+           c->diag_buf.error_count < c->diag_buf.error_budget &&
+           shared_diags.error_count < shared_diags.error_budget) {
         /* Hang guard: if the previous iteration consumed no tokens (a
          * handler that gave up without erroring, e.g. on truncated or
          * unsupported input), report and advance instead of looping
@@ -206,12 +212,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
               (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE)))) {
             zero_cc_compile_top_level_decl(c);
-            if (c->had_error) break;
             continue;
         }
         if (c->tokens[c->token_pos].type == TK_STATIC_ASSERT) {
             zero_cc_stmt_static_assert(c);
-            if (c->had_error) break;
             continue;
         }
 

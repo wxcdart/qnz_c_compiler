@@ -16,7 +16,7 @@ Rules
                   include-root relative form ("zero_cc/...")
   INC003 [error]  quoted project include resolves to no file under an
                   include root (typo / deleted file)
-  INC010 [warn]   a project include appears after system includes
+  INC010 [warn]   a system include appears after project includes
                   (prescribed order: sibling, system, project; the
                   existing tree is mixed and not churned)
   ANG001 [error]  project header included with angle brackets
@@ -109,7 +109,7 @@ def check_file(path, fix=False):
         fixed_here = len(trail) + (0 if ended_nl else 1)
 
     # --- line-based rules -------------------------------------------------
-    saw_system = False
+    saw_project = False
     file_stem = os.path.splitext(os.path.basename(path))[0]
     for i, raw in enumerate(lines, 1):
         if raw.startswith("\t"):
@@ -133,12 +133,13 @@ def check_file(path, fix=False):
                 errors.append((i, "INC002",
                                f'non-canonical include "{inc}" — use the '
                                f"include-root relative form (\"zero_cc/...\" or \"<root>/...\")"))
-            # INC010: a project include after the first system include
-            # (exempt: the file's own sibling header, e.g. foo.c -> foo.h)
-            if saw_system and os.path.splitext(inc)[0] != file_stem:
-                warnings.append((i, "INC010",
-                                 "project include after system includes "
-                                 "(prescribed order: sibling, system, project)"))
+            # INC010 is reported on the system-include side below: the
+            # prescribed order (sibling, system, project) is violated when
+            # a system include follows a project include.
+            # (sibling detection uses the basename — project includes are
+            # root-relative, e.g. "zero_cc/semantic/decl.h" for decl.c)
+            if os.path.splitext(os.path.basename(inc))[0] != file_stem:
+                saw_project = True
             continue
 
         a = ANGLED_RE.match(raw)
@@ -147,7 +148,12 @@ def check_file(path, fix=False):
                            f"project header with angle brackets: <{a.group(1)}>"))
             continue
         if a:
-            saw_system = True
+            # INC010: a system include after the first project include
+            # (exempt: files that only use system headers).
+            if saw_project:
+                warnings.append((i, "INC010",
+                                 "system include after project includes "
+                                 "(prescribed order: sibling, system, project)"))
             continue
 
         # NAM001: top-level non-static function definition/declaration

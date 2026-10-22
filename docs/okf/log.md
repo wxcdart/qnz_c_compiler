@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T14:35:30Z
+timestamp: 2026-10-22T15:24:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -323,3 +323,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Added tools/diag_battery.py to the verification tool list: differential compiler-diagnostics gate vs gcc over the test/diag/*.c broken-program corpus, category-based comparison with a ratcheting baseline (test/diag/baseline.json); the validation gate for the pending multi-error-recovery work
+
+## 2026-10-22 — Updated `frontend-and-types.md`
+- SemContext single-canonical-definition invariant (decl.h/expr.h stale 8-field copies removed after the Sprint 42 multi-error-recovery work exposed a dormant cross-TU ABI stack overflow)

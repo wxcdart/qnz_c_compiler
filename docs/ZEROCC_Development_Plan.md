@@ -469,24 +469,22 @@ Closed the raw-binary emission gap across all target ISAs under QEMU differentia
   - `tools/okf.py lint && tools/okf.py index`: **All passed**.
 - **Next**: Sprint 42 landed the diagnostics-quality work (constraint checking, "did you mean", diagnostics battery — see §11) plus the preprocessor include-path conformance and include-convention normalization. Remaining from this line: T0 real `-I` include search (unblocks the non-standalone tests) and zero_rt Phase 0 runtime. Loop unrolling is the next CFG opt after that.
 
-### 11. Diagnostics Quality (Sprint 42+): Multi-Error Recovery & GCC Parity — IN PROGRESS
+### 11. Diagnostics Quality (Sprint 42+): Multi-Error Recovery & GCC Parity — DONE
 
-**Motivation.** The Sprint 42 diagnostics audit found that zerocc's *wording* was close to gcc's but its *coverage* and *recovery* were not: four classes of invalid C (wrong-arity calls, undefined goto labels, unknown struct members, truncated blocks) compiled silently and ran with garbage, and a file with three hard errors typically produced one diagnostic. Sprint 42 closed the coverage classes (see Completed Sprints) and added "did you mean"; this section tracks the remainder.
+**Motivation.** The Sprint 42 diagnostics audit found that zerocc's *wording* was close to gcc's but its *coverage* and *recovery* were not: four classes of invalid C (wrong-arity calls, undefined goto labels, unknown struct members, truncated blocks) compiled silently and ran with garbage, and a file with three hard errors typically produced one diagnostic. Sprint 42 closed the coverage classes (see Completed Sprints) and added "did you mean"; multi-error recovery (this section's original open item) landed the same sprint.
 
 **Done (Sprint 42)**
 - C99 constraint checks: arity (6.7.5.3, prototype-aware), goto label (6.8.4.3), struct member (6.5.2.1), block terminator (6.8p10)
 - "Did you mean" suggestions (identifiers + members), tie-safe
 - `tools/diag_battery.py` + `test/diag/` corpus: differential diagnostic gate vs gcc with a ratcheting baseline; wired into `AGENTS.md`
-
-**In progress: multi-error recovery**
-- **Error budget (~20, clang-style)**: the parser and the per-function semantic pass currently stop (or behave inconsistently — the battery shows a 3-fault file surfacing 3+ errors via the decl-init path but a 5-fault file stopping at 2). One pass should report all faults.
-- **Deduplicate double-reported errors**: the battery caught the arity fault firing from both the legacy `expr_handle_call` (no position) and the live visitor `NODE_CALL` check — same fault, two diagnostics.
-- **Call-site positions**: `NODE_CALL` AST nodes carry no `line`/`col` (the parser never sets them), so call-arity errors print position-less (`<stdin>: error:`) while gcc prints `file:2:25`. Set at parse time.
-- After the above: `tools/diag_battery.py --update-baseline` re-records the improved multiplicity (expect `15_multi_error_5.c` 2→5 errors, `14_multi_error_3.c` to 3 distinct faults with no duplicates), and the ratchet locks it in.
+- **Multi-error recovery**: error budget in `DiagBuf` (default 20, `diag_set_error_budget` to change, 0 = unlimited); `diag_report_internal` drops errors past the budget and emits a single `note: too many errors emitted, stopping now`. The file-scope loop (`compile_unit.h`) no longer stops at the first `had_error` — it continues until the budget is spent, so one pass reports all faults. The double-reported arity diagnostic is gone (`decl_eval_node` only falls back to the visitor when the expr mechanism gave up *without* reporting). `NODE_CALL` nodes now carry the call site's `line`/`col` (the `(` token) set at parse time, so arity errors print `file:8:16`. A missing `;` after a `return` statement is now reported (previously silently swallowed, surfacing later as a misleading "should return a value"). Result: `15_multi_error_5.c` reports all five gcc faults (6 diagnostics incl. one cascade), `14_multi_error_3.c` reports all three faults deduped (4 diagnostics); baseline re-recorded and ratcheted.
+- **Latent ABI bug found & fixed by the recovery work**: `SemContext` was defined in **three** headers (`visitor.h` 11 fields, `decl.h`/`expr.h` a stale 8-field copy) behind a shared `SEM_CONTEXT_DEFINED` first-include-wins guard. TUs that included `decl.h` before `visitor.h` (the JIT pipeline headers) saw the 8-field layout, so `sem_context_init`'s label-field writes overflowed the caller's stack local — dormant until a stack-layout change (the `DiagBuf` budget fields) moved a live variable into the spilled bytes. `decl.h`/`expr.h` now include the single canonical definition from `visitor.h`.
 
 **Later (same parity goal, smaller items)**
 - Cross-reference notes (`note: declared here` for wrong-arity, `to match this '{'` for unclosed blocks)
 - Type names in messages (`assignment to 'int' from 'char *'` instead of `incompatible types in assignment`)
 - A `-Wall`-style warning family (unused variable, assignment-in-condition, unsigned `< 0`)
+- Diagnostic ordering: parser diagnostics currently print before semantic ones (not source order); a position sort would need stable handling of the position-less entries
+- Positions for non-call expression nodes (e.g. `y->x = 2` member errors still print position-less)
 
 **Gate.** `python3 tools/diag_battery.py` after any parser/semantic/diagnostic change (see `AGENTS.md`).

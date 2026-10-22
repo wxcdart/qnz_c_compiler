@@ -43,8 +43,14 @@ void decl_node_set_type(SemContext *ctx, ZeroCCASTNode *node, TypeInfo *type) {
 /* Helper to evaluate an expression or subnode */
 static TypeInfo *decl_eval_node(SemContext *ctx, ZeroCCASTNode *node) {
     if (!ctx || !node) return NULL;
+    /* Multi-error recovery: fall back to the visitor only when the expr
+     * mechanism gave up WITHOUT reporting — if it already reported an error,
+     * re-analyzing the same node through the visitor would double-report the
+     * same fault (e.g. arity errors from both expr_handle_call and the
+     * visitor's NODE_CALL check). */
+    size_t diags_before = ctx->diags ? ctx->diags->count : 0;
     TypeInfo *ty = expr_handle_expression(ctx, node);
-    if (!ty) {
+    if (!ty && ctx->diags && ctx->diags->count == diags_before) {
         ty = sem_analyze_node(ctx, node);
     }
     return ty;

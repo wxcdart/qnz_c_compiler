@@ -147,7 +147,7 @@ Diagnostics aim for gcc/clang-style quality (Sprint 42):
 - **Format**: `file:line:col: error: message` with source carets; macro-expansion `note:` chains
 - **C99 constraint checking** (previously these invalid programs compiled silently): call argument count vs. prototype (6.7.5.3, variadic-aware), `goto` target must be a defined label (6.8.4.3), struct/union member must exist (6.5.2.1), block closing `}` required (6.8) — no-prototype `f()` calls stay unconstrained per the standard
 - **"Did you mean" suggestions** for undeclared identifiers and unknown struct members (Levenshtein ≤ 2, unique-best only — ambiguous matches are not suggested)
-- **In progress**: multi-error recovery (report all errors in one pass, clang-style; currently some paths stop at the first error) — gated by `tools/diag_battery.py`
+- **Multi-error recovery** (clang-style error budget of ~20): one pass reports all faults in a broken file instead of stopping at the first error; further diagnostics are capped with a single "too many errors emitted" note — gated by `tools/diag_battery.py`
 
 ## C11/C23 Support
 
@@ -176,7 +176,6 @@ Diagnostics aim for gcc/clang-style quality (Sprint 42):
 
 ### Known Limitations
 
-- **Multi-error recovery**: some error paths stop at the first diagnostic instead of continuing with an error budget (in progress, tracked in `docs/ZEROCC_Development_Plan.md` §11)
 - `_Thread_local`: Full system TLS support (fs/gs segments on x86-64)
 - `_Atomic`: JIT execution supported; ELF object/executable emission deferred
 - `_Generic`: Simplified type matching; full C11 compatibility rules not implemented

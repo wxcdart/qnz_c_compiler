@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Sprint 42] - 2026-10-22 - Multi-Error Recovery + SemContext ABI Fix + INC010 Correction
+
+Closes the last open item of the diagnostics work (`docs/ZEROCC_Development_Plan.md` §11, now DONE):
+
+- **Error budget** (`DiagBuf`, default 20, `diag_set_error_budget`, 0 = unlimited): `diag_report_internal` drops errors past the budget and emits one `note: too many errors emitted, stopping now`. The file-scope loop in `compile_unit.h` no longer breaks on the first `had_error` — one pass now reports all faults in a broken file (clang-style).
+- **Deduped double-reported arity errors**: `decl_eval_node` only falls back to the visitor when the expr mechanism gave up *without* reporting a diagnostic.
+- **Call-site positions**: `NODE_CALL` AST nodes now carry `line`/`col` (the `(` token) set at parse time, so arity errors print `file:8:16` instead of position-less. A missing `;` after a `return` statement is also reported (previously silently swallowed, later surfacing as a misleading "non-void function should return a value").
+- **Latent cross-TU ABI bug found & fixed**: `SemContext` was defined in three headers (`visitor.h` 11 fields; `decl.h`/`expr.h` a stale 8-field copy) behind a shared `SEM_CONTEXT_DEFINED` first-include-wins guard, so the JIT pipeline TUs compiled a smaller struct than `sem_context_init` wrote into — a stack overflow that stayed dormant until the `DiagBuf` budget fields shifted the stack layout. `decl.h`/`expr.h` now include the single canonical definition from `visitor.h`; the invariant is documented in `docs/okf/frontend-and-types.md`.
+- **Battery re-baselined**: `15_multi_error_5.c` now reports all five gcc faults (6 diagnostics incl. one cascade), `14_multi_error_3.c` all three faults deduped (4 diagnostics); ratchet locks it in.
+- **`tools/style_check.py` INC010 corrected**: the rule flagged the *documented* include order (sibling → system → project); it now flags system includes that follow project includes, with correct sibling detection for root-relative paths. Baseline: 129 files, 0 errors, **82 warnings**.
+
+Gates: `make test` 147/147, `make test-opt` 107/107, `style_check` 0 errors, `diag_battery` 16 cases / 8/8 categories / baseline OK, `sret_verifier` 6/6.
+
 ## [Sprint 42] - 2026-10-22 - Diagnostics Battery: Differential Compiler-Diagnostic Gate vs gcc (`tools/diag_battery.py`)
 
 New differential harness for compiler diagnostics (the validation gate for the pending multi-error-recovery work, built first so it lands against a measured baseline):

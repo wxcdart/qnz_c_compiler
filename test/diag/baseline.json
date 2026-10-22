@@ -149,9 +149,10 @@
     },
     "14_multi_error_3": {
       "expect_rc_zero": false,
-      "zerocc_error_count": 5,
+      "zerocc_error_count": 4,
       "zerocc_categories": [
         "arg-count",
+        "expected-punctuator",
         "undeclared-ident"
       ],
       "gcc_error_count": 2,
@@ -162,10 +163,14 @@
     },
     "15_multi_error_5": {
       "expect_rc_zero": false,
-      "zerocc_error_count": 2,
+      "zerocc_error_count": 6,
       "zerocc_categories": [
         "arg-count",
-        "no-member"
+        "bad-member-base",
+        "expected-punctuator",
+        "no-member",
+        "undeclared-ident",
+        "undefined-label"
       ],
       "gcc_error_count": 5,
       "gcc_categories": [

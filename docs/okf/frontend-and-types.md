@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-22T14:23:57Z
+timestamp: 2026-10-22T15:24:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,6 +24,10 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
    - `zero_cc_resolve_base_type(c, type_tok, type_name)`: Single source of truth for resolving base declaration, parameter, and return types (primitives, structs, unions, enums, and typedefs).
    - `zero_cc_type_to_typeinfo(perm, t)` and `typeinfo_to_zero_cc_type(ti)`: Bidirectional conversion between `ZeroCCType` and `TypeInfo *`, preserving pointers, function pointers (`is_func_ptr`), multi-dimensional arrays/VLAs, structs/unions, enums, and qualifiers (`const`, `volatile`, `restrict`, `_Atomic`). The parser constructs `ZeroCCType` once per declarator and derives `TypeInfo *` via `zero_cc_type_to_typeinfo()` rather than building parallel type trees.
    - `ast_node_set_typeinfo(c, node, ti)` and `ast_node_get_typeinfo(c, node)`: Canonical accessors for attaching and querying semantic `TypeInfo *` on `ZeroCCASTNode.aux.extra` across parser (`ast_expr.h`), semantic analyzer (`visitor.c`), and IR lowering (`ast_lowering_expr.c`).
+
+## SemContext: Single Canonical Definition
+
+`SemContext` (the semantic-pass state: arenas, `diags`, current scope, label table) is defined **only** in `src/zero_cc/semantic/visitor.h`. `decl.h` and `expr.h` used to each carry a stale 8-field copy behind a shared `SEM_CONTEXT_DEFINED` first-include-wins guard, so any TU that included `decl.h`/`expr.h` before `visitor.h` (the JIT pipeline headers `compile.h`/`compile_unit.h`) compiled a **smaller** struct than `visitor.c` wrote into — a cross-TU ABI mismatch whose overflow was dormant until a stack-layout change moved a live variable into the spilled bytes (found by the Sprint 42 multi-error-recovery work; ASan stack-buffer-overflow in `sem_context_init`). The other two headers now `#include "zero_cc/semantic/visitor.h"`. **Invariant:** never redeclare `SemContext` (or any cross-TU pipeline struct) in a second header — one definition, included everywhere.
 
 ## Signedness & Narrow-Int Correctness (C1)
 

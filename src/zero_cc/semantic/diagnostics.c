@@ -1,9 +1,9 @@
 #include "zero_cc/semantic/diagnostics.h"
-#include "zero_cc/types/symbols.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include "zero_cc/types/symbols.h"
 
 /** Initialise a DiagBuf to use the supplied temporary arena. */
 void diag_init(DiagBuf *buf, Arena *tmp) {
@@ -13,6 +13,13 @@ void diag_init(DiagBuf *buf, Arena *tmp) {
     buf->capacity = 0;
     buf->tmp_arena = tmp;
     buf->default_file = "<stdin>";
+    buf->error_count = 0;
+    buf->error_budget = 20;
+    buf->budget_noted = false;
+}
+
+void diag_set_error_budget(DiagBuf *buf, size_t budget) {
+    if (buf) buf->error_budget = budget;
 }
 
 /** Set default source filename for diagnostics. */
@@ -38,6 +45,29 @@ static void diag_report_internal(DiagBuf *buf, const char *file, uint32_t line, 
                                   DiagSeverity severity, DiagMacroContext *macro_ctx,
                                   const char *fmt, va_list ap) {
     if (!buf || !fmt) return;
+    /* Error budget (multi-error recovery): once the budget is spent, drop
+     * further errors and note it once — the loop that continues past
+     * errors (compile_unit.h) relies on this to stay bounded. */
+    if (severity == DIAG_ERROR) {
+        if (buf->error_budget > 0 && buf->error_count >= buf->error_budget) {
+            if (!buf->budget_noted) {
+                buf->budget_noted = true;
+                /* Insert the note directly (no va_list available here to
+                 * recurse through the variadic-report path). */
+                diag_ensure_capacity(buf);
+                DiagEntry *ne = &buf->entries[buf->count];
+                ne->file = file ? file : (buf->default_file ? buf->default_file : "<stdin>");
+                ne->msg = "too many errors emitted, stopping now"; /* static */
+                ne->line = line;
+                ne->col = col;
+                ne->severity = DIAG_NOTE;
+                ne->macro_ctx = macro_ctx;
+                buf->count++;
+            }
+            return;
+        }
+        buf->error_count++;
+    }
     va_list ap_copy;
     va_copy(ap_copy, ap);
     int needed = vsnprintf(NULL, 0, fmt, ap_copy);

@@ -468,9 +468,15 @@ static ASTRef parse_postfix_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
         /* Function Call: expr(arg1, arg2, ...) */
         if (t == TK_LPAREN) {
+            /* Record the call position (the '(' token) so call-site
+             * diagnostics (e.g. argument-count errors) carry file:line:col. */
+            uint32_t call_line = (uint32_t)c->tokens[c->token_pos].line;
+            uint32_t call_col = (uint32_t)c->tokens[c->token_pos].col;
             c->token_pos++;
             ASTRef call_ref = zero_cc_ast_alloc_node(arena, NODE_CALL);
             ZeroCCASTNode *call_node = zero_cc_ast_get(arena, call_ref);
+            call_node->line = call_line;
+            call_node->col = call_col;
             call_node->left = expr;
 
             ASTRef last_arg = AST_NULL;

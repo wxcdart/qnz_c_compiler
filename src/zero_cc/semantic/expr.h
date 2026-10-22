@@ -9,6 +9,11 @@
 #include "zero_cc/semantic/scope.h"
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/semantic/promote.h"
+/* SemContext is canonically defined in visitor.h (single definition to
+ * guarantee one ABI layout across all TUs — historically this header
+ * carried a stale 8-field copy that won the first-include race in some
+ * TUs, silently shrinking the struct there). */
+#include "zero_cc/semantic/visitor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,19 +89,7 @@ extern "C" {
  * Forward declaration of SemContext.
  * Defined in visitor.h if present, or self-contained.
  */
-#ifndef SEM_CONTEXT_DEFINED
-#define SEM_CONTEXT_DEFINED
-typedef struct SemContext {
-    Arena          *perm_arena;           /* Long-lived arena for types, symbols, permanent AST metadata */
-    Arena          *tmp_arena;            /* Scratch arena for formatting diagnostics, temporary structures */
-    DiagBuf        *diags;                /* Diagnostic collector for errors and warnings */
-    Scope          *current_scope;        /* Active symbol scope */
-    TypeInfo       *current_fn_ret_type;  /* Return type of the enclosing function, or NULL if outside */
-    bool            in_loop;              /* True if inside a loop body */
-    bool            in_switch;            /* True if inside a switch statement */
-    ZeroCCASTArena *ast_arena;            /* AST Arena owning the ZeroCCASTNode pool (optional, may be NULL) */
-} SemContext;
-#endif
+/* (SemContext comes from visitor.h — see include block above.) */
 
 /**
  * Retrieve the TypeInfo pointer associated with an AST node.

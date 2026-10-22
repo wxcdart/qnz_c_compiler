@@ -38,10 +38,19 @@ typedef struct {
     size_t      capacity;
     Arena      *tmp_arena; // arena that owns message strings and entries
     const char *default_file; // default source filename
+    /* Error budget (multi-error recovery): after `error_budget` errors,
+     * new errors are dropped (a single note is emitted instead) so a badly
+     * broken file cannot flood the output. 0 = unlimited. */
+    size_t      error_count;
+    size_t      error_budget;
+    bool        budget_noted;
 } DiagBuf;
 
 /** Initialise a DiagBuf to use the supplied temporary arena. */
 void diag_init(DiagBuf *buf, Arena *tmp);
+
+/** Set the error budget (default 20; 0 disables the cap). */
+void diag_set_error_budget(DiagBuf *buf, size_t budget);
 
 /** Set default source filename for diagnostics. */
 void diag_set_file(DiagBuf *buf, const char *file);
