@@ -877,6 +877,19 @@ static int compile_object(CompileOptions *opts) {
                                           label_sym_idx,
                                           reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
                                           0);
+            } else if (comp->isa == ISA_AARCH64 && r->text_patch_offset >= 4) {
+                /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
+                 * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
+                elf_writer_add_relocation(&elf_ctx, 1,
+                                          r->text_patch_offset - 4,
+                                          symbol_idx,
+                                          275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
+                                          0);
+                elf_writer_add_relocation(&elf_ctx, 1,
+                                          r->text_patch_offset,
+                                          symbol_idx,
+                                          277 /* R_AARCH64_ADD_ABS_LO12_NC */,
+                                          0);
             } else {
                 int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
                 elf_writer_add_relocation(&elf_ctx, 1,
@@ -918,6 +931,19 @@ static int compile_object(CompileOptions *opts) {
                                       label_sym_idx,
                                       reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
                                       0);
+        } else if (comp->isa == ISA_AARCH64 && sr->text_patch_offset >= 4) {
+            /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
+             * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      sr->text_patch_offset - 4,
+                                      rodata_symbol_idx,
+                                      275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
+                                      (int64_t)sr->rodata_offset);
+            elf_writer_add_relocation(&elf_ctx, 1,
+                                      sr->text_patch_offset,
+                                      rodata_symbol_idx,
+                                      277 /* R_AARCH64_ADD_ABS_LO12_NC */,
+                                      (int64_t)sr->rodata_offset);
         } else {
             elf_writer_add_relocation(&elf_ctx, 1,
                                       sr->text_patch_offset,
@@ -1061,9 +1087,22 @@ static int compile_and_link(CompileOptions *opts) {
         strncat(lib_args, opts->libs[i], sizeof(lib_args) - strlen(lib_args) - 1);
     }
 
-    snprintf(cmd, sizeof(cmd),
-             "%s %s %s -o %s %s -lc%s 2>&1",
-             linker, abi_flags, static_flag, output, obj_path, lib_args);
+    if (target_isa == ISA_RISCV32) {
+        snprintf(cmd, sizeof(cmd),
+                 "riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -static -no-pie -Wl,-m,elf32lriscv -nostdlib "
+                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crt1.o "
+                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crti.o "
+                 "%s "
+                 "/home/ubuntu/dev/musl-cross/riscv32/lib/libc.a "
+                 "/home/ubuntu/dev/musl-cross/riscv32/lib/libgcc.a "
+                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crtn.o "
+                 "-o %s%s 2>&1",
+                 obj_path, output, lib_args);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "%s %s %s -o %s %s -lc%s 2>&1",
+                 linker, abi_flags, static_flag, output, obj_path, lib_args);
+    }
     
     if (opts->verbose) {
         printf("  %s\n", cmd);
@@ -1153,7 +1192,7 @@ int main(int argc, char **argv) {
     if (opts.emit_object || opts.emit_asm) {
         /* Cross-target -c (binary object) uses the incomplete raw emitter, so route
          * it through text + system cross-assembler instead. */
-        if (opts.emit_object && parse_target_arch(opts.target_arch) != ISA_X86_64) {
+        if (opts.emit_object && parse_target_arch(opts.target_arch) != ISA_X86_64 && !getenv("ZC_RAW_AOT")) {
             return compile_object_cross(&opts);
         }
         return compile_object(&opts);

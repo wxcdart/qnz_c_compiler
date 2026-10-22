@@ -1836,9 +1836,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                         } else {
                             ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
-                            if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
-                                /* System V AMD64 ABI: second eightbyte returned in rdx (physical register 2) */
-                                ir_emit_store(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                            if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
+                                /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
+                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                            } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
+                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+                                ir_emit_store(reg2, BE(c)->fp_reg, -(sym->stack_offset - 8));
                             }
                         }
                         c->last_expr_is_float = 0;

@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 41] - 2026-10-22 - Cross-ISA Raw AOT QEMU Gate Fully Green: AArch64 and RISC-V 32 Complete (44/44 Passing)
+
+Completed raw binary AOT code generation (`ZC_RAW_AOT=1`) and ELF object/linking support for the two remaining ISAs under `tools/isa_qemu_diff.py`, bringing the cross-ISA QEMU gate to **100% green (44/44 tests passing)**:
+- **AArch64 Raw AOT Path (`aarch64.c`, `ast_lowering_mc.c`, `main.c`)**:
+  - AAPCS64 standard frame layout: implemented `stp x29, x30, [sp, #-16]!`, `mov x29, sp`, `sub sp, sp, #frame` in prologue and `mov sp, x29`, `ldp x29, x30, [sp], #16`, `ret` in leave/epilogue, ensuring local variable negative offsets remain strictly above `sp`.
+  - Immediates: replaced buggy shift/mask arithmetic with clean 16-bit chunking using `movz` (bits 15:0) followed by `movk` (bits 31:16, 47:32, 63:48).
+  - Memory: fixed byte stores (`strb w, [x]` `0x39000000`) and halfword stores (`strh w, [x]` `0x79000000`).
+  - Shifts: implemented register variable shifts (`LSLV` `0x9AC02000`, `LSRV` `0x9AC02400`, `ASRV` `0x9AC02800`).
+  - Relocations: paired `R_AARCH64_ADR_PREL_PG_HI21` (275) with `R_AARCH64_ADD_ABS_LO12_NC` (277) on both global variable and `.rodata` string accesses; fixed `OP_MOV_GLOBAL` adrp+add emission.
+  - Floating Point: added `aarch64_emit_load_fp_rodata` using integer scratch `x16` with `adrp + add` and string relocation, followed by `ldr d, [x16]`; fixed `fcvtzs` / `scvtf` encodings and wired `.emit_vloadsd`, `.emit_vstoredsd`, `.emit_vloadss`, `.emit_vstoress`.
+- **RISC-V 32-bit Raw AOT Path (`elf_writer.c`, `elf_writer.h`, `riscv.c`, `main.c`)**:
+  - ELF32 Object Writer: added 32-bit ELF structures (`Elf32Header`, `Elf32SectionHeader`, `Elf32Sym`, `Elf32Rela`) and output buffer routines emitting true ELF32 objects (`ELFCLASS32`, `EM_RISCV` = 243, `e_flags = 0`).
+  - Cross-Linking: configured musl-cross rv32 static linking via `riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -static -no-pie -Wl,-m,elf32lriscv -nostdlib ...`.
+  - RV32 Prologue/Epilogue: replaced corrupted register clobbers with 4-byte `sw`/`lw` for `ra` and `s0`, allocating 16-byte aligned frames.
+  - RV32 Load/Store/Stack: replaced buggy byte-loads and broken S-type immediate packings with standard 32-bit `lw` and `sw` (`funct3=2`, `0x03` and `0x23`); implemented 4-byte `push_reg` (`addi sp, sp, -4; sw reg, 0(sp)`) and `pop_reg` (`lw reg, 0(sp); addi sp, sp, 4`).
+  - Width Extensions: fixed `riscv64_emit_extend` under RV32 to use 24-bit and 16-bit shift amounts for 8-bit and 16-bit sign/zero extensions instead of illegal 56/48-bit RV64 shifts.
+  - Struct Return ABI: fixed 5-8 byte struct return lowering across callee and caller to load/store the lower 4 bytes in `a0` (VREG_0) and the upper 4 bytes in `a1` (VREG_2).
+- **Verification Results**:
+  - `make test-isa-qemu`: **44/44 tests PASS** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11).
+  - `make test`: **142/142 passed**.
+  - `make test-opt`: **106/106 ok**.
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: **All passed**.
+
 ## [Sprint 41] - 2026-10-22 - Complete RISC-V 64 Raw AOT Binary Emitter & PSABI Relocation Conformance (11/11 Passing)
 
 Completed the RISC-V 64 raw machine-code and AOT binary emitter, bringing `tools/isa_qemu_diff.py --isa riscv64` to a full **11/11 passing** under QEMU against the static-musl reference:

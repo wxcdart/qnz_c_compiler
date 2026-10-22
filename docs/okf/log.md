@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T02:18:14Z
+timestamp: 2026-10-22T03:05:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -281,3 +281,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `build-and-verification.md`
 - Update measured state for raw emitter QEMU gate: riscv64 11/11 passing
+
+## 2026-10-22 — Updated `isa-backends.md`
+- Achieve 44/44 green cross-ISA QEMU gate: complete AArch64 and RISC-V 32 raw AOT emitters
+
+## 2026-10-22 — Updated `build-and-verification.md`
+- Update cross-ISA raw emitter QEMU gate status to 44/44 green across all 4 target ISAs

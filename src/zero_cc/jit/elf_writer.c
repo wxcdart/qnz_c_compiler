@@ -281,9 +281,360 @@ static int elf_reloc_count_for_section(const ElfWriterCtx* ctx, uint16_t section
 }
 
 
+static size_t elf_writer_get_output_size_32(ElfWriterCtx* ctx) {
+    if (!ctx) return 0;
+    size_t offset = sizeof(Elf32Header);  // 52 bytes
+
+    // Data sections (text, data, rodata, etc.)
+    for (int i = 0; i < ctx->section_count; i++) {
+        ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->align > 1) {
+            offset = (offset + sec->align - 1) & ~(sec->align - 1);
+        }
+        offset += sec->size;
+    }
+
+    // Symbol string table (.strtab)
+    if (ctx->strtab_size > 0) {
+        offset = (offset + 3) & ~3;
+        offset += ctx->strtab_size;
+    }
+
+    // Symbol table (.symtab)
+    offset = (offset + 3) & ~3;
+    offset += (ctx->symbol_count + 1) * sizeof(Elf32Sym);
+
+    // Relocation sections (.rela.<sec>)
+    if (ctx->relocation_count > 0) {
+        offset = (offset + 3) & ~3;
+        offset += ctx->relocation_count * sizeof(Elf32Rela);
+    }
+
+    // Section name string table (.shstrtab)
+    size_t shstrtab_size = ctx->shstrtab_size;
+    shstrtab_size += strlen(".strtab") + 1;
+    shstrtab_size += strlen(".symtab") + 1;
+    shstrtab_size += strlen(".shstrtab") + 1;
+    if (ctx->relocation_count > 0) {
+        uint16_t ds[ELF_MAX_SECTIONS];
+        int nd = elf_reloc_distinct_sections(ctx, ds, ELF_MAX_SECTIONS);
+        for (int i = 0; i < nd; i++) {
+            if (ds[i] >= 1 && ds[i] <= (uint16_t)ctx->section_count) {
+                shstrtab_size += strlen(".rela.") + strlen(ctx->sections[ds[i] - 1].name) + 1;
+            }
+        }
+    }
+    shstrtab_size += strlen(".note.GNU-stack") + 1;
+
+    offset = (offset + 3) & ~3;
+    offset += shstrtab_size;
+
+    int n_rela_groups = 0;
+    if (ctx->relocation_count > 0) {
+        uint16_t ds[ELF_MAX_SECTIONS];
+        n_rela_groups = elf_reloc_distinct_sections(ctx, ds, ELF_MAX_SECTIONS);
+    }
+    int extra_sections = 5 + n_rela_groups;
+    offset = (offset + 3) & ~3;
+    offset += (ctx->section_count + extra_sections) * sizeof(Elf32SectionHeader);
+
+    return offset;
+}
+
+static bool elf_writer_write_to_buffer_32(ElfWriterCtx* ctx, uint8_t* buffer,
+                                         size_t buffer_size, size_t* written) {
+    if (!ctx || !buffer) {
+        return false;
+    }
+
+    size_t required = elf_writer_get_output_size_32(ctx);
+    if (buffer_size < required) {
+        set_error(ctx, "Buffer too small");
+        return false;
+    }
+
+    memset(buffer, 0, buffer_size);
+    size_t offset = 0;
+
+    Elf32Header* ehdr = (Elf32Header*)(buffer + offset);
+    offset += sizeof(Elf32Header);
+
+    ehdr->e_ident[0] = ELF_MAGIC_0;
+    ehdr->e_ident[1] = ELF_MAGIC_1;
+    ehdr->e_ident[2] = ELF_MAGIC_2;
+    ehdr->e_ident[3] = ELF_MAGIC_3;
+    ehdr->e_ident[4] = ELF_CLASS_32;
+    ehdr->e_ident[5] = ELF_DATA_LITTLE_ENDIAN;
+    ehdr->e_ident[6] = ELF_VERSION_CURRENT;
+    ehdr->e_ident[7] = ELF_OSABI_NONE;
+    memset(ehdr->e_ident + 8, 0, 8);
+
+    ehdr->e_type = 1;  // ET_REL
+    ehdr->e_machine = 243;  // EM_RISCV
+    ehdr->e_version = ELF_VERSION_CURRENT;
+    ehdr->e_entry = 0;
+    ehdr->e_phoff = 0;
+    ehdr->e_flags = ZC_EF_RISCV_FLOAT_ABI_SOFT;
+    ehdr->e_ehsize = sizeof(Elf32Header);
+    ehdr->e_phentsize = 0;
+    ehdr->e_phnum = 0;
+    ehdr->e_shentsize = sizeof(Elf32SectionHeader);
+    ehdr->e_shnum = 0;
+    ehdr->e_shstrndx = 0;
+
+    size_t strtab_offset = 0;
+    size_t symtab_offset = 0;
+    size_t shstrtab_offset = 0;
+
+    for (int i = 0; i < ctx->section_count; i++) {
+        ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->align > 1) {
+            size_t aligned = (offset + sec->align - 1) & ~(sec->align - 1);
+            offset = aligned;
+        }
+        sec->offset = offset;
+        memcpy(buffer + offset, sec->data, sec->size);
+        offset += sec->size;
+    }
+
+    if (ctx->strtab_size > 0) {
+        offset = (offset + 3) & ~3;
+        strtab_offset = offset;
+        memcpy(buffer + offset, ctx->strtab, ctx->strtab_size);
+        offset += ctx->strtab_size;
+    } else {
+        strtab_offset = 0;
+    }
+
+    offset = (offset + 3) & ~3;
+    symtab_offset = offset;
+    Elf32Sym* symtab = (Elf32Sym*)(buffer + offset);
+    memset(symtab, 0, sizeof(Elf32Sym));
+    symtab++;
+
+    uint16_t *sym_remap = (uint16_t *)calloc((size_t)ctx->symbol_count + 2, sizeof(uint16_t));
+    if (!sym_remap) {
+        set_error(ctx, "Out of memory building symbol remap");
+        return false;
+    }
+    uint16_t cur_symtab_idx = 1;
+
+    for (int i = 0; i < ctx->symbol_count; i++) {
+        ElfWriterSymbol* sym = &ctx->symbols[i];
+        int binding = (sym->info >> 4) & 0xF;
+        if (binding == ELF_STB_LOCAL) {
+            symtab->st_name = (uint32_t)sym->name_offset;
+            symtab->st_info = sym->info;
+            symtab->st_other = sym->other;
+            symtab->st_shndx = (uint16_t)sym->section_idx;
+            symtab->st_value = (uint32_t)sym->value;
+            symtab->st_size = (uint32_t)sym->size;
+            symtab++;
+            sym_remap[i + 1] = cur_symtab_idx;
+            cur_symtab_idx++;
+        }
+    }
+
+    for (int i = 0; i < ctx->symbol_count; i++) {
+        ElfWriterSymbol* sym = &ctx->symbols[i];
+        int binding = (sym->info >> 4) & 0xF;
+        if (binding != ELF_STB_LOCAL) {
+            symtab->st_name = (uint32_t)sym->name_offset;
+            symtab->st_info = sym->info;
+            symtab->st_other = sym->other;
+            symtab->st_shndx = (uint16_t)sym->section_idx;
+            symtab->st_value = (uint32_t)sym->value;
+            symtab->st_size = (uint32_t)sym->size;
+            symtab++;
+            sym_remap[i + 1] = cur_symtab_idx;
+            cur_symtab_idx++;
+        }
+    }
+    offset += (ctx->symbol_count + 1) * sizeof(Elf32Sym);
+
+    uint16_t rela_groups[ELF_MAX_SECTIONS] = {0};
+    size_t rela_group_offsets[ELF_MAX_SECTIONS] = {0};
+    size_t rela_group_sizes[ELF_MAX_SECTIONS] = {0};
+    size_t rela_name_idx[ELF_MAX_SECTIONS] = {0};
+    int n_rela_groups = 0;
+    size_t rela_text_offset = 0;
+    if (ctx->relocation_count > 0) {
+        offset = (offset + 3) & ~3;
+        rela_text_offset = offset;
+        n_rela_groups = elf_reloc_distinct_sections(ctx, rela_groups, ELF_MAX_SECTIONS);
+        for (int g = 0; g < n_rela_groups; g++) {
+            rela_group_offsets[g] = offset;
+            int cnt = elf_reloc_count_for_section(ctx, rela_groups[g]);
+            rela_group_sizes[g] = (size_t)cnt * sizeof(Elf32Rela);
+            Elf32Rela* rela = (Elf32Rela*)(buffer + offset);
+            for (int i = 0; i < ctx->relocation_count; i++) {
+                if (ctx->reloc_section_indices[i] != rela_groups[g]) continue;
+                rela->r_offset = (uint32_t)ctx->reloc_offsets[i];
+                uint16_t raw_sym_idx = ctx->reloc_symbol_indices[i];
+                uint16_t mapped_sym_idx = (sym_remap[raw_sym_idx] != 0)
+                                              ? sym_remap[raw_sym_idx]
+                                              : raw_sym_idx;
+                rela->r_info = ((uint32_t)mapped_sym_idx << 8) | ((uint32_t)ctx->reloc_types[i] & 0xFF);
+                rela->r_addend = (int32_t)ctx->reloc_addends[i];
+                rela++;
+            }
+            offset += rela_group_sizes[g];
+        }
+    }
+
+    free(sym_remap);
+
+    size_t strtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".strtab");
+    size_t symtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".symtab");
+    size_t shstrtab_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".shstrtab");
+
+    if (ctx->relocation_count > 0) {
+        for (int g = 0; g < n_rela_groups; g++) {
+            char rela_nm[48];
+            if (rela_groups[g] >= 1 && rela_groups[g] <= (uint16_t)ctx->section_count) {
+                snprintf(rela_nm, sizeof(rela_nm), ".rela.%s", ctx->sections[rela_groups[g] - 1].name);
+            } else {
+                snprintf(rela_nm, sizeof(rela_nm), ".rela.%u", rela_groups[g]);
+            }
+            rela_name_idx[g] = ctx->shstrtab_size;
+            add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), rela_nm);
+        }
+    }
+
+    size_t note_gnu_stack_name_idx = ctx->shstrtab_size;
+    add_string(ctx->shstrtab, &ctx->shstrtab_size, sizeof(ctx->shstrtab), ".note.GNU-stack");
+
+    offset = (offset + 3) & ~3;
+    shstrtab_offset = offset;
+    memcpy(buffer + offset, ctx->shstrtab, ctx->shstrtab_size);
+    offset += ctx->shstrtab_size;
+
+    size_t section_headers_offset = (offset + 3) & ~3;
+    Elf32SectionHeader* shdr = (Elf32SectionHeader*)(buffer + section_headers_offset);
+    memset(shdr, 0, sizeof(Elf32SectionHeader));
+    shdr++;
+
+    for (int i = 0; i < ctx->section_count; i++) {
+        ElfWriterSection* sec = &ctx->sections[i];
+        shdr->sh_name = sec->sh_name;
+        shdr->sh_type = sec->type;
+        shdr->sh_flags = (uint32_t)sec->flags;
+        shdr->sh_addr = 0;
+        shdr->sh_offset = (uint32_t)sec->offset;
+        shdr->sh_size = (uint32_t)sec->size;
+        shdr->sh_link = 0;
+        shdr->sh_info = 0;
+        shdr->sh_addralign = (uint32_t)sec->align;
+        shdr->sh_entsize = 0;
+        shdr++;
+    }
+
+    // .strtab
+    shdr->sh_name = (uint32_t)strtab_name_idx;
+    shdr->sh_type = ELF_SHT_STRTAB;
+    shdr->sh_flags = 0;
+    shdr->sh_addr = 0;
+    shdr->sh_offset = (uint32_t)strtab_offset;
+    shdr->sh_size = (uint32_t)ctx->strtab_size;
+    shdr->sh_link = 0;
+    shdr->sh_info = 0;
+    shdr->sh_addralign = 4;
+    shdr->sh_entsize = 0;
+    shdr++;
+
+    // .symtab
+    shdr->sh_name = (uint32_t)symtab_name_idx;
+    shdr->sh_type = ELF_SHT_SYMTAB;
+    shdr->sh_flags = 0;
+    shdr->sh_addr = 0;
+    shdr->sh_offset = (uint32_t)symtab_offset;
+    shdr->sh_size = (uint32_t)((ctx->symbol_count + 1) * sizeof(Elf32Sym));
+    shdr->sh_link = (uint32_t)(ctx->section_count + 1);
+    {
+        int local_count = 1;
+        for (int i = 0; i < ctx->symbol_count; i++) {
+            int binding = (ctx->symbols[i].info >> 4) & 0xF;
+            if (binding == ELF_STB_LOCAL) local_count++;
+        }
+        shdr->sh_info = (uint32_t)local_count;
+    }
+    shdr->sh_addralign = 4;
+    shdr->sh_entsize = sizeof(Elf32Sym);
+    shdr++;
+
+    // .rela.<sec>
+    for (int g = 0; g < n_rela_groups; g++) {
+        shdr->sh_name = (uint32_t)rela_name_idx[g];
+        shdr->sh_type = ELF_SHT_RELA;
+        shdr->sh_flags = 0;
+        shdr->sh_addr = 0;
+        shdr->sh_offset = (uint32_t)rela_group_offsets[g];
+        shdr->sh_size = (uint32_t)rela_group_sizes[g];
+        shdr->sh_link = ctx->section_count + 2;
+        shdr->sh_info = rela_groups[g];
+        shdr->sh_addralign = 4;
+        shdr->sh_entsize = sizeof(Elf32Rela);
+        shdr++;
+    }
+
+    // .note.GNU-stack
+    size_t note_gnu_stack_offset = 0;
+    if (ctx->relocation_count > 0) {
+        note_gnu_stack_offset = rela_text_offset + ctx->relocation_count * sizeof(Elf32Rela);
+    } else {
+        note_gnu_stack_offset = symtab_offset + (ctx->symbol_count + 1) * sizeof(Elf32Sym);
+    }
+    note_gnu_stack_offset = (note_gnu_stack_offset + 3) & ~3;
+
+    shdr->sh_name = (uint32_t)note_gnu_stack_name_idx;
+    shdr->sh_type = ELF_SHT_PROGBITS;
+    shdr->sh_flags = 0;
+    shdr->sh_addr = 0;
+    shdr->sh_offset = (uint32_t)note_gnu_stack_offset;
+    shdr->sh_size = 0;
+    shdr->sh_link = 0;
+    shdr->sh_info = 0;
+    shdr->sh_addralign = 1;
+    shdr->sh_entsize = 0;
+    shdr++;
+
+    // .shstrtab
+    shdr->sh_name = (uint32_t)shstrtab_name_idx;
+    shdr->sh_type = ELF_SHT_STRTAB;
+    shdr->sh_flags = 0;
+    shdr->sh_addr = 0;
+    shdr->sh_offset = (uint32_t)shstrtab_offset;
+    shdr->sh_size = (uint32_t)ctx->shstrtab_size;
+    shdr->sh_link = 0;
+    shdr->sh_info = 0;
+    shdr->sh_addralign = 4;
+    shdr->sh_entsize = 0;
+    shdr++;
+
+    int extra_sections = 4 + n_rela_groups;
+    offset = section_headers_offset + (ctx->section_count + extra_sections + 1) * sizeof(Elf32SectionHeader);
+
+    ehdr = (Elf32Header*)buffer;
+    ehdr->e_shoff = (uint32_t)section_headers_offset;
+    ehdr->e_shnum = (uint16_t)(ctx->section_count + extra_sections + 1);
+    ehdr->e_shstrndx = (uint16_t)(ctx->section_count + extra_sections);
+
+    if (written) {
+        *written = offset;
+    }
+
+    return true;
+}
+
 size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     if (!ctx) {
         return 0;
+    }
+    if (ctx->machine == ELF_MACHINE_RISCV32) {
+        return elf_writer_get_output_size_32(ctx);
     }
 
     // ELF64 Header: 64 bytes (note: ELF header is 64 bytes for ELF64)
@@ -352,6 +703,9 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
                                 size_t buffer_size, size_t* written) {
     if (!ctx || !buffer) {
         return false;
+    }
+    if (ctx->machine == ELF_MACHINE_RISCV32) {
+        return elf_writer_write_to_buffer_32(ctx, buffer, buffer_size, written);
     }
 
     size_t required = elf_writer_get_output_size(ctx);

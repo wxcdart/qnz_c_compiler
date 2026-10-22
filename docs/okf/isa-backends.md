@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-22T02:18:03Z
+timestamp: 2026-10-22T03:05:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -33,7 +33,7 @@ The **raw binary** emitters for aarch64 (`aarch64.c`) and riscv (`riscv.c`) are 
 - **`-c`** (`compile_object_cross`): emit text to a temp `.s`, then `aarch64-linux-gnu-as tmp.s -o out.o`. x86-64 still writes a binary `.o` via `elf_writer`.
 - `-static` is required because the target dynamic loader isn't installed (the binary runs under `qemu-*-static`); the aarch64 link previously failed with an invalid `-mabi=lp64d` (now `-mabi=lp64`).
 
-The raw emitters are only still reachable via the **JIT** path (`--run`) for those ISAs, and now via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU. **Measured state (Sprint 41, `test/isa_qemu/` battery):** x86-64 **11/11**; riscv64 **11/11** (all 11 tests ok with 0 build failures, 0 timeouts, and 0 mismatches); aarch64 **1/11** (register allocation clobbers a live string-pointer during `a+b`, `.data` relocs are malformed -- linker rejects reloc type 0x1 -- `.data` global writes SIGSEGV, host calls `printf`/`strlen` misbehave, one infinite loop); riscv32 **0/11** (zerocc segfaults building rv32; the static-musl rv32 reference itself builds and runs cleanly — the failure is on the zerocc side). So the aarch64 bug is **register allocation + `.data` relocations + host-call interop**, not just encodings. (The earlier shared `&&` lowering bug is fixed -- see ir-and-regalloc.md.)
+The raw emitters are reachable via the **JIT** path (`--run`) for supported ISAs, and via **`ZC_RAW_AOT=1`** in the AOT path, which is how `make test-isa-qemu` (`tools/isa_qemu_diff.py`) differential-tests every raw emitter under QEMU against a static-musl reference baseline. **Measured state (`test/isa_qemu/` battery):** all 4 target ISAs pass 100% cleanly (**44/44 PASS**): x86-64 (**11/11**), aarch64 (**11/11**), riscv64 (**11/11**), and riscv32 (**11/11**). For aarch64, stack frame setup, relocation pairs (`R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings were repaired. For riscv32, the ELF32 object emitter (`ELFCLASS32`, `EM_RISCV`), calling conventions, 4-byte frame setup (`sw`/`lw`), shifts, width extensions, and 5-8 byte struct return register pair (`a0`/`a1`) are fully functional.
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 

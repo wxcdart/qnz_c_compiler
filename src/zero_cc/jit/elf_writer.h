@@ -116,6 +116,59 @@ typedef enum {
 } ElfSymbolVisibility;
 
 // ============================================================================
+// ELF Structures (ELF32)
+// ============================================================================
+
+// ELF32 Header (52 bytes)
+typedef struct {
+    uint8_t  e_ident[16];  // ELF identification
+    uint16_t e_type;       // Object file type
+    uint16_t e_machine;    // Machine type
+    uint32_t e_version;    // Object file version
+    uint32_t e_entry;      // Entry point address
+    uint32_t e_phoff;      // Program header table offset
+    uint32_t e_shoff;      // Section header table offset
+    uint32_t e_flags;      // Processor-specific flags
+    uint16_t e_ehsize;     // ELF header size
+    uint16_t e_phentsize;  // Program header entry size
+    uint16_t e_phnum;      // Number of program header entries
+    uint16_t e_shentsize;  // Section header entry size
+    uint16_t e_shnum;      // Number of section header entries
+    uint16_t e_shstrndx;   // Section name string table index
+} __attribute__((packed)) Elf32Header;
+
+// ELF32 Section Header (40 bytes)
+typedef struct {
+    uint32_t sh_name;      // Section name (string table index)
+    uint32_t sh_type;      // Section type
+    uint32_t sh_flags;     // Section flags
+    uint32_t sh_addr;      // Section virtual address
+    uint32_t sh_offset;    // Section file offset
+    uint32_t sh_size;      // Section size
+    uint32_t sh_link;      // Link to another section
+    uint32_t sh_info;      // Additional section information
+    uint32_t sh_addralign; // Section alignment
+    uint32_t sh_entsize;   // Entry size if fixed-size entries
+} __attribute__((packed)) Elf32SectionHeader;
+
+// ELF32 Symbol Table Entry (16 bytes)
+typedef struct {
+    uint32_t st_name;      // Symbol name (string table index)
+    uint32_t st_value;     // Symbol value
+    uint32_t st_size;      // Symbol size
+    uint8_t  st_info;      // Symbol type and binding
+    uint8_t  st_other;     // Symbol visibility
+    uint16_t st_shndx;     // Section index
+} __attribute__((packed)) Elf32Sym;
+
+// ELF32 Relocation Entry (12 bytes)
+typedef struct {
+    uint32_t r_offset;     // Offset of relocation
+    uint32_t r_info;       // Symbol index and relocation type
+    int32_t  r_addend;     // Constant addend
+} __attribute__((packed)) Elf32Rela;
+
+// ============================================================================
 // ELF Structures (ELF64)
 // ============================================================================
 

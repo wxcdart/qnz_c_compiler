@@ -822,6 +822,12 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     if (temp_id == VREG_0) {
         return def_ret_reg;
     }
+
+    if (temp_id == VREG_1) {
+        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 */
+        if (ra->target_isa == ISA_AARCH64) return 1; /* x1 */
+        return 1;
+    }
     
     /* VREG_2 (rdx / x1 / a1) is a fixed register for 9-16 byte struct returns */
     if (temp_id == VREG_2) {

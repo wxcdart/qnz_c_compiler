@@ -194,9 +194,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else {
                             /* Integer or small struct assignment: use IR store */
                             ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
-                            if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
+                            if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8) {
+                                /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
+                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                            } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
                                 /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2) */
-                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
+                                ir_emit_store(reg2, BE(c)->fp_reg, -(sym->stack_offset - 8));
                             }
                         }
                     }
@@ -233,7 +237,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
         if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
             int32_t struct_offset = -sym->stack_offset;
-            if (sym->type.size <= 8) {
+            if (c->isa == ISA_RISCV32 && sym->type.size > 4 && sym->type.size <= 8) {
+                /* RV32 ILP32 ABI: 5-8 byte struct returned across a0 (VREG_0) and a1 (VREG_2) */
+                ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
+                ir_emit_load(VREG_2, BE(c)->fp_reg, struct_offset + 4);
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            } else if (sym->type.size <= 8) {
                 /* System V AMD64 ABI: <=8 byte struct returned in rax (VREG_0) */
                 ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
                 ir_emit_jmp(c->lowering.epilogue_label);
@@ -243,8 +253,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 // 1. Load lower 8 bytes into rax (VREG_0) via IR
                 ir_emit_load(VREG_0, BE(c)->fp_reg, struct_offset);
                 
-                // 2. Load upper 8 bytes into rdx (VREG_2) via IR
-                ir_emit_load(VREG_2, BE(c)->fp_reg, struct_offset + 8);
+                // 2. Load upper 8 bytes into rdx (VREG_2) via IR (or a1/x1)
+                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
+                ir_emit_load(reg2, BE(c)->fp_reg, struct_offset + 8);
                 
                 // 3. Jump to epilogue (which will emit leave; ret)
                 ir_emit_jmp(c->lowering.epilogue_label);
