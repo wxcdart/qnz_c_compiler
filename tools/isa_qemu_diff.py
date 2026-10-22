@@ -72,10 +72,9 @@ def run(cmd, env=None, timeout=30, text=False):
 
 
 def build_zerocc(cfg, src, exe, timeout=60):
-    """Build a static executable via zerocc's RAW binary emitter path."""
-    env = dict(os.environ, ZC_RAW_AOT="1")
+    """Build a static executable via zerocc's AOT path (defaults to RAW binary emitter; ZC_TEXT_AOT=1 routes via text)."""
     return run([str(ZEROC), "--target", cfg["target"], str(src), "-o", str(exe)],
-               env=env, timeout=timeout, text=True)
+               env=dict(os.environ), timeout=timeout, text=True)
 
 
 def build_ref(cfg, src, exe, timeout=60):
@@ -111,8 +110,12 @@ def main():
     ap.add_argument("--only", nargs="+", default=None,
                     help="only run test files whose name contains one of these")
     ap.add_argument("--timeout", type=int, default=15, help="per-run timeout (s)")
+    ap.add_argument("--text", action="store_true", help="use text assembly + cross-assembler escape hatch (ZC_TEXT_AOT=1)")
     ap.add_argument("--list", action="store_true", help="list test files and exit")
     args = ap.parse_args()
+
+    if args.text:
+        os.environ["ZC_TEXT_AOT"] = "1"
 
     if not ZEROC.exists():
         print(f"[error] {ZEROC} not found -- run `make build/bin/zerocc` first")

@@ -173,6 +173,8 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     return true;
 }
 
+/* Shelved: freestanding Linux ELF executable emission experiment (retained for test/jit/exe_test.c).
+ * Standard AOT compilation uses elf_writer (.o) + system linker. */
 static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath) {
     unlink(filepath);
     FILE *f = fopen(filepath, "wb");
@@ -307,6 +309,8 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     return false;
 }
 
+/* Shelved: freestanding Linux ELF executable emission experiment (retained for test/jit/exe_test.c).
+ * Standard AOT compilation uses elf_writer (.o) + system linker. */
 static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath) {
     (void)c; (void)filepath;
     fprintf(stderr, "zero_cc: warning: ELF executable generation is supported natively on Linux targets.\n");
@@ -314,10 +318,5 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
 }
 
 #endif /* __linux__ */
-
-static inline bool zero_cc_emit_ape_exe(ZeroCCCompiler *c, const char *filepath) {
-    return zero_cc_emit_elf_exe(c, filepath);
-}
-
 
 #endif /* ZERO_CC_JIT_ELF_EMITTER_H */

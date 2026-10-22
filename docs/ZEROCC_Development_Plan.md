@@ -199,18 +199,19 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
     - `-O0` is plain codegen (no passes, no inlining)
   - IR shape: flat, non-SSA linear `Instr` array with implicit control flow (labels/jumps); no CFG, basic blocks or dominators (see Sprint 35 plan)
 - **Multi-ISA Codegen & ABI**:
-  - **x86-64**, **AArch64**, and **RISC-V (RV64GC)** backends
+  - **x86-64**, **AArch64**, **RISC-V 64 (RV64GC)**, and **RISC-V 32 (RV32GC)** backends
   - Full struct by-value parameter passing and struct returns (`<=8B`, `9-16B`, and `>16B` `sret` hidden pointer across direct and indirect function pointer calls)
-  - Direct ELF64 relocatable object writer (`elf_writer.c`) and `W^X` in-memory JIT (`execution.h`)
+  - Direct ELF64 and ELF32 relocatable object writer (`elf_writer.c`), freestanding `W^X` in-memory JIT (`execution.h`), and direct raw binary AOT compilation default (`-o`, `-c`) across all 4 target ISAs with `ZC_TEXT_AOT=1` escape hatch.
 
 ### 📊 Test & Verification Coverage
-- **Main Regression Suite (`make test`)**: 140/140 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
-- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate).
+- **Main Regression Suite (`make test`)**: 142/142 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the 145 sources are standalone programs zerocc can compile (42/145 pass), so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
+- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **106/106 passing**).
+- **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11) differential-tested against static-musl reference binaries under QEMU.
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
 - **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
-- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **11 files valid** (10 concept pages + `log.md`), links & graph reachability verified
+- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **12 files valid** (11 concept pages + `log.md`), links & graph reachability verified
 
 ### ✅ Former Open Regressions — FIXED (Sprint 35 Phase 0, 2026-10-20; verified by `make test-opt` 88/88)
 Introduced by Sprint 33 (`15588aa`); zerocc `--run`, same results in AOT where checked. All resolved; the table is retained for the record:
@@ -414,4 +415,39 @@ Reprioritized ahead of the `-I` include search (now Sprint 41): the Sprint 39 au
 - **`-S` emitters** (`ir/asm_emitter.c` + all three ISA asm backends + vtable): `OP_ADD_IMM`/`OP_SUB_IMM`/`OP_INC`/`OP_DEC`/`OP_NOT`/`OP_LNOT` no longer fall through to `# UNKNOWN` (the Sprint 39 list naming `OP_SUB_INC`/`OP_ADD_INC` was a misnomer - those opcodes do not exist). `OP_NOT` copies src→dst first when the registers differ, mirroring the MC emitter.
 - **`tools/simd_regression_suite.py`**: was comparing the 8-bit-truncated exit code to the expected value and counting SIMD instructions in a `.s` file it never generated. Now stdout-compares (tests print their result) and counts from a real `-S` compile, matching the documented double-width scalar-FP model. **10/10 (was 0/10)**; baseline in `simd_regression_baseline.json`.
 - **Verification**: `make test-opt` 106/106, `make test` 142/142, `cfg_verifier` 112 files / 0 failed, `mem2reg` all, `sret` 6/6, `licm` 5/5, **SIMD 10/10**; gcc differential on every fixed area matches at -O0..-O3 (JIT + AOT); `-S` corpus: 0 `# UNKNOWN`, 16/16 standalone tests assemble with `gcc -c`.
-- **Next**: Sprint 41 — T0 real `-I` include search (unblocks the 63 non-standalone tests; corpus → ~168). Loop unrolling is the next CFG opt after that.
+- **Next**: Sprint 41 — Reprioritized to Cross-ISA Raw AOT QEMU Gate & Relocation Conformance.
+
+### 16. Sprint 41 (DONE 2026-10-22): Cross-ISA Raw AOT QEMU Gate (44/44), Multi-ISA Relocations & Raw Default
+
+Closed the raw-binary emission gap across all target ISAs under QEMU differential testing (`make test-isa-qemu`), bringing the gate to a perfect 44/44 pass rate, and flipped the AOT compilation default from text assembly to direct raw binary emission:
+
+- **AArch64 Raw Emitter & Relocations** (`isa/aarch64.c`, `ir/ast_lowering_mc.c`, `src/main.c`):
+  - AAPCS64 standard frame layout: `stp x29, x30, [sp, #-16]!`, `mov x29, sp`, `sub sp, sp, #frame` in prologue and `mov sp, x29`, `ldp x29, x30, [sp], #16`, `ret` in leave/epilogue, ensuring local variable negative offsets remain strictly above `sp`.
+  - Immediate chunking: clean 16-bit `movz` + `movk` sequences.
+  - Memory: width-correct byte stores (`strb`) and halfword stores (`strh`).
+  - Shifts: register variable shifts (`LSLV`, `LSRV`, `ASRV`).
+  - Relocations: paired `R_AARCH64_ADR_PREL_PG_HI21` (275) with `R_AARCH64_ADD_ABS_LO12_NC` (277) on both global variable and `.rodata` string accesses; fixed `OP_MOV_GLOBAL` adrp+add emission.
+  - Floating Point: `aarch64_emit_load_fp_rodata` using integer scratch `x16` with `adrp + add` and string relocation, followed by `ldr d, [x16]`; fixed `fcvtzs` / `scvtf` encodings and wired `.emit_vloadsd`, `.emit_vstoredsd`, `.emit_vloadss`, `.emit_vstoress`.
+- **RISC-V 32-bit Raw Emitter & ELF32 Writer** (`jit/elf_writer.c`, `jit/elf_writer.h`, `isa/riscv.c`, `src/main.c`):
+  - ELF32 Object Writer: added 32-bit ELF structures (`Elf32Header`, `Elf32SectionHeader`, `Elf32Sym`, `Elf32Rela`) and output routines emitting true ELF32 objects (`ELFCLASS32`, `EM_RISCV` = 243, `e_flags = 0`).
+  - Cross-Linking: configured musl-cross rv32 static linking via `riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -static -no-pie -Wl,-m,elf32lriscv -nostdlib ...`.
+  - RV32 Prologue/Epilogue: 4-byte `sw`/`lw` for `ra` and `s0`, 16-byte aligned frames.
+  - RV32 Load/Store/Stack: 32-bit `lw` and `sw` (`funct3=2`, `0x03` and `0x23`); 4-byte `push_reg` / `pop_reg`.
+  - Width Extensions: fixed `riscv64_emit_extend` under RV32 to use 24-bit and 16-bit shift amounts for 8-bit and 16-bit sign/zero extensions instead of illegal 56/48-bit RV64 shifts.
+  - Struct Return ABI: fixed 5-8 byte struct return lowering across callee and caller to load/store the lower 4 bytes in `a0` (VREG_0) and the upper 4 bytes in `a1` (VREG_2).
+- **RISC-V 64-bit Raw Emitter & Relocations** (`isa/riscv.c`, `src/main.c`):
+  - Relocation conformance: `R_RISCV_JAL` (17) for internal call patching; paired `R_RISCV_PCREL_HI20` (23) targeting data symbol with `R_RISCV_PCREL_LO12_I` (24) targeting local label at `auipc` offset with addend 0; `R_RISCV_64` (2) for absolute data relocations.
+  - Corrected immediate formats (B-type, J-type, S-type bit shuffling).
+  - Full double-precision FP encodings and FP predicates (`fadd.d`, `fsub.d`, `fmul.d`, `fdiv.d`, `fneg.d`, `fmv.d`, `fcvt.l.d`, `fcvt.d.w`, `flt.d`, `fle.d`, `feq.d`).
+- **Raw Binary AOT Default & Cleanups**:
+  - `compile_and_link` and `-c` object compilation flipped to direct raw binary object emission across all 4 ISAs, with `ZC_TEXT_AOT=1` preserved as an explicit text assembly escape hatch.
+  - `tools/isa_qemu_diff.py` now runs against the raw default, with `--text` added to exercise the text escape hatch.
+  - Shelved freestanding Linux `zero_cc_emit_elf_exe` experiment in `elf_emitter.h` (for `exe_test.c`), removed unused `zero_cc_emit_ape_exe`.
+- **Raw Verification Suite**: T1 encoding oracle (`tools/riscv_enc_check.py`), T2 relocation pairing (`tools/reloc_pair_check.py`), T3 backend vtable auditor (`tools/vtable_check.py`), and QEMU differential gate (`tools/isa_qemu_diff.py`).
+- **Verification Results**:
+  - `make test-isa-qemu`: **44/44 PASS** (x86-64: 11/11, aarch64: 11/11, riscv64: 11/11, riscv32: 11/11).
+  - `make test`: **142/142 passed**.
+  - `make test-opt`: **106/106 ok**.
+  - `tools/sret_verifier.py --verify-all`: **6/6 passed**.
+  - `tools/okf.py lint && tools/okf.py index`: **All passed**.
+- **Next**: Sprint 42 — T0 real `-I` include search (unblocks the 63 non-standalone tests; corpus → ~168) or zero_rt Phase 0 runtime. Loop unrolling is the next CFG opt after that.

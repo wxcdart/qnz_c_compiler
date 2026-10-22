@@ -1023,15 +1023,13 @@ static int compile_and_link(CompileOptions *opts) {
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
 
-    /* Cross-targets (aarch64/riscv) emit TEXT assembly and let the system
-     * cross-assembler build the object: zerocc's raw binary emitters for those
-     * ISAs are incomplete, while the text emitter is complete and cross-verified
-     * (sret_verifier --target-all). x86-64 emits a native binary object.
+    /* All target ISAs (x86-64, aarch64, riscv64, riscv32) default to direct
+     * RAW binary object emission via elf_writer, validated by the 44/44 cross-ISA
+     * QEMU gate.
      *
-     * ZC_RAW_AOT=1 forces the RAW binary emitter for cross-targets so the raw
-     * emitters can be exercised under a QEMU differential harness
-     * (tools/isa_qemu_diff.py). Default (unset) keeps the safe text path. */
-    int use_text = (target_isa != ISA_X86_64) && !getenv("ZC_RAW_AOT");
+     * ZC_TEXT_AOT=1 serves as an escape hatch to route through text assembly +
+     * the system cross-assembler. */
+    int use_text = (getenv("ZC_TEXT_AOT") != NULL);
 
     /* Generate temporary object file */
     char obj_path[512];
@@ -1125,9 +1123,8 @@ static int compile_and_link(CompileOptions *opts) {
     return 0;
 }
 
-/* Cross-target -c (relocatable object): the raw binary emitter for aarch64/riscv
- * is incomplete, so emit TEXT assembly and let the system cross-assembler produce
- * a correct .o. (Sprint 41) */
+/* Text AOT escape hatch for -c (relocatable object): when ZC_TEXT_AOT=1 is set,
+ * emit TEXT assembly and let the system cross-assembler produce the .o. */
 static int compile_object_cross(CompileOptions *opts) {
     char tmp_s[512];
     snprintf(tmp_s, sizeof(tmp_s), "/tmp/zerocc_%d.s", getpid());
@@ -1190,9 +1187,9 @@ int main(int argc, char **argv) {
     
     /* Determine mode: -c -> object file, -S -> assembly, -o without -c -> executable, else JIT */
     if (opts.emit_object || opts.emit_asm) {
-        /* Cross-target -c (binary object) uses the incomplete raw emitter, so route
-         * it through text + system cross-assembler instead. */
-        if (opts.emit_object && parse_target_arch(opts.target_arch) != ISA_X86_64 && !getenv("ZC_RAW_AOT")) {
+        /* When ZC_TEXT_AOT=1 is set for cross targets, route -c through the text
+         * assembler escape hatch. Default is direct raw binary object generation. */
+        if (opts.emit_object && getenv("ZC_TEXT_AOT") && parse_target_arch(opts.target_arch) != ISA_X86_64) {
             return compile_object_cross(&opts);
         }
         return compile_object(&opts);

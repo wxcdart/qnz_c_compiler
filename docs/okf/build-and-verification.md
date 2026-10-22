@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-22T03:05:18Z
+timestamp: 2026-10-22T04:02:21Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -109,11 +109,9 @@ python3 tools/sret_verifier.py --target-all
 # `sxtw xD, xD` / `uxtw xD, xD` (the source must be a W register: `sxtw xD, wS`);
 # aarch64_asm.c `aarch64_emit_extend_asm` now emits `x<dst>, w<src>` for the
 # width-4 (sxtw/uxtw) case.
-# Cross-target output (`--target aarch64/riscv64 -o` executable, `-c` object) is
-# emitted as TEXT assembly and linked/assembled with the system cross toolchain
-# (`-static`, `-mabi=lp64`), because zerocc's raw aarch64/riscv binary emitters
-# are incomplete - see isa-backends.md. Verified: aarch64 `-o` + qemu matches
-# `gcc -O2` for common C (see CHANGELOG Sprint 41).
+# Cross-target output defaults to direct RAW binary object emission via
+# elf_writer (ELF64/ELF32), with ZC_TEXT_AOT=1 available as a text escape hatch.
+# All 4 target ISAs pass 44/44 cleanly under QEMU (see isa-backends.md).
 
 # Differential-test EVERY target ISA's RAW binary emitter under QEMU (make target below).
 make test-isa-qemu
