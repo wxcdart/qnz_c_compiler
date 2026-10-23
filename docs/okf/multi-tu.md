@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-10-22T21:53:24Z
+timestamp: 2026-10-23T01:03:56Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -91,10 +91,12 @@ prototype, no param).
 - `static` file-scope globals from different TUs share the bare-name global
   registry (no per-TU mangling) — same-name statics alias.
 - `_Thread_local` storage is per-compiler and not merged.
-- `int *p = &g;` initializers referencing a *cross-TU* global stay 0 (the
-  initializer rebase only covers same-TU targets). The T2 own linker
-  handles the *correct* object shape (a `.rela..data` `R_X86_64_64` against
-  the UND symbol) — the gap is in zeroc's AOT emitter, not the link.
+- `int *p = &g;` initializers referencing a *cross-TU* global: **fixed
+  (Sprint 43, T2)** — the emitter now registers a by-name (kind-2) data
+  reloc for extern targets. AOT emits a `.rela..data` `R_X86_64_64` against
+  the UND symbol (both the own linker and the system linker resolve it); JIT
+  resolves it against the merged global registry at patch time. Gate: the
+  `cross_ptr` / `crossptr2` cases in `make test-linker` / `make test-driver`.
 - The AOT `-o` path links through the **system** linker by default; the own
   linker (T2, `--zerocc-link`, see `own-linker.md`) is now available for
   x86-64.

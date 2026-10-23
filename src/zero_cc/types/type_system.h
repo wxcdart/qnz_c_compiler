@@ -177,13 +177,18 @@ typedef struct {
  * variable's storage (e.g. `int *p = &x;`). The 8 bytes at data_patch_offset
  * (within .data) receive the final absolute address.
  *   target_kind 0: .rodata + rodata_offset
- *   target_kind 1: .data + target_data_offset (global_vars[target_global_idx]) */
+ *   target_kind 1: .data + target_data_offset (global_vars[target_global_idx])
+ *   target_kind 2: an object defined in ANOTHER translation unit, referenced
+ *                  by name (target_extern_name). AOT: emitted as a .rela..
+ *                  data relocation against the UND symbol; JIT: resolved
+ *                  against the merged global-registry at patch time. */
 typedef struct {
     size_t data_patch_offset;
     int    target_kind;
     size_t rodata_offset;
     size_t target_data_offset;
     int    target_global_idx;
+    char   target_extern_name[64];
 } ZeroCCDataReloc;
 
 

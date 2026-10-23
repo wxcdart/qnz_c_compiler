@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at the conventional x86-64 base, the supported relocation set, and the generated _start stub. Gate: make test-linker (14/14).
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, relocations, zero-rt]
-timestamp: 2026-10-23T00:45:32Z
+timestamp: 2026-10-23T01:03:56Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -107,12 +107,13 @@ index by name after the sections are added — never assume a position.**
 
 - **x86-64 objects only** for now (the aarch64/riscv relocation sets are
   the next step; the QEMU gate already covers the per-ISA emitters).
-- A `.data` initializer of the form `int *p = &x;` where `x` is defined
-  in *another* TU stores `0` at runtime in zeroc-emitted objects (T1
-  extern-object fallback, see `multi-tu.md`). The **linker** handles the
-  correct object shape (a `.rela..data` `R_X86_64_64` against the UND
-  symbol) — proven by the `cross_ptr` case, which links a gcc-compiled
-  main TU against a zeroc object.
 - No dynamic symbols/PLT stubs, no `GOTPCRELX`/`GOT32` materialization,
   no interposition/weak-alias lattice — correct for a fully static link
   of zeroc objects (and zero_rt), which is the intended customer.
+
+(The earlier cross-TU `int *p = &x;` limitation is closed in the same
+sprint: the emitter now produces the correct object shape — a `.rela..data`
+`R_X86_64_64` against the UND symbol, via a kind-2 by-name data reloc —
+and all three paths (own linker, system linker, JIT merge) resolve it.
+See `multi-tu.md`; the `cross_ptr` / `cross_ptr_gccobj` battery cases
+cover both object shapes.)

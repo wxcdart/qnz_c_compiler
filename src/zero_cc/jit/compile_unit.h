@@ -705,14 +705,44 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     c->token_pos++;
                                     ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
                                     int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                    ZeroCCFunction *ref_fn = NULL;
+                                    if (ref_idx < 0) {
+                                        /* Cross-TU: the referenced global is only
+                                         * declared extern in this TU (registered in
+                                         * the function table with is_external=true).
+                                         * Emit a by-name (kind-2) data reloc: AOT
+                                         * turns it into a .rela..data against the
+                                         * UND symbol; the JIT resolves it against
+                                         * the merged registry at patch time. */
+                                        for (size_t fi = 0; fi < c->function_count; fi++) {
+                                            if (c->functions[fi].is_external &&
+                                                strcmp(c->functions[fi].name, ref_name) == 0) {
+                                                ref_fn = &c->functions[fi];
+                                                break;
+                                            }
+                                        }
+                                    }
                                     zero_cc_emit_u64(&c->data_section, 0);
-                                    if (ref_idx >= 0 && c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                         ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                                         dr->data_patch_offset = var_offset;
-                                        dr->target_kind = 1; /* .data global target */
                                         dr->rodata_offset = 0;
-                                        dr->target_data_offset = ref_gv->data_offset;
-                                        dr->target_global_idx = ref_idx;
+                                        if (ref_idx >= 0) {
+                                            dr->target_kind = 1; /* .data global target */
+                                            dr->target_data_offset = ref_gv->data_offset;
+                                            dr->target_global_idx = ref_idx;
+                                        } else if (ref_fn) {
+                                            dr->target_kind = 2; /* extern object by name */
+                                            dr->target_data_offset = 0;
+                                            dr->target_global_idx = -1;
+                                            snprintf(dr->target_extern_name,
+                                                     sizeof(dr->target_extern_name),
+                                                     "%s", ref_name);
+                                        } else {
+                                            /* Unresolvable reference: plain zero, no
+                                             * reloc (pre-existing behavior). */
+                                            c->data_reloc_count--;
+                                        }
                                     }
                                     size = 8;
                                 } else {

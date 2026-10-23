@@ -1,5 +1,15 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - Cross-TU `int *p = &x;` Initializers: Kind-2 By-Name Data Reloc
+
+Closed the one remaining T1/T2 limitation: a global pointer initialized to the address of a global **defined in another translation unit** (`int *p = &x;`) previously stored `0` — the initializer lookup only covered same-TU globals, and externs live in the function table, not the global registry. All three execution paths now produce the correct address:
+
+- **Emitter** (`jit/compile_unit.h`): the `&name` global-initializer site falls back to the function table when `find_global_var` misses; an `is_external` match emits a new **kind-2** entry in `ZeroCCDataReloc` (`types/type_system.h` — added `target_extern_name[64]`).
+- **AOT** (`src/main.c`): kind-2 becomes a `.rela..data` `R_X86_64_64` against the symbol — an in-object definition (forward references) is preferred, otherwise a `STB_GLOBAL`/`STT_NOTYPE` UND symbol is registered. Both the own linker and the system linker resolve it (this is also why the no-`.text` shndx fix mattered: the same objects feed the system linker).
+- **JIT** (`jit/execution.h`): kind-2 resolves against the (merged) global registry at patch time; `core/multi_tu.h` copies the reloc through the merge without re-basing the (nameless) target.
+
+Gates: `make test-linker` now **15/15** (`cross_ptr` is all-zeroc and gcc-differential; `cross_ptr_gccobj` keeps the gcc-object shape), `make test-driver` **21/21** (new `crossptr2` JIT + AOT case). All other gates re-run green: test 147/147, test-opt 107/107, asan 147/147, asan-semantic 16/16, test-isa-qemu 44/44, diag 8/8, sret 6/6, style 0 errors. ASan-clean on the new JIT and `--zerocc-link` paths.
+
 ## [Sprint 43] - 2026-10-23 - T2: ZeroCC Own Linker (`--zerocc-link`, static ET_EXEC, ar archives)
 
 ZeroCC now has its own static linker. `zerocc a.c b.c --zerocc-link -o app` (x86-64) links the per-TU objects into a **directly-executable static ET_EXEC** — no libc, no crt files; prebuilt `.o` and `.a` inputs are accepted. This is the next step on the zero_rt critical path (T1 → T2 → T3); zero_rt Phase 0 is its first customer.

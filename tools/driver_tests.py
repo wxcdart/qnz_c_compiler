@@ -96,6 +96,9 @@ def main():
         # file-scope parser dropped unnamed params, so `int anon(int, int *);`
         # became a 0-parameter prototype and the call was rejected.
         expect_program("anonparams", [src("anon_main.c"), src("anon_impl.c")])
+        # Cross-TU pointer initializer `int *p = &g;` (kind-2 data reloc,
+        # resolved against the merged registry in JIT mode).
+        expect_program("crossptr2", [src("ptr_main.c"), src("ptr_impl.c")])
 
         # -- -c: one object per input ------------------------------------------
         # (Derived output names are placed next to the input file, so run on

@@ -149,13 +149,14 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     }
 
     /* .data pointer initializers: patch site by data base; rodata targets
-     * by rodata base, global-storage targets by data base. */
+     * by rodata base, global-storage targets by data base. Kind-2 (extern by
+     * name) targets need no rebase - they resolve by name at patch time. */
     for (size_t i = 0; i < tu->data_reloc_count; i++) {
         base->data_relocs[base->data_reloc_count] = tu->data_relocs[i];
         base->data_relocs[base->data_reloc_count].data_patch_offset += data_base;
         if (base->data_relocs[base->data_reloc_count].target_kind == 0) {
             base->data_relocs[base->data_reloc_count].rodata_offset += rodata_base;
-        } else {
+        } else if (base->data_relocs[base->data_reloc_count].target_kind == 1) {
             base->data_relocs[base->data_reloc_count].target_data_offset += data_base;
         }
         base->data_reloc_count++;

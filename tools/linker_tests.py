@@ -165,11 +165,13 @@ def main():
     case_link_run("cross_global", ["cg_main.c", "cg_impl.c"])
     case_link_run("cross_double", ["dfg_main.c", "dfg_impl.c"])
     case_link_run("uninit", ["uninit.c"])
-    # cross-TU pointer initializer: the linker must apply the .data
-    # relocation against the UND symbol. The main TU is gcc-compiled on
-    # purpose: zerocc's own emitter stores extern address initializers as
-    # 0 at runtime (known T1 limitation, see docs/okf/multi-tu.md).
-    case_link_run("cross_ptr", ["ptr_main.c", "ptr_impl.c"],
+    # cross-TU pointer initializer `int *p = &x;`: the emitter now registers a
+    # by-name (kind-2) data reloc for extern targets, emitted as a .rela..data
+    # R_X86_64_64 against the UND symbol and resolved by both linkers.
+    case_link_run("cross_ptr", ["ptr_main.c", "ptr_impl.c"])
+    # same shape, but the main TU is gcc-compiled: also exercises the linker's
+    # handling of gcc-style section families (.data.rel.ro, .eh_frame).
+    case_link_run("cross_ptr_gccobj", ["ptr_main.c", "ptr_impl.c"],
                   gcc_sources=(0,))
     case_link_run("big", ["big_main.c", "big_impl.c"])
     case_link_run("str2", ["str2_main.c", "str2_impl.c"])

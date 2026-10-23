@@ -116,6 +116,11 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         uintptr_t target;
         if (dr->target_kind == 1) {
             target = (uintptr_t)((char *)mem + data_offset + dr->target_data_offset);
+        } else if (dr->target_kind == 2) {
+            /* Extern object defined in another TU: resolved against the
+             * (merged) global registry at patch time. */
+            ZeroCCGlobalVar *eg = find_global_var(dr->target_extern_name);
+            target = eg ? (uintptr_t)((char *)mem + data_offset + eg->data_offset) : 0;
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset);
         }

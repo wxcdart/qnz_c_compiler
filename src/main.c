@@ -1008,6 +1008,23 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
                                               sym_idx, reloc_type_data_abs, 0);
                 }
+            } else if (dr->target_kind == 2 && dr->target_extern_name[0]) {
+                /* &extern-global (defined in another TU): target the UND symbol
+                 * by name. A definition visible in this object (e.g. a forward
+                 * reference) is preferred; otherwise register the UND. */
+                int sym_idx = 0;
+                for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                    if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset,
+                               dr->target_extern_name) == 0) { sym_idx = j + 1; break; }
+                }
+                if (sym_idx == 0) {
+                    elf_writer_add_symbol(&elf_ctx, dr->target_extern_name,
+                                          ELF_STB_GLOBAL, ELF_STT_NOTYPE,
+                                          SHN_UNDEF, 0, 0);
+                    sym_idx = elf_ctx.symbol_count;
+                }
+                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                          sym_idx, reloc_type_data_abs, 0);
             }
         }
     }
