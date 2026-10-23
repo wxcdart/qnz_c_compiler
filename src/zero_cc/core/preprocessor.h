@@ -308,12 +308,28 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif\n"
         );
     }
+    if (strcmp(name, "inttypes.h") == 0) {
+        /* Freestanding inttypes: the stdint types plus PRI* formatting
+         * macros (the only addition over stdint.h). */
+        return strdup(
+            "#ifndef _INTTYPES_H\n#define _INTTYPES_H 1\n"
+            "#include <stdint.h>\n"
+            "#define PRId8 \"hd\"\n#define PRId16 \"hd\"\n#define PRId32 \"d\"\n#define PRId64 \"ld\"\n"
+            "#define PRIu8 \"hu\"\n#define PRIu16 \"hu\"\n#define PRIu32 \"u\"\n#define PRIu64 \"lu\"\n"
+            "#define PRIx8 \"hx\"\n#define PRIx16 \"hx\"\n#define PRIx32 \"x\"\n#define PRIx64 \"lx\"\n"
+            "#define PRIX8 \"hX\"\n#define PRIX16 \"hX\"\n#define PRIX32 \"X\"\n#define PRIX64 \"lX\"\n"
+            "#define SCNd8 \"hd\"\n#define SCNd16 \"hd\"\n#define SCNd32 \"d\"\n#define SCNd64 \"ld\"\n"
+            "#define SCNu8 \"hu\"\n#define SCNu16 \"hu\"\n#define SCNu32 \"u\"\n#define SCNu64 \"lu\"\n"
+            "#define SCNx8 \"hx\"\n#define SCNx16 \"hx\"\n#define SCNx32 \"x\"\n#define SCNx64 \"lx\"\n"
+            "#endif\n"
+        );
+    }
     if (strcmp(name, "stdlib.h") == 0) {
         return strdup(
             "#ifndef _STDLIB_H\n#define _STDLIB_H 1\n"
             "typedef unsigned long size_t;\n"
             "void* malloc(size_t size);\nvoid free(void* ptr);\nvoid* calloc(size_t nmemb, size_t size);\n"
-            "void* realloc(void* ptr, size_t size);\nvoid exit(int status);\nint system(const char *command);\n"
+            "void* realloc(void* ptr, size_t size);\nvoid exit(int status);\nint atexit(void (*func)(void));\nint system(const char *command);\n"
             "long strtoll(const char *nptr, char **endptr, int base);\nlong strtol(const char *nptr, char **endptr, int base);\n"
             "unsigned long strtoul(const char *nptr, char **endptr, int base);\ndouble strtod(const char *nptr, char **endptr);\n"
             "unsigned long long strtoull(const char *nptr, char **endptr, int base);\nlong long atoll(const char *nptr);\n"
@@ -375,6 +391,16 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define UINT32_MAX 4294967295U\n"
             "#define INT64_MIN (-9223372036854775807LL-1)\n#define INT64_MAX 9223372036854775807LL\n"
             "#define UINT64_MAX 18446744073709551615ULL\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "assert.h") == 0) {
+        /* Freestanding assert: evaluated in every build (no NDEBUG knob in
+         * Phase 0) - a failed assertion calls abort(). */
+        return strdup(
+            "#ifndef _ASSERT_H\n#define _ASSERT_H 1\n"
+            "#include <stdlib.h>\n"
+            "#define assert(expr) ((expr) ? (void)0 : abort())\n"
             "#endif\n"
         );
     }

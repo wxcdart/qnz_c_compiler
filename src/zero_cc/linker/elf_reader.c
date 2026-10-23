@@ -115,13 +115,13 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     o->size = size;
     o->path = strdup(path);
 
-    uint16_t shoff = (uint16_t)(le64(buf + 40) & 0xffff);
+    uint64_t shoff = le64(buf + 40);
     uint16_t shentsize = le16(buf + 58);
     uint16_t shnum = le16(buf + 60);
     uint16_t shstrndx = le16(buf + 62);
     (void)shentsize;
     if (shnum == 0 || shnum > ZC_ELF_MAX_SECTIONS || shoff == 0 ||
-        (size_t)shoff + (size_t)shnum * 64 > size) {
+        shoff + (uint64_t)shnum * 64 > size) {
         snprintf(err, errsz, "%s: bad section header table", path);
         return -1;
     }

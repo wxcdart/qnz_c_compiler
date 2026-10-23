@@ -10,6 +10,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <sys/resource.h>
 #endif
@@ -51,6 +53,7 @@ typedef struct {
     int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
+    int no_zerocc_rt;     /* --no-zerocc-rt: don't auto-link zero_rt.a */
     const char *libs[32]; /* -l<lib> */
     int lib_count;
     const char *target_arch; /* --target */
@@ -175,6 +178,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             if (opts->lib_count < 32) {
                 opts->libs[opts->lib_count++] = arg;
             }
+        }
+        else if (strcmp(arg, "--no-zerocc-rt") == 0) {
+            opts->no_zerocc_rt = 1;
         }
         else if (strcmp(arg, "-dump-ir") == 0) {
             opts->dump_ir = 1;
@@ -1152,6 +1158,33 @@ static int compile_and_link(CompileOptions *opts) {
         char link_err[1024];
         const char *objs_ref[ZERO_CC_MAX_INPUTS];
         for (int i = 0; i < obj_count; i++) objs_ref[i] = obj_paths[i];
+
+        /* zero_rt auto-link: with --zerocc-link, the default runtime is the
+         * ZeroCC-owned zero_rt (build/lib/zero_rt.a next to this binary, or
+         * $ZERO_RT_A). Disable with --no-zerocc-rt. */
+        char rt_path[2048] = "";
+        const char *rt_env = getenv("ZERO_RT_A");
+        if (rt_env && rt_env[0]) {
+            snprintf(rt_path, sizeof rt_path, "%s", rt_env);
+        } else {
+            char self[512];
+            ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
+            if (n > 0) {
+                self[n] = 0;
+                char *slash = strrchr(self, '/');
+                if (slash) {
+                    *slash = '\0';
+                    snprintf(rt_path, sizeof rt_path, "%s/../lib/zero_rt.a",
+                             self);
+                }
+            }
+        }
+        if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0
+            && arch_count < 32) {
+            arch_paths[arch_count++] = rt_path;
+            if (opts->verbose) printf("Linking zero_rt: %s\n", rt_path);
+        }
+
         int lr = zero_cc_link_exec(output, objs_ref, obj_count,
                                    arch_paths, arch_count, link_err,
                                    sizeof link_err);

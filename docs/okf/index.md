@@ -4,7 +4,7 @@ title: ZeroCC Knowledge Graph (OKF Bundle)
 description: Root navigator and knowledge graph entry point for AI coding agents working on ZeroCC, a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V.
 resource: okf/index
 tags: [zerocc, compiler, index, navigation, okf]
-timestamp: 2026-10-17T11:51:07Z
+timestamp: 2026-10-23T04:25:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -29,6 +29,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - Multi-input driver modes, the multi-TU JIT image merge (`zero_cc_tu_merge`), global-registry snapshot discipline, extern-object load/store paths, and unnamed prototype parameters.
 - **[ZeroCC Own Linker (T2)](./own-linker.md)**
   - ELF64-LE object reader, classic `ar` archive reader with greedy member extraction, symbol resolution, the x86-64 static relocation set, the generated `_start` stub, and the `make test-linker` differential gate.
+- **[Zero_RT — ZeroCC's Own Freestanding Runtime (Phase 0: Linux x86-64)](./zero-rt.md)**
+  - The `zero_rt/` runtime (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting) compiled by zerocc itself, auto-linked by `--zerocc-link` (`--no-zerocc-rt` to opt out), and the `zeroc_main_wrapper` `_start` routing that runs atexit on a plain `return` from `main`.
 
 ---
 

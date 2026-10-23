@@ -60,9 +60,12 @@ def compile_objs(workdir, names):
     return objs
 
 
-def link_own(workdir, objs, archives=(), exe="app_own"):
+def link_own(workdir, objs, archives=(), exe="app_own", no_rt=False):
     out = os.path.join(workdir, exe)
-    rc, o, e = zc(list(objs) + list(archives) + ["--zerocc-link", "-o", out])
+    args = list(objs) + list(archives) + ["--zerocc-link", "-o", out]
+    if no_rt:
+        args.append("--no-zerocc-rt")
+    rc, o, e = zc(args)
     if rc != 0:
         return None, e
     return out, ""
@@ -139,10 +142,10 @@ def case_link_run(name, sources, expect_rc=0, diff=True, archives_of=(),
         check(name, True)
 
 
-def case_link_error(name, sources, want_substr):
+def case_link_error(name, sources, want_substr, no_rt=False):
     with tempfile.TemporaryDirectory(prefix="zerocc_t2_") as work:
         objs = compile_objs(work, sources)
-        exe, err = link_own(work, objs)
+        exe, err = link_own(work, objs, no_rt=no_rt)
         if exe is not None:
             check(name, False, "link unexpectedly succeeded")
             return
@@ -184,7 +187,7 @@ def main():
     print("-- error paths --")
     case_link_error("dup_def", ["dup_a.c", "dup_b.c"], "multiple definition")
     case_link_error("nomain", ["nomain.c"], "main")
-    case_link_error("undef", ["undef_main.c"], "undefined symbol")
+    case_link_error("undef", ["undef_main.c"], "undefined symbol", no_rt=True)
 
     print("-- non-x86-64 rejection --")
     with tempfile.TemporaryDirectory(prefix="zerocc_t2_") as work:

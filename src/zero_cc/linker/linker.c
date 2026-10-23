@@ -104,6 +104,9 @@ typedef struct {
 
     bool have_bss;
     bool stub_at_front; /* linker-generated _start stub in .text[0..16) */
+    /* The stub's call target: "zeroc_main_wrapper" when zero_rt was linked
+     * (runs atexit on a plain `return` from main), else "main". */
+    const char *stub_target;
 } ZcLink;
 
 static uint64_t align_up(uint64_t v, uint64_t a) {
@@ -216,6 +219,26 @@ static bool member_resolves_need(ZcLink *L, ZcElfObj *m) {
     return false;
 }
 
+/* True if the member defines `name` (a global symbol with a section). */
+static bool member_defines(ZcElfObj *m, const char *name) {
+    const ZcSection *st = zc_elf_symtab(m);
+    if (!st) return false;
+    for (size_t i = 1; i < st->sym_count; i++) {
+        const ZcSymbol *s = &st->syms[i];
+        if (s->bind != 0 && s->shndx != 0 && strcmp(s->name, name) == 0)
+            return true;
+    }
+    return false;
+}
+
+/* Forward declaration for use in extract_archives. */
+static int resolve_symbols(ZcLink *L, char *err, size_t errsz);
+
+/* zero_rt's entry wrapper: force-extracted so the generated _start stub can
+ * route main through exit() (atexit support) whenever zero_rt is linked.
+ * NULL when no archive provides it (plain programs keep the direct call). */
+#define RT_ENTRY_WRAPPER "zeroc_main_wrapper"
+
 static int extract_archives(ZcLink *L, const char *const *archives,
                             int archive_count, char *err, size_t errsz) {
     ZcAr ar[ZC_MAX_INPUTS];
@@ -245,15 +268,15 @@ static int extract_archives(ZcLink *L, const char *const *archives,
                 for (int k = 0; k < extracted_count; k++) {
                     if (extracted[k] == mem->data) { in = true; break; }
                 }
-                if (in) continue;
                 ZcElfObj probe;
                 if (zc_elf_obj_load_mem(mem->data, mem->size, mem->name,
                                         &probe, err, errsz) != 0) {
                     continue; /* not an ELF (index etc.) - skip */
                 }
-                bool take = member_resolves_need(L, &probe);
+                bool take = member_resolves_need(L, &probe) ||
+                            member_defines(&probe, RT_ENTRY_WRAPPER);
                 zc_elf_obj_free(&probe);
-                if (take) {
+                if (take && !in) {
                     char mpath[600];
                     snprintf(mpath, sizeof(mpath), "%s(%s)",
                              ar[a].path, mem->name);
@@ -266,6 +289,12 @@ static int extract_archives(ZcLink *L, const char *const *archives,
                     changed = true;
                 }
             }
+        }
+        if (changed) {
+            /* Re-resolve symbols so newly extracted objects' undefined
+             * refs are visible to subsequent archive scans. */
+            if (resolve_symbols(L, err, errsz) != 0)
+                return -1;
         }
     }
     for (int a = 0; a < ar_count; a++) zc_ar_free(&ar[a]);
@@ -411,8 +440,9 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
 
     /* If no input defines _start (a CRT object), reserve a 16-byte stub at
      * the front of .text:
-     *   xor %rbp,%rbp ; call main ; mov %eax,%edi ; mov $60,%eax ; syscall
-     * (call offset patched in emit_exec once main's vma is final). */
+     *   xor %rbp,%rbp ; call <target> ; mov %eax,%edi ; mov $60,%eax ; syscall
+     * <target> is main, or zero_rt's zeroc_main_wrapper when that archive
+     * was linked (call offset patched in emit_exec once the vma is final). */
     bool have_start = false;
     for (size_t i = 0; i < L->sym_count; i++) {
         if (strcmp(L->syms[i].name, "_start") == 0 &&
@@ -1092,7 +1122,17 @@ int zero_cc_link_exec(const char *out_path,
                      "(provide a main() or a _start CRT object)");
             goto done;
         }
-        main_vma = main->vma;
+        /* zero_rt linked (its entry wrapper was force-extracted from the
+         * archive) → the stub calls the wrapper, which runs main and then
+         * exit(), so the atexit list runs on a plain `return`. */
+        const ZcLinkSym *wrapper = NULL;
+        for (size_t i = 0; i < L->sym_count; i++) {
+            if (L->syms[i].obj >= 0 &&
+                strcmp(L->syms[i].name, RT_ENTRY_WRAPPER) == 0) {
+                wrapper = &L->syms[i];
+            }
+        }
+        main_vma = wrapper ? wrapper->vma : main->vma;
         entry = L->outsec[0].vma; /* the stub */
     } else if (main) {
         entry = main->vma;

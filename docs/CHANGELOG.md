@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - Zero_RT Phase 0: ZeroCC-Owned Freestanding Runtime (Linux x86-64)
+
+The ZeroCC-owned runtime lands — the first consumer of the T1/T2 pipeline, built so zerocc programs need no system libc/crt:
+
+- **`zero_rt/`** (new, compiled by **zerocc itself** — `make all` → `build/lib/zero_rt.a` via `zerocc -c -O0`, objects archived with system `ar`): `rt_os.h` OS boundary over `__zerocc_syscall`; `linux/os.c` (`read`/`write`/`brk`/`getpid`/`exit_group`); `core/heap.c` (brk-backed first-fit malloc/free/calloc/realloc); `core/string.c` (mem*/str*); `core/exit.c` (atexit/exit/abort + **`zeroc_main_wrapper`** — calls `main` then `exit(status)` so atexit runs on a plain `return`); `core/stdio.c` (unbuffered printf/fprintf/sprintf/snprintf/puts/putchar, float formatting via vendored **Ryū** — `third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0, `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`).
+- **Auto-link**: `--zerocc-link` now appends `build/lib/zero_rt.a` (via `$ZERO_RT_A` or `../lib/zero_rt.a` next to the zerocc binary); **`--no-zerocc-rt`** opts out (plain `_start → main` stub routing, what `make test-linker` uses).
+- **Linker** (`linker.c`): the `_start` stub's call target becomes `zeroc_main_wrapper` when zero_rt is linked (its archive member is force-extracted even though unreferenced); `extract_archives` re-runs `resolve_symbols` after each extraction round so newly extracted members' undefined refs (wrapper → `main`, stdio → `os.write`) are visible to later archive scans. `elf_reader.c`: `shoff` parsed as full 64-bit (old 16-bit mask broke the section-table bounds check past 64 KiB).
+- **Preprocessor**: freestanding `inttypes.h` (PRI*/SCN*), `assert.h` (always-on, `abort()`), `atexit` in `stdlib.h`. Dead tools archived to `tools/archive/`.
+- **Known issue (closeout item #1)**: printf output not visible in some `--zerocc-link` runs although direct `__zerocc_syscall(write, ...)` emits correct bytes with correct exit codes — suspected `vsnprintf_core`/static-buffer path in `rt_stream_printf`.
+
+Docs: new `docs/okf/zero-rt.md` (+ index link); `docs/okf/own-linker.md` (stub target routing). Gates at commit time: test 149/149, test-opt 110/110, asan 149/149, test-driver 21/21, test-linker 15/15, test-isa-qemu 44/44, diag 8/8, style 0 errors.
+
 ## [Sprint 43] - 2026-10-23 - `__zerocc_syscall` OS-Boundary Builtin (zero_rt Phase 0 prerequisite)
 
 Lands the one compiler-side gap zero_rt Phase 0 needs: ZeroCC has no inline asm, and the only `syscall` in the codebase was the linker's generated `_start` stub. The runtime's OS layer (`write`/`exit`/`brk`) must issue syscalls from C, so:

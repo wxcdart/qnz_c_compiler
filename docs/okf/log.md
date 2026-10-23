@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-23T01:58:55Z
+timestamp: 2026-10-23T04:25:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -350,3 +350,18 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-23 — Updated `ir-and-regalloc.md`
 - OP_SYSCALL: __zerocc_syscall OS-boundary builtin (Phase 0 prerequisite) - OP_CALL arg packing, call-position clobber semantics, parallel-move invariant, x86-64 only
+
+## 2026-10-23 — Updated `zero-rt.md`
+- Zero_RT Phase 0 (Linux x86-64): runtime compiled by zerocc, --zerocc-link auto-link, zeroc_main_wrapper entry routing
+
+## 2026-10-23 — Updated `frontend-and-types.md`
+- String-literal initialization of char arrays (C11 6.7.9p13): parse-time byte expansion, semantic admission, local lowering, symbol-index invariant
+
+## 2026-10-23 — Updated `global-data-relocs.md`
+- File-scope string init: unsigned char arrays + struct char-array members copy bytes (not pointers)
+
+## 2026-10-23 — Updated `own-linker.md`
+- _start stub target routing: main vs zero_rt zeroc_main_wrapper
+
+## 2026-10-23 — Updated `index.md`
+- Add Zero_RT concept page

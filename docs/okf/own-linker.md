@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at the conventional x86-64 base, the supported relocation set, and the generated _start stub. Gate: make test-linker (14/14).
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, relocations, zero-rt]
-timestamp: 2026-10-23T01:03:56Z
+timestamp: 2026-10-23T04:25:11Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -74,10 +74,14 @@ the linker **generates a 16-byte `_start` stub** at the front of `.text`:
 xor %rbp,%rbp ; call main ; mov %eax,%edi ; mov $60,%eax ; syscall
 ```
 
-with the `call` displacement patched once `main`'s final VMA is known.
+with the `call` displacement patched once the target's final VMA is known.
 This is why a zeroc object whose `main` ends in `ret` can be an entry
 point: the stub supplies the return address. (ZeroCC programs use the
-no-argument `main`.)
+no-argument `main`.) **Target routing:** the `call` goes to `main`, *except*
+when the linked set defines zero_rt's `zeroc_main_wrapper` (its archive
+member is force-extracted) — then the stub calls the wrapper, which runs
+`main` and then `exit()`, so the atexit list fires on a plain `return`.
+See [Zero_RT](./zero-rt.md).
 
 ## What the differential gate covers
 

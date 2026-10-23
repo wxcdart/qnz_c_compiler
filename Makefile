@@ -74,7 +74,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-isa-qemu test-driver test-linker \
 	valgrind test-valgrind
 
-all: $(TESTS) build/bin/zerocc
+all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a
 
 PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/parser/*.h) \
@@ -173,6 +173,39 @@ test-driver: build/bin/zerocc
 # stdout+exit against the system-linker reference.
 test-linker: build/bin/zerocc
 	@python3 tools/linker_tests.py
+
+# zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
+# Compiled by zerocc itself; the objects are archived with the system `ar`
+# (the own linker reads classic archives; writing them is a follow-up).
+ZERO_RT_CFLAGS = -O0 -Izero_rt -Ithird_party/vendor/ryu
+ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
+               $(BUILD_DIR)/obj/zero_rt/heap.o $(BUILD_DIR)/obj/zero_rt/string.o \
+               $(BUILD_DIR)/obj/zero_rt/exit.o $(BUILD_DIR)/obj/zero_rt/stdio.o \
+               $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o
+$(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS)
+	@mkdir -p $(dir $@)
+	ar rcs $@ $^
+$(BUILD_DIR)/obj/zero_rt/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< -Ithird_party/vendor/ryu -o $@
 
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter

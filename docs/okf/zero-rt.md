@@ -1,0 +1,51 @@
+---
+type: Concept
+title: Zero_RT — ZeroCC's Own Freestanding Runtime (Phase 0: Linux x86-64)
+description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
+resource: zero-rt
+tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
+timestamp: 2026-10-23T04:25:11Z
+generated: antigravity-agent
+verified: engineering-lead
+status: active
+---
+
+# Zero_RT — ZeroCC's Own Freestanding Runtime
+
+**Phase 0 scope: Linux x86-64.** The goal is for ZeroCC programs to need no system libc/crt: the runtime is owned by the project, compiled **by zerocc itself**, and linked by zerocc's own linker ([own-linker.md](./own-linker.md)).
+
+## Layout (`zero_rt/`)
+
+- `rt_os.h` — OS-boundary declarations. Syscalls go through the `__zerocc_syscall(...)` IR builtin (see the `OP_SYSCALL` entry in [ir-and-regalloc.md](./ir-and-regalloc.md) / the Sprint 43 changelog), not inline asm.
+- `linux/os.c` — syscall implementations: `read`, `write`, `brk`, `getpid`, `exit_group`.
+- `core/heap.c` — `malloc`/`free`/`calloc`/`realloc` on a `brk`-backed first-fit allocator.
+- `core/string.c` — `memcpy`/`memmove`/`memset`/`memcmp`, `strlen`/`strcpy`/`strcat`/etc.
+- `core/exit.c` — `atexit`/`exit`/`abort` plus **`zeroc_main_wrapper`**: calls `main`, then `exit(status)`, so the atexit list runs on a plain `return` from `main`.
+- `core/stdio.c` — unbuffered `printf`/`fprintf`/`sprintf`/`snprintf`/`puts`/`putchar`; float formatting via vendored **Ryū** (`third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0: `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`).
+
+Virtual freestanding headers for the compiler's preprocessor (`core/preprocessor.h`) were extended for Phase 0: `inttypes.h` (stdint + PRI*/SCN* macros), `assert.h` (always-evaluated, `abort()` on failure), and `atexit` in `stdlib.h`.
+
+## Build & Self-Compilation
+
+`make all` builds `build/lib/zero_rt.a` **with zerocc itself** (`$(BUILD_DIR)/bin/zerocc -c zero_rt/... -O0`), then archives the objects with the system `ar` (the own linker reads classic archives; *writing* archives is a follow-up). The rule depends on `build/bin/zerocc`, so a compiler change rebuilds the runtime. Dead pre-Phase-0 Python tools live in `tools/archive/`.
+
+## Auto-Linking (`--zerocc-link`)
+
+In `compile_and_link` (`src/main.c`), when `--zerocc-link` is used the driver appends `build/lib/zero_rt.a` to the archive list — located via `$ZERO_RT_A` or `../lib/zero_rt.a` relative to the zerocc binary (`/proc/self/exe`). **`--no-zerocc-rt`** disables it (tests linking plain programs against the raw `_start` stub keep working).
+
+## Linker Changes for zero_rt (`src/zero_cc/linker/linker.c`)
+
+- **Entry routing**: when the linked set contains zero_rt's `zeroc_main_wrapper`, the generated `_start` stub (see [own-linker.md](./own-linker.md)) calls the **wrapper** instead of `main`. The wrapper member is **force-extracted** from the archive (`member_defines(RT_ENTRY_WRAPPER)`) so it is present even if nothing references it; without zero_rt the stub keeps calling `main` directly.
+- **Per-round re-resolve**: `extract_archives` re-runs `resolve_symbols` after any round that extracted new members, so a newly extracted member's undefined references (e.g. `zeroc_main_wrapper` → `main`, `stdio` → `os.write`) are visible to *subsequent* archive scans. Pre-fix the greedy extraction stopped one member short on exactly this pattern.
+- **`elf_reader.c`**: `shoff` is parsed as a full 64-bit `Elf64_Shdr` offset (the old 16-bit mask broke section-header bounds checks for objects whose section table sits above 64 KiB).
+
+## Known Issue (Phase 0 closeout)
+
+`printf` output is not visible in some `--zerocc-link` test runs even though direct `__zerocc_syscall(write, ...)` works perfectly (correct bytes, exit codes) — suspected in `vsnprintf_core` / the static output buffer path of `rt_stream_printf`. Tracked as the first Phase-0 closeout item.
+
+## Related Concepts
+
+- [ZeroCC Own Linker (T2)](./own-linker.md) — the linker zero_rt is linked with.
+- [Multi-Translation-Unit Driver (T1)](./multi-tu.md)
+- [Frontend, Type System & Semantic Analysis](./frontend-and-types.md) — string-literal array initializers (needed by runtime code).
+- [Build, Test & Verification Guide](./build-and-verification.md)
