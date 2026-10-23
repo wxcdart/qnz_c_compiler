@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - T2: ZeroCC Own Linker (`--zerocc-link`, static ET_EXEC, ar archives)
+
+ZeroCC now has its own static linker. `zerocc a.c b.c --zerocc-link -o app` (x86-64) links the per-TU objects into a **directly-executable static ET_EXEC** — no libc, no crt files; prebuilt `.o` and `.a` inputs are accepted. This is the next step on the zero_rt critical path (T1 → T2 → T3); zero_rt Phase 0 is its first customer.
+
+- **`src/zero_cc/linker/`** (new): `elf_reader.{h,c}` (bounds-checked ELF64-LE ET_REL parser), `ar_reader.{h,c}` (classic `ar` — GNU/BSD/LLVM; long-name members; index-member skipping), `linker.{h,c}` (`zero_cc_link_exec`): symbol resolution (strong/weak, `SHN_COMMON`, section symbols, multiple-definition error) → greedy archive-member extraction to fixpoint → idempotent re-resolve → section layout (`.text` @ `0x401000`, `.rodata` 8-aligned, `.data`/`.bss` page-aligned; gcc-style section families fold in by prefix, `.eh_frame` dropped) → relocations `R_X86_64_{64,PC32,PLT32,32,32S,RELATIVE}` (PLT32→PC32: a fully static link has no PLT stubs) → ET_EXEC with two `PT_LOAD` segments and a rebuilt symtab/shstrtab.
+- **Generated `_start` stub**: when no input defines `_start`, the linker emits a 16-byte stub (`xor %rbp,%rbp; call main; mov %eax,%edi; mov $60,%eax; syscall`) at the front of `.text` with the call displacement patched post-layout. This is what makes a zeroc object whose `main` ends in `ret` a valid entry point.
+- **Gate**: `make test-linker` (`tools/linker_tests.py`, `test/linker/`): **14/14** — 8 functional cases each **differentially compared against a `gcc -no-pie` link of the same objects** (cross-TU call/int global/double, uninitialized globals, 3-file chain, TU2 string, fib stress), 2 archive-extraction cases, 3 error cases (multiple definition / missing `main` / undefined symbol), 1 non-x86-64 rejection.
+- **Latent emitter bug found & fixed**: the first no-`.text` object (a globals-only TU) exposed that `main.c` hardcoded section indices for symbols/relocations (`.text`=1, `.rodata`=2, `.data`=2-or-3), which drift when an earlier section is absent — the `shndx` pointed at `.strtab` and **both** zerocc's own linker and the system linker misresolved the global (segfault; `ld` bound it `ABS`). `elf_writer_section_index(ctx, name)` (1-based index of an already-added section) replaces every hardcoded position. Invariant: symbol/relocation call sites resolve section indices **by name after the sections are added** — never assume a position.
+- **Known limitation (linker-correct, emitter-open)**: `int *p = &x;` where `x` is defined in another TU stores `0` at runtime in zeroc-emitted objects (T1 extern-object fallback, `docs/okf/multi-tu.md`). The linker handles the correct object shape (`.rela..data` `R_X86_64_64` against the UND symbol) — proven by the `cross_ptr` case linking a gcc-compiled main TU against a zeroc object.
+- Docs: new `docs/okf/own-linker.md` (+ index link); `docs/okf/build-and-verification.md` (gate); `docs/okf/multi-tu.md` (cross-ref); dev plan §6 T2 → done; README (section + test table).
+
+All gates green: `make test` 147/147, `make test-opt` 107/107, `make test-driver` 19/19, **`make test-linker` 14/14 (new)**, `make asan` 147/147, `make asan-semantic` 16/16, `make test-isa-qemu` 44/44, diag battery 8/8 baseline OK, sret 6/6, style 0 errors.
+
 ## [Sprint 43] - 2026-10-22 - T1: Multi-File Driver (multi-TU JIT merge, AOT link, per-input -c/-S)
 
 `zerocc` now accepts multiple `.c` inputs across all three modes:

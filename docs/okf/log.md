@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-22T21:53:24Z
+timestamp: 2026-10-23T00:45:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -338,3 +338,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-22 — Updated `multi-tu.md`
 - New page: multi-TU driver (T1), JIT image merge, registry snapshot discipline, extern-object load/store, unnamed prototype params
+
+## 2026-10-23 — Updated `own-linker.md`
+- T2 own linker: ELF64 reader + ar reader + static ET_EXEC output (--zerocc-link), 14/14 differential gate, latent shndx emitter bug fixed

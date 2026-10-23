@@ -96,6 +96,21 @@ static void ensure_section_capacity(ElfWriterSection* sec, size_t needed) {
 // Public API Implementation
 // ============================================================================
 
+/* Public section-index lookup: returns the symbol-table section index
+ * (1-based: shdr[0] is NULL) of a section that has already been added,
+ * or 0 (SHN_UNDEF) if absent. Callers must use this instead of hardcoding
+ * positions, because sections that are empty are not emitted and the
+ * indices of later sections shift. */
+uint16_t elf_writer_section_index(const ElfWriterCtx* ctx, const char* name) {
+    if (!ctx || !name) return 0;
+    for (int i = 0; i < ctx->section_count; i++) {
+        if (strcmp(ctx->sections[i].name, name) == 0) {
+            return (uint16_t)(i + 1);
+        }
+    }
+    return 0;
+}
+
 bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine) {
     if (!ctx) {
         return false;
@@ -1138,7 +1153,6 @@ void elf_writer_cleanup(ElfWriterCtx* ctx) {
     free(ctx->strtab);
     ctx->strtab = NULL;
     free(ctx->reloc_offsets);
-    ctx->reloc_symbol_indices = NULL;
     free(ctx->reloc_symbol_indices);
     free(ctx->reloc_types);
     free(ctx->reloc_addends);

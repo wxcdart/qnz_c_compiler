@@ -134,6 +134,25 @@ build/bin/zerocc a.c b.c             # JIT run (default)
 Gate: `make test-driver` (`tools/driver_tests.py`, `test/driver/`). See
 `docs/okf/multi-tu.md` for the merge & registry model and known limitations.
 
+### Own linker (T2, Sprint 43)
+
+`--zerocc-link` links with ZeroCC's own linker instead of the system
+linker (x86-64 objects; the first customer is zero_rt Phase 0). The
+result is a directly-executable **static ET_EXEC** — no libc, no crt
+files — built from the same per-TU objects, optionally with `.a`
+archive inputs:
+
+```bash
+build/bin/zerocc a.c b.c --zerocc-link -o app   # own-linker static executable
+build/bin/zerocc a.c lib.a --zerocc-link -o app # archive member extraction
+```
+
+Gate: `make test-linker` (14/14, `tools/linker_tests.py` — gcc-differential
+on every functional case). See `docs/okf/own-linker.md` for the pipeline,
+the supported relocation set, and the latent emitter bug it exposed
+(fixed: `elf_writer_section_index` — section indices must be resolved by
+name, never hardcoded).
+
 ### Using Musl
 
 For fully static, GLIBC-free binaries:
@@ -149,6 +168,7 @@ musl-gcc -Isrc -Iinclude example.c -o example -static
 | **Main regression suite** (`make test`) | ✅ Pass | 147/147 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 107/107 |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 19/19 |
+| **Own linker** (`make test-linker`, `--zerocc-link` static ET_EXEC + gcc differential) | ✅ Pass | 14/14 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 44/44 (11/11 × x86-64, aarch64, riscv64, riscv32) |
 | **`sret` ABI verifier** | ✅ Pass | 6/6 |
 | **C11 verification suite** | ✅ Pass | 11/11 |

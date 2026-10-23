@@ -92,5 +92,9 @@ prototype, no param).
   registry (no per-TU mangling) — same-name statics alias.
 - `_Thread_local` storage is per-compiler and not merged.
 - `int *p = &g;` initializers referencing a *cross-TU* global stay 0 (the
-  initializer rebase only covers same-TU targets).
-- The AOT `-o` path links through the **system** linker; an own linker is T2.
+  initializer rebase only covers same-TU targets). The T2 own linker
+  handles the *correct* object shape (a `.rela..data` `R_X86_64_64` against
+  the UND symbol) — the gap is in zeroc's AOT emitter, not the link.
+- The AOT `-o` path links through the **system** linker by default; the own
+  linker (T2, `--zerocc-link`, see `own-linker.md`) is now available for
+  x86-64.

@@ -119,6 +119,11 @@ python3 tools/vla/test_vla.py
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
 python3 tools/sret_verifier.py --verify-all
 
+# Own-linker (T2) differential battery: link zerocc objects + .a archives with
+# --zerocc-link into a static ET_EXEC, run it, and compare against a
+# gcc -no-pie link of the same objects (14/14 as of Sprint 43)
+make test-linker
+
 # C style/convention checker (ruff-style; codifies docs/coding_style.md):
 # include conventions, tab-free indentation, EOF newline, header guards,
 # <module>_<action> public-function prefix. Errors gate, warnings report.

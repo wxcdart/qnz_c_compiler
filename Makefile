@@ -21,7 +21,7 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
 # consumed by tools/diag_battery.py) — not test drivers; keep it out of the
 # test binary glob.
-TEST_SRCS = $(filter-out test/diag/% test/driver/%,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/%,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
@@ -63,12 +63,15 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/isa/aarch64.o \
 	src/zero_cc/isa/riscv.o \
 	src/zero_cc/jit/elf_writer.o \
+	src/zero_cc/linker/elf_reader.o \
+	src/zero_cc/linker/ar_reader.o \
+	src/zero_cc/linker/linker.o \
 	src/zero_cc/types/string_pool.o)
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
-	test-isa-qemu \
+	test-isa-qemu test-driver test-linker \
 	valgrind test-valgrind
 
 all: $(TESTS) build/bin/zerocc
@@ -164,6 +167,12 @@ test-opt: all
 # (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).
 test-driver: build/bin/zerocc
 	@python3 tools/driver_tests.py
+
+# Own-linker (T2) tests: link zerocc-emitted .o files (and .a archives) with
+# zero_cc_link_exec into a directly-executable static ET_EXEC, diffing
+# stdout+exit against the system-linker reference.
+test-linker: build/bin/zerocc
+	@python3 tools/linker_tests.py
 
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter

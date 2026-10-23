@@ -27,6 +27,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - `ZeroCCType` vs semantic `TypeInfo`, struct/union layout, function pointers (`is_func_ptr`), C99/C11 features (`_Generic`, `_Atomic`, `_Thread_local`, VLA, designated initializers).
 - **[Multi-Translation-Unit Driver (T1) & JIT Image Merge](./multi-tu.md)**
   - Multi-input driver modes, the multi-TU JIT image merge (`zero_cc_tu_merge`), global-registry snapshot discipline, extern-object load/store paths, and unnamed prototype parameters.
+- **[ZeroCC Own Linker (T2)](./own-linker.md)**
+  - ELF64-LE object reader, classic `ar` archive reader with greedy member extraction, symbol resolution, the x86-64 static relocation set, the generated `_start` stub, and the `make test-linker` differential gate.
 
 ---
 

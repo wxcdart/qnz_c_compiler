@@ -325,6 +325,11 @@ typedef struct {
  */
 bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine);
 
+/* Index (1-based) of an already-added section by name, or 0 if absent.
+ * Use this instead of hardcoded section positions when adding symbols or
+ * relocations: empty sections are not emitted, so positions shift. */
+uint16_t elf_writer_section_index(const ElfWriterCtx* ctx, const char* name);
+
 /**
  * @brief Add a section to the ELF file
  * @param ctx Writer context

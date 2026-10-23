@@ -23,6 +23,7 @@
 
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/core/multi_tu.h"
+#include "zero_cc/linker/linker.h"
 
 #define VERSION "0.1.0-dev"
 
@@ -49,6 +50,7 @@ typedef struct {
     int dump_cfg;         /* -dump-cfg */
     int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
+    int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
     const char *libs[32]; /* -l<lib> */
     int lib_count;
     const char *target_arch; /* --target */
@@ -75,6 +77,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
+    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64)\n");
 }
 
 static void print_version(void) {
@@ -126,6 +129,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
+        }
+        else if (strcmp(arg, "--zerocc-link") == 0) {
+            opts->zerocc_link = 1;
         }
         else if (strcmp(arg, "-I") == 0 && i + 1 < argc) {
             if (opts->include_count < 32) {
@@ -760,12 +766,18 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                8);
     }
 
+    /* Resolve real section indices: empty sections are not emitted, so the
+     * positions of later sections shift (a no-.text object has .data at 1). */
+    uint16_t text_idx = elf_writer_section_index(&elf_ctx, ".text");
+    uint16_t rodata_idx = elf_writer_section_index(&elf_ctx, ".rodata");
+    uint16_t data_idx = elf_writer_section_index(&elf_ctx, ".data");
+
     /* Add .rodata section symbol first (needed for string literal relocations) */
     /* Section symbols must come before global symbols for correct sh_info calculation */
     if (comp->rodata_section.length > 0) {
         elf_writer_add_symbol(&elf_ctx, ".rodata",
                               ELF_STB_LOCAL, ELF_STT_SECTION,
-                              2,  /* .rodata section index */
+                              rodata_idx,  /* .rodata section index */
                               0, 0);
     }
 
@@ -788,7 +800,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             size_t fn_size = 0;  /* Could be computed from next function's offset */
             int section_idx = SHN_UNDEF;  // Default to undefined
             if (!fn->is_prototype && !fn->is_external) {
-                section_idx = 1;  // Compiled functions go in .text section
+                section_idx = text_idx;  // Compiled functions go in .text
             }
             int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
             int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
@@ -801,7 +813,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     }
 
     /* Add symbols for global variables (.data section) */
-    int data_section_idx = (comp->rodata_section.length > 0) ? 3 : 2;
+    int data_section_idx = data_idx;
     for (size_t i = 0; i < global_var_count; i++) {
         ZeroCCGlobalVar *gv = &global_vars[i];
         if (gv->name[0]) {
@@ -858,7 +870,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             }
         }
         if (r->is_call) {
-            elf_writer_add_relocation(&elf_ctx, 1,  /* .text section */
+            elf_writer_add_relocation(&elf_ctx, text_idx,  /* .text section */
                                       r->text_patch_offset,
                                       symbol_idx,
                                       reloc_type_call,
@@ -874,17 +886,17 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 snprintf(lbl, sizeof(lbl), ".Lpcrel_sym_%zu", i);
                 elf_writer_add_symbol(&elf_ctx, lbl,
                                       ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                                      1 /* .text */,
+                                      text_idx /* .text */,
                                       r->text_patch_offset - 4,
                                       0);
                 int label_sym_idx = elf_ctx.symbol_count;
 
-                elf_writer_add_relocation(&elf_ctx, 1,
+                elf_writer_add_relocation(&elf_ctx, text_idx,
                                           r->text_patch_offset - 4,
                                           symbol_idx,
                                           reloc_type_hi20,
                                           0);
-                elf_writer_add_relocation(&elf_ctx, 1,
+                elf_writer_add_relocation(&elf_ctx, text_idx,
                                           r->text_patch_offset,
                                           label_sym_idx,
                                           reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
@@ -892,19 +904,19 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             } else if (comp->isa == ISA_AARCH64 && r->text_patch_offset >= 4) {
                 /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
                  * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
-                elf_writer_add_relocation(&elf_ctx, 1,
+                elf_writer_add_relocation(&elf_ctx, text_idx,
                                           r->text_patch_offset - 4,
                                           symbol_idx,
                                           275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
                                           0);
-                elf_writer_add_relocation(&elf_ctx, 1,
+                elf_writer_add_relocation(&elf_ctx, text_idx,
                                           r->text_patch_offset,
                                           symbol_idx,
                                           277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                           0);
             } else {
                 int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
-                elf_writer_add_relocation(&elf_ctx, 1,
+                elf_writer_add_relocation(&elf_ctx, text_idx,
                                           r->text_patch_offset,
                                           symbol_idx,
                                           reloc_type_abs64,
@@ -928,17 +940,17 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             snprintf(lbl, sizeof(lbl), ".Lpcrel_str_%zu", i);
             elf_writer_add_symbol(&elf_ctx, lbl,
                                   ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                                  1 /* .text */,
+                                  text_idx /* .text */,
                                   sr->text_patch_offset - 4,
                                   0);
             int label_sym_idx = elf_ctx.symbol_count;
 
-            elf_writer_add_relocation(&elf_ctx, 1,
+            elf_writer_add_relocation(&elf_ctx, text_idx,
                                       sr->text_patch_offset - 4,
                                       rodata_symbol_idx,
                                       reloc_type_hi20,
                                       (int64_t)sr->rodata_offset + addend_rodata);
-            elf_writer_add_relocation(&elf_ctx, 1,
+            elf_writer_add_relocation(&elf_ctx, text_idx,
                                       sr->text_patch_offset,
                                       label_sym_idx,
                                       reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
@@ -946,18 +958,18 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         } else if (comp->isa == ISA_AARCH64 && sr->text_patch_offset >= 4) {
             /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
              * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
-            elf_writer_add_relocation(&elf_ctx, 1,
+            elf_writer_add_relocation(&elf_ctx, text_idx,
                                       sr->text_patch_offset - 4,
                                       rodata_symbol_idx,
                                       275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
                                       (int64_t)sr->rodata_offset);
-            elf_writer_add_relocation(&elf_ctx, 1,
+            elf_writer_add_relocation(&elf_ctx, text_idx,
                                       sr->text_patch_offset,
                                       rodata_symbol_idx,
                                       277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                       (int64_t)sr->rodata_offset);
         } else {
-            elf_writer_add_relocation(&elf_ctx, 1,
+            elf_writer_add_relocation(&elf_ctx, text_idx,
                                       sr->text_patch_offset,
                                       rodata_symbol_idx,
                                       reloc_type_rodata,
@@ -1044,7 +1056,10 @@ static int compile_and_link(CompileOptions *opts) {
     }
 
     char obj_paths[ZERO_CC_MAX_INPUTS][512];
+    int obj_temp[ZERO_CC_MAX_INPUTS]; /* 1 = driver-created temp, safe to unlink */
     int obj_count = 0;
+    const char *arch_paths[32];
+    int arch_count = 0;
     CompileOptions obj_opts = *opts;
     obj_opts.emit_object = !use_text;
     obj_opts.emit_asm = use_text;
@@ -1052,8 +1067,31 @@ static int compile_and_link(CompileOptions *opts) {
     obj_opts.verbose = 0;  /* Suppress verbose during object generation */
 
     for (int i = 0; i < opts->input_count; i++) {
+        const char *in = opts->input_files[i];
+        size_t len = strlen(in);
+        /* T2: pass through prebuilt objects and archives to the linker. */
+        if (len >= 2 && strcmp(in + len - 2, ".a") == 0) {
+            if (opts->zerocc_link && arch_count < 32) {
+                arch_paths[arch_count++] = in;
+            } else if (use_text) {
+                fprintf(stderr, "Error: %s: archive input with -S is not "
+                        "supported\n", in);
+                return 1;
+            } else {
+                /* System linker: pass the archive through in the link cmd. */
+                if (arch_count < 32) arch_paths[arch_count++] = in;
+            }
+            continue;
+        }
+        if (len >= 2 && strcmp(in + len - 2, ".o") == 0) {
+            snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
+            obj_temp[obj_count] = 0;
+            obj_count++;
+            continue;
+        }
         snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_%d_%d%s",
                  getpid(), obj_count, use_text ? ".s" : ".o");
+        obj_temp[obj_count] = 1;
         int r = compile_object_single(&obj_opts, opts->input_files[i],
                                       obj_paths[obj_count]);
         if (r != 0) {
@@ -1068,6 +1106,47 @@ static int compile_and_link(CompileOptions *opts) {
         strncat(all_objs, " ", sizeof(all_objs) - strlen(all_objs) - 1);
         strncat(all_objs, obj_paths[i], sizeof(all_objs) - strlen(all_objs) - 1);
     }
+    for (int i = 0; i < arch_count; i++) {
+        strncat(all_objs, " ", sizeof(all_objs) - strlen(all_objs) - 1);
+        strncat(all_objs, arch_paths[i], sizeof(all_objs) - strlen(all_objs) - 1);
+    }
+
+    const char *output = opts->output_file ? opts->output_file : "a.out";
+
+    /* T2: ZeroCC's own linker (x86-64 only for now; zero_rt Phase 0 is its
+     * first customer). */
+    if (opts->zerocc_link) {
+        if (target_isa != ISA_X86_64) {
+            fprintf(stderr,
+                    "Error: --zerocc-link currently links x86-64 objects "
+                    "only\n");
+            for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
+            return 1;
+        }
+        if (use_text) {
+            fprintf(stderr, "Error: --zerocc-link cannot combine with "
+                    "ZC_TEXT_AOT\n");
+            for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Linking with ZeroCC's own linker...\n");
+        }
+        char link_err[1024];
+        const char *objs_ref[ZERO_CC_MAX_INPUTS];
+        for (int i = 0; i < obj_count; i++) objs_ref[i] = obj_paths[i];
+        int lr = zero_cc_link_exec(output, objs_ref, obj_count,
+                                   arch_paths, arch_count, link_err,
+                                   sizeof link_err);
+        for (int i = 0; i < obj_count; i++) {
+            if (obj_temp[i] && !getenv("ZC_KEEP_OBJ")) unlink(obj_paths[i]);
+        }
+        if (lr != 0) {
+            fprintf(stderr, "Error: linking failed: %s\n", link_err);
+            return 1;
+        }
+        return 0;
+    }
 
     if (opts->verbose) {
         printf("Linking with system linker...\n");
@@ -1076,7 +1155,6 @@ static int compile_and_link(CompileOptions *opts) {
     /* Invoke system linker (gcc) to create executable. cmd is sized to
      * hold all_objs (up to ZERO_CC_MAX_INPUTS temp paths) plus flags/libs. */
     char cmd[16384];
-    const char *output = opts->output_file ? opts->output_file : "a.out";
 
     /* Select appropriate linker based on target ISA */
     const char *linker = "gcc";
