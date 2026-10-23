@@ -19,6 +19,35 @@ static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count);
 
+/* Number of scalar leaves in one element of type t (C layout order):
+ * arrays recurse (len * leaves(elem)), structs sum member leaves, scalars
+ * count as 1.  Mirrors object_count_scalar_leaves() in the IR lowering, so
+ * an unsized array's outermost dimension can be inferred from a flattened
+ * brace-initializer leaf count. */
+static inline size_t zero_cc_base_leaf_count(const ZeroCCType *t) {
+    if (!t) return 1;
+    if (t->tag == TYPE_ARRAY) {
+        if (!t->base || t->array_len == 0) return 1;
+        return t->array_len * zero_cc_base_leaf_count(t->base);
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        size_t n = 0;
+        for (size_t i = 0; i < t->member_count; i++) {
+            const ZeroCCStructMember *m = &t->members[i];
+            if (m->is_flexible) continue;
+            if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+                n += (m->size / m->base->size) * zero_cc_base_leaf_count(m->base);
+            } else if (m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) {
+                n += m->base ? zero_cc_base_leaf_count(m->base) : 1;
+            } else {
+                n++;
+            }
+        }
+        return n ? n : 1;
+    }
+    return 1;
+}
+
 /* =========================================================================
  * Sprint 37: static locals (block scope, static storage duration)
  *
@@ -1417,6 +1446,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 dn->col = col;
                 dn->s.str = zero_cc_intern_string(c, vname);
                 dn->s.len = strlen(dn->s.str);
+                /* Stash the exact local symbol for lowering: sibling blocks
+                 * may legally reuse the name, and by-name lookup is
+                 * latest-wins, so type-dependent initializers must resolve
+                 * the symbol of this declaration (see lowering_local_sym). */
+                if (sym) dn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
                 if (has_any_vla) {
                     dn->flags |= NODE_DECL_IS_VLA;
                     dn->right = dim_exprs[0]; /* outermost runtime dimension expr */
@@ -1458,18 +1492,29 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         size_t elem_count = 0;
                         ASTRef head_expr = parse_brace_init_list_ast(c, arena, decl_type, &elem_count);
                         if (decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 && elem_count > 0) {
-                            decl_type.array_len = elem_count;
+                            /* C99 6.7.9: infer the outermost dimension.  The
+                             * flattened brace list holds LEAF nodes; an element
+                             * may span several leaves (char rows, struct
+                             * members), so divide by the leaves-per-element. */
+                            size_t inferred_len = elem_count;
+                            if (decl_type.base) {
+                                size_t per_leaf = zero_cc_base_leaf_count(decl_type.base);
+                                if (per_leaf > 1 && elem_count >= per_leaf) {
+                                    inferred_len = elem_count / per_leaf;
+                                }
+                            }
+                            decl_type.array_len = inferred_len;
                             if (decl_type.base && decl_type.base->size > 0) {
-                                decl_type.size = decl_type.base->size * elem_count;
+                                decl_type.size = decl_type.base->size * inferred_len;
                             }
                             if (sym) {
-                                sym->type.array_len = elem_count;
+                                sym->type.array_len = inferred_len;
                                 if (sym->type.base && sym->type.base->size > 0) {
-                                    sym->type.size = sym->type.base->size * elem_count;
+                                    sym->type.size = sym->type.base->size * inferred_len;
                                 }
                             }
                             if (decl_ti && decl_ti->kind == TYPE_KIND_ARRAY) {
-                                decl_ti->details.array.count = elem_count;
+                                decl_ti->details.array.count = inferred_len;
                             }
                         }
                         ASTRef comp_ref = zero_cc_ast_alloc_node(arena, NODE_COMPOUND_LIT);
@@ -1478,6 +1523,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         if (sym) {
                             cn->s.str = sym->name;
                             cn->s.len = strlen(sym->name);
+                            cn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
                         }
                         init_val = comp_ref;
                     } else {

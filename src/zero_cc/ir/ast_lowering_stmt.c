@@ -110,6 +110,56 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         return;
     }
     if (node->left != AST_NULL) {
+        /* C11 6.7.9: a string literal initializing a local char array.
+         * Zero-fill the whole slot, then store the literal's bytes (all
+         * compile-time constants) as byte immediates; the generic path
+         * below would lower the literal to its rodata pointer and store
+         * the pointer value into the array.  Mirrors the NODE_COMPOUND_LIT
+         * zero-fill / width-chunk pattern. */
+        ZeroCCASTNode *str_init_node = zero_cc_ast_get(arena, node->left);
+        ZeroCCSym *str_sym = lowering_local_sym(c, node, node->s.str);
+        if (str_init_node && str_init_node->tag == NODE_STRING && str_init_node->s.str &&
+            str_sym && str_sym->type.tag == TYPE_ARRAY && str_sym->type.base &&
+            (str_sym->type.base->tag == TYPE_INT8 || str_sym->type.base->tag == TYPE_UINT8)) {
+            const char *lit = str_init_node->s.str;
+            size_t total_size = str_sym->type.size;
+            size_t copy_len = strlen(lit) + 1;
+            if (copy_len > total_size) copy_len = total_size; /* C11 6.7.9p12: truncate */
+            int zero_temp = c->next_temp_id++;
+            ir_emit_mov_imm(zero_temp, 0);
+            size_t zoff = 0;
+            while (zoff < total_size) {
+                size_t chunk = total_size - zoff;
+                if (chunk >= 8) chunk = 8;
+                else if (chunk >= 4) chunk = 4;
+                else if (chunk >= 2) chunk = 2;
+                else chunk = 1;
+                int32_t store_offset = -(str_sym->stack_offset - (int32_t)zoff);
+                if (chunk == 8) {
+                    ir_emit_store(zero_temp, BE(c)->fp_reg, store_offset);
+                } else {
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, TEMP_NONE, store_offset);
+                    if (chunk == 4) {
+                        ir_emit_store_32(zero_temp, addr_temp);
+                    } else if (chunk == 2) {
+                        ir_emit_store_16(zero_temp, addr_temp);
+                    } else {
+                        ir_emit_store_byte(zero_temp, addr_temp);
+                    }
+                }
+                zoff += chunk;
+            }
+            for (size_t i = 0; i < copy_len; i++) {
+                int val_temp = c->next_temp_id++;
+                ir_emit_mov_imm(val_temp, (int32_t)(unsigned char)lit[i]);
+                int addr_temp = c->next_temp_id++;
+                ir_emit_lea(addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)i));
+                ir_emit_store_byte(val_temp, addr_temp);
+            }
+            c->last_expr_is_float = 0;
+            return;
+        }
         int result_temp = lower_expr(c, arena, node->left);
         const char *var = node->s.str;
         ZeroCCSym *sym = zero_cc_find_local(c, var);

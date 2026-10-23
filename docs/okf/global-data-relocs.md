@@ -4,7 +4,7 @@ title: Global Variables, Data Section & Pointer Relocations
 description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), block-scope static locals (unsized arrays, pointer-to-string initializers, per-call stack mirror), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
 resource: backend/global-data-relocs
 tags: [globals, data-section, relocations, jit, aot, elf, initialization]
-timestamp: 2026-10-20T15:54:29Z
+timestamp: 2026-10-23T04:25:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -20,8 +20,8 @@ ZeroCC supports file-scope variable declarations in both JIT (`--run`) and AOT (
 - **Float/double scalars**: `float gf = 1.5f;` / `double gd = 3.14;` — emitted as **IEEE-754 bit patterns** (`zero_cc_eval_const_expr_float` handles literals, char literals, unary +/- and parentheses).
 - **Multi-declarators**: `int a, b = 5, c = 10;` — each declarator is registered separately (`add_global_var` in `src/zero_cc/types/global_vars.h`).
 - **Arrays**: `int ga[4] = {1,2,3,4};`, zero-init gaps `{1,0,0,4}`, partial init, and `double garr[3] = {...}` (float element bits). The registered `ZeroCCType` uses `zero_cc_type_array` so `gv->type.tag == TYPE_ARRAY` (array-to-pointer decay on use).
-- **String into char array**: `char g[4] = "abc";` — truncated to fit, NUL-terminated when room; `char g[] = "hi";` infers `array_len = strlen+1`; overlong strings truncate (no NUL).
-- **Struct/union aggregates**: `struct S gs = {5, 1.5};` (positional) and `struct S gs = {.a = 7, .c = 'z'};` (designated, any order). Values are written into a zero-cleared `calloc(size, 1)` scratch buffer at true member offsets (padding-correct) and appended in one go. Member floatness is detected from the struct's `members[]` tags (`TYPE_FLOAT`/`TYPE_DOUBLE` — see [frontend-and-types.md](./frontend-and-types.md)).
+- **String into char array**: `char g[4] = "abc";` — truncated to fit, NUL-terminated when room; `char g[] = "hi";` infers `array_len = strlen+1`; overlong strings truncate (no NUL). `unsigned char gu[] = "glob";` is the same (`is_char_array` covers `TYPE_INT8` **and** `TYPE_UINT8` — a pre-fix silent miscompile stored a rodata pointer instead of bytes).
+- **Struct/union aggregates**: `struct S gs = {5, 1.5};` (positional) and `struct S gs = {.a = 7, .c = 'z'};` (designated, any order). Values are written into a zero-cleared `calloc(size, 1)` scratch buffer at true member offsets (padding-correct) and appended in one go. Member floatness is detected from the struct's `members[]` tags (`TYPE_FLOAT`/`TYPE_DOUBLE` — see [frontend-and-types.md](./frontend-and-types.md)). A **char-array member** initialized by a string literal (positional or designated, `struct S g = {7, "glob"};`) copies the string **bytes** into the member (bounded by the member's own size, never the whole object) instead of the pointer form — pre-fix this stored an 8-byte rodata address into the member (silent miscompile: `name[0]` held the low byte of the pointer). 2-D char arrays fill one row per string (`char m[2][4] = {"ab", "cd"};`). Local-scope forms (and the leaf-alignment rules) are documented in [frontend-and-types.md](./frontend-and-types.md) — *String-Literal Initialization of Char Arrays*.
 - **Pointer to string literal**: `const char *g = "abcd";` — string is appended to `.rodata`; 8 zero bytes go into `.data` plus a `ZeroCCDataReloc` (kind 0).
 - **Address of another global**: `int *p = &x;` — 8 zero bytes plus a `ZeroCCDataReloc` (kind 1). The referenced global must be declared earlier (C rule).
 - **`const`/`volatile`/`extern`/`static`** qualifiers are accepted; `static` maps to `ELF_STB_LOCAL`.

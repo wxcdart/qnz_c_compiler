@@ -77,8 +77,9 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* If initializer expression exists (in left branch) */
     TypeInfo *init_t = NULL;
+    ZeroCCASTNode *init_node = NULL;
     if (node->left != AST_NULL) {
-        ZeroCCASTNode *init_node = decl_get_node(ctx, node->left);
+        init_node = decl_get_node(ctx, node->left);
         if (init_node) {
             init_t = decl_eval_node(ctx, init_node);
         }
@@ -105,7 +106,15 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* Validate initializer compatibility if initializer exists */
     if (init_t) {
-        if (!type_compatible_assign(var_t, init_t)) {
+        /* C11 6.7.9p13: a string literal may initialize a char array
+         * (char / unsigned char).  The literal is typed char* in the
+         * semantic model, so the generic assign check would reject it. */
+        bool str_lit_into_char_arr =
+            (init_node && init_node->tag == NODE_STRING &&
+             var_t && var_t->kind == TYPE_KIND_ARRAY &&
+             var_t->details.array.base &&
+             var_t->details.array.base->kind == TYPE_KIND_CHAR);
+        if (!str_lit_into_char_arr && !type_compatible_assign(var_t, init_t)) {
             decl_error(ctx, node, "incompatible initializer type for variable '%s'", name);
             return NULL;
         }

@@ -388,7 +388,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         int64_t dims[8]; int dim_count = 0; /* per-dimension sizes (C99 6.7.9) */
                         bool array_unsized = false;
                         bool has_array_suffix = false;
-                        bool is_char_array = (ptr_depth == 0 && gtype.tag == TYPE_INT8);
+                        bool is_char_array = (ptr_depth == 0 &&
+                                              (gtype.tag == TYPE_INT8 || gtype.tag == TYPE_UINT8));
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                             has_array_suffix = true;
                             /* Multi-dimensional: T name[d1][d2]... (C99 6.7.9) */
@@ -540,6 +541,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         }
                                         size_t m_off = 0, m_sz = 0;
                                         bool m_float = false;
+                                        bool m_char_arr = false;
                                         if (c->tokens[c->token_pos].type == TK_DOT) {
                                             /* Designated initializer: .field = */
                                             c->token_pos++;
@@ -556,6 +558,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                         m_sz = gtype.members[m].size ? gtype.members[m].size : 8;
                                                         m_float = (gtype.members[m].tag == TYPE_FLOAT ||
                                                                    gtype.members[m].tag == TYPE_DOUBLE);
+                                                        m_char_arr = (gtype.members[m].tag == TYPE_ARRAY &&
+                                                                      gtype.members[m].base &&
+                                                                      (gtype.members[m].base->tag == TYPE_INT8 ||
+                                                                       gtype.members[m].base->tag == TYPE_UINT8));
                                                         found = true;
                                                         break;
                                                     }
@@ -576,26 +582,33 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
                                         size_t e_off, e_sz;
                                         bool e_float;
+                                        bool e_char_arr;
                                         if (is_struct) {
                                             if (field_name) {
                                                 e_off = cur_base + m_off; e_sz = m_sz; e_float = m_float;
+                                                e_char_arr = m_char_arr;
                                             } else {
                                                 if (next_member >= gtype.member_count) break;
                                                 e_off = cur_base + gtype.members[next_member].offset;
                                                 e_sz = gtype.members[next_member].size ? gtype.members[next_member].size : 8;
                                                 e_float = (gtype.members[next_member].tag == TYPE_FLOAT ||
                                                            gtype.members[next_member].tag == TYPE_DOUBLE);
+                                                e_char_arr = (gtype.members[next_member].tag == TYPE_ARRAY &&
+                                                              gtype.members[next_member].base &&
+                                                              (gtype.members[next_member].base->tag == TYPE_INT8 ||
+                                                               gtype.members[next_member].base->tag == TYPE_UINT8));
                                                 next_member++;
                                             }
                                         } else {
                                             e_off = pos_off;
                                             e_sz = elem_size;
                                             e_float = (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE);
+                                            e_char_arr = is_char_array;
                                         }
                                         if (e_off >= size) break;
 
                                         ZeroCCTokType vt = c->tokens[c->token_pos].type;
-                                        if (vt == TK_STRING && is_char_array) {
+                                        if (vt == TK_STRING && (is_char_array || e_char_arr)) {
                                             /* char array from string literal (truncated to fit).
                                              * In multi-dimensional char arrays each string
                                              * fills one row (row_bytes), NUL included when
@@ -612,7 +625,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                 memcpy(vbuf + e_off, sv, maxc);
                                                 adv = row_bytes;
                                             } else {
-                                                size_t room = (e_off < size) ? (size - e_off) : 0;
+                                                /* Struct members fill only their own
+                                                 * bytes; top-level arrays fill to the
+                                                 * end of the object. */
+                                                size_t room = e_char_arr && is_struct ? e_sz :
+                                                    ((e_off < size) ? (size - e_off) : 0);
                                                 size_t maxc = (sl + 1 <= room) ? (sl + 1) : room;
                                                 memcpy(vbuf + e_off, sv, maxc);
                                                 adv = maxc;

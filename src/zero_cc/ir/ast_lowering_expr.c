@@ -2078,7 +2078,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_COMPOUND_LIT: {
-            ZeroCCSym *sym = (node->s.str && node->s.str[0]) ? zero_cc_find_local(c, node->s.str) : NULL;
+            ZeroCCSym *sym = lowering_local_sym(c, node, node->s.str);
             if (!sym) {
                 if (node->left != AST_NULL) return lower_expr(c, arena, node->left);
                 return TEMP_NONE;
@@ -2116,6 +2116,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             ASTRef cur_ref = node->left;
             size_t idx = 0;
+            /* C11 6.7.9: a string literal initializing a char-array member
+             * is expanded by the parser into a run of byte nodes sharing the
+             * member designator; track the fill position within that member. */
+            int32_t desig_char_member = -1;
+            size_t desig_char_pos = 0;
             while (cur_ref != AST_NULL) {
                 ZeroCCASTNode *elem_node = zero_cc_ast_get(arena, cur_ref);
                 if (!elem_node) break;
@@ -2132,8 +2137,27 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     sym->type.members[m_idx].name);
                                 return TEMP_NONE;
                             }
-                            elem_offset = sym->type.members[m_idx].offset;
-                            elem_size = sym->type.members[m_idx].size;
+                            const ZeroCCStructMember *dm = &sym->type.members[m_idx];
+                            if (dm->tag == TYPE_ARRAY && dm->base &&
+                                (dm->base->tag == TYPE_INT8 || dm->base->tag == TYPE_UINT8)) {
+                                /* Byte node of an expanded string literal: one
+                                 * byte per node, consecutive within member. */
+                                if ((int32_t)m_idx == desig_char_member) {
+                                    desig_char_pos++;
+                                } else {
+                                    desig_char_member = (int32_t)m_idx;
+                                    desig_char_pos = 0;
+                                }
+                                if (desig_char_pos >= dm->size) {
+                                    cur_ref = elem_node->next; /* past member end */
+                                    continue;
+                                }
+                                elem_offset = dm->offset + desig_char_pos;
+                                elem_size = 1;
+                            } else {
+                                elem_offset = dm->offset;
+                                elem_size = dm->size;
+                            }
                         }
                     } else {
                         size_t cur_leaf = 0;

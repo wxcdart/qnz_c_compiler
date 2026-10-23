@@ -34,6 +34,21 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
 
+/* Resolve a local variable's symbol using the index stashed at parse time
+ * (node->aux.step = index into c->locals + 1, 0 = not stashed), falling
+ * back to a by-name lookup.  The by-name table is latest-wins: with sibling
+ * blocks reusing a name it resolves the shadowing symbol, which is wrong
+ * for type-dependent initializers (aggregate/string initializers must see
+ * the symbol that owned the declaration they belong to). */
+static inline ZeroCCSym *lowering_local_sym(ZeroCCCompiler *c, const ZeroCCASTNode *node,
+                                            const char *name) {
+    if (node && node->aux.step != 0) {
+        size_t i = (size_t)(node->aux.step - 1);
+        if (i < c->local_count) return &c->locals[i];
+    }
+    return name ? zero_cc_find_local(c, name) : NULL;
+}
+
 /* Emit function prologue directly (without IR instruction) */
 void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size);
 void emit_return_jumps(ZeroCCCompiler *c);

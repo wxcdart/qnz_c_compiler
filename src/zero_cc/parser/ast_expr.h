@@ -47,6 +47,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
     ASTRef head_expr = AST_NULL;
     ASTRef last_expr = AST_NULL;
     size_t elem_count = 0;
+    size_t member_cursor = 0; /* positional struct/union member consumed */
 
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
         int32_t designated_member_idx = -1;
@@ -114,6 +115,84 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 elem_count += sub_count;
             }
         } else {
+            /* C11 6.7.9p13: a string literal may initialize a char array.
+             * When the element target is a char array (a `char n[8]`
+             * struct member, a `char m[2][4]` row, or a char element of
+             * `char s[] = { "hi" }`), expand the literal into a run of
+             * byte-literal nodes; placement by leaf index and zero-fill of
+             * the remaining bytes are handled by the compound-literal
+             * lowering.  Pointer-typed elements keep the NODE_STRING form
+             * (string address). */
+            if (c->tokens[c->token_pos].type == TK_STRING) {
+                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                const ZeroCCToken *stk = &c->tokens[c->token_pos];
+                size_t sl = strlen(sv);
+                size_t cap = (size_t)-1;
+                bool into_char_array = false;
+                bool pad_to_full = false; /* emit a full element's worth of bytes */
+                if (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION) {
+                    int32_t mi = (designated_member_idx >= 0) ?
+                        designated_member_idx : (int32_t)member_cursor;
+                    if (mi >= 0 && mi < (int32_t)lit_type.member_count &&
+                        !lit_type.members[mi].is_flexible &&
+                        lit_type.members[mi].tag == TYPE_ARRAY &&
+                        lit_type.members[mi].base &&
+                        (lit_type.members[mi].base->tag == TYPE_INT8 ||
+                         lit_type.members[mi].base->tag == TYPE_UINT8)) {
+                        into_char_array = true;
+                        cap = lit_type.members[mi].size;
+                        pad_to_full = true; /* keep struct leaf alignment */
+                    }
+                } else if (lit_type.tag == TYPE_ARRAY && lit_type.base) {
+                    const ZeroCCType *eb = lit_type.base;
+                    bool eb_char = (eb->tag == TYPE_INT8 || eb->tag == TYPE_UINT8);
+                    bool eb_char_arr = (eb->tag == TYPE_ARRAY && eb->base &&
+                        (eb->base->tag == TYPE_INT8 || eb->base->tag == TYPE_UINT8));
+                    if (eb_char) {
+                        /* 1-D char array: each byte is one leaf, no padding */
+                        into_char_array = true;
+                        if (lit_type.size > 0) cap = lit_type.size;
+                    } else if (eb_char_arr) {
+                        /* One row of a 2-D char array: emit the full row so
+                         * successive rows align on leaf boundaries. */
+                        into_char_array = true;
+                        cap = eb->size;
+                        pad_to_full = true;
+                    }
+                }
+                if (into_char_array) {
+                    size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
+                    size_t emit = pad_to_full ? cap : copy;
+                    c->token_pos++;
+                    for (size_t bi = 0; bi < emit; bi++) {
+                        ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
+                        ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
+                        bn->line = (uint32_t)stk->line;
+                        bn->col = (uint32_t)stk->col;
+                        bn->int_val = (bi < sl) ? (int64_t)(unsigned char)sv[bi] : 0;
+                        if (designated_member_idx >= 0) {
+                            bn->desig_idx = (uint32_t)designated_member_idx;
+                            bn->flags |= NODE_FLAG_DESIGNATED;
+                        }
+                        if (head_expr == AST_NULL) {
+                            head_expr = br;
+                        } else if (last_expr != AST_NULL) {
+                            ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
+                            if (ln) ln->next = br;
+                        }
+                        last_expr = br;
+                        elem_count++;
+                    }
+                    if (designated_member_idx < 0 &&
+                        (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION)) {
+                        member_cursor++;
+                    }
+                    if (c->token_pos < c->token_count &&
+                        c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                    continue;
+                }
+            }
             ASTRef elem = parse_assignment_ast(c, arena);
             if (elem != AST_NULL) {
                 ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
@@ -129,6 +208,10 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 }
                 last_expr = elem;
                 elem_count++;
+                if (designated_member_idx < 0 &&
+                    (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION)) {
+                    member_cursor++;
+                }
             } else {
                 break;
             }
@@ -414,6 +497,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     if (sym) {
                         cn->s.str = sym->name;
                         cn->s.len = strlen(sym->name);
+                        cn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
                     }
                     if (c->sem_ctx && c->sem_ctx->perm_arena) {
                         TypeInfo *ti = zero_cc_type_to_typeinfo(c->sem_ctx->perm_arena, lit_type);

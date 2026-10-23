@@ -1,5 +1,19 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - String-Literal Initialization of Char Arrays (C11 6.7.9p13)
+
+Closed the initializer gap found while auditing the parser ahead of zero_rt stdio work: a string literal could not initialize a `char`/`unsigned char` array in local scope, and in three places it **silently miscompiled** (a rodata pointer byte landed in the array) instead of failing. `++`/`--` and compound assignment were verified correct throughout — the real gap was initialization.
+
+- **Local direct** (`char s[] = "hi"`, sized/padded, truncated `char s[3] = "abcdef"`, `unsigned char`): was a hard "incompatible initializer type" error (string literals are typed `char*`, and `type_compatible_assign` rejects array←pointer). Now admitted in `semantic/decl.c` for `TYPE_KIND_ARRAY` of `TYPE_KIND_CHAR`; `lower_stmt_decl` zero-fills the slot and emits one `MOV_IMM`+`STORE_BYTE` per literal byte (escape-decoded, truncated per C11 — no rodata round-trip).
+- **Brace forms** (`struct P p = {42, "hi"}`, `.name = "hi"`, `char m[2][4] = {"ab","cd"}`, `char w[] = {"go"}`): `parse_brace_init_list_ast` expands a string element targeting a char array into a run of `NODE_INT` byte nodes — **padded to the full element width** for struct members and 2-D rows so the flattened leaf chain stays aligned. Compound-literal lowering places designated byte runs (`.name = "hi"`) consecutively inside the member. File-scope struct members and `unsigned char[]` (previously miscompiled: an 8-byte rodata pointer was baked into the member/array) now copy the string bytes bounded by the member/row/object.
+- **Unsized outer dimension**: `char u[][4] = {"xy","wz"}` / `struct P v[] = {{...}}` now infer the dimension as leaves ÷ leaves-per-element (`zero_cc_base_leaf_count`) instead of counting flattened bytes as elements.
+- **Symbol-index invariant (latent hazard exposed by the fix)**: local symbols resolve by name (latest-wins) at lowering time, so `{ struct P p = {...} } { const char *p = ...; }` resolved the initializer to the *shadowing* symbol. Local `NODE_DECL`/`NODE_COMPOUND_LIT` now carry `aux.step = locals index + 1` (stashed at parse time; arena walkers are tag-dispatched so it's inert) and type-dependent initializers resolve via `lowering_local_sym()`.
+- **Test**: `test/jit/string_init_test.c` — 14 SDK-style JIT snippets (unsized/sized/truncated/unsigned/escapes, struct member positional+designated, 2-D + unsized-2-D, sibling-block shadowing, pointer control, file-scope member/unsigned/truncated).
+
+Gates: test **149/149**, test-opt **110/110** (−O0…−O3 JIT+AOT), asan 149/149, test-linker 15/15, test-driver 21/21, test-isa-qemu 44/44, diag 8/8, style 0 errors. Every case differential-verified against gcc (JIT + AOT).
+
+**Pre-existing bugs found & tracked (not fixed here, verified on HEAD):** (1) store through a post-incremented pointer (`*ip = v; ip++; *ip = w;`) mis-stores at all −O levels, JIT and AOT — needs a dedicated fix before zero_rt buffer-walking code relies on it; (2) truncation is silent where gcc warns "initializer-string for array of 'char' is too long" (diagnostic polish).
+
 ## [Sprint 43] - 2026-10-23 - Zero_RT Phase 0: ZeroCC-Owned Freestanding Runtime (Linux x86-64)
 
 The ZeroCC-owned runtime lands — the first consumer of the T1/T2 pipeline, built so zerocc programs need no system libc/crt:
