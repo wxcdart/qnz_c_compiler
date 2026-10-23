@@ -1469,11 +1469,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (base_node && base_node->tag == NODE_IDENT) {
                     ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
                     ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(base_node->s.str);
-                    if (ggv && !base_is_ptr) {
-                        /* Global struct/union base: `g.member = val`. Load the
-                         * global address, add the member offset, store. */
+                    if (ggv) {
+                        /* Global struct/union or pointer base: `g.member = val` or `p->member = val`. */
                         int gaddr = c->next_temp_id++;
                         ir_emit_mov_global(gaddr, ggv->name);
+                        if (base_is_ptr) {
+                            int ptr_temp = c->next_temp_id++;
+                            ir_emit_deref(ptr_temp, gaddr);
+                            gaddr = ptr_temp;
+                        }
                         int addr_temp = gaddr;
                         if (member_offset != 0) {
                             int off_temp = c->next_temp_id++;
@@ -2676,6 +2680,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                          * add the member offset, then load/deref. */
                         int gaddr = c->next_temp_id++;
                         ir_emit_mov_global(gaddr, ggv->name);
+                        if (base_is_ptr) {
+                            int ptr_temp = c->next_temp_id++;
+                            ir_emit_deref(ptr_temp, gaddr);
+                            gaddr = ptr_temp;
+                        }
                         int gaddr2 = gaddr;
                         if (member_offset != 0) {
                             int goff = c->next_temp_id++;

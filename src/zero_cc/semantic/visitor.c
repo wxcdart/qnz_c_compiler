@@ -149,7 +149,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_FLOAT: {
-            res = type_double(ctx->perm_arena);
+            if (node->aux.extra == 1) {
+                res = type_float(ctx->perm_arena);
+            } else {
+                res = type_double(ctx->perm_arena);
+            }
             break;
         }
         case NODE_STRING: {

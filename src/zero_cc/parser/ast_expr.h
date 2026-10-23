@@ -263,6 +263,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->line = (uint32_t)tok->line;
             n->col = (uint32_t)tok->col;
             n->float_val = tok->float_val;
+            n->aux.extra = (uint32_t)tok->int_suffix;
             return ref;
         }
 
@@ -393,7 +394,13 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         c->token_pos = ctrl_pos;
         ctrl_ty = zero_cc_type_strip_qualifiers(ctrl_ty);
         if (ctrl_ty.tag == TYPE_ARRAY) {
-            ctrl_ty = zero_cc_type_ptr(&ctrl_ty);
+            /* Lvalue conversion + array-to-pointer decay (C11 6.5.1.1): the
+             * control `"s"` (char[2]) decays to `char *` - a pointer to the
+             * ELEMENT type, not to the whole array. */
+            if (ctrl_ty.base) {
+                ZeroCCType elem = *ctrl_ty.base;
+                ctrl_ty = zero_cc_type_ptr(&elem);
+            }
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
 

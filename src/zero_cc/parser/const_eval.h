@@ -524,12 +524,14 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         return zero_cc_type_int();
     }
     if (t == TK_FLOAT) {
+        uint8_t suf = c->tokens[*pos].int_suffix;
         (*pos)++;
+        if (suf == 1) return zero_cc_type_float();
         return zero_cc_type_double();
     }
     if (t == TK_CHAR_LIT) {
         (*pos)++;
-        return zero_cc_type_char();
+        return zero_cc_type_int();
     }
     if (t == TK_TRUE || t == TK_FALSE) {
         (*pos)++;
@@ -858,6 +860,63 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else {
         ty = zero_cc_type_int();
     }
+    /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float) */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
+        *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR) {
+        (*pos)++; /* consume '(' */
+        int ptr_cnt = 0;
+        bool is_func = false;
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+            ptr_cnt++;
+            (*pos)++;
+            while (*pos < c->token_count &&
+                   (c->tokens[*pos].type == TK_CONST ||
+                    c->tokens[*pos].type == TK_VOLATILE ||
+                    c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
+        }
+        ssize_t inner_arr_len = -1;
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+            (*pos)++;
+            ssize_t alen = 0;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
+                alen = (ssize_t)c->tokens[*pos].num_val;
+                (*pos)++;
+            }
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+            inner_arr_len = (inner_arr_len < 0) ? alen : inner_arr_len * alen;
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+            int pdepth = 1;
+            (*pos)++;
+            while (*pos < c->token_count && pdepth > 0) {
+                if (c->tokens[*pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[*pos].type == TK_RPAREN) pdepth--;
+                (*pos)++;
+            }
+            is_func = true;
+        } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+            while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                (*pos)++;
+                ssize_t arr_len = 0;
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
+                    arr_len = (ssize_t)c->tokens[*pos].num_val;
+                    (*pos)++;
+                }
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                ZeroCCType elem_ty = ty;
+                ty = zero_cc_type_array(&elem_ty, arr_len);
+            }
+        }
+        for (int p = 0; p < ptr_cnt; p++) {
+            ty = zero_cc_type_ptr(&ty);
+            if (is_func && p == 0) ty.is_func_ptr = true;
+        }
+        if (inner_arr_len >= 0) {
+            ZeroCCType elem_ty = ty;
+            ty = zero_cc_type_array(&elem_ty, inner_arr_len);
+        }
+    }
     while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
         (*pos)++;
@@ -1022,6 +1081,63 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     } else {
         // default
         ty = zero_cc_type_int64();
+    }
+    /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float) */
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+        c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
+        c->token_pos++; /* consume '(' */
+        int ptr_cnt = 0;
+        bool is_func = false;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+            ptr_cnt++;
+            c->token_pos++;
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
+        }
+        ssize_t inner_arr_len = -1;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            c->token_pos++;
+            ssize_t alen = 0;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
+                alen = (ssize_t)c->tokens[c->token_pos].num_val;
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+            inner_arr_len = (inner_arr_len < 0) ? alen : inner_arr_len * alen;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            int pdepth = 1;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && pdepth > 0) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                c->token_pos++;
+            }
+            is_func = true;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                c->token_pos++;
+                ssize_t arr_len = 0;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
+                    arr_len = (ssize_t)c->tokens[c->token_pos].num_val;
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                ZeroCCType elem_ty = ty;
+                ty = zero_cc_type_array(&elem_ty, arr_len);
+            }
+        }
+        for (int p = 0; p < ptr_cnt; p++) {
+            ty = zero_cc_type_ptr(&ty);
+            if (is_func && p == 0) ty.is_func_ptr = true;
+        }
+        if (inner_arr_len >= 0) {
+            ZeroCCType elem_ty = ty;
+            ty = zero_cc_type_array(&elem_ty, inner_arr_len);
+        }
     }
     // Parse pointer stars
     while (c->tokens[c->token_pos].type == TK_STAR) {

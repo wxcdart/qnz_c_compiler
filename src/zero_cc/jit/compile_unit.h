@@ -457,7 +457,151 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             c->token_pos++; /* skip = */
                             has_initializer = true;
                             ZeroCCTokType it = c->tokens[c->token_pos].type;
-                            if (it == TK_STRING && !is_char_array) {
+                            bool is_addr_of_clit = (it == TK_AMP);
+                            size_t clit_lparen = is_addr_of_clit ? (c->token_pos + 1) : c->token_pos;
+                            bool is_clit = false;
+                            ZeroCCType clit_type = {0};
+                            size_t clit_brace_pos = 0;
+                            if (clit_lparen < c->token_count && c->tokens[clit_lparen].type == TK_LPAREN &&
+                                clit_lparen + 1 < c->token_count &&
+                                zero_cc_tok_is_type_start(c, clit_lparen + 1)) {
+                                size_t type_pos = clit_lparen + 1;
+                                clit_type = zero_cc_parse_type_name_at_pos(c, &type_pos);
+                                if (type_pos < c->token_count && c->tokens[type_pos].type == TK_RPAREN &&
+                                    type_pos + 1 < c->token_count && c->tokens[type_pos + 1].type == TK_LBRACE) {
+                                    is_clit = true;
+                                    clit_brace_pos = type_pos + 1;
+                                }
+                            }
+
+                            if (is_clit && !is_addr_of_clit && gtype.tag != TYPE_PTR && (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION)) {
+                                c->token_pos = clit_brace_pos;
+                                it = TK_LBRACE;
+                            }
+                            if (is_clit && (is_addr_of_clit || gtype.tag == TYPE_PTR)) {
+                                /* Pointer initialized from compound literal: emit 8-byte pointer slot */
+                                c->token_pos = clit_brace_pos; /* at '{' */
+                                zero_cc_emit_u64(&c->data_section, 0);
+                                size = 8;
+                                static int s_anon_clit_id = 0;
+                                char anon_name[48];
+                                snprintf(anon_name, sizeof(anon_name), "__clit_anon_%d", s_anon_clit_id++);
+
+                                if (clit_type.tag == TYPE_STRUCT || clit_type.tag == TYPE_UNION) {
+                                    size_t clit_sz = clit_type.size ? clit_type.size : 8;
+                                    size_t clit_al = clit_type.align ? clit_type.align : 8;
+                                    size_t clit_pad = (clit_al - (c->data_section.length % clit_al)) % clit_al;
+                                    for (size_t p = 0; p < clit_pad; p++) zero_cc_emit_u8(&c->data_section, 0);
+                                    size_t anon_offset = c->data_section.length;
+                                    c->token_pos++; /* skip '{' */
+                                    uint8_t *abuf = calloc(clit_sz > 0 ? clit_sz : 1, 1);
+                                    size_t next_m = 0;
+                                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+                                        if (next_m >= clit_type.member_count) break;
+                                        size_t m_off = clit_type.members[next_m].offset;
+                                        size_t m_sz = clit_type.members[next_m].size ? clit_type.members[next_m].size : 8;
+                                        bool m_flt = (clit_type.members[next_m].tag == TYPE_FLOAT || clit_type.members[next_m].tag == TYPE_DOUBLE);
+                                        next_m++;
+                                        if (m_flt) {
+                                            double dv = zero_cc_eval_const_expr_float(c);
+                                            uint64_t bits = 0;
+                                            if (m_sz <= 4) { float fv = (float)dv; memcpy(&bits, &fv, 4); }
+                                            else { memcpy(&bits, &dv, 8); }
+                                            for (size_t b = 0; b < m_sz && m_off + b < clit_sz; b++) abuf[m_off + b] = (uint8_t)(bits >> (8 * b));
+                                        } else {
+                                            int64_t iv = zero_cc_eval_const_expr(c);
+                                            for (size_t b = 0; b < m_sz && m_off + b < clit_sz; b++) abuf[m_off + b] = (uint8_t)((uint64_t)iv >> (8 * b));
+                                        }
+                                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                                    }
+                                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+                                    if (abuf) {
+                                        zero_cc_buf_put_bytes(&c->data_section, abuf, clit_sz);
+                                        free(abuf);
+                                    }
+                                    int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+                                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                        dr->data_patch_offset = var_offset;
+                                        dr->target_kind = 1;
+                                        dr->target_data_offset = anon_offset;
+                                        dr->target_global_idx = anon_idx;
+                                    }
+                                } else {
+                                    /* Array compound literal */
+                                    if (clit_type.tag != TYPE_ARRAY) {
+                                        clit_type = zero_cc_type_array(&clit_type, 0);
+                                    }
+                                    size_t clit_elem_sz = (clit_type.base && clit_type.base->size > 0) ? clit_type.base->size : 4;
+                                    size_t clit_elem_al = (clit_type.base && clit_type.base->align > 0) ? clit_type.base->align : 4;
+                                    if (clit_type.array_len == 0) {
+                                        size_t cur = c->token_pos + 1;
+                                        int depth = 1;
+                                        size_t count = 0;
+                                        while (cur < c->token_count && depth > 0) {
+                                            if (c->tokens[cur].type == TK_LBRACE) depth++;
+                                            else if (c->tokens[cur].type == TK_RBRACE) depth--;
+                                            else if (c->tokens[cur].type == TK_COMMA && depth == 1) count++;
+                                            else if (depth == 1 && count == 0 && c->tokens[cur].type != TK_COMMA) count = 1;
+                                            cur++;
+                                        }
+                                        if (count == 0) count = 1;
+                                        clit_type.array_len = count;
+                                    }
+                                    size_t clit_sz = clit_type.array_len * clit_elem_sz;
+                                    clit_type.size = clit_sz;
+                                    clit_type.align = clit_elem_al;
+                                    size_t clit_pad = (clit_elem_al - (c->data_section.length % clit_elem_al)) % clit_elem_al;
+                                    for (size_t p = 0; p < clit_pad; p++) zero_cc_emit_u8(&c->data_section, 0);
+                                    size_t anon_offset = c->data_section.length;
+                                    c->token_pos++; /* skip '{' */
+                                    uint8_t *abuf = calloc(clit_sz > 0 ? clit_sz : 1, 1);
+                                    size_t a_off = 0;
+                                    bool clit_is_flt = clit_type.base && (clit_type.base->tag == TYPE_FLOAT || clit_type.base->tag == TYPE_DOUBLE);
+                                    bool clit_is_ptr = clit_type.base && (clit_type.base->tag == TYPE_PTR);
+                                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+                                        if (c->tokens[c->token_pos].type == TK_STRING && clit_is_ptr) {
+                                            const char *sv = c->tokens[c->token_pos].allocated_str ?
+                                                c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                            size_t ro_off = c->rodata_section.length;
+                                            zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                                            c->token_pos++;
+                                            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                                dr->data_patch_offset = anon_offset + a_off;
+                                                dr->target_kind = 0;
+                                                dr->rodata_offset = ro_off;
+                                                dr->target_data_offset = 0;
+                                                dr->target_global_idx = -1;
+                                            }
+                                        } else if (clit_is_flt) {
+                                            double dv = zero_cc_eval_const_expr_float(c);
+                                            uint64_t bits = 0;
+                                            if (clit_elem_sz <= 4) { float fv = (float)dv; memcpy(&bits, &fv, 4); }
+                                            else { memcpy(&bits, &dv, 8); }
+                                            for (size_t b = 0; b < clit_elem_sz && a_off + b < clit_sz; b++) abuf[a_off + b] = (uint8_t)(bits >> (8 * b));
+                                        } else {
+                                            int64_t iv = zero_cc_eval_const_expr(c);
+                                            for (size_t b = 0; b < clit_elem_sz && a_off + b < clit_sz; b++) abuf[a_off + b] = (uint8_t)((uint64_t)iv >> (8 * b));
+                                        }
+                                        a_off += clit_elem_sz;
+                                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                                    }
+                                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+                                    if (abuf) {
+                                        zero_cc_buf_put_bytes(&c->data_section, abuf, clit_sz);
+                                        free(abuf);
+                                    }
+                                    int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+                                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                        dr->data_patch_offset = var_offset;
+                                        dr->target_kind = 1;
+                                        dr->target_data_offset = anon_offset;
+                                        dr->target_global_idx = anon_idx;
+                                    }
+                                }
+                            } else if (it == TK_STRING && !is_char_array) {
                                 /* Pointer to string: store rodata address via data reloc */
                                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;

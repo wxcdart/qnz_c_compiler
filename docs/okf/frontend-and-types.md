@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-23T05:10:12Z
+timestamp: 2026-10-23T20:13:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -154,6 +154,27 @@ ZeroCC supports C11 core language features and standard concurrency primitives v
   - `include/threads.h` maps C11 thread (`thrd_t`, `thrd_create`, `thrd_join`) and mutex (`mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, `mtx_destroy`) primitives to POSIX threads (`-lpthread`).
   - Global variables (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/ir/ir.c`) emit `ELF_STT_OBJECT` symbols in `.data` and support address-of (`&g`), scalar value loads, assignments, and increments (`g++`).
 
+## Declarator Stack & C Declarator State Machine
+
+ZeroCC employs a C-only declarator state machine in `src/zero_cc/parser/zero_cc_declarator_stack.h` (modeled on the C parsing path of Clang's `Declarator` / `DeclaratorChunk`, without C++ AST scaffolding or external dependencies):
+
+- **Data Structures**:
+  - `ZeroCCDeclaratorChunkKind`: `ZERO_CC_DECL_CHUNK_POINTER`, `ZERO_CC_DECL_CHUNK_ARRAY`, `ZERO_CC_DECL_CHUNK_FUNCTION`.
+  - `ZeroCCDeclaratorChunk`: encapsulates type qualifiers (`const`, `volatile`, `restrict`, `_Atomic`), pointer flags (`is_func_ptr`), array properties (`array_len`, `is_vla`, `is_static_array`, `dim_expr`), and function prototype properties (`param_list`, `param_count`, `param_tis`, `has_prototype`, `is_variadic`).
+  - `ZeroCCDeclaratorLevel`: separates prefix pointer modifiers and suffix modifiers (bracket dimensions, param lists) per parenthesized nesting level.
+  - `ZeroCCDeclarator`: maintains fixed-depth hierarchy (`levels[]`) and flattens into a linear stack (`stack[top]`) where type construction unwinds modifiers in exact inside-out precedence.
+- **Recursive Direct-Declarator Parsing (`zero_cc_parse_declarator`)**:
+  - Distinguishes parenthesized grouping declarators (e.g. `(*fp)(...)` or `(*f(...))[4]`) from function calls / abstract casts via lookahead.
+  - Automatically records `d->name_level` at the identifier token. A declarator defines or declares a function **if and only if** the modifier immediately binding to the identifier is a function chunk (`zero_cc_declarator_is_function(&decl)`). Complex nested cases like `int (*(*fp)(int))[4]` (variable of pointer-to-function returning pointer-to-array) are correctly recognized as variables, avoiding misclassification as function prototypes.
+  - `zero_cc_declarator_apply(&decl, base_type)` applies chunks from `top - 1` down to `0` to build complete composite types.
+  - `zero_cc_declarator_apply_return(&decl, base_type)` skips the primary function chunk to compute return types for function declarations (e.g. `int (*f(int))[4]` returns `int (*)[4]`).
+  - Supports abstract declarators in casts and `sizeof` (`int (*)(void)`, `int (*)[4]`, `int (*[3])(float)`).
+- **Validation**:
+  - Rejects invalid C combinations per C99 6.7.5.2 and 6.7.5.3 (array of functions, function returning an array or function, and multi-dimensional VLAs with dynamic inner dimensions).
+- **Integration**:
+  - Local block declarations in `src/zero_cc/parser/ast_stmt.h` use `zero_cc_parse_declarator`, unifying pointer prefixes, function pointer declarations, array dimensions, VLAs, and comma-separated multi-declarator statements (`int *m1, m_arr[5] = {10, 20}, *m2;`).
+  - Standalone regression test: `test/expr/declarator_stack.c` and `test/jit/declarator_stack.c`.
+
 ## Block-Scope `static` Locals (Sprint 37)
 
 Block-scope `static` locals (C99 6.9.2) are implemented as **data-section objects with a per-call stack mirror**:
@@ -163,6 +184,19 @@ Block-scope `static` locals (C99 6.9.2) are implemented as **data-section object
 - **Return-value protection**: the epilogue mirror-out runs *after* the return value is materialized in `VREG_0`, and its allocator temps may be mapped onto the return register. Therefore, when a function has ≥1 static local, an extra 8-byte frame slot (`lowering.static_local_rt_off`, reserved before the frame size is computed) saves/restores `VREG_0` around the mirror-out. FP results live in XMM registers, which the integer-only mirror-out cannot touch.
 - A function containing a static local always declares a local, so the inliner's local-decl filter already excludes it — no duplicated data objects across inlined copies are possible.
 - Regression guard: `test/inline_audit/10_static_local.c` (counter must read 100/101/102 across three calls). This test is **standalone**, so `opt_sweep.py` compiles it directly with zerocc at `-O0..-O3` in JIT and AOT; it failed at every `-O` level before Sprint 37 (statics were lowered as plain stack locals and re-initialized every call — the `TK_STATIC` specifier was silently discarded by the parser).
+
+## C Literal Expressions & Differential Verification (`tools/literal_verifier.py`)
+
+ZeroCC comprehensively validates C literal syntax and constant expression semantics against GCC via `tools/literal_verifier.py`:
+
+- **Integer Literals**: Decimal, octal (`077`), hexadecimal (`0x2A`), binary (`0b101010`), digit separators (`1'000'000`, `0xDE'AD'BE'EF`), and integer suffixes (`u/U`, `l/L`, `ll/LL`, `ull/ULL`).
+- **Floating-Point Literals**: Decimal (`1.25`, `.5`, `5.`), scientific notation (`1e3`, `2.5e-2`), hexadecimal float representations (`0x1.8p1`), and float suffixes (`f/F`, `l/L`). Suffix typing is propagated into `ZeroCCASTNode.aux.extra` and semantic `TypeInfo *` (`type_float` vs `type_double`), ensuring `sizeof(1.0f) == 4` and `sizeof(1.0) == 8`.
+- **Character Literals**: Single characters, standard escape sequences (`\n`, `\t`, `\r`, `\0`, `\\`, `\'`, `\"`), octal escapes (`\101`, `\077`), hex escapes (`\x41`), and multi-character constants (`'AB'`, `'ABCD'`, `'\n\t'`) accumulated as big-endian `int` values per C99/C11 6.4.4.4. Character constant evaluation in `sizeof('a')` evaluates to `sizeof(int) == 4`.
+- **String Literals**: Standard strings, escape sequences, adjacent concatenation (`"hello " "world"`), and array initialization (`char buf[] = "abc"`).
+- **Compound Literals (C99/C11 6.5.2.5)**:
+  - Block scope: `(int[]){10, 20, 30}`, `(struct Point){10, 20}` allocated in local stack frame via anonymous `__clit_%u` symbol.
+  - File scope: `static int *arr = (int[]){100, 200, 300};`, `static struct Point *pt = &(struct Point){10, 20};`, and direct struct init `static struct Point pt = (struct Point){30, 40};`. Evaluated into anonymous `.data` objects (`__clit_anon_%d`) with `R_X86_64_64` data relocations pointing to the anonymous data offset.
+- **Global Member Access Lowering**: Lowering of `p->member` on global pointer bases in `ast_lowering_expr.c` correctly emits pointer dereferences before applying member offsets.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

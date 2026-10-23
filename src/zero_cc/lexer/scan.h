@@ -40,7 +40,6 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
         case '\'': val = '\''; break;
         case '"': val = '"'; break;
         case '?': val = '?'; break;
-        case '0': val = '\0'; break;
         case 'e': case 'E': val = 0x1B; break; /* GNU escape: \e */
         case 'u': {
             /* \uXXXX */
@@ -108,9 +107,10 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
                 const char *p = *s;
                 while (digits < 3 && *p >= '0' && *p <= '7') {
                     oct = oct * 8 + (*p - '0');
-                    p++; digits++; (*offset)++;
+                    p++; digits++;
                 }
                 val = oct;
+                *offset += (digits - 1);
                 *s = p - 1;
             } else {
                 handled = 0;
@@ -140,20 +140,25 @@ static int zero_cc_scan_char(ZeroCCLexer *lx, ZeroCCToken *tok) {
     }
 
     int val = 0;
-    if (*s == '\\') {
-        s++; offset++; col++;
-        if (!*s) {
-            tok->type = TK_EOF;
-            return -1;
+    while (*s && *s != '\'' && *s != '\n') {
+        int ch = 0;
+        if (*s == '\\') {
+            s++; offset++; col++;
+            if (!*s) {
+                tok->type = TK_EOF;
+                return -1;
+            }
+            const char *esc_start = s;
+            if (!zero_cc_handle_escape(&s, &offset, NULL, &ch)) {
+                ch = (unsigned char)*s;
+            }
+            col += (s - esc_start);
+            s++; offset++; col++;
+        } else {
+            ch = (unsigned char)*s;
+            s++; offset++; col++;
         }
-        if (!zero_cc_handle_escape(&s, &offset, tok->str_val, &val)) {
-            /* Invalid escape, but we continue */
-            val = (unsigned char)*s;
-        }
-        s++; offset++; col++;
-    } else {
-        val = (unsigned char)*s;
-        s++; offset++; col++;
+        val = (val << 8) | (ch & 0xFF);
     }
 
     if (*s == '\'') {
@@ -163,7 +168,7 @@ static int zero_cc_scan_char(ZeroCCLexer *lx, ZeroCCToken *tok) {
     }
 
     tok->type = TK_CHAR_LIT;
-    tok->num_val = val;
+    tok->num_val = (int64_t)val;
     tok->len = s - start;
     tok->line = line;
     tok->col = col;
@@ -198,9 +203,11 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
                 s++; offset++; col++;
                 char esc = *s;
                 int char_val = 0;
+                const char *esc_start = s;
                 if (!zero_cc_handle_escape(&s, &offset, NULL, &char_val)) {
                     char_val = (unsigned char)esc;
                 }
+                col += (size_t)(s - esc_start);
                 esc_ch = (char)char_val;
                 s++; offset++; col++;
             } else {

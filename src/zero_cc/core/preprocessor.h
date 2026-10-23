@@ -1502,10 +1502,22 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     int prev_expanding = cpp->expanding_macro_index;
                     cpp->expanding_macro_index = (int)(m - cpp->macros);
                     while (*b) {
-                        /* Token pasting: ## */
+                        /* Token pasting: ## (C11 6.10.3.3): whitespace on
+                         * both sides of ## is discarded so the adjacent
+                         * argument texts form ONE pasted token
+                         * (`a ## b` with v,1 -> `v1`, not `v 1`). */
                         if (b[0] == '#' && b[1] == '#') {
-                            pending_paste = true;
+                            while (temp_buf.length > 0 &&
+                                   (temp_buf.data[temp_buf.length - 1] == ' ' ||
+                                    temp_buf.data[temp_buf.length - 1] == '\t')) {
+                                temp_buf.length--;
+                                temp_buf.data[temp_buf.length] = '\0';
+                            }
                             b += 2;
+                            while (*b == ' ' || *b == '\t') b++;
+                            paste_len = 0;
+                            paste_buf[0] = '\0';
+                            pending_paste = true;
                             continue;
                         }
 
@@ -1567,6 +1579,11 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             if (match >= 0 && match < arg_count) {
                                 if (pending_paste) {
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
+                                    /* Flush immediately: a second `##` in the
+                                     * same body must start a fresh paste. */
+                                    zero_cc_buf_puts(&temp_buf, paste_buf);
+                                    paste_len = 0;
+                                    paste_buf[0] = '\0';
                                     pending_paste = false;
                                 } else {
                                     zero_cc_buf_puts(&temp_buf, args[match]);
@@ -1574,6 +1591,9 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             } else {
                                 if (pending_paste) {
                                     paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", param_id);
+                                    zero_cc_buf_puts(&temp_buf, paste_buf);
+                                    paste_len = 0;
+                                    paste_buf[0] = '\0';
                                     pending_paste = false;
                                 } else {
                                     zero_cc_buf_puts(&temp_buf, param_id);
@@ -1587,19 +1607,23 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                    *b == 'u' || *b == 'U' || *b == 'l' || *b == 'L')) {
                                 paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
                             }
+                            zero_cc_buf_puts(&temp_buf, paste_buf);
+                            paste_len = 0;
+                            paste_buf[0] = '\0';
                             pending_paste = false;
                         } else if (pending_paste) {
                             /* Other char after ## - paste single char */
                             paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                            zero_cc_buf_puts(&temp_buf, paste_buf);
+                            paste_len = 0;
+                            paste_buf[0] = '\0';
                             pending_paste = false;
                         } else {
                             zero_cc_buf_putc(&temp_buf, *b++);
                         }
                     }
-                    /* Flush any remaining pasted token */
-                    if (paste_len > 0) {
-                        zero_cc_buf_puts(&temp_buf, paste_buf);
-                    }
+                    /* Any still-pending paste (## at end of body) has no
+                     * operand; the text is discarded (constraint violation). */
                     zero_cc_cpp_process_text(cpp, temp_buf.data, out);
                     zero_cc_buf_free(&temp_buf);
                     cpp->expanding_macro_index = prev_expanding;
