@@ -531,11 +531,15 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
     x86_emit_cqo(c);
     x86_emit_idiv(c, divisor);
 
-    /* Move result to dst before restoring */
-    if (dst != X86_RAX && dst != X86_RDX) {
-        x86_mov_rr(c, dst, want_rem ? X86_RDX : X86_RAX);
+    /* Result: quotient in rax (div) or remainder in rdx (mod).  Move it to
+     * dst unless dst already IS the result register — dst==rdx for a DIV
+     * holds the remainder, and dst==rax for a MOD holds the quotient, so
+     * those two cases still need the move (pre-fix bug: `8/4` with the
+     * result temp on rdx silently returned 8%4). */
+    int result_reg = want_rem ? X86_RDX : X86_RAX;
+    if (dst != result_reg) {
+        x86_mov_rr(c, dst, result_reg);
     }
-    /* If dst is rax or rdx, result is already there */
 
     if (save_rax) me_emit_u8(c, 0x58);  /* pop rax */
     if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */

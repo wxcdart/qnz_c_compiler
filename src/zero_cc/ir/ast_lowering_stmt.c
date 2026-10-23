@@ -521,6 +521,12 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     c->lowering.vla.loop_depth++;
 
     if (!node) return;
+    /* For-scope (C11 6.8.5): the init-declared loop variable is visible for
+     * the whole for statement (init/cond/step/body).  Cap name lookup at the
+     * symbol count recorded by the parser after the init, so a later sibling
+     * for redeclaring the same name doesn't shadow this loop's header. */
+    uint32_t saved_for_bound = c->local_lookup_bound;
+    if (node->aux.op != 0) c->local_lookup_bound = node->aux.op - 1;
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
     }
@@ -544,6 +550,7 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
 
+    c->local_lookup_bound = saved_for_bound;
     c->lowering.vla.loop_depth--;
 }
 
@@ -662,9 +669,19 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return;
     switch (node->tag) {
-        case NODE_BLOCK:
+        case NODE_BLOCK: {
+            /* Block scope (C11 6.2.1): cap local-name lookup at the symbol
+             * count recorded by the parser when this block was parsed
+             * (aux.step = local_count at the block's '}' + 1, so 0 means
+             * unannotated/unbounded).  Without this, a name redeclared in a
+             * later sibling block (latest-wins table) shadows this block's
+             * references and miscompiles them to the newer symbol's slot. */
+            uint32_t saved_bound = c->local_lookup_bound;
+            if (node->aux.step != 0) c->local_lookup_bound = node->aux.step - 1;
             lower_stmt_block(c, arena, node->left);
+            c->local_lookup_bound = saved_bound;
             break;
+        }
         case NODE_EXPR_STMT:
             lower_stmt_expr(c, arena, node);
             break;

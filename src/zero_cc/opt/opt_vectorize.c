@@ -114,6 +114,155 @@ static bool is_vec_arith(Instr *instr) {
 }
 
 /**
+ * Resolve a temp to a compile-time constant value.  The constant-fold map
+ * (ir_is_constant) is not guaranteed to cover every constant temp by the
+ * time the vectorizer runs (e.g. a shift amount materialized as MOV_IMM),
+ * so also fall back to finding the temp's MOV_IMM definition.
+ */
+static int resolve_const(int t, int *val_out) {
+    if (t == TEMP_NONE) return 0;
+    if (ir_is_constant(t)) { *val_out = ir_get_constant(t); return 1; }
+    int count = (int)ir_get_count();
+    for (int k = 0; k < count; k++) {
+        Instr *d = ir_get(k);
+        if (d && (int)d->temp_dest == t && d->op == OP_MOV_IMM) {
+            *val_out = d->imm;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * Classify a temp's definition (within the loop span [start, end]) with
+ * respect to the loop variable:
+ *   0  = loop-invariant (constant, or defined outside the span)
+ *   1  = the temp equals loop_var * S (S returned in *scale_out), with
+ *        exactly one use of the loop variable (via SHL/MUL/ADD chains)
+ *  <0  = not affine (multiple uses, non-constant scale, other ops)
+ *
+ * The auto-vectorizer widens the induction step (i += vec_width) and turns
+ * each scalar load/store into a 16-byte VLOAD/VSTORE at the SAME address;
+ * lane j of the widened load is exactly element i+j only when the access is
+ * affine with unit element stride:  addr == base + i*elem_size + const.
+ * Non-unit strides (v[2*i]) or invariant addresses (c[0] = a[i] + ...) would
+ * silently miscompile, so they must reject the loop.
+ */
+static int classify_addr_temp(int start, int end, int t, int loop_var,
+                              int counter_slot, int depth, int *scale_out) {
+    if (depth > 8) return -1;
+    *scale_out = 0;
+    if (t == TEMP_NONE) return -1;
+    if (t == loop_var) { *scale_out = 1; return 1; }
+    if (ir_is_constant(t)) return 0;
+
+    /* Single-def assumption: with no mid-body branches (enforced earlier)
+     * each temp is defined at most once inside the span.  A temp defined
+     * only outside the span is loop-invariant. */
+    int def_idx = -1;
+    for (int k = start; k <= end; k++) {
+        Instr *d = ir_get(k);
+        if (d && (int)d->temp_dest == t) { def_idx = k; break; }
+    }
+    if (def_idx < 0) return 0;
+
+    Instr *d = ir_get(def_idx);
+    int s1 = (int)d->temp_src1;
+    int s2 = (int)d->temp_src2;
+    int sc1 = 0, sc2 = 0;
+
+    switch (d->op) {
+        case OP_MOV_REG:  /* dest = s1 */
+            return classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
+        case OP_MOV:
+            /* A reload of the loop counter's own stack slot is the loop
+             * variable itself: the counter may live in a slot and be
+             * reloaded into a fresh temp at each use (the increment reads
+             * the same slot), so sibling reloads must classify as loop_var. */
+            if (counter_slot != 0x7fffffff && d->imm == counter_slot) {
+                *scale_out = 1;
+                return 1;
+            }
+            return 0;  /* other stack load: invariant */
+        case OP_MOV_IMM:
+        case OP_LEA:
+        case OP_LEA_RIP:
+            return 0;  /* immediate / effective address: invariant */
+        case OP_SHL:     /* dest = s1 << s2 */
+            {
+                int cval = 0;
+                if (!resolve_const(s2, &cval)) return -1;
+                if (cval < 0 || cval > 30) return -1;
+                int cls = classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
+                if (cls == 1) { *scale_out = sc1 << cval; return 1; }
+                if (cls == 0) return 0;
+                return -1;
+            }
+        case OP_MUL: {
+            int cs = -1;
+            int other = TEMP_NONE;
+            int cval = 0;
+            if (resolve_const(s1, &cval)) { cs = cval; other = s2; }
+            else if (resolve_const(s2, &cval)) { cs = cval; other = s1; }
+            if (cs < 0 || other == TEMP_NONE) return -1;
+            int cls = classify_addr_temp(start, end, other, loop_var, counter_slot, depth + 1, &sc1);
+            if (cls == 1) { *scale_out = sc1 * cs; return 1; }
+            if (cls == 0) return 0;
+            return -1;
+        }
+        case OP_ADD:
+        case OP_ADD_IMM: {
+            int cls1 = classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
+            if (s2 == TEMP_NONE) {          /* dest = s1 + imm */
+                if (cls1 == 1) { *scale_out = sc1; return 1; }
+                if (cls1 == 0) return 0;
+                return -1;
+            }
+            int cls2 = classify_addr_temp(start, end, s2, loop_var, counter_slot, depth + 1, &sc2);
+            if (cls1 == 1 && cls2 == 0) { *scale_out = sc1; return 1; }
+            if (cls2 == 1 && cls1 == 0) { *scale_out = sc2; return 1; }
+            return -1;
+        }
+        default:
+            return -1;
+    }
+}
+
+/**
+ * True when the store value `t` is a pure element-wise arithmetic chain
+ * (ADD/SUB/MUL, float or double, plus FDIV) built only from the loop's own
+ * array loads.  The vectorizer's "skip unmapped ops" behavior is unsound for
+ * quartered loops: any scalar side effect (CMP, COND_SET, integer DIV/MOD,
+ * shift, invariant value) would run 1/vec_width times while the widened
+ * loads/stores run once per vec_width elements - silent miscompilation.
+ */
+static bool value_is_vec_chain(int start, int end, int t, int depth) {
+    if (depth > 24) return false;
+    if (t == TEMP_NONE) return false;
+
+    int def_idx = -1;
+    for (int k = start; k <= end; k++) {
+        Instr *d = ir_get(k);
+        if (d && (int)d->temp_dest == t) { def_idx = k; break; }
+    }
+    if (def_idx < 0) return false;  /* invariant value: store must stay scalar
+                                       per element - not vectorizable */
+
+    Instr *d = ir_get(def_idx);
+    bool is_load = (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
+                    d->op == OP_VLOADSS || d->op == OP_VLOADSD);
+    if (is_load) return true;  /* base of the chain: a loop array load */
+
+    bool arith = (d->op == OP_ADD || d->op == OP_SUB || d->op == OP_MUL ||
+                  d->op == OP_FADD || d->op == OP_FSUB || d->op == OP_FMUL ||
+                  d->op == OP_FDIV);
+    if (!arith) return false;
+
+    return value_is_vec_chain(start, end, (int)d->temp_src1, depth + 1) &&
+           value_is_vec_chain(start, end, (int)d->temp_src2, depth + 1);
+}
+
+/**
  * Analyze a single loop for vectorization opportunities
  */
 static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, LoopInfo *loop) {
@@ -134,6 +283,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     bool has_fp = false;
     bool has_call = false;   /* C11: calls/returns in the body make it non-vectorizable */
     bool has_mid_body_cond = false;  /* Vectorizer hardening: conditional branches inside the loop body (not the backedge) make it non-vectorizable */
+    bool has_int_divmod = false;  /* Vectorizer hardening: integer DIV/MOD has no SIMD mapping; the scalar op would run 1/vec_width times on quartered loops */
 
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
@@ -174,6 +324,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         }
         if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
             has_fp = true;
+        }
+        if (instr->op == OP_DIV || instr->op == OP_MOD) {
+            has_int_divmod = true;
         }
         if (is_vec_arith(instr)) {
             arith_count++;
@@ -313,7 +466,67 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      * - No function calls or complex side effects (C11: actually enforced via has_call)
      * - No mid-body conditional branches (vectorizer hardening)
      */
-    if (!has_call && !has_mid_body_cond && bound_ok && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
+    if (!has_call && !has_mid_body_cond && !has_int_divmod && bound_ok && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
+        /* Vectorizer hardening: the transform quarters the iteration count
+         * (i += 1 -> i += vec_width) and widens every scalar access at the
+         * SAME address to a 16-byte VLOAD/VSTORE.  That is sound only when:
+         *   (a) every array access is affine with unit element stride:
+         *       addr == base + i*elem_size + const   (lane j == element i+j)
+         *       Non-unit strides (v[2*i]) or invariant addresses (c[0] = a[i] +...)
+         *       would silently miscompile.
+         *   (b) every stored value is a pure element-wise arithmetic chain
+         *       over the loop's own loads - anything else (CMP, COND_SET,
+         *       integer DIV/MOD, shifts, invariant values) is "skipped" by
+         *       the transform and would run 1/vec_width times on quartered
+         *       loops, silently miscompiling.
+         */
+        int elem_size = has_double ? 8 : 4;
+        /* If the loop counter lives in a stack slot (reloaded into a fresh
+         * temp at each use rather than held in one register), record the
+         * slot so classify_addr_temp recognizes sibling reloads.  The
+         * increment reads the counter from that slot. */
+        int counter_slot = 0x7fffffff;
+        {
+            for (int k2 = loop->header_idx; k2 <= loop->exit_idx; k2++) {
+                Instr *x = ir_get(k2);
+                if (x && (int)x->temp_dest == loop_var && x->op == OP_MOV) {
+                    counter_slot = x->imm;
+                    break;
+                }
+            }
+        }
+        bool strides_ok = true;
+        bool chains_ok = true;
+        for (int i = loop->header_idx; i <= loop->exit_idx && (strides_ok || chains_ok); i++) {
+            Instr *a = ir_get(i);
+            if (!a) continue;
+            bool is_load = (a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
+                            a->op == OP_VLOADSS || a->op == OP_VLOADSD);
+            bool is_store32 = (a->op == OP_STORE_32);
+            bool is_storef = (a->op == OP_FSTORE || a->op == OP_VSTORESS || a->op == OP_VSTORESD);
+            if (!is_load && !is_store32 && !is_storef) continue;
+            /* Operand layout differs by store class:
+             *   OP_STORE_32:  src1 = value, src2 = address
+             *   FSTORE/...:   src1 = address, src2 = value */
+            int addr = is_store32 ? (int)a->temp_src2
+                       : is_storef ? (int)a->temp_src1
+                       : (int)a->temp_src1;           /* loads: src1 = address */
+            int val  = is_store32 ? (int)a->temp_src1 : (int)a->temp_src2;
+            int scale = 0;
+            int cls = classify_addr_temp(loop->header_idx, loop->exit_idx,
+                                         addr, loop_var, counter_slot, 0, &scale);
+            if (cls != 1 || scale != elem_size) {
+                strides_ok = false;
+                continue;
+            }
+            if ((is_store32 || is_storef) &&
+                !value_is_vec_chain(loop->header_idx, loop->exit_idx, val, 0)) {
+                chains_ok = false;
+            }
+        }
+        if (!strides_ok || !chains_ok) {
+            return;  /* loop stays scalar: correct, just not vectorized */
+        }
         vinfo->is_vectorizable = true;
         vinfo->is_double = has_double;
         vinfo->is_int32 = !has_fp && !has_double;
@@ -478,10 +691,14 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
 
-    /* Guard: Only vectorize if loop has scalar increment (i += 1) */
-    bool found_scalar_increment = false;
-    int loop_var_temp = -1;
-    for (int i = start_idx; i <= end_idx; i++) {
+    /* Guard: Only vectorize if loop has scalar increment (i += 1).
+     * Prefer the loop variable validated by the analysis (the LAST
+     * ADD-of-1 in the body): an independent scan here could disagree with
+     * the analysis on multi-counter loops and rewrite the wrong induction
+     * step, so vinfo->loop_var_temp is authoritative when available. */
+    bool found_scalar_increment = (vinfo->loop_var_temp != TEMP_NONE);
+    int loop_var_temp = (vinfo->loop_var_temp != TEMP_NONE) ? vinfo->loop_var_temp : -1;
+    for (int i = start_idx; i <= end_idx && loop_var_temp < 0; i++) {
         Instr *instr = ir_get(i);
         if (!instr) continue;
         if (instr->op == OP_ADD) {

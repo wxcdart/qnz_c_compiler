@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-23T04:25:11Z
+timestamp: 2026-10-23T05:10:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -365,3 +365,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-23 — Updated `index.md`
 - Add Zero_RT concept page
+
+## 2026-10-23 — Updated `optimization-passes.md`
+- Sprint 42: auto-vectorizer unit-stride & value-chain hardening (classify_addr_temp, value_is_vec_chain, has_int_divmod, resolve_const, loop_var_temp reuse) - fixes -O3 miscompiles on v[2*i] and integer div/mod loops
+
+## 2026-10-23 — Updated `frontend-and-types.md`
+- Sprint 43: char-array string-init truncation diagnostic (local/static-local/file-scope) + static-local copy clamp + diag_report_warning va_list-UB fix

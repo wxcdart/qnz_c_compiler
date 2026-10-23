@@ -357,8 +357,13 @@ void diag_report_warning_at_token(ZeroCCCompiler *c, const char *fmt, ...) {
     }
     va_list ap;
     va_start(ap, fmt);
-    diag_report_warning_file(&c->diag_buf, file, line, col, NULL, fmt, ap);
+    /* Format first, then pass a plain string: forwarding a va_list by value
+     * to another variadic function (as before) is undefined behavior and
+     * corrupted %s arguments on x86-64. */
+    char tmp_buf[256];
+    vsnprintf(tmp_buf, sizeof(tmp_buf), fmt, ap);
     va_end(ap);
+    diag_report_warning_file(&c->diag_buf, file, line, col, NULL, "%s", tmp_buf);
 }
 
 /** Check if a warning is disabled by #pragma GCC diagnostic. */
@@ -392,8 +397,10 @@ void diag_report_warning_named(ZeroCCCompiler *c, uint32_t line, uint32_t col,
     }
     va_list ap;
     va_start(ap, fmt);
-    diag_report_warning_file(&c->diag_buf, file, ln, cl, macro_ctx, fmt, ap);
+    char tmp_buf[256];
+    vsnprintf(tmp_buf, sizeof(tmp_buf), fmt, ap);
     va_end(ap);
+    diag_report_warning_file(&c->diag_buf, file, ln, cl, macro_ctx, "%s", tmp_buf);
 }
 
 /** Report a warning diagnostic at the compiler's current token position with warning name. */
@@ -413,8 +420,10 @@ void diag_report_warning_at_token_named(ZeroCCCompiler *c, const char *warn_name
     }
     va_list ap;
     va_start(ap, fmt);
-    diag_report_warning_file(&c->diag_buf, file, line, col, NULL, fmt, ap);
+    char tmp_buf[256];
+    vsnprintf(tmp_buf, sizeof(tmp_buf), fmt, ap);
     va_end(ap);
+    diag_report_warning_file(&c->diag_buf, file, line, col, NULL, "%s", tmp_buf);
 }
 
 /* ---------------- "did you mean" support ---------------- */

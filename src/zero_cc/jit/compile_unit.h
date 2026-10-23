@@ -701,6 +701,14 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                                 c->token_pos++;
                                 size_t sl = strlen(sv);
+                                /* C11 6.7.9p13: a fixed-size char array smaller than the
+                                 * string is truncated (excess chars + the NUL) - warn
+                                 * like GCC's "initializer-string ... is too long". */
+                                if (!array_unsized && sl + 1 > size) {
+                                    diag_report_warning_at_token(c,
+                                        "initializer-string for array of %s is too long",
+                                        gtype.tag == TYPE_UINT8 ? "unsigned char" : "char");
+                                }
                                 size_t total = size;
                                 if (array_len == 1 && sl + 1 > size) total = sl + 1;
                                 size_t copy = sl < total ? sl : total;

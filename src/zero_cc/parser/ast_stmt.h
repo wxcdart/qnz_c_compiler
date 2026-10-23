@@ -148,20 +148,34 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         c->token_pos++;
         const char *s = c->tokens[c->token_pos - 1].allocated_str ? c->tokens[c->token_pos - 1].allocated_str : c->tokens[c->token_pos - 1].str_val;
         size_t len = strlen(s) + 1; /* include null terminator */
+        /* C11 6.7.9p13: a fixed-size array smaller than the string is
+         * truncated (excess chars AND the NUL are dropped).  Clamp the copy
+         * to the array's capacity so a fixed-size array never overruns into
+         * the neighbouring static, and warn like GCC's
+         * "initializer-string for array of 'char' is too long". */
+        size_t esz = (sym->type.base->size > 0) ? sym->type.base->size : 1;
+        size_t capacity = (sym->type.array_len > 0) ? sym->type.array_len * esz : len;
+        if (len > capacity) {
+            diag_report_warning_at_token(c,
+                "initializer-string for array of %s is too long",
+                sym->type.base->tag == TYPE_UINT8 ? "unsigned char" : "char");
+        }
+        size_t copy_len = (len < capacity) ? len : capacity;
         /* Ensure data section has enough capacity */
-        size_t max_write = sym->static_data_offset + len;
+        size_t max_write = sym->static_data_offset + copy_len;
         if (c->data_section.length < max_write) {
             zero_cc_buf_ensure(&c->data_section, max_write - c->data_section.length);
         }
         uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
-        memcpy(dst, s, len);
+        memset(dst, 0, capacity);  /* zero-fill the whole object (C11 6.7.9) */
+        memcpy(dst, s, copy_len);
         /* If array was unsized, update the type size and array_len */
         if (sym->type.array_len == 0) {
             sym->type.array_len = len;
             sym->type.size = len;
         }
         /* Update data section length */
-        size_t written_end = sym->static_data_offset + len;
+        size_t written_end = sym->static_data_offset + capacity;
         if (c->data_section.length < written_end) {
             c->data_section.length = written_end;
         }
@@ -509,7 +523,15 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             diag_report_error_at_token(c, "expected '}' to end block");
         }
         bn = zero_cc_ast_get(arena, block_ref);
-        if (bn) bn->left = head;
+        if (bn) {
+            bn->left = head;
+            /* Block-scope metadata for the lowering pass (C11 6.2.1):
+             * local_count at the block's closing brace, stored as +1 so 0
+             * means "unannotated".  The lowering caps name lookup at
+             * (aux.step - 1), so a name redeclared in a LATER sibling block
+             * (index >= bound) does not shadow this block's references. */
+            bn->aux.step = (uint32_t)(c->local_count + 1);
+        }
         return block_ref;
     }
 
@@ -647,6 +669,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             init_stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
             c->token_pos++;
+        }
+
+        /* For-scope metadata (C11 6.8.5): the loop variable declared in the
+         * init (e.g. `for (int i = 0; ...)`) is visible for the whole for
+         * statement (init/cond/step/body) but not after it.  Record the
+         * symbol count right after the init so the lowering can cap name
+         * lookup for the entire for: a LATER sibling for redeclaring the
+         * same name must not shadow this loop's header (aux.op = count+1,
+         * 0 = no init declaration). */
+        {
+            ZeroCCASTNode *fn_now = zero_cc_ast_get(arena, for_ref);
+            if (fn_now) fn_now->aux.op = (uint32_t)(c->local_count + 1);
         }
 
         /* 2. Cond */
@@ -1486,6 +1520,24 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                    c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
                         }
                     } else {
+                    /* C11 6.7.9p13: a whole-string initializer for a
+                     * fixed-size char array that is too short is truncated
+                     * (the excess characters AND the terminating NUL are
+                     * dropped).  Warn like GCC's
+                     * "initializer-string for array of 'char' is too long". */
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING &&
+                        decl_type.tag == TYPE_ARRAY && decl_type.array_len > 0 && decl_type.base &&
+                        (decl_type.base->tag == TYPE_INT8 || decl_type.base->tag == TYPE_UINT8)) {
+                        const char *sinit = c->tokens[c->token_pos].allocated_str ?
+                            c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                        size_t need = strlen(sinit) + 1;  /* string + implicit NUL */
+                        size_t esz  = (decl_type.base->size > 0) ? decl_type.base->size : 1;
+                        if (need > decl_type.array_len * esz) {
+                            diag_report_warning_at_token(c,
+                                "initializer-string for array of %s is too long",
+                                decl_type.base->tag == TYPE_UINT8 ? "unsigned char" : "char");
+                        }
+                    }
                     ASTRef init_val = AST_NULL;
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                         /* Brace-enclosed / designated initializer: struct Point p = { .x = 10 }; */

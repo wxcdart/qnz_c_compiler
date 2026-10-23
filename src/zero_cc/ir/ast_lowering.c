@@ -86,6 +86,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
 
+    /* Block scope starts unbounded at the function top level */
+    c->local_lookup_bound = 0;
+
     /* Initialize VLA state */
     c->lowering.vla.has_runtime_vla = false;
     c->lowering.vla.vla_count = 0;

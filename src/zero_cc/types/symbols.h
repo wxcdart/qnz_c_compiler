@@ -32,6 +32,12 @@ typedef struct ZeroCCCompiler {
     int32_t *local_hash_buckets;
     size_t   local_hash_bucket_count;
     int32_t *local_hash_next;
+    /* Block scope (C11 6.2.1): when lowering a NODE_BLOCK, local lookup is
+     * capped at this many local symbols (visible indices 0..bound-1).
+     * Symbols at index >= bound were declared in a LATER sibling block and
+     * must not shadow references in the current block. 0 = unbounded.
+     * Set from NODE_BLOCK->aux.step (parse-time local_count + 1). */
+    uint32_t local_lookup_bound;
     int32_t current_stack_frame;
     size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
 
