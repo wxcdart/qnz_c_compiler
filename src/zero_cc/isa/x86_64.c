@@ -1457,6 +1457,48 @@ static void x86_emit_mfence(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xF0);
 }
 
+/* OS syscall (SysV AMD64): eax = number, rdi/rsi/rdx/r10/r8/r9 = args 1-6.
+ * The result is left in rax (VREG_0). Argument temps are resolved first
+ * (a spilled argument is reloaded into scratch_reg2 = r11, a non-syscall
+ * register that the syscall itself clobbers, so any value the allocator
+ * placed there is already spilled across this instruction), then moved into
+ * the syscall registers with a push/pop parallel move - an argument temp may
+ * share a register with ANOTHER argument's syscall slot (e.g. the count in
+ * rax while the number also targets rax), so naive sequential movs clobber
+ * live argument values. The syscall instruction zero-extends eax on entry,
+ * so a plain 64-bit move of the number is correct. */
+static void x86_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
+    /* syscall register per argument slot: [number, a1, a2, a3, a4, a5, a6] */
+    static const int sysv_syscall_regs[7] = {0, 7, 6, 2, 10, 8, 9}; /* rax rdi rsi rdx r10 r8 r9 */
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int src_regs[8] = {0};
+    /* Pass 1: resolve every source (spill reloads interleaved), push the
+     * ones that still need a move. */
+    for (int a = 0; a < arg_count && a < 7; a++) {
+        int temp = arg_temps[a];
+        int src_reg;
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -off);
+            src_reg = BE(c)->scratch_reg2;
+        } else {
+            src_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+        }
+        src_regs[a] = src_reg;
+        if (src_reg != sysv_syscall_regs[a] && BE(c)->emit_push_reg) {
+            BE(c)->emit_push_reg(c, src_reg);
+        }
+    }
+    /* Pass 2: pop into the syscall registers (reverse order - LIFO). */
+    for (int a = (arg_count < 7) ? arg_count - 1 : 6; a >= 0; a--) {
+        if (src_regs[a] == sysv_syscall_regs[a]) continue;
+        if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, sysv_syscall_regs[a]);
+    }
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x05); /* syscall */
+}
+
 /* cmp src_reg, 0 */
 static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
     x86_alu(c, 0x85, src_reg, src_reg);  /* test src_reg, src_reg */
@@ -1730,6 +1772,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_atomic_cmpxchg_bool = x86_emit_atomic_cmpxchg_bool,
     .emit_atomic_xchg = x86_emit_atomic_xchg,
     .emit_mfence = x86_emit_mfence,
+    .emit_syscall = x86_emit_syscall,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,

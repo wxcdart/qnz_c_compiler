@@ -177,7 +177,8 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
                 } else if (strncmp(ident_name, "__builtin_", 10) == 0 ||
                            strncmp(ident_name, "__sync_", 7) == 0 ||
-                           strncmp(ident_name, "__atomic_", 9) == 0) {
+                           strncmp(ident_name, "__atomic_", 9) == 0 ||
+                           strncmp(ident_name, "__zerocc_", 9) == 0) {
                     res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
                 } else {
                     /* "did you mean" against every visible symbol in the

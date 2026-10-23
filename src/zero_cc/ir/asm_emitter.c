@@ -520,6 +520,29 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_SYSCALL: {
+            /* OS syscall intrinsic - same argument packing as OP_CALL. */
+            const IRCallArgs *syscall_args = ir_call_args_find(idx);
+            if (BE(c)->emit_syscall_asm) {
+                if (syscall_args) {
+                    int unpacked_temps[IR_CALL_MAX_ARGS];
+                    int n = 0;
+                    for (int i = 0; i < syscall_args->count && n < 7; i++) {
+                        if (syscall_args->is_fp[i] != 0) continue;
+                        unpacked_temps[n++] = (int)syscall_args->temps[i];
+                    }
+                    BE(c)->emit_syscall_asm(c, n, unpacked_temps, out);
+                } else if (instr->temp_dest > 0) {
+                    int fallback[2] = {(int)instr->temp_src1, (int)instr->temp_src2};
+                    int n = (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) ? 2 : 1;
+                    BE(c)->emit_syscall_asm(c, n, fallback, out);
+                }
+            } else {
+                fprintf(out, "\t# SYSCALL (unsupported on this target)\n");
+            }
+            return;
+        }
+
         case OP_RET:
             if (BE(c)->emit_ret_asm) {
                 BE(c)->emit_ret_asm(c, out);

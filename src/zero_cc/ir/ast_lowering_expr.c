@@ -2617,6 +2617,36 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             if (callee && callee->tag == NODE_IDENT) {
                 const char *name = callee->s.str;
 
+                /* Intercept __zerocc_syscall (zero_rt OS boundary):
+                 * __zerocc_syscall(number, a, b, c, d, e, f) - 1..7 integer
+                 * arguments, returns the kernel result. Lowers to OP_SYSCALL;
+                 * the backend moves the arguments into the target's syscall
+                 * argument registers and issues the instruction. The result
+                 * is in VREG_0 (the ABI return register). */
+                if (strcmp(name, "__zerocc_syscall") == 0) {
+                    int sys_arg_temps[8] = {0};
+                    int sys_arg_count = 0;
+                    ASTRef sys_arg = node->right;
+                    while (sys_arg != AST_NULL && sys_arg_count < 8) {
+                        sys_arg_temps[sys_arg_count++] = (int)lower_expr(c, arena, sys_arg);
+                        ZeroCCASTNode *an = zero_cc_ast_get(arena, sys_arg);
+                        sys_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                    }
+                    if (sys_arg_count == 0) {
+                        diag_report_error_at_token(c,
+                            "__zerocc_syscall requires a syscall number argument");
+                        return VREG_0;
+                    }
+                    if (sys_arg_count > 7) {
+                        diag_report_error_at_token(c,
+                            "__zerocc_syscall takes at most 7 arguments (number + 6 operands)");
+                        return VREG_0;
+                    }
+                    ir_emit_syscall(sys_arg_count, sys_arg_temps);
+                    c->last_expr_is_float = 0;
+                    return VREG_0;
+                }
+
                 /* Intercept atomic builtins */
                 if (strcmp(name, "__sync_fetch_and_add") == 0 || strcmp(name, "__atomic_fetch_add") == 0) {
                     ASTRef arg0 = node->right;

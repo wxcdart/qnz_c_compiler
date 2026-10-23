@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-23T01:03:56Z
+timestamp: 2026-10-23T01:58:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -347,3 +347,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-23 — Updated `own-linker.md`
 - cross-TU pointer-init limitation closed (see multi-tu.md)
+
+## 2026-10-23 — Updated `ir-and-regalloc.md`
+- OP_SYSCALL: __zerocc_syscall OS-boundary builtin (Phase 0 prerequisite) - OP_CALL arg packing, call-position clobber semantics, parallel-move invariant, x86-64 only

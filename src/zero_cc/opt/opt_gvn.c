@@ -251,7 +251,8 @@ static void opt_restrict_memory_forward(void) {
             /* Block boundaries / unknown memory effects: forget everything */
             case OP_LABEL: case OP_JMP: case OP_JMP_LABEL: case OP_JE: case OP_JNE:
             case OP_JL: case OP_JLE: case OP_JG: case OP_JCOND:
-            case OP_CALL: case OP_CALL_INDIRECT: case OP_RET: case OP_EPILOGUE:
+            case OP_CALL: case OP_CALL_INDIRECT: case OP_SYSCALL:
+            case OP_RET: case OP_EPILOGUE:
             case OP_VLA_ALLOC: case OP_PUSH: case OP_POP:
             case OP_PARAM_SAVE_INT: case OP_PARAM_SAVE_FP: case OP_VARIADIC_SPILL:
             case OP_CALLEE_SAVE_STORES: case OP_CALLEE_SAVE_LOADS:

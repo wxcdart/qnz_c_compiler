@@ -125,6 +125,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_param_save_int_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
     void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
     void (*emit_variadic_spill_asm)(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out);
+    /* Like emit_call_asm: arg_temps are temp ids (number first), resolved
+     * against the register allocation by the backend. */
+    void (*emit_syscall_asm)(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out);
 
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
@@ -241,6 +244,13 @@ typedef struct ZeroCCISABackend {
     void (*emit_atomic_cmpxchg_bool)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width);
     void (*emit_atomic_xchg)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width);
     void (*emit_mfence)(ZeroCCCompiler *c);
+    /* OS syscall (OP_SYSCALL / __zerocc_syscall): arg_count temps (syscall
+     * number first, then up to 6 operands) are resolved and moved into the
+     * target's syscall argument registers one at a time, then the syscall
+     * instruction is issued. The result is left in the ABI return register
+     * (VREG_0). NULL on targets without syscall support yet (the dispatcher
+     * reports a compile error). */
+    void (*emit_syscall)(ZeroCCCompiler *c, int arg_count, const int *arg_temps);
     void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
     void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);

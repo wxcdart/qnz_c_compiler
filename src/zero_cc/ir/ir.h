@@ -126,6 +126,13 @@ typedef enum {
     OP_ATOMIC_CMPXCHG_BOOL, /* atomic compare and exchange (returns success) */
     OP_ATOMIC_XCHG,         /* atomic exchange */
     OP_MFENCE,              /* memory fence (serialization) */
+    OP_SYSCALL,             /* OS syscall intrinsic (zero_rt OS boundary).
+                             * Arguments (number + up to 6 operands) are packed
+                             * like OP_CALL: temp_dest = arg_count, full list in
+                             * the IRCallArgs side table. The backend moves them
+                             * into the target's syscall argument registers and
+                             * issues the syscall instruction; the result is in
+                             * VREG_0 (rax). Clobbers like a call. */
     /* SIMD/Vector operations (32) */
     OP_VADDSS,     /* scalar single-precision add */
     OP_VSUBSS,     /* scalar single-precision sub */
@@ -281,6 +288,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VLA_ALLOC: return "VLA_ALLOC";
         case OP_ATOMIC_XADD: return "ATOMIC_XADD";
         case OP_ATOMIC_CMPXCHG: return "ATOMIC_CMPXCHG";
+        case OP_SYSCALL: return "SYSCALL";
         case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
         case OP_ATOMIC_XCHG: return "ATOMIC_XCHG";
         case OP_MFENCE: return "MFENCE";
@@ -524,6 +532,19 @@ static inline void ir_emit_variadic_spill(int param_count, int32_t base_offset) 
 /* Emit function call - fn_name stored in imm64 as pointer during lowering */
 static inline void ir_emit_call(const char *fn_name) {
     ir_emit((Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+}
+
+/* Emit the OS syscall intrinsic. Argument temps (syscall number first, then
+ * up to 6 operands) are packed exactly like OP_CALL: count in temp_dest,
+ * first two in temp_src1/src2, the full list in the IRCallArgs side table.
+ * The result is in VREG_0 (the ABI return register). */
+static inline void ir_emit_syscall(int arg_count, const int *arg_temps) {
+    ir_emit((Instr){.op = OP_SYSCALL,
+                    .temp_dest = (uint16_t)arg_count,
+                    .temp_src1 = (arg_count > 0) ? (uint16_t)arg_temps[0] : TEMP_NONE,
+                    .temp_src2 = (arg_count > 1) ? (uint16_t)arg_temps[1] : TEMP_NONE,
+                    .imm = 0, .imm64 = 0, .label_idx = 0});
+    ir_call_args_record(ir_get_count() - 1, arg_count, arg_temps, NULL);
 }
 
 /* Float to int conversion (cvttsd2si) */

@@ -119,7 +119,8 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
         }
         if (strncmp(name, "__builtin_", 10) == 0 ||
             strncmp(name, "__sync_", 7) == 0 ||
-            strncmp(name, "__atomic_", 9) == 0) {
+            strncmp(name, "__atomic_", 9) == 0 ||
+            strncmp(name, "__zerocc_", 9) == 0) {
             TypeInfo *res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
             expr_node_set_type(ctx, node, res);
             return res;

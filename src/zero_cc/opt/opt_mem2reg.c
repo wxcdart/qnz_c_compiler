@@ -69,9 +69,10 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_EPILOGUE:
             return 1;
 
-        /* Function calls may read/modify memory */
+        /* Function calls / syscalls may read/modify memory */
         case OP_CALL:
         case OP_CALL_INDIRECT:
+        case OP_SYSCALL:
             return 1;
 
         /* Unconditional control flow leaves the basic block */
@@ -205,6 +206,7 @@ static void opt_promote_loop_carried(void) {
             Instr *loop_ins = ir_get(k);
             if (!loop_ins) continue;
             if (loop_ins->op == OP_CALL || loop_ins->op == OP_CALL_INDIRECT ||
+                loop_ins->op == OP_SYSCALL ||
                 loop_ins->op == OP_VLA_ALLOC || loop_ins->op == OP_STORE_BYTE ||
                 loop_ins->op == OP_STORE_16 ||
                 loop_ins->op == OP_STORE_32 ||

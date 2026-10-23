@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - `__zerocc_syscall` OS-Boundary Builtin (zero_rt Phase 0 prerequisite)
+
+Lands the one compiler-side gap zero_rt Phase 0 needs: ZeroCC has no inline asm, and the only `syscall` in the codebase was the linker's generated `_start` stub. The runtime's OS layer (`write`/`exit`/`brk`) must issue syscalls from C, so:
+
+- **New `OP_SYSCALL` IR op** (`ir.h`): arguments packed exactly like `OP_CALL` (`temp_dest` = count, full list in the `IRCallArgs` side table); the result is `VREG_0` (the kernel leaves it in `rax`).
+- **Frontend**: `__zerocc_` names join the `__builtin_*`/`__sync_*`/`__atomic_*` semantic whitelist (variadic, unprototyped); `ast_lowering_expr.c` intercepts `__zerocc_syscall` in `NODE_CALL` (same mechanism as the atomics) with arg-count enforcement (1–7; 0 or 8+ is a compile error).
+- **x86-64 backend** (`x86_64.c`): SysV syscall map `eax`=number, `rdi`/`rsi`/`rdx`/`r10`/`r8`/`r9`=args 1–6 (`r10`, not `rdx`, for the 4th — different from the call ABI). Arguments are moved with a **push/pop parallel move**: a live bug from the first cut showed an argument temp sharing a register with another argument's syscall slot (count in `rax` while the number also targets `rax`) silently clobbers under sequential `mov`s. Spilled args reload into `scratch_reg2` (`%r11` — reserved, and clobbered by the syscall itself).
+- **Clobber/optimizer plumbing**: `live_range.h` records `OP_SYSCALL` as a call position (its clobber set is a subset of a call's, so `spans_call` restrictions cover it); DCE (keep/side-effects/liveness/call-args remap), GVN `mf_reset`, mem2reg (block-exit + loop safety), and LICM `loop_has_call` all treat it like a call. The `-S` text path emits the same push/pop/`syscall` sequence.
+- **Non-x86**: clean compile error ("x86-64 only for now") instead of silent no-op — the dispatcher checks the backend slot.
+
+Tests: `test/jit/syscall_builtin_test.c` (in-process: raw `write` + 6-arg `brk` + both arg-count error cases) and `test/aot/syscall_test.c` (dual `__zerocc__`/gcc path, swept at `-O0..-O3` JIT+AOT by `make test-opt`). Verified on all four emission paths (JIT, AOT + system link, AOT + `--zerocc-link`, `ZC_TEXT_AOT`). Gates: test 148/148, test-opt 109/109, asan 148/148, asan-semantic 16/16, test-isa-qemu 44/44, driver 21/21, linker 15/15, diag 8/8, sret 6/6, style 0 errors.
+
 ## [Sprint 43] - 2026-10-23 - Cross-TU `int *p = &x;` Initializers: Kind-2 By-Name Data Reloc
 
 Closed the one remaining T1/T2 limitation: a global pointer initialized to the address of a global **defined in another translation unit** (`int *p = &x;`) previously stored `0` — the initializer lookup only covered same-TU globals, and externs live in the function table, not the global registry. All three execution paths now produce the correct address:

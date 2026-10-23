@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-20T22:06:45Z
+timestamp: 2026-10-23T01:58:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 127 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, scalar FP, and 128-bit SIMD vector ops).
+- `op` (`Opcode`): One of 128 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP, and 128-bit SIMD vector ops).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
@@ -43,6 +43,16 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
   - `1`: Floating-point argument (assigned sequentially to ABI FP registers).
   - `2`: **Indirect callee function pointer** (used when `OP_CALL` has `fn_name == NULL`; passed to the backend so the target address is saved into scratch register `%r11` before argument registers are overwritten).
 - **Important Invariant**: Any optimization pass that inserts, removes, or rebuilds `c->ir_arena` (such as `opt_loop.c`) **must** remap `instr_index` entries in `c->ir_call_args` so call sites stay synchronized with their `IRCallArgs` entry.
+
+## OS Syscall Intrinsic (`OP_SYSCALL`, Sprint 43)
+
+`__zerocc_syscall(number, a, b, c, d, e, f)` is the zero_rt Phase 0 OS boundary: a C-visible builtin (name whitelisted alongside `__builtin_*` in the semantic layer, `long` return) that lowers to `OP_SYSCALL` in `ast_lowering_expr.c`'s `NODE_CALL` interception (same mechanism as the `__atomic_*` builtins).
+
+- **Argument packing**: identical to `OP_CALL` — `temp_dest` = arg count (1–7, enforced at lowering), first two temps in `temp_src1`/`temp_src2`, the full list in the `IRCallArgs` side table. The result is `VREG_0` (the ABI return register: `syscall` leaves it in `rax`), so no extra materialize move is needed.
+- **Clobber semantics = call semantics**: the LRA (`live_range.h`) records `OP_SYSCALL` as a *call position*, so intervals spanning it get the `spans_call` restriction. This is sound because the syscall clobbers `rax/rcx/rdx/rsi/rdi/r8–r11` — a subset of what a call clobbers. Spilled syscall args are reloaded into `scratch_reg2` (`%r11`), which is already reserved and clobbered by the syscall itself.
+- **Parallel-move invariant (x86-64)**: an argument temp may share a physical register with *another* argument's syscall slot (e.g. the count in `%rax` while the number also targets `%rax`), so the backend (`x86_emit_syscall`) moves arguments via a push/pop parallel move (the same idiom as `OP_CALL`), never sequential `mov`s. The text emitter (`x86_emit_syscall_asm`) mirrors it with `pushq`/`popq`.
+- **SysV register map**: `eax`=number, `rdi`/`rsi`/`rdx`/`r10`/`r8`/`r9`=args 1–6 (note `r10`, not `rdx`, for the 4th argument — different from the call ABI).
+- **Target support**: x86-64 only for now; the dispatcher (`ast_lowering_mc.c`) reports a compile error on backends whose `emit_syscall` slot is NULL (aarch64/riscv). All `OP_CALL` opt-pass special cases (DCE keep/side-effects/liveness, GVN `mf_reset`, mem2reg block-exit + loop safety, LICM `loop_has_call`) include `OP_SYSCALL` in parallel.
 
 ## Register Allocation Rules (`src/zero_cc/ir/regalloc.h`)
 

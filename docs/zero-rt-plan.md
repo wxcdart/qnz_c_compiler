@@ -87,7 +87,7 @@ Acceptance criterion for "self-contained": a C99 program using `printf`/`malloc`
 
 zero_rt-Linux is the **first real customer of the T2 ELF linker**: it validates crt0 + heap + printf + archive/member resolution end-to-end on the platform we develop on, with no new binary formats.
 
-- Deliverables: `crt0/elf_x86_64.s`, `core/*`, `posix/linux` table; T2 links `app.o + zero_rt` into a standalone ELF.
+- Deliverables: `crt0` entry (ZeroCC has no assembler — the linker's generated `_start` stub is extended into the entry, and the OS boundary is pure C over the `__zerocc_syscall` builtin, Sprint 43), `core/*`, `posix/linux` table; T2 links `app.o + zero_rt` into a standalone ELF.
 - **Acceptance**: `zerocc -o app app.c` (zero_rt linked) runs; `ldd app` → not dynamic (or zero_rt objects only); round-trip battery vs gcc (int + float printf, malloc/free stress, strings).
 
 ### Phase 1 — Windows (T3-Win)

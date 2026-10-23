@@ -399,6 +399,8 @@ void ir_dump(FILE *f) {
                                  break;
             case OP_ATOMIC_XCHG: fprintf(f, "ATOMIC_XCHG r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                                  break;
+            case OP_SYSCALL: fprintf(f, "SYSCALL args=%u", instr->temp_dest);
+                             break;
             case OP_STORE_BYTE: fprintf(f, "STORE_BYTE [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
                                 break;
             case OP_STORE_16: fprintf(f, "STORE_16 [fp%+d], r%u", (int)instr->imm, instr->temp_src1);

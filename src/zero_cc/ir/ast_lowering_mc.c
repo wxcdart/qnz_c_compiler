@@ -47,10 +47,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         int phys_src1 = (instr->temp_src1== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);
         int phys_src2 = (instr->temp_src2== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
 
-        /* Check for spilled temps that need reloading / storing */
-        int spill_src1 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
-        int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
-        int spill_dst = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+        /* Check for spilled temps that need reloading / storing.
+         * OP_CALL / OP_SYSCALL pack arg_count in temp_dest and resolve their
+         * argument temps themselves (from the side table). */
+        int spill_src1 = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
+        int spill_src2 = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
+        int spill_dst  = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
 
         /* Reload spilled sources into scratch registers. FP-class values
          * use the FP scratch XMMs with movsd (emit_load_fp); GPR values use
@@ -345,6 +347,35 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_mfence(c);
                 }
                 break;
+
+            case OP_SYSCALL: {
+                /* OS syscall intrinsic. Arguments are packed like OP_CALL:
+                 * temp_dest = arg_count, full list in the side table. The
+                 * backend moves them into the syscall argument registers and
+                 * issues the instruction; the result is in VREG_0 (rax). */
+                if (!BE(c)->emit_syscall) {
+                    c->had_error = true;
+                    snprintf(c->error_msg, sizeof(c->error_msg),
+                             "__zerocc_syscall is not supported on this target (x86-64 only for now)");
+                    break;
+                }
+                int s_arg_temps[8] = {0};
+                int s_arg_count = 0;
+                const IRCallArgs *s_args = ir_call_args_find(i);
+                if (s_args) {
+                    for (int a = 0; a < s_args->count && a < 7; a++) {
+                        if (s_args->is_fp[a] != 0) continue; /* syscall args are integer */
+                        s_arg_temps[s_arg_count++] = (int)s_args->temps[a];
+                    }
+                }
+                if (s_arg_count == 0 && instr->temp_dest > 0) {
+                    /* C2b fallback (side table missing - should not happen). */
+                    if (instr->temp_src1 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src1;
+                    if (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src2;
+                }
+                BE(c)->emit_syscall(c, s_arg_count, s_arg_temps);
+                break;
+            }
 
             case OP_FMOV_IMM: {
                 /* Load float literal via RIP-relative offset in rodata */

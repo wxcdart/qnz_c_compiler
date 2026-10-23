@@ -98,6 +98,49 @@ static void x86_emit_mov_reg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tmovq\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* OS syscall (GAS text form). See x86_emit_syscall in x86_64.c for the
+ * SysV register mapping (eax=number, rdi/rsi/rdx/r10/r8/r9=args 1-6) and
+ * the parallel-move rationale (an argument temp may share a register with
+ * another argument's syscall slot). Spill reloads use r11, same idiom as
+ * x86_emit_call_asm. */
+static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const int sysv_syscall_regs[7] = {0, 7, 6, 2, 10, 8, 9};
+    static const char *sysv_syscall_reg_names[7] = {"rax", "rdi", "rsi", "rdx", "r10", "r8", "r9"};
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 7) ? arg_count : 7;
+    /* Pass 1: resolve + push sources needing a move. */
+    for (int a = 0; a < n; a++) {
+        int temp = arg_temps[a];
+        const char *src_name;
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            fprintf(out, "\tmovq\t%d(%%rbp),%%r11\n", -off);
+            src_name = "r11";
+        } else {
+            src_name = BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp));
+        }
+        if (strcmp(src_name, sysv_syscall_reg_names[a]) != 0) {
+            fprintf(out, "\tpushq\t%%%s\n", src_name);
+        }
+    }
+    /* Pass 2: pop into the syscall registers (reverse order - LIFO). */
+    for (int a = n - 1; a >= 0; a--) {
+        int temp = arg_temps[a];
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        const char *src_name;
+        if (sp >= 0) {
+            src_name = "r11";
+        } else {
+            src_name = BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp));
+        }
+        if (strcmp(src_name, sysv_syscall_reg_names[a]) != 0) {
+            fprintf(out, "\tpopq\t%%%s\n", sysv_syscall_reg_names[a]);
+        }
+    }
+    fprintf(out, "\tsyscall\n");
+}
+
 /* LOAD: mov offset(base), dst */
 static void x86_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -972,6 +1015,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
 
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;
+    be->emit_syscall_asm = x86_emit_syscall_asm;
     be->emit_load_asm = x86_emit_load_asm;
     be->emit_store_asm = x86_emit_store_asm;
     be->emit_add_asm = x86_emit_add_asm;

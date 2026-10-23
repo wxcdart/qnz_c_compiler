@@ -355,8 +355,11 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
         }
 
         /* OP_CALL packs argument temps in temp_src1, temp_src2, and imm (temp_dest is arg_count);
-         * the complete list (5+ args) lives in the IR call-args side table. */
-        if (instr->op == OP_CALL) {
+         * the complete list (5+ args) lives in the IR call-args side table.
+         * OP_SYSCALL uses the identical packing - it clobbers a subset of what
+         * a call clobers, so it is recorded as a call position (spans_call
+         * barrier) with the same side-table argument liveness. */
+        if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
             live_range_record_call(lra, i);
             const IRCallArgs *full_args = ir_call_args_find(i);
             if (full_args) {
