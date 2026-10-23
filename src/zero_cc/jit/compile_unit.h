@@ -686,6 +686,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         size_t m_off = 0, m_sz = 0;
                                         bool m_float = false;
                                         bool m_char_arr = false;
+                                        int64_t arr_desig_low = -1;
+                                        int64_t arr_desig_high = -1;
                                         if (c->tokens[c->token_pos].type == TK_DOT) {
                                             /* Designated initializer: .field = */
                                             c->token_pos++;
@@ -720,6 +722,18 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                             }
                                             if (c->token_pos < c->token_count &&
                                                 c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
+                                        } else if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                                            c->token_pos++; /* [ */
+                                            int64_t low = zero_cc_eval_const_expr(c);
+                                            int64_t high = low;
+                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+                                                c->token_pos++;
+                                                high = zero_cc_eval_const_expr(c);
+                                            }
+                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
+                                            arr_desig_low = low;
+                                            arr_desig_high = high;
                                         }
                                         if (c->token_pos >= c->token_count ||
                                             c->tokens[c->token_pos].type == TK_RBRACE) break;
@@ -744,7 +758,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                 next_member++;
                                             }
                                         } else {
-                                            e_off = pos_off;
+                                            e_off = (arr_desig_low >= 0) ? ((size_t)arr_desig_low * elem_size) : pos_off;
                                             e_sz = elem_size;
                                             e_float = (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE);
                                             e_char_arr = is_char_array;
@@ -811,15 +825,35 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                 memcpy(&bits, &dv, sizeof(bits));
                                             }
                                             size_t w = (e_sz < 8) ? e_sz : 8;
-                                            if (e_off + w > size) w = size - e_off;
-                                            for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)(bits >> (8 * i));
+                                            if (arr_desig_low >= 0 && arr_desig_high >= arr_desig_low) {
+                                                for (int64_t k = arr_desig_low; k <= arr_desig_high; k++) {
+                                                    size_t cur_off = (size_t)k * elem_size;
+                                                    size_t cw = w;
+                                                    if (cur_off + cw > size) cw = (cur_off < size) ? (size - cur_off) : 0;
+                                                    for (size_t i = 0; i < cw; i++) vbuf[cur_off + i] = (uint8_t)(bits >> (8 * i));
+                                                }
+                                                pos_off = ((size_t)arr_desig_high + 1) * elem_size;
+                                            } else {
+                                                if (e_off + w > size) w = size - e_off;
+                                                for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)(bits >> (8 * i));
+                                            }
                                         } else {
                                             int64_t iv = zero_cc_eval_const_expr(c);
                                             size_t w = (e_sz < 8) ? e_sz : 8;
-                                            if (e_off + w > size) w = size - e_off;
-                                            for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                                            if (arr_desig_low >= 0 && arr_desig_high >= arr_desig_low) {
+                                                for (int64_t k = arr_desig_low; k <= arr_desig_high; k++) {
+                                                    size_t cur_off = (size_t)k * elem_size;
+                                                    size_t cw = w;
+                                                    if (cur_off + cw > size) cw = (cur_off < size) ? (size - cur_off) : 0;
+                                                    for (size_t i = 0; i < cw; i++) vbuf[cur_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                                                }
+                                                pos_off = ((size_t)arr_desig_high + 1) * elem_size;
+                                            } else {
+                                                if (e_off + w > size) w = size - e_off;
+                                                for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                                            }
                                         }
-                                        if (!is_struct && !(vt == TK_STRING && is_char_array)) pos_off += elem_size;
+                                        if (!is_struct && !(vt == TK_STRING && is_char_array) && arr_desig_low < 0) pos_off += elem_size;
                                         if (c->token_pos == iter_start_pos) break; /* safety: no progress */
                                         if (c->token_pos < c->token_count &&
                                             c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;

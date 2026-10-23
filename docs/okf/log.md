@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-23T20:13:33Z
+timestamp: 2026-10-23T22:55:17Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -380,3 +380,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-23 — Updated `frontend-and-types.md`
 - Add C literals specification and test suite tools/literal_verifier.py
+
+## 2026-10-23 — Updated `isa-backends.md`
+- Add selective callee-saved register spilling and fallthrough jump elimination in prologue/epilogue
+
+## 2026-10-23 — Updated `build-and-verification.md`
+- Document prologue_epilogue_verifier.py tool

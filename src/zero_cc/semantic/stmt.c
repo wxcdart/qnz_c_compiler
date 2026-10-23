@@ -173,6 +173,12 @@ bool stmt_handle_case(SemContext *ctx, ZeroCCASTNode *node) {
             sem_node_error(ctx, node, "case label expression must have integer type");
         }
     }
+    if (node->aux.step != 0) {
+        TypeInfo *high_t = sem_analyze_ref(ctx, (ASTRef)node->aux.step);
+        if (high_t && !type_is_integer(high_t)) {
+            sem_node_error(ctx, node, "case range high expression must have integer type");
+        }
+    }
 
     /* Case statement body */
     if (node->right != AST_NULL) {

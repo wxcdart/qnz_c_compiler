@@ -42,6 +42,7 @@ typedef enum {
     NODE_INDEX,       /* left = array_expr, right = index_expr */
     NODE_CALL,        /* left = callee, right = arg_list */
     NODE_COMPOUND_LIT,/* left = init_list */
+    NODE_STMT_EXPR,   /* GNU statement expression: ({ ... }), left = block */
     /* Statements */
     NODE_BLOCK,       /* left = first_stmt (chained via next) */
     NODE_EXPR_STMT,   /* left = expr */

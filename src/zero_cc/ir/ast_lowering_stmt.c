@@ -584,13 +584,29 @@ void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCASTNode *sn = zero_cc_ast_get(arena, s);
         if (!sn) break;
         if (sn->tag == NODE_CASE) {
-            int val_temp = lower_expr(c, arena, sn->left);
-            int flag_temp = c->next_temp_id++;
-            ir_emit_cmp(cond_temp, val_temp);
-            ir_emit_cond_set(flag_temp, CC_EQ);
             sn->aux.alt = c->ir_next_label++;
-            /* JE = jump-if-zero, so take the case when the flag is non-zero */
-            ir_emit_jne((uint16_t)flag_temp, (uint16_t)sn->aux.alt);
+            uint16_t case_label = (uint16_t)sn->aux.alt;
+            if (sn->aux.step != 0) {
+                /* Range case: low in sn->left, high in sn->aux.step */
+                int low_temp = lower_expr(c, arena, sn->left);
+                int high_temp = lower_expr(c, arena, (ASTRef)sn->aux.step);
+                int flag_low = c->next_temp_id++;
+                ir_emit_cmp(cond_temp, low_temp);
+                ir_emit_cond_set(flag_low, CC_GE);
+                int flag_high = c->next_temp_id++;
+                ir_emit_cmp(cond_temp, high_temp);
+                ir_emit_cond_set(flag_high, CC_LE);
+                int in_range = c->next_temp_id++;
+                ir_emit_and(in_range, flag_low, flag_high);
+                ir_emit_jne((uint16_t)in_range, case_label);
+            } else {
+                int val_temp = lower_expr(c, arena, sn->left);
+                int flag_temp = c->next_temp_id++;
+                ir_emit_cmp(cond_temp, val_temp);
+                ir_emit_cond_set(flag_temp, CC_EQ);
+                /* JE = jump-if-zero, so take the case when the flag is non-zero */
+                ir_emit_jne((uint16_t)flag_temp, case_label);
+            }
         } else if (sn->tag == NODE_DEFAULT) {
             sn->aux.alt = c->ir_next_label++;
             default_label = (uint16_t)sn->aux.alt;

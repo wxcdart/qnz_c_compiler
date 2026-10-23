@@ -2503,6 +2503,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
         }
 
+        case NODE_STMT_EXPR: {
+            ZeroCCASTNode *block = zero_cc_ast_get(arena, node->left);
+            if (!block) return TEMP_NONE;
+
+            c->lowering.vla.block_depth++;
+
+            int res_temp = TEMP_NONE;
+            ASTRef stmt = block->left;
+            while (stmt != AST_NULL) {
+                ZeroCCASTNode *snode = zero_cc_ast_get(arena, stmt);
+                if (!snode) break;
+                if (snode->next == AST_NULL && snode->tag == NODE_EXPR_STMT && snode->left != AST_NULL) {
+                    res_temp = lower_expr(c, arena, snode->left);
+                } else {
+                    lower_node(c, arena, stmt);
+                }
+                stmt = snode->next;
+            }
+
+            c->lowering.vla.block_depth--;
+            return res_temp;
+        }
+
         case NODE_INDEX: {
             /* Array indexing: base[index] */
             int array_temp = lower_expr(c, arena, node->left);

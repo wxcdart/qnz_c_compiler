@@ -956,6 +956,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_JLE:
             case OP_JG:
             case OP_JCOND: {
+                if (instr->op == OP_JMP) {
+                    /* Fallthrough optimization: skip jump if next active instruction is target label */
+                    size_t next_idx = i + 1;
+                    while (next_idx < count && (instrs[next_idx].op == OP_DEAD || instrs[next_idx].op == OP_NOP)) {
+                        next_idx++;
+                    }
+                    if (next_idx < count && instrs[next_idx].op == OP_LABEL && instrs[next_idx].label_idx == instr->label_idx) {
+                        break;
+                    }
+                }
                 size_t patch_pos = 0;
                 switch (instr->op) {
                     case OP_JMP: patch_pos = BE(c)->emit_jmp(c, ""); break;

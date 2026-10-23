@@ -54,12 +54,14 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     }
     fprintf(out, "\tsubq\t$%zu, %%rsp\n", stack_size);
 
-    /* Save callee-saved registers */
+    /* Save callee-saved registers (only those allocated by register allocator) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
 
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
+        if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tmovq\t%%%s, -%d(%%rbp)\n", reg_name, offset);
@@ -70,12 +72,14 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out;
 
-    /* Restore callee-saved registers */
+    /* Restore callee-saved registers (only those allocated by register allocator) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
 
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
+        if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tmovq\t-%d(%%rbp), %%%s\n", offset, reg_name);

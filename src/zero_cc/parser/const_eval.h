@@ -348,6 +348,72 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
     return parse_primary(c, pos);
 }
 
+static inline int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *pos)
+{
+    (*pos)++; /* consume __builtin_offsetof */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+        (*pos)++; /* consume '(' */
+    }
+    ZeroCCType ty = zero_cc_parse_type_name_at_pos(c, pos);
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) {
+        (*pos)++; /* consume ',' */
+    }
+
+    int64_t total_offset = 0;
+    while (*pos < c->token_count && c->tokens[*pos].type != TK_RPAREN) {
+        if (c->tokens[*pos].type == TK_DOT) {
+            (*pos)++;
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+            const char *mname = c->tokens[*pos].str_val;
+            (*pos)++;
+            bool found = false;
+            if (ty.tag == TYPE_STRUCT || ty.tag == TYPE_UNION) {
+                for (size_t m = 0; m < ty.member_count; m++) {
+                    if (strcmp(ty.members[m].name, mname) == 0) {
+                        total_offset += (int64_t)ty.members[m].offset;
+                        if (ty.members[m].base && (ty.members[m].tag == TYPE_STRUCT || ty.members[m].tag == TYPE_UNION)) {
+                            ty = *ty.members[m].base;
+                        } else if (ty.members[m].base && ty.members[m].tag == TYPE_ARRAY) {
+                            ty.base = ty.members[m].base;
+                            ty.tag = TYPE_ARRAY;
+                            ty.size = ty.members[m].size;
+                        } else {
+                            ty.tag = ty.members[m].tag;
+                            ty.size = ty.members[m].size;
+                            ty.base = ty.members[m].base;
+                            ty.member_count = 0;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                break;
+            }
+        } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+            (*pos)++; /* consume '[' */
+            int64_t idx = parse_equality(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) {
+                (*pos)++; /* consume ']' */
+            }
+            size_t elem_sz = (ty.base && ty.base->size > 0) ? ty.base->size : (ty.size > 0 ? ty.size : 4);
+            total_offset += idx * (int64_t)elem_sz;
+            if (ty.base) {
+                ty = *ty.base;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) {
+        (*pos)++; /* consume ')' */
+    }
+    return total_offset;
+}
+
 static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
@@ -374,6 +440,9 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
         return 0;
     }
     if (t == TK_IDENT) {
+        if (strcmp(c->tokens[*pos].str_val, "__builtin_offsetof") == 0) {
+            return zero_cc_eval_builtin_offsetof(c, pos);
+        }
         /* Enum constants are valid in constant expressions (C99 6.6). */
         const ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[*pos].str_val);
         if (ec) {
@@ -475,6 +544,10 @@ static inline ZeroCCType zero_cc_type_of_multiplicative(ZeroCCCompiler *c, size_
 static inline ZeroCCType zero_cc_type_of_unary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
+    if (t == TK_INC || t == TK_DEC) {
+        (*pos)++;
+        return zero_cc_type_of_unary(c, pos);
+    }
     if (t == TK_PLUS) {
         (*pos)++;
         return zero_cc_type_of_unary(c, pos);
@@ -607,6 +680,9 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         /* Parenthesized expression */
         ZeroCCType ty = zero_cc_type_of_equality(c, pos);
         if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+        while (*pos < c->token_count && (c->tokens[*pos].type == TK_INC || c->tokens[*pos].type == TK_DEC)) {
+            (*pos)++;
+        }
         return ty;
     }
     if (t == TK_IDENT) {
@@ -629,9 +705,13 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         ZeroCCSym *sym = zero_cc_find_local(c, name);
         if (sym) {
             ZeroCCType ty = sym->type;
-            /* Handle member access: sym->member or sym.member */
+            /* Handle member access and postfix: sym->member, sym.member, sym[i], sym++, sym-- */
             while (true) {
                 ZeroCCTokType mt = c->tokens[*pos].type;
+                if (mt == TK_INC || mt == TK_DEC) {
+                    (*pos)++;
+                    continue;
+                }
                 if (mt == TK_DOT || mt == TK_ARROW) {
                     (*pos)++;
                     if (c->tokens[*pos].type == TK_IDENT) {
@@ -662,6 +742,10 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             ZeroCCType ty = gv->type;
             while (true) {
                 ZeroCCTokType mt = c->tokens[*pos].type;
+                if (mt == TK_INC || mt == TK_DEC) {
+                    (*pos)++;
+                    continue;
+                }
                 if (mt == TK_DOT || mt == TK_ARROW) {
                     (*pos)++;
                     if (c->tokens[*pos].type == TK_IDENT) {

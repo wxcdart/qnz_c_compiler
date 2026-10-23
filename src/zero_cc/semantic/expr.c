@@ -1,8 +1,9 @@
 #include "zero_cc/semantic/expr.h"
-#include "zero_cc/types/token.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include "zero_cc/semantic/stmt.h"
+#include "zero_cc/types/token.h"
 
 /* Token type constants for binary operators */
 #define TOK_SHL         81
@@ -802,6 +803,30 @@ TypeInfo *expr_handle_expression(SemContext *ctx, ZeroCCASTNode *node) {
                 }
             }
             return expr_node_type(ctx, node);
+        }
+
+        case NODE_STMT_EXPR: {
+            ZeroCCASTNode *block = expr_get_node(ctx, node->left);
+            if (block) {
+                stmt_handle_block(ctx, block);
+            }
+            TypeInfo *last_t = NULL;
+            if (block) {
+                ASTRef cur = block->left;
+                while (cur != AST_NULL) {
+                    ZeroCCASTNode *st = expr_get_node(ctx, cur);
+                    if (!st) break;
+                    if (st->next == AST_NULL) {
+                        if (st->tag == NODE_EXPR_STMT && st->left != AST_NULL) {
+                            last_t = expr_node_type(ctx, expr_get_node(ctx, st->left));
+                        }
+                    }
+                    cur = st->next;
+                }
+            }
+            TypeInfo *res = last_t ? last_t : type_void(ctx->perm_arena);
+            expr_node_set_type(ctx, node, res);
+            return res;
         }
 
         default:

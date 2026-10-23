@@ -51,16 +51,22 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     fprintf(out, "\tsd\ts0, %zu(sp)\n", aligned_sz);
     fprintf(out, "\taddi\ts0, sp, %zu\n", aligned_sz);
 
-    /* Save callee-saved registers s1..s11 at -offset(s0) */
+    /* Save callee-saved registers s1..s11 at -offset(s0) (only allocated ones) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
 
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 8) continue; /* s0 already saved above */
+        if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tsd\t%s, -%d(s0)\n", reg_name, offset);
+        if (c->isa == ISA_RISCV32) {
+            fprintf(out, "\tsw\t%s, -%d(s0)\n", reg_name, offset);
+        } else {
+            fprintf(out, "\tsd\t%s, -%d(s0)\n", reg_name, offset);
+        }
     }
 }
 
@@ -68,16 +74,22 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
 
-    /* Restore callee-saved registers s1..s11 */
+    /* Restore callee-saved registers s1..s11 (only allocated ones) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
+    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
 
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (reg == 8) continue;
+        if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tld\t%s, -%d(s0)\n", reg_name, offset);
+        if (c->isa == ISA_RISCV32) {
+            fprintf(out, "\tlw\t%s, -%d(s0)\n", reg_name, offset);
+        } else {
+            fprintf(out, "\tld\t%s, -%d(s0)\n", reg_name, offset);
+        }
     }
 
     fprintf(out, "\taddi\tsp, s0, 0\n");

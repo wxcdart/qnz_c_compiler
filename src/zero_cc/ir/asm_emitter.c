@@ -386,13 +386,24 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
-        case OP_JMP:
+        case OP_JMP: {
+            /* Fallthrough optimization: skip jump if next active instruction is target label */
+            size_t count = ir_get_count();
+            const Instr *buf = ir_get_buffer();
+            size_t next_idx = idx + 1;
+            while (next_idx < count && (buf[next_idx].op == OP_DEAD || buf[next_idx].op == OP_NOP)) {
+                next_idx++;
+            }
+            if (next_idx < count && buf[next_idx].op == OP_LABEL && buf[next_idx].label_idx == instr->label_idx) {
+                return;
+            }
             if (BE(c)->emit_jmp_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
                 BE(c)->emit_jmp_asm(c, lbl_buf, out);
             }
             return;
+        }
 
         case OP_JE:
             if (BE(c)->emit_jeq_asm) {

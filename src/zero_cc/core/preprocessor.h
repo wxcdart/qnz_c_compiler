@@ -279,7 +279,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef unsigned long size_t;\n"
             "typedef long ptrdiff_t;\n"
             "#define NULL ((void*)0)\n"
-            "#define offsetof(type, member) ((size_t)&(((type*)0)->member))\n"
+            "#define offsetof(type, member) __builtin_offsetof(type, member)\n"
             "#endif\n"
         );
     }

@@ -741,7 +741,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         return sw_ref;
     }
 
-    /* Case statement: case const_expr: stmt */
+    /* Case statement: case const_expr: stmt or case low ... high: stmt */
     if (t == TK_CASE) {
         c->token_pos++;
         ASTRef case_ref = zero_cc_ast_alloc_node(arena, NODE_CASE);
@@ -750,6 +750,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         cn->col = col;
 
         ASTRef val = parse_expr_ast_internal(c, arena);
+        ASTRef val_high = AST_NULL;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+            c->token_pos++; /* consume '...' */
+            val_high = parse_expr_ast_internal(c, arena);
+        }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) {
             c->token_pos++;
         }
@@ -764,6 +769,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         if (cn) {
             cn->left = val;
             cn->right = stmt;
+            cn->aux.step = (uint32_t)val_high;
         }
         return case_ref;
     }

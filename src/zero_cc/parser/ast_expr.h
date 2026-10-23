@@ -51,6 +51,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
 
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
         int32_t designated_member_idx = -1;
+        int32_t designated_range_high = -1;
         /* Struct/union designated initializer: .field = val */
         if (c->tokens[c->token_pos].type == TK_DOT &&
             c->token_pos + 1 < c->token_count &&
@@ -74,20 +75,30 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 }
             }
         } else if (c->tokens[c->token_pos].type == TK_LBRACKET) {
-            /* Array designated initializer: [idx] = val */
+            /* Array designated initializer: [idx] = val or [low ... high] = val */
             c->token_pos++; /* consume '[' */
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
-                designated_member_idx = (int32_t)c->tokens[c->token_pos].num_val;
-                /* Bounds check for fixed-size arrays */
-                if (lit_type.tag == TYPE_ARRAY && lit_type.array_len > 0 &&
-                    (size_t)designated_member_idx >= lit_type.array_len) {
-                    diag_report_error_at_token(c,
-                        "array initializer index %d exceeds array bound %zu",
-                        designated_member_idx, lit_type.array_len);
-                    return AST_NULL;
-                }
-                c->token_pos++;
+            int64_t low = zero_cc_eval_const_expr(c);
+            int64_t high = low;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+                c->token_pos++; /* consume '...' */
+                high = zero_cc_eval_const_expr(c);
             }
+            if (low < 0 || high < low) {
+                diag_report_error_at_token(c,
+                    "invalid range in designated initializer: %ld ... %ld",
+                    (long)low, (long)high);
+                return AST_NULL;
+            }
+            /* Bounds check for fixed-size arrays */
+            if (lit_type.tag == TYPE_ARRAY && lit_type.array_len > 0 &&
+                (size_t)high >= lit_type.array_len) {
+                diag_report_error_at_token(c,
+                    "array initializer index %ld exceeds array bound %zu",
+                    (long)high, lit_type.array_len);
+                return AST_NULL;
+            }
+            designated_member_idx = (int32_t)low;
+            designated_range_high = (int32_t)high;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
                 c->token_pos++;
             }
@@ -195,19 +206,41 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
             }
             ASTRef elem = parse_assignment_ast(c, arena);
             if (elem != AST_NULL) {
-                ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
-                if (en && designated_member_idx >= 0) {
-                    en->desig_idx = (uint32_t)designated_member_idx;
-                    en->flags |= NODE_FLAG_DESIGNATED;
+                int32_t r_low = designated_member_idx;
+                int32_t r_high = (designated_range_high >= designated_member_idx) ? designated_range_high : designated_member_idx;
+                if (r_low >= 0 && r_high > r_low) {
+                    for (int32_t cur_i = r_low; cur_i <= r_high; cur_i++) {
+                        ASTRef node_ref = (cur_i == r_low) ? elem : zero_cc_ast_clone(arena, elem, arena);
+                        ZeroCCASTNode *en = zero_cc_ast_get(arena, node_ref);
+                        if (en) {
+                            en->next = AST_NULL;
+                            en->desig_idx = (uint32_t)cur_i;
+                            en->flags |= NODE_FLAG_DESIGNATED;
+                        }
+                        if (head_expr == AST_NULL) {
+                            head_expr = node_ref;
+                        } else if (last_expr != AST_NULL) {
+                            ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
+                            if (last_node) last_node->next = node_ref;
+                        }
+                        last_expr = node_ref;
+                        elem_count++;
+                    }
+                } else {
+                    ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
+                    if (en && designated_member_idx >= 0) {
+                        en->desig_idx = (uint32_t)designated_member_idx;
+                        en->flags |= NODE_FLAG_DESIGNATED;
+                    }
+                    if (head_expr == AST_NULL) {
+                        head_expr = elem;
+                    } else if (last_expr != AST_NULL) {
+                        ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
+                        if (last_node) last_node->next = elem;
+                    }
+                    last_expr = elem;
+                    elem_count++;
                 }
-                if (head_expr == AST_NULL) {
-                    head_expr = elem;
-                } else if (last_expr != AST_NULL) {
-                    ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
-                    if (last_node) last_node->next = elem;
-                }
-                last_expr = elem;
-                elem_count++;
                 if (designated_member_idx < 0 &&
                     (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION)) {
                     member_cursor++;
@@ -302,6 +335,19 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
         case TK_IDENT: {
             c->token_pos++;
+            /* Check for __builtin_offsetof(type, member) */
+            if (strcmp(tok->str_val, "__builtin_offsetof") == 0) {
+                size_t p = c->token_pos - 1;
+                int64_t off = zero_cc_eval_builtin_offsetof(c, &p);
+                c->token_pos = p;
+                ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+                ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+                n->line = (uint32_t)tok->line;
+                n->col = (uint32_t)tok->col;
+                n->int_val = off;
+                return ref;
+            }
+
             /* Check for __builtin_va_arg(ap, type) - special variadic argument extraction */
             if (strcmp(tok->str_val, "__builtin_va_arg") == 0) {
                 c->token_pos++; /* skip __builtin_va_arg */
@@ -466,8 +512,28 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         return AST_NULL;
     }
 
-    /* Parenthesized expressions and casts */
+    /* Parenthesized expressions, statement expressions, and casts */
     if (tok->type == TK_LPAREN) {
+        if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_LBRACE) {
+            /* GNU Statement Expression: ({ ... }) */
+            uint32_t line = (uint32_t)tok->line;
+            uint32_t col = (uint32_t)tok->col;
+            c->token_pos++; /* consume '('; next token is '{' */
+            ASTRef block_ref = zero_cc_parse_stmt_ast(c, arena, c->sem_ctx);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++; /* consume ')' */
+            } else {
+                diag_report_error_at_token(c, "expected ')' after statement expression");
+            }
+            ASTRef se_ref = zero_cc_ast_alloc_node(arena, NODE_STMT_EXPR);
+            ZeroCCASTNode *se_node = zero_cc_ast_get(arena, se_ref);
+            if (se_node) {
+                se_node->line = line;
+                se_node->col = col;
+                se_node->left = block_ref;
+            }
+            return se_ref;
+        }
         size_t cast_start = c->token_pos;
         if (c->token_pos + 1 < c->token_count &&
             is_type_specifier_at(c, c->token_pos + 1, c->tokens[c->token_pos + 1].type)) {

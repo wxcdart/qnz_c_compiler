@@ -198,6 +198,29 @@ ZeroCC comprehensively validates C literal syntax and constant expression semant
   - File scope: `static int *arr = (int[]){100, 200, 300};`, `static struct Point *pt = &(struct Point){10, 20};`, and direct struct init `static struct Point pt = (struct Point){30, 40};`. Evaluated into anonymous `.data` objects (`__clit_anon_%d`) with `R_X86_64_64` data relocations pointing to the anonymous data offset.
 - **Global Member Access Lowering**: Lowering of `p->member` on global pointer bases in `ast_lowering_expr.c` correctly emits pointer dereferences before applying member offsets.
 
+## High-ROI GNU & Clang Extensions (`tools/extension_verifier.py`)
+
+ZeroCC implements widely-used GNU/Clang language extensions verified differentially against GCC via `tools/extension_verifier.py`:
+
+- **`__builtin_offsetof(type, member)`**:
+  - Evaluated as a compile-time constant integer expression in `src/zero_cc/parser/const_eval.h` (`zero_cc_eval_builtin_offsetof`) and `src/zero_cc/parser/ast_expr.h`.
+  - Supports nested structs (`struct.substruct.field`) and multi-level array indexing (`struct.arr[i][j]`).
+  - Standard `<stddef.h>` macro in `src/zero_cc/core/preprocessor.h` expands `offsetof(type, member)` to `__builtin_offsetof(type, member)`.
+  - Valid in `_Static_assert`, global array bounds, and compile-time constant initializers.
+- **Case Ranges (`case low ... high:`)**:
+  - Parsed in `src/zero_cc/parser/ast_stmt.h` under `TK_CASE` using `TK_ELLIPSIS` delimiter; upper bound stored in `node->aux.step`.
+  - Type-checked in `src/zero_cc/semantic/stmt.c` ensuring both operands are integer expressions with `low <= high`.
+  - Lowered in `src/zero_cc/ir/ast_lowering_stmt.c` by generating compound range comparisons (`cond >= low && cond <= high`) jumping to the case block.
+- **Designated Initializer Ranges (`[low ... high] = val`)**:
+  - Parsed in `parse_brace_init_list_ast` (`src/zero_cc/parser/ast_expr.h`); duplicate AST elements are stamped out across `[low..high]` with `NODE_FLAG_DESIGNATED` and element index `desig_idx`.
+  - File-scope arrays in `src/zero_cc/jit/compile_unit.h` support `[low ... high] = val`, filling the data section byte buffer across all element slots in the range.
+- **Statement Expressions (`({ ... })`)**:
+  - Embedded compound statements yielding the value and type of their final expression statement.
+  - Represented as `NODE_STMT_EXPR` in `src/zero_cc/parser/parser.h`, parsed in `parse_primary_ast` (`src/zero_cc/parser/ast_expr.h`) when `TK_LPAREN` is immediately followed by `TK_LBRACE`.
+  - Semantic analysis in `src/zero_cc/semantic/visitor.c` and `src/zero_cc/semantic/expr.c` visits the block scope and propagates the type of the terminal expression statement (or `type_void()` if empty or terminating in non-expression statements).
+  - Lowering in `src/zero_cc/ir/ast_lowering_expr.c` executes all leading statements and evaluates the last expression statement into the result virtual register.
+  - Supports loops, nested statement expressions, and complex macros (e.g. `max(a, b)` with `__typeof__`).
+
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-22T04:02:18Z
+timestamp: 2026-10-23T22:54:48Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -48,6 +48,18 @@ Across target ISAs, structs exceeding 16 bytes return via an implicit caller-all
   - Callee preserves `x8` in its prologue (`param_save_int_asm(8, sret_offset)`) and returns the pointer in `x0`.
 - **RISC-V (RV64GC LP64D ABI)**:
   - Caller allocates buffer and passes its pointer in `a0` (first integer argument register).
+
+## Prologue & Epilogue Management
+
+ZeroCC manages function stack frames and register preservation symmetrically across JIT and AOT code paths:
+
+1. **Selective Callee-Saved Register Spilling**:
+   - In both machine code (`ast_lowering_mc.c`) and assembly emission (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`), ZeroCC checks `c->regalloc.used_callee_saved_gpr_mask` populated during register allocation.
+   - Functions that do not clobber callee-saved registers (such as leaf functions or small arithmetic routines) emit **0** CSR stores in the prologue and **0** CSR loads in the epilogue (saving up to 10-11 spills/reloads on AArch64 and RISC-V).
+2. **Fallthrough Jump Elimination**:
+   - Both `asm_emitter.c` and `ast_lowering_mc.c` look ahead past dead/nop instructions on `OP_JMP`. If the target label immediately succeeds the jump, the branch instruction (`jmp`, `b`, `j`) is omitted and execution falls through directly into the label.
+3. **Verification Tool**:
+   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission for leaf routines, fallthrough jump elimination, and store-load symmetry across all target ISAs.
   - Regular integer arguments shift starting from `a1` (index 1).
   - Callee writes struct to caller buffer and returns pointer in `a0`.
 

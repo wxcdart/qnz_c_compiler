@@ -376,6 +376,29 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             res = expr_node_type(ctx, node);
             break;
         }
+        case NODE_STMT_EXPR: {
+            ZeroCCASTNode *block = sem_get_node(ctx, node->left);
+            if (block) {
+                stmt_handle_block(ctx, block);
+            }
+            TypeInfo *last_t = NULL;
+            if (block) {
+                ASTRef cur = block->left;
+                while (cur != AST_NULL) {
+                    ZeroCCASTNode *st = sem_get_node(ctx, cur);
+                    if (!st) break;
+                    if (st->next == AST_NULL) {
+                        if (st->tag == NODE_EXPR_STMT && st->left != AST_NULL) {
+                            last_t = expr_node_type(ctx, sem_get_node(ctx, st->left));
+                        }
+                    }
+                    cur = st->next;
+                }
+            }
+            res = last_t ? last_t : type_void(ctx->perm_arena);
+            expr_node_set_type(ctx, node, res);
+            break;
+        }
         case NODE_MEMBER: {
             res = expr_handle_member(ctx, node);
             break;

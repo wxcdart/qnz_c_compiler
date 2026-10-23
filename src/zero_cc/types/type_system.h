@@ -188,7 +188,7 @@ typedef struct {
     size_t rodata_offset;
     size_t target_data_offset;
     int    target_global_idx;
-    char   target_extern_name[64];
+    char   target_extern_name[128];
 } ZeroCCDataReloc;
 
 
