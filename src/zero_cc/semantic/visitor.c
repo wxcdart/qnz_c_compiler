@@ -2,11 +2,13 @@
 #include "zero_cc/semantic/stmt.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/expr.h"
+#include "zero_cc/types/types.h"
+#include "zero_cc/jit/type_info.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
-bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena) {
+bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena, struct ZeroCCCompiler *compiler) {
     if (!ctx || !perm || !tmp || !diags) return false;
     ctx->perm_arena = perm;
     ctx->tmp_arena = tmp;
@@ -16,6 +18,7 @@ bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, 
     ctx->in_loop = false;
     ctx->in_switch = false;
     ctx->ast_arena = ast_arena;
+    ctx->compiler = compiler;
     ctx->label_count = 0;
     ctx->label_cap = 0;
     ctx->labels = NULL;
@@ -23,6 +26,21 @@ bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, 
     /* Enter global scope */
     if (!scope_enter(&ctx->current_scope, ctx->perm_arena)) {
         return false;
+    }
+
+    /* Add thread-local variables to global scope */
+    if (compiler) {
+        for (size_t i = 0; i < compiler->thread_local_count; i++) {
+            const char *name = compiler->thread_locals[i].name;
+            ZeroCCType *ty = &compiler->thread_locals[i].type;
+            TypeInfo *ti = zero_cc_type_to_typeinfo(perm, *ty);
+            if (ti) {
+                Symbol *sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, ti);
+                if (sym) {
+                    sym->flags |= (1 << 0); /* Mark as TLS */
+                }
+            }
+        }
     }
 
     return true;

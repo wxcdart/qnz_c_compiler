@@ -30,6 +30,7 @@ typedef struct SemContext {
     bool          in_loop;              /* True if inside a loop body (for break / continue validation) */
     bool          in_switch;            /* True if inside a switch statement (for break / case validation) */
     ZeroCCASTArena *ast_arena;          /* AST Arena owning the ZeroCCASTNode pool (optional, may be NULL) */
+    struct ZeroCCCompiler *compiler;    /* Back-pointer to compiler for TLS/globals access */
     /* User labels of the function currently being analyzed, collected
      * before traversal so forward gotos validate (C99 6.8.4.3). */
     size_t          label_count;
@@ -42,7 +43,7 @@ typedef struct SemContext {
  * Initialize a semantic analysis context.
  * Returns true on success, false on failure (e.g. invalid arguments or scope allocation failure).
  */
-bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena);
+bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena, struct ZeroCCCompiler *compiler);
 
 /**
  * Clear the per-function user-label table (call before analyzing each body).

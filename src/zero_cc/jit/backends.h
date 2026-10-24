@@ -21,14 +21,14 @@ typedef struct ZeroCCTLSBackend {
                      const struct ZeroCCType *type,
                      int64_t init_value);
 
-    /* Emit code that loads the TLS variable into RAX. */
-    void (*emit_load)(struct ZeroCCCompiler *c, const void *handle);
+    /* Emit code that loads the TLS variable into the given temp register. */
+    void (*emit_load)(struct ZeroCCCompiler *c, int temp, const void *handle);
 
-    /* Emit code that stores RAX into the TLS variable. */
-    void (*emit_store)(struct ZeroCCCompiler *c, const void *handle);
+    /* Emit code that stores the given temp register into the TLS variable. */
+    void (*emit_store)(struct ZeroCCCompiler *c, int temp, const void *handle);
 
-    /* Emit code that obtains the address of the TLS variable (for &ident). */
-    void (*emit_address)(struct ZeroCCCompiler *c, const void *handle);
+    /* Emit code that obtains the address of the TLS variable into the given temp register. */
+    void (*emit_address)(struct ZeroCCCompiler *c, int temp, const void *handle);
 
     /* Optional finalisation hook (e.g., free resources). */
     void (*finalize)(struct ZeroCCCompiler *c);

@@ -69,6 +69,18 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
     ZeroCCSym *ls = zero_cc_find_local(c, name);
     if (ls && ls->type.size > 0) { ty = ls->type; found = true; }
     if (!found) {
+        void *tls = zero_cc_find_tls(c, name);
+        if (tls) {
+            for (size_t i = 0; i < c->thread_local_count; i++) {
+                if (strcmp(c->thread_locals[i].name, name) == 0) {
+                    ty = c->thread_locals[i].type;
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!found) {
         ZeroCCGlobalVar *gv = find_global_var(name);
         if (gv && gv->type.size > 0) { ty = gv->type; found = true; }
     }
@@ -113,6 +125,18 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
     bool found = false;
     ZeroCCSym *ls = zero_cc_find_local(c, name);
     if (ls && ls->type.align > 0) { ty = ls->type; found = true; }
+    if (!found) {
+        void *tls = zero_cc_find_tls(c, name);
+        if (tls) {
+            for (size_t i = 0; i < c->thread_local_count; i++) {
+                if (strcmp(c->thread_locals[i].name, name) == 0) {
+                    ty = c->thread_locals[i].type;
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
     if (!found) {
         ZeroCCGlobalVar *gv = find_global_var(name);
         if (gv && gv->type.align > 0) { ty = gv->type; found = true; }
@@ -735,6 +759,46 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
                 break;
             }
             return ty;
+        }
+        /* Check for thread-local variable */
+        void *tls = zero_cc_find_tls(c, name);
+        if (tls) {
+            /* Get type from TLS slots array */
+            for (size_t i = 0; i < c->thread_local_count; i++) {
+                if (strcmp(c->thread_locals[i].name, name) == 0) {
+                    ZeroCCType ty = c->thread_locals[i].type;
+                    /* Handle member access and postfix on TLS variable */
+                    while (true) {
+                        ZeroCCTokType mt = c->tokens[*pos].type;
+                        if (mt == TK_INC || mt == TK_DEC) {
+                            (*pos)++;
+                            continue;
+                        }
+                        if (mt == TK_DOT || mt == TK_ARROW) {
+                            (*pos)++;
+                            if (c->tokens[*pos].type == TK_IDENT) {
+                                const char *mem_name = c->tokens[*pos].str_val;
+                                (*pos)++;
+                                ty = zero_cc_type_find_member(c, ty, mem_name);
+                            }
+                            continue;
+                        }
+                        if (mt == TK_LBRACKET) { /* array indexing */
+                            (*pos)++;
+                            zero_cc_type_of_equality(c, pos); /* consume index */
+                            if (c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                            if (ty.tag == TYPE_ARRAY && ty.base) {
+                                ty = *ty.base;
+                            } else if (ty.tag == TYPE_PTR && ty.base) {
+                                ty = *ty.base;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                    return ty;
+                }
+            }
         }
         /* Check for global variable */
         ZeroCCGlobalVar *gv = find_global_var(name);

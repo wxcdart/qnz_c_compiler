@@ -398,7 +398,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
         diag_set_file(&c->diag_buf, c->tokens[0].filename);
     }
     SemContext shared_ctx;
-    if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL)) {
+    if (!sem_context_init(&shared_ctx, perm, tmp, &shared_diags, NULL, c)) {
         zero_cc_type_pool_free();
         return;
     }
@@ -1065,8 +1065,17 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 // Consume trailing semicolon
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                 // Register via TLS backend
+                void *tls_handle = NULL;
                 if (c->tls_backend) {
-                    c->tls_backend->declare(c, var_name, &vtype, init_val);
+                    tls_handle = c->tls_backend->declare(c, var_name, &vtype, init_val);
+                }
+                // Also register in semantic scope (global scope is current_scope)
+                TypeInfo *ti = zero_cc_type_to_typeinfo(perm, vtype);
+                if (ti && shared_ctx.current_scope) {
+                    Symbol *sym = scope_put_symbol(shared_ctx.current_scope, var_name, SYMBOL_VAR, ti);
+                    if (sym) {
+                        sym->flags |= (1 << 0); /* Mark as TLS */
+                    }
                 }
             } else {
                 // Syntax error: report error and skip until semicolon

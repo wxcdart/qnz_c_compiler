@@ -12,7 +12,7 @@ bool semantic_analyze(ZeroCCASTArena *ast_arena,
     }
 
     SemContext ctx;
-    if (!sem_context_init(&ctx, perm_arena, tmp_arena, diags, ast_arena)) {
+    if (!sem_context_init(&ctx, perm_arena, tmp_arena, diags, ast_arena, NULL)) {
         return false;
     }
 

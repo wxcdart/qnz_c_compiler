@@ -25,6 +25,8 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         case NODE_IDENT: {
             ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
             if (sym) return zero_cc_narrow_int_width(&sym->type, sign);
+            void *tls = zero_cc_find_tls(c, n->s.str);
+            if (tls) return 0; /* TLS int width not tracked yet */
             ZeroCCGlobalVar *gv = find_global_var(n->s.str);
             if (gv) return zero_cc_narrow_int_width(&gv->type, sign);
             return 0;
@@ -318,6 +320,9 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
         case NODE_IDENT: {
             ZeroCCSym *s = zero_cc_find_local(c, n->s.str);
             if (s) return s->type.tag == TYPE_FLOAT || s->type.tag == TYPE_DOUBLE;
+            /* Check thread-local */
+            void *tls = zero_cc_find_tls(c, n->s.str);
+            if (tls) return 0; /* TLS backend only handles integer types for now */
             ZeroCCGlobalVar *g = find_global_var(n->s.str);
             if (g) return g->type.tag == TYPE_FLOAT || g->type.tag == TYPE_DOUBLE;
             return 0;
@@ -479,6 +484,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return temp;
                 }
             } else {
+                /* Check for thread-local variable */
+                void *tls_handle = zero_cc_find_tls(c, name);
+                if (tls_handle) {
+                    int temp = c->next_temp_id++;
+                    if (c->tls_backend && c->tls_backend->emit_load) {
+                        c->tls_backend->emit_load(c, temp, tls_handle);
+                    }
+                    c->last_expr_is_float = 0;
+                    return temp;
+                }
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
                     int addr_temp = c->next_temp_id++;

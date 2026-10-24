@@ -22,7 +22,7 @@ int main(void) {
     zero_cc_ast_arena_init(&ast_arena, 1024);
 
     SemContext ctx;
-    bool ok = sem_context_init(&ctx, perm, tmp, &diags, &ast_arena);
+    bool ok = sem_context_init(&ctx, perm, tmp, &diags, &ast_arena, NULL);
     assert(ok);
     assert(ctx.current_scope != NULL);
 
