@@ -66,6 +66,7 @@ typedef struct ZeroCCCompiler {
 
     ZeroCCFunction functions[ZERO_CC_MAX_FUNCTIONS];
     size_t function_count;
+    Arena *fn_arena;                      /* Arena for function parameter slices */
 
     ZeroCCReloc relocs[ZERO_CC_MAX_RELOCS];
     size_t reloc_count;

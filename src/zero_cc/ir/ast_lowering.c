@@ -118,10 +118,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL)) {
-            const char *names[8];
-            for (size_t p = 0; p < fn->param_count && p < 8; p++) names[p] = fn->param_names[p];
-            if (!zero_cc_ast_addr_of_param(arena, root, names, (int)fn->param_count) &&
-                !zero_cc_ast_assigns_to_param(arena, root, names, (int)fn->param_count)) {
+            if (!zero_cc_ast_addr_of_param(arena, root, fn->param_names, (int)fn->param_count) &&
+                !zero_cc_ast_assigns_to_param(arena, root, fn->param_names, (int)fn->param_count)) {
                 can_promote_params = true;
                 int chk_int = 0;
                 int chk_fp = 0;

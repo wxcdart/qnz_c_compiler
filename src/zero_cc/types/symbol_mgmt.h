@@ -136,6 +136,13 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     return sym;
 }
 
+static inline Arena *zero_cc_get_fn_arena(ZeroCCCompiler *c) {
+    if (!c->fn_arena) {
+        c->fn_arena = arena_create(4096);
+    }
+    return c->fn_arena;
+}
+
 static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const char *name) {
     /* Prefer a DEFINITION over an earlier prototype/extern entry with the
      * same name (Sprint 41).  A function declared before its body (the

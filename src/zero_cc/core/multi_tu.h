@@ -126,6 +126,21 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     /* Functions: re-base text_offset and append. */
     for (size_t i = 0; i < tu->function_count; i++) {
         base->functions[base->function_count] = tu->functions[i];
+        if (tu->functions[i].param_count > 0 && tu->functions[i].param_types) {
+            Arena *farena = zero_cc_get_fn_arena(base);
+            base->functions[base->function_count].param_names =
+                (const char **)arena_alloc(farena, tu->functions[i].param_count * sizeof(const char *));
+            base->functions[base->function_count].param_types =
+                (ZeroCCType *)arena_alloc(farena, tu->functions[i].param_count * sizeof(ZeroCCType));
+            for (size_t p = 0; p < tu->functions[i].param_count; p++) {
+                base->functions[base->function_count].param_names[p] =
+                    tu->functions[i].param_names && tu->functions[i].param_names[p]
+                        ? zero_cc_intern_string(base, tu->functions[i].param_names[p])
+                        : "";
+                base->functions[base->function_count].param_types[p] =
+                    tu->functions[i].param_types[p];
+            }
+        }
         base->functions[base->function_count].text_offset += text_base;
         base->function_count++;
     }

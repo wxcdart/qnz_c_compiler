@@ -19,7 +19,7 @@ extern __thread ZeroCCCompiler *g_compiler;
 
 /* Call argument tracking constants. Must stay >= ZERO_CC_MAX_PARAMS so a
  * call can pass every parameter of the largest representable function. */
-#define IR_CALL_MAX_ARGS 32
+#define IR_CALL_MAX_ARGS 256
 #define IR_CALL_MAX_SITES 1024
 
 /* Call argument tracking structure */

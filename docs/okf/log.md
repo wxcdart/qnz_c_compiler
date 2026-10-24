@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T22:47:01Z
+timestamp: 2026-10-24T23:19:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -428,3 +428,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `abi-sysv-x86_64.md`
 - Sprint 48: dynamic SP shift tracking (zero_cc_frame_disp_at) for caller stack arguments
+
+## 2026-10-24 — Updated `frontend-and-types.md`
+- Dynamic arena-allocated slices for ZeroCCFunction parameters with C99/C11 127+ parameter limit (ZERO_CC_MAX_PARAMS=256)

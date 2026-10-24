@@ -19,6 +19,22 @@
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
 
+static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types, const char ***names, size_t *cap, size_t needed) {
+    if (needed <= *cap) return;
+    size_t ncap = (*cap < 16) ? 16 : *cap * 2;
+    while (ncap < needed) ncap *= 2;
+    Arena *arena = (ctx && ctx->tmp_arena) ? ctx->tmp_arena : NULL;
+    ZeroCCType *ntypes = arena ? (ZeroCCType *)arena_alloc(arena, ncap * sizeof(ZeroCCType)) : (ZeroCCType *)malloc(ncap * sizeof(ZeroCCType));
+    const char **nnames = arena ? (const char **)arena_alloc(arena, ncap * sizeof(const char *)) : (const char **)malloc(ncap * sizeof(const char *));
+    if (*types && *cap > 0) {
+        memcpy(ntypes, *types, *cap * sizeof(ZeroCCType));
+        memcpy(nnames, *names, *cap * sizeof(const char *));
+    }
+    *types = ntypes;
+    *names = nnames;
+    *cap = ncap;
+}
+
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     /* Skip static / inline / const / _Noreturn */
     bool fn_noreturn = false;
@@ -142,8 +158,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
      *                                 returning a (function) pointer) */
     char fn_name[128];
     /* Parse Parameters in signature */
-    ZeroCCType param_types[ZERO_CC_MAX_PARAMS];
-    char param_names[ZERO_CC_MAX_PARAMS][128];
+    size_t param_cap = 16;
+    ZeroCCType *param_types = (ZeroCCType *)arena_alloc(ctx->tmp_arena, param_cap * sizeof(ZeroCCType));
+    const char **param_names = (const char **)arena_alloc(ctx->tmp_arena, param_cap * sizeof(const char *));
     size_t param_count = 0;
     bool is_variadic_fn = false;
     bool has_prototype = false; /* set once the param list holds at least one entry */
@@ -177,15 +194,20 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             has_prototype = fc->has_prototype;
             ASTRef pl = fc->param_list;
             size_t pi = 0;
-            while (pl != AST_NULL && pi < ZERO_CC_MAX_PARAMS) {
+            while (pl != AST_NULL) {
                 ZeroCCASTNode *pn = zero_cc_ast_get(&darena, pl);
                 if (!pn) break;
+                if (pi >= ZERO_CC_MAX_PARAMS) {
+                    diag_report_error_at_token(c, "function '%s' has too many parameters (max %d)", fn_name, ZERO_CC_MAX_PARAMS);
+                    break;
+                }
+                zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, pi + 1);
+                param_types[pi] = zero_cc_type_int();
                 if (pi < fc->param_count) {
                     TypeInfo *pti = ast_node_get_typeinfo(c, pn);
                     if (pti) param_types[pi] = typeinfo_to_zero_cc_type(pti);
                 }
-                snprintf(param_names[pi], sizeof(param_names[pi]), "%s",
-                         (pn->s.str && pn->s.str[0]) ? pn->s.str : "");
+                param_names[pi] = zero_cc_intern_string(c, (pn->s.str && pn->s.str[0]) ? pn->s.str : "");
                 pl = pn->next;
                 pi++;
             }
@@ -297,7 +319,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                                 "function '%s' has too many parameters (max %d)",
                                 fn_name, ZERO_CC_MAX_PARAMS);
                         } else {
-                            snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
+                            zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
+                            param_names[param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
                             /* ABI: an 8-byte pointer in a register; the pointed-to
                              * signature is not modeled (calls go through the
                              * value). Marked func-ptr for later codegen hooks. */
@@ -375,7 +398,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                             "function '%s' has too many parameters (max %d)",
                             fn_name, ZERO_CC_MAX_PARAMS);
                     } else {
-                        snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
+                        zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
+                        param_names[param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
                         param_types[param_count] = pt;
                         zero_cc_add_local(c, param_names[param_count], pt);
                         param_count++;
@@ -426,7 +450,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                      * No add_local (nothing to bind); the degenerate
                      * `f(int [])` unnamed-array form skips the array
                      * adjustment above. */
-                    param_names[param_count][0] = '\0';
+                    zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
+                    param_names[param_count] = "";
                     param_types[param_count] = pt;
                     param_count++;
                 } else if (!is_void_param && param_count >= ZERO_CC_MAX_PARAMS &&
@@ -451,6 +476,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         /* Function prototype declaration: record prototype, no code emit */
         if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
             ZeroCCFunction *fn = &c->functions[c->function_count++];
+            memset(fn, 0, sizeof(*fn));
             snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
             fn->text_offset = 0;
             fn->param_count = param_count;
@@ -463,9 +489,14 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
-            for (size_t i = 0; i < param_count && i < ZERO_CC_MAX_PARAMS; i++) {
-                fn->param_types[i] = param_types[i];
-                snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
+            if (param_count > 0) {
+                Arena *farena = zero_cc_get_fn_arena(c);
+                fn->param_names = (const char **)arena_alloc(farena, param_count * sizeof(const char *));
+                fn->param_types = (ZeroCCType *)arena_alloc(farena, param_count * sizeof(ZeroCCType));
+                for (size_t i = 0; i < param_count; i++) {
+                    fn->param_types[i] = param_types[i];
+                    fn->param_names[i] = param_names[i];
+                }
             }
         }
         c->token_pos++;
@@ -475,6 +506,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     if (c->tokens[c->token_pos].type == TK_LBRACE) {
         if (c->function_count >= ZERO_CC_MAX_FUNCTIONS) return;
         ZeroCCFunction *fn = &c->functions[c->function_count++];
+        memset(fn, 0, sizeof(*fn));
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
         /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
@@ -489,9 +521,14 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->is_inline = fn_inline;
         fn->is_static = fn_static;
         /* Copy parameter types and names to function struct */
-        for (size_t i = 0; i < param_count && i < ZERO_CC_MAX_PARAMS; i++) {
-            fn->param_types[i] = param_types[i];
-            snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
+        if (param_count > 0) {
+            Arena *farena = zero_cc_get_fn_arena(c);
+            fn->param_names = (const char **)arena_alloc(farena, param_count * sizeof(const char *));
+            fn->param_types = (ZeroCCType *)arena_alloc(farena, param_count * sizeof(ZeroCCType));
+            for (size_t i = 0; i < param_count; i++) {
+                fn->param_types[i] = param_types[i];
+                fn->param_names[i] = param_names[i];
+            }
         }
 
         c->local_count = 0;
@@ -635,9 +672,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 bool inline_ok = (node_count > 0 && node_count <= 35 &&
                                   !zero_cc_ast_has_call(&arena, body, fn->name));
                 if (inline_ok) {
+                    if (fn->param_count > 8)
+                        inline_ok = false;
                     if (fn->return_type.tag == TYPE_FLOAT || fn->return_type.tag == TYPE_DOUBLE)
                         inline_ok = false;
-                    for (size_t p = 0; inline_ok && p < fn->param_count && p < 8; p++) {
+                    for (size_t p = 0; inline_ok && p < fn->param_count; p++) {
                         if (fn->param_types[p].tag == TYPE_FLOAT || fn->param_types[p].tag == TYPE_DOUBLE)
                             inline_ok = false;
                     }
@@ -648,14 +687,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         inline_ok = false;
                 }
                 if (inline_ok && fn->param_count > 0) {
-                    const char *names[8];
-                    for (size_t p = 0; p < fn->param_count && p < 8; p++) names[p] = fn->param_names[p];
-                    if (zero_cc_ast_addr_of_param(&arena, body, names, (int)fn->param_count))
+                    if (zero_cc_ast_addr_of_param(&arena, body, fn->param_names, (int)fn->param_count))
                         inline_ok = false;
                     /* (Sprint 41) A write to a value param (x = / x op=) has no
                      * stack slot in the inlined body, so the store is dropped and
                      * later reads see the stale argument. Do not inline such fns. */
-                    if (inline_ok && zero_cc_ast_assigns_to_param(&arena, body, names, (int)fn->param_count))
+                    if (inline_ok && zero_cc_ast_assigns_to_param(&arena, body, fn->param_names, (int)fn->param_count))
                         inline_ok = false;
                 }
                 if (inline_ok) {

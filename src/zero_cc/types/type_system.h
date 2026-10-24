@@ -141,12 +141,11 @@ typedef struct {
     char static_global_name[128];         /* Mangled name in the global table */
 } ZeroCCSym;
 
-/* Maximum parameters in a parsed function prototype/definition. The
- * arrays below are fixed (ZeroCCFunction is copied by value in several
- * paths); beyond this cap the parser reports an error instead of
- * silently dropping the parameter (the old cap of 8 caused 9th+ params
- * to vanish, leaving later params undeclared and legal calls rejected). */
-#define ZERO_CC_MAX_PARAMS 32
+/* Maximum parameters supported in a parsed function prototype/definition.
+ * Conforms to C99/C11 translation limit (section 5.2.4.1 requires at least 127).
+ * Parameters are stored as arena-allocated slices on ZeroCCFunction, so
+ * unused capacity consumes zero memory. */
+#define ZERO_CC_MAX_PARAMS 256
 
 /* Function Definition Record */
 typedef struct {
@@ -154,8 +153,8 @@ typedef struct {
     size_t text_offset;                   /* Byte offset in text_section */
     ZeroCCType return_type;
     size_t param_count;
-    char param_names[ZERO_CC_MAX_PARAMS][128];
-    ZeroCCType param_types[ZERO_CC_MAX_PARAMS];
+    const char **param_names;             /* Arena-allocated array of param name strings */
+    ZeroCCType *param_types;              /* Arena-allocated array of param types */
     bool returns_struct;
     size_t ret_struct_sz;
     int32_t sret_stack_offset;            /* Stack offset (positive, below rbp) for hidden sret ptr */

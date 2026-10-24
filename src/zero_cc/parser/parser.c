@@ -352,9 +352,11 @@ void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c) {
             zc_struct_owner_add(owners, &n, c->locals[i].type.members);
         for (size_t i = 0; i < c->function_count; i++) {
             zc_struct_owner_add(owners, &n, c->functions[i].return_type.members);
-            for (size_t j = 0; j < c->functions[i].param_count && j < 8; j++)
-                zc_struct_owner_add(owners, &n,
-                                    c->functions[i].param_types[j].members);
+            if (c->functions[i].param_types) {
+                for (size_t j = 0; j < c->functions[i].param_count; j++)
+                    zc_struct_owner_add(owners, &n,
+                                        c->functions[i].param_types[j].members);
+            }
         }
         for (size_t i = 0; i < c->thread_local_count && i < 64; i++)
             zc_struct_owner_add(owners, &n, c->thread_locals[i].type.members);

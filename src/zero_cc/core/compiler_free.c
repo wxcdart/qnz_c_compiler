@@ -56,6 +56,12 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     /* Interned string pool (chunked) */
     zero_cc_free_string_pool(c);
 
+    /* Function parameter slices arena */
+    if (c->fn_arena) {
+        arena_destroy(c->fn_arena);
+        c->fn_arena = NULL;
+    }
+
     /* Register allocator + CFG cache (last-built snapshot) */
     regalloc_destroy(&c->regalloc);
     zero_cc_cfg_cache_free(&c->cfg_cache);

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-24T22:46:58Z
+timestamp: 2026-10-24T23:19:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -221,13 +221,17 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
   - Lowering in `src/zero_cc/ir/ast_lowering_expr.c` executes all leading statements and evaluates the last expression statement into the result virtual register.
   - Supports loops, nested statement expressions, and complex macros (e.g. `max(a, b)` with `__typeof__`).
 
-## Parameter Capacity & Validation (`ZERO_CC_MAX_PARAMS`)
+## Parameter Representation & C99/C11 Translation Limits (`ZERO_CC_MAX_PARAMS`)
 
-In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` tracks parameter metadata via fixed arrays:
-- `ZERO_CC_MAX_PARAMS` (32): Replaced the former 8-parameter cap.
-- `ZeroCCFunction.param_names[ZERO_CC_MAX_PARAMS][128]` and `ZeroCCFunction.param_types[ZERO_CC_MAX_PARAMS]`.
-- Corresponding caller-side tracking: `IR_CALL_MAX_ARGS` (32) in `src/zero_cc/ir/ir.h`.
-- Bounds enforcement: `src/zero_cc/jit/compile.h` reports clean diagnostics (`function '%s' has too many parameters (max %d)`) instead of silently dropping parameters past the cap, and all prototype copy and paren-declarator loops run up to `ZERO_CC_MAX_PARAMS`.
+In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata as dynamic arena-allocated slices rather than fixed inline arrays:
+- **Arena-Allocated Slices**: `const char **param_names` and `ZeroCCType *param_types`.
+  - When a function or prototype has `param_count > 0`, slices are allocated in `c->fn_arena` (`zero_cc_get_fn_arena(c)` in `src/zero_cc/types/symbol_mgmt.h`).
+  - Zero-parameter functions allocate no slices (`param_names == NULL`, `param_types == NULL`), eliminating memory waste across thousands of functions.
+  - Multi-TU merge (`src/zero_cc/core/multi_tu.h`) deep-copies parameter slices into the merged compiler's `fn_arena`.
+  - `fn_arena` is destroyed cleanly in `zero_cc_compiler_free()`.
+- **Memory Footprint**: `sizeof(ZeroCCFunction)` shrank from ~8.3 KB to 400 bytes, reducing the memory consumed by `c->functions[ZERO_CC_MAX_FUNCTIONS]` from 4.2 MB to 200 KB.
+- **C99/C11 Conformance**: `ZERO_CC_MAX_PARAMS` and `IR_CALL_MAX_ARGS` (`src/zero_cc/ir/ir.h`) are set to 256, comfortably exceeding the C99/C11 translation limit requirement of at least 127 parameters in a function definition/call (ISO/IEC 9899 §5.2.4.1).
+- **Bounds Enforcement & Growth**: `src/zero_cc/jit/compile.h` dynamically reallocates parse-time accumulation buffers using `zero_cc_ensure_param_cap()` in `ctx->tmp_arena`, and reports clean compile errors (`function '%s' has too many parameters (max %d)`) beyond 256. All caller-side argument tracking and stack-argument lowering support up to 256 parameters.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
