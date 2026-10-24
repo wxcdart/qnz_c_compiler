@@ -393,6 +393,8 @@ void ir_dump(FILE *f) {
                                     break;
             case OP_PARAM_SAVE_FP: fprintf(f, "PARAM_SAVE_FP reg=%d offset=%lld", (int)instr->imm, (long long)instr->imm64);
                                    break;
+            case OP_PARAM_LOAD: fprintf(f, "PARAM_LOAD r%u, %s_arg=%d", instr->temp_dest, instr->cond ? "fp" : "int", (int)instr->imm);
+                                break;
             case OP_VARIADIC_SPILL: fprintf(f, "VARIADIC_SPILL param_count=%d base_offset=%lld", (int)instr->imm, (long long)instr->imm64);
                                     break;
             case OP_ATOMIC_XADD: fprintf(f, "ATOMIC_XADD r%u, [r%u], r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

@@ -641,6 +641,26 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_param_save_fp_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
             }
             return;
+        case OP_PARAM_LOAD: {
+            bool is_fp = instr->cond != 0;
+            int arg_idx = (int)instr->imm;
+            if (is_fp) {
+                if (arg_idx >= 0 && arg_idx < BE(c)->conv->fp_arg_reg_count) {
+                    int src_reg = BE(c)->conv->fp_arg_regs[arg_idx];
+                    if (phys_dst != src_reg && BE(c)->emit_fp_mov_asm) {
+                        BE(c)->emit_fp_mov_asm(c, phys_dst, src_reg, out);
+                    }
+                }
+            } else {
+                if (arg_idx >= 0 && arg_idx < BE(c)->conv->int_arg_reg_count) {
+                    int src_reg = BE(c)->conv->int_arg_regs[arg_idx];
+                    if (phys_dst != src_reg && BE(c)->emit_mov_reg_asm) {
+                        BE(c)->emit_mov_reg_asm(c, phys_dst, src_reg, out);
+                    }
+                }
+            }
+            return;
+        }
         case OP_VARIADIC_SPILL:
             if (BE(c)->emit_variadic_spill_asm) {
                 BE(c)->emit_variadic_spill_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);

@@ -139,14 +139,14 @@ def check_fallthrough_jump_elimination(asm: str, target: str, verbose: bool) -> 
     return not failed
 
 
-def check_pure_leaf_frameless(asm: str, target: str, verbose: bool) -> bool:
-    """Ensure pure leaf without stack variables has no frame setup."""
+def check_leaf_frameless(asm: str, target: str, func_name: str, verbose: bool) -> bool:
+    """Ensure leaf function without stack variables has no frame setup."""
     lines = asm.splitlines()
     in_func = False
     func_lines = []
     for line in lines:
         stripped = line.strip()
-        if stripped == "pure_leaf:":
+        if stripped == f"{func_name}:":
             in_func = True
             continue
         elif in_func and (re.match(r"^\.globl\s+", stripped) or re.match(r"^[a-zA-Z0-9_]+:\s*$", stripped)):
@@ -156,19 +156,19 @@ def check_pure_leaf_frameless(asm: str, target: str, verbose: bool) -> bool:
 
     func_asm = "\n".join(func_lines)
     if verbose:
-        print(f"[{target}:pure_leaf]:\n{func_asm}\n")
+        print(f"[{target}:{func_name}]:\n{func_asm}\n")
 
     if target == "x86-64":
         if "pushq\t%rbp" in func_asm or "leave" in func_asm:
-            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            print(f"FAILED [{target}:{func_name}]: Frame setup present in leaf function")
             return False
     elif target == "aarch64":
         if "stp\tx29, x30" in func_asm or "ldp\tx29, x30" in func_asm:
-            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            print(f"FAILED [{target}:{func_name}]: Frame setup present in leaf function")
             return False
     elif target in ("riscv64", "riscv32"):
         if re.search(r"\bs[wd]\s+ra\b", func_asm) or re.search(r"\bs[wd]\s+s0\b", func_asm):
-            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            print(f"FAILED [{target}:{func_name}]: Frame setup present in leaf function")
             return False
 
     return True
@@ -232,7 +232,9 @@ def run_checks(targets, verbose=False) -> bool:
             print(f"=== Checking target: {target} ===")
         asm = compile_to_asm(SAMPLE_C, target)
 
-        if not check_pure_leaf_frameless(asm, target, verbose):
+        if not check_leaf_frameless(asm, target, "pure_leaf", verbose):
+            all_ok = False
+        if not check_leaf_frameless(asm, target, "leaf_add", verbose):
             all_ok = False
         if not check_leaf_csr_omission(asm, target, "leaf_add", verbose):
             all_ok = False

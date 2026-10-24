@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-23T01:58:55Z
+timestamp: 2026-10-24T01:17:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,10 +17,18 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 128 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP, and 128-bit SIMD vector ops).
+- `op` (`Opcode`): One of 129 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP, and 128-bit SIMD vector ops).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
+
+### Parameter Promotion (`OP_PARAM_LOAD`)
+
+For eligible leaf functions, parameter spills to the stack are bypassed. Instead, incoming parameters are bound to virtual registers using `OP_PARAM_LOAD`:
+- `temp_dest`: Destination virtual register.
+- `imm`: ABI parameter register index (0–7).
+- `imm64`: Floating-point indicator (`1` if FP argument register, `0` if integer/pointer argument register).
+During code generation, if `temp_dest` is allocated to the identical physical ABI argument register, the copy is completely omitted (0 instructions). Loop optimizations mark `OP_PARAM_LOAD` with moving side effects to prevent hoist/sinking across blocks.
 
 ### Logical `&&` / `||` Lowering (Sprint 41)
 

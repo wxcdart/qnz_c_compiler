@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T00:37:41Z
+timestamp: 2026-10-24T01:17:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -395,3 +395,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `isa-backends.md`
 - Document Red Zone, inline epilogues, and frameless leaf optimizations
+
+## 2026-10-24 — Updated `isa-backends.md`
+- Document frameless leaf parameter promotion optimization
+
+## 2026-10-24 — Updated `ir-and-regalloc.md`
+- Document OP_PARAM_LOAD opcode and semantics

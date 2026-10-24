@@ -66,6 +66,9 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             const char *name = node->s.str;
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
+                if (sym->is_promoted) {
+                    return sym->promoted_vreg;
+                }
                 /* Emit: load temp, fp, offset */
                 int temp = c->next_temp_id++;
                 ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);

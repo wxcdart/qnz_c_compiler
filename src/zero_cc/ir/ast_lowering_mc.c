@@ -107,6 +107,27 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_PARAM_LOAD: {
+                bool is_fp = instr->cond != 0;
+                int arg_idx = (int)instr->imm;
+                if (is_fp) {
+                    if (arg_idx >= 0 && arg_idx < BE(c)->conv->fp_arg_reg_count) {
+                        int src_reg = BE(c)->conv->fp_arg_regs[arg_idx];
+                        if (phys_dst != src_reg && BE(c)->emit_fp_mov) {
+                            BE(c)->emit_fp_mov(c, phys_dst, src_reg);
+                        }
+                    }
+                } else {
+                    if (arg_idx >= 0 && arg_idx < BE(c)->conv->int_arg_reg_count) {
+                        int src_reg = BE(c)->conv->int_arg_regs[arg_idx];
+                        if (phys_dst != src_reg && BE(c)->emit_mov_reg) {
+                            BE(c)->emit_mov_reg(c, phys_dst, src_reg);
+                        }
+                    }
+                }
+                break;
+            }
+
             case OP_VARIADIC_SPILL:
                 if (BE(c)->emit_variadic_spill) {
                     BE(c)->emit_variadic_spill(c, (int)instr->imm, (int32_t)instr->imm64);

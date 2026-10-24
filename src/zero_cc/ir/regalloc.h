@@ -398,8 +398,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 }
             }
         } else {
-            /* x86-64 general pool: iterate over pool indices, not physical register numbers */
-            static const int pool_to_phys[] = {0, 3, 1, 2, 6, 7, 8, 9, 12, 13, 14, 15};
+            /* x86-64 general pool: prefer caller-saved argument/return registers before callee-saved */
+            static const int pool_to_phys[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
             for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
                 int phys_reg = pool_to_phys[pool_idx];
                 if (ra->gpr_free[phys_reg]) {

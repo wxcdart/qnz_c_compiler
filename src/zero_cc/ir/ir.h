@@ -102,6 +102,7 @@ typedef enum {
     OP_DEAD,           /* dead instruction (removed by DCE) */
     OP_PARAM_SAVE_INT, /* save integer argument register to stack slot */
     OP_PARAM_SAVE_FP,  /* save floating-point argument register to stack slot */
+    OP_PARAM_LOAD,     /* load argument register directly into virtual register (frameless leaf) */
     OP_VARIADIC_SPILL, /* spill variadic argument registers to stack */
 
     /* Special (8) */
@@ -523,6 +524,10 @@ static inline void ir_emit_param_save_int(int reg_idx, int32_t offset) {
 
 static inline void ir_emit_param_save_fp(int reg_idx, int32_t offset) {
     ir_emit((Instr){.op = OP_PARAM_SAVE_FP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+}
+
+static inline void ir_emit_param_load(int temp_dest, int arg_idx, bool is_fp) {
+    ir_emit((Instr){.op = OP_PARAM_LOAD, .temp_dest= (uint16_t)temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = (uint8_t)(is_fp ? 1 : 0), .imm = (int16_t)arg_idx, .imm64 = 0, .label_idx = 0});
 }
 
 static inline void ir_emit_variadic_spill(int param_count, int32_t base_offset) {

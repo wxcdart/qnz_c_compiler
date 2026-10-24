@@ -1294,7 +1294,10 @@ static void x86_emit_load_32(ZeroCCCompiler *c, int dst_reg, int src_reg) {
 }
 
 static void x86_emit_store_byte(ZeroCCCompiler *c, int src_reg, int base_reg) {
-    x86_rex(c, 0, (src_reg >> 3) & 1, 0, (base_reg >> 3) & 1);
+    /* x86-64: SIL/DIL/SPL/BPL (regs 4-7) and r8b-r15b (regs >= 8) require a REX prefix to encode as byte registers */
+    if (src_reg >= 4 || base_reg >= 8) {
+        me_emit_u8(c, 0x40 | (((src_reg >> 3) & 1) << 2) | ((base_reg >> 3) & 1));
+    }
     me_emit_u8(c, 0x88);
     int mod = ((base_reg & 7) == X86_RBP) ? 1 : 0;
     x86_modrm(c, mod, src_reg & 7, base_reg & 7);

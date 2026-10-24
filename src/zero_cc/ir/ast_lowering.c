@@ -110,8 +110,59 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset IR buffer */
     ir_reset();
 
-    /* Emit IR instructions to save incoming parameter registers into their assigned local stack slots */
+    /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
+    bool can_promote_params = false;
     if (c->function_count > 0) {
+        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+        int max_int_params = (c->isa == ISA_X86_64) ? 3 : 8;
+        if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
+            c->local_count == fn->param_count &&
+            !zero_cc_ast_has_call(arena, root, NULL)) {
+            const char *names[8];
+            for (size_t p = 0; p < fn->param_count && p < 8; p++) names[p] = fn->param_names[p];
+            if (!zero_cc_ast_addr_of_param(arena, root, names, (int)fn->param_count) &&
+                !zero_cc_ast_assigns_to_param(arena, root, names, (int)fn->param_count)) {
+                can_promote_params = true;
+                int chk_int = 0;
+                int chk_fp = 0;
+                for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
+                    ZeroCCSym *sym = &c->locals[p];
+                    if (!sym->is_param) continue;
+                    bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+                    if (is_fp) {
+                        if (chk_fp >= BE(c)->conv->fp_arg_reg_count) { can_promote_params = false; break; }
+                        chk_fp++;
+                    } else {
+                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8) {
+                            can_promote_params = false; break;
+                        }
+                        if (chk_int >= max_int_params) { can_promote_params = false; break; }
+                        chk_int++;
+                    }
+                }
+            }
+        }
+    }
+
+    if (can_promote_params) {
+        c->current_stack_frame = 0;
+        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+        int int_idx = 0;
+        int fp_idx = 0;
+        for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
+            ZeroCCSym *sym = &c->locals[p];
+            if (!sym->is_param) continue;
+            sym->stack_offset = 0;
+            sym->is_promoted = true;
+            sym->promoted_vreg = c->next_temp_id++;
+            bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+            int arg_idx = is_fp ? fp_idx++ : int_idx++;
+            ir_emit_param_load(sym->promoted_vreg, arg_idx, is_fp);
+            if (!is_fp) {
+                zero_cc_emit_int_extend(c, sym->promoted_vreg, &sym->type);
+            }
+        }
+    } else if (c->function_count > 0) {
         ZeroCCFunction *fn = &c->functions[c->function_count - 1];
         int xmm_idx = 0;
         int int_idx = 0;
@@ -296,8 +347,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
     /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area,
-     * unless the function has no locals, no spills, and no callee-saved registers. */
-    if (c->local_count == 0 && c->regalloc.next_spill_slot == 0 && c->regalloc.used_callee_saved_gpr_mask == 0) {
+     * unless the function has no frame needs (no stack slots, no spills, and no callee-saved registers). */
+    if (c->current_stack_frame == 0 && c->regalloc.next_spill_slot == 0 && c->regalloc.used_callee_saved_gpr_mask == 0) {
         c->current_stack_frame = 0;
     } else if (c->current_stack_frame < BE(c)->callee_save_frame_reserve) {
         c->current_stack_frame = BE(c)->callee_save_frame_reserve;

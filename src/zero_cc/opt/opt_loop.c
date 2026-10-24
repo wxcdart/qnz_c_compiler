@@ -305,6 +305,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_CALLEE_SAVE_LOADS:
         case OP_PARAM_SAVE_INT:
         case OP_PARAM_SAVE_FP:
+        case OP_PARAM_LOAD:
         case OP_VARIADIC_SPILL:
             return true;
 

@@ -465,6 +465,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym) {
+                if (sym->is_promoted) {
+                    c->last_expr_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
+                    return sym->promoted_vreg;
+                }
                 if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
                     /* Float load via IR for proper register allocation */
                     int temp = c->next_temp_id++;

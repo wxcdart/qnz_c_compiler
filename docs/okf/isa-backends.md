@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-24T00:37:41Z
+timestamp: 2026-10-24T01:16:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -64,10 +64,12 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
    - For leaf functions on x86-64 (`!has_calls`) with total stack requirements $\le 128$ bytes, stack allocation is serviced within the 128-byte Red Zone below `%rsp`. `subq $N, %rsp` is completely omitted in the prologue.
 4. **Inline Epilogues on Early Returns**:
    - Early return guards in functions without static-local mirror blocks inline the epilogue directly (`leave; ret` or `ret`) instead of emitting an unconditional jump `jmp .L_epilogue`, eliminating branch latency on early exit paths.
-5. **Pure Leaf Frameless Functions (AArch64, RISC-V, x86-64)**:
-   - Pure leaf routines with no local variables, no stack spills, and no callee-saved registers omit frame pointer setup entirely (`stp x29, x30` / `sd ra, s0` / `push rbp`). Functions reduce to straight-line instructions followed directly by `ret`.
+5. **Frameless Leaf Functions & Direct Parameter Register Promotion (AArch64, RISC-V, x86-64)**:
+   - For leaf functions (`!has_calls`) with no local stack variables (`c->local_count == fn->param_count`), no address-of parameter (`&param`), and no parameter mutations (assignments, increments, decrements), incoming ABI argument registers are directly promoted into virtual registers (`sym->is_promoted = true`, `sym->promoted_vreg`) via `OP_PARAM_LOAD`.
+   - Frame pointer setup (`push rbp` / `stp x29, x30` / `addi sp, sp, -16; sd ra, s0`), stack frame allocation (`c->current_stack_frame = 0`), and stack parameter spill stores/loads are completely bypassed.
+   - The function emits direct computation straight to return register followed by a single `ret`. Supported up to 3 integer arguments on x86-64 (matching `rdi, rsi, rdx` without clobber hazards against reserved `rcx`) and up to 8 arguments on AArch64 and RISC-V (`x0..x7` / `a0..a7`).
 6. **Verification Tools**:
-   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, pure leaf frameless emission, Red Zone usage, and store-load symmetry across all target ISAs.
+   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, and store-load symmetry across all target ISAs.
    - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
 
 ## Parallel Argument Setup in Function Calls

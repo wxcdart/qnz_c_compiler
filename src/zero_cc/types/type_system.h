@@ -122,6 +122,8 @@ typedef struct {
     bool is_const;
     bool is_volatile;
     bool is_restrict;
+    bool is_promoted;                     /* Parameter promoted to register (frameless leaf) */
+    int promoted_vreg;                    /* Virtual register holding promoted parameter */
     /* Static local (Sprint 37): block-scoped declaration with static
      * storage duration. The object lives in the data section
      * (registered in the global table under static_global_name) and the
