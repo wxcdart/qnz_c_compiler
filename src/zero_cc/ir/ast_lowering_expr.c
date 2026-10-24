@@ -3355,13 +3355,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     sret_buf_temp = c->next_temp_id++;
                     ir_emit_lea(sret_buf_temp, BE(c)->fp_reg, -buf_stack_off);
 
-                    all_arg_temps[all_arg_count] = sret_buf_temp;
-                    all_arg_is_fp[all_arg_count] = (c->isa == ISA_AARCH64) ? 3 : 0;
-                    all_arg_count++;
+                    if (all_arg_count < IR_CALL_MAX_ARGS) {
+                        all_arg_temps[all_arg_count] = sret_buf_temp;
+                        all_arg_is_fp[all_arg_count] = (c->isa == ISA_AARCH64) ? 3 : 0;
+                        all_arg_count++;
+                    }
                 }
 
                 /* Then reload user integer arguments */
-                for (int a = 0; a < int_arg_idx; a++) {
+                for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
                     all_arg_temps[all_arg_count] = reload_temp;
@@ -3371,7 +3373,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 /* Then reload FP arguments */
-                for (int f = 0; f < fp_arg_idx; f++) {
+                for (int f = 0; f < fp_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; f++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_fload(reload_temp, TEMP_NONE, -fp_spill_offsets[f]);
                     all_arg_temps[all_arg_count] = reload_temp;

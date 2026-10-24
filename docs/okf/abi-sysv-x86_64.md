@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-24T21:25:21Z
+timestamp: 2026-10-24T22:47:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -58,6 +58,18 @@ When a function returns a `struct` or `union` with `size > 16` bytes (`fn->ret_s
    - In `x86_emit_call_asm` (`x86_64_asm.c`) and `OP_CALL` (`ast_lowering_mc.c`), the indirect target is first copied into `%r11` (`scratch_reg2`) **before** the parallel `push`/`pop` sequence populates `%rdi`..`%r9`, followed by `call *%r11`.
 4. **Size-Aware Tail Chunk Copy (Preventing Stack Corruption)**:
    - When copying a `>16` byte struct from an `sret` buffer into a local struct variable (`Big20 r = fn(...)` or `r = fn(...)`) or out to `[hidden_ptr + i*8]`, if the remaining byte count `rem = size - i * 8` is `< 8` (e.g., `rem == 4` for the 3rd chunk of a 20-byte struct), ZeroCC **must** use `ir_emit_load_32` / `ir_emit_store_32` (or `16`/`byte` variants) rather than an 8-byte `movq`. An 8-byte store at offset 16 of a 20-byte struct would overwrite 4 bytes of the adjacent variable on the stack.
+
+## Caller Stack Arguments & Dynamic SP Rebasing (`zero_cc_frame_disp_at`)
+
+When a function call requires stack arguments (>6 integer/pointer args on x86-64):
+- **Alignment Pad & Push Sequence**:
+  - The caller reserves 16-byte alignment via `subq $8, %rsp` if `n_stack` is odd (`stack_pad = 8`).
+  - Overflow arguments are pushed in reverse order onto `%rsp`.
+  - Register arguments (up to 6) are pushed onto `%rsp` and popped into `%rdi..%r9` to resolve arbitrary parallel register swaps safely.
+- **Dynamic Stack-Pointer Displacement Invariant**:
+  - When frame pointer omission is active (`omit_frame_pointer` is true), slots are addressed relative to `%rsp`.
+  - During argument marshalling, `%rsp` shifts downwards by `extra_sp = stack_pad + pushed_stack_args * 8 + pushed_reg_args * 8`.
+  - Any reloaded spill slot (for register arguments or stack arguments) must be addressed via `zero_cc_frame_disp_at(c, -off, extra_sp)` (defined in `src/zero_cc/ir/ir.c`), ensuring frame reloads never collide with newly pushed arguments or alignment pad slots.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

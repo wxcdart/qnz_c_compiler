@@ -17,8 +17,9 @@ extern __thread ZeroCCCompiler *g_compiler;
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking */
 
-/* Call argument tracking constants */
-#define IR_CALL_MAX_ARGS 16
+/* Call argument tracking constants. Must stay >= ZERO_CC_MAX_PARAMS so a
+ * call can pass every parameter of the largest representable function. */
+#define IR_CALL_MAX_ARGS 32
 #define IR_CALL_MAX_SITES 1024
 
 /* Call argument tracking structure */

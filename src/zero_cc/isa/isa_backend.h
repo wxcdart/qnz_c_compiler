@@ -339,6 +339,7 @@ const ZeroCCISABackend *zero_cc_get_native_backend(void);
  * addressed from SP with a constant delta (LoweringState.frame_delta);
  * these accessors keep every emission site uniform. Implemented in ir.c. */
 int zero_cc_frame_base_reg(const ZeroCCCompiler *c);   /* fp_reg or sp_reg */
+int32_t zero_cc_frame_disp_at(const ZeroCCCompiler *c, int32_t off, int32_t extra_sp);
 int32_t zero_cc_frame_disp(const ZeroCCCompiler *c, int32_t off); /* off + delta */
 
 /* Helper functions for calling convention access */

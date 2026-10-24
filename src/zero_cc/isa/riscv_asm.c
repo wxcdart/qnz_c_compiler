@@ -438,7 +438,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, stack_alloc), out);
                 fprintf(out, "\tsd\tt0, %d(sp)\n", (a - 8) * 8);
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
@@ -455,7 +455,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, stack_alloc + alloc_bytes), out);
                 fprintf(out, "\tsd\tt0, %d(sp)\n", a * 8);
             } else {
                 fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);

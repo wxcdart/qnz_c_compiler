@@ -142,8 +142,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
      *                                 returning a (function) pointer) */
     char fn_name[128];
     /* Parse Parameters in signature */
-    ZeroCCType param_types[8];
-    char param_names[8][128];
+    ZeroCCType param_types[ZERO_CC_MAX_PARAMS];
+    char param_names[ZERO_CC_MAX_PARAMS][128];
     size_t param_count = 0;
     bool is_variadic_fn = false;
     bool has_prototype = false; /* set once the param list holds at least one entry */
@@ -177,7 +177,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             has_prototype = fc->has_prototype;
             ASTRef pl = fc->param_list;
             size_t pi = 0;
-            while (pl != AST_NULL && pi < 8) {
+            while (pl != AST_NULL && pi < ZERO_CC_MAX_PARAMS) {
                 ZeroCCASTNode *pn = zero_cc_ast_get(&darena, pl);
                 if (!pn) break;
                 if (pi < fc->param_count) {
@@ -291,17 +291,23 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     /* Function-pointer parameter: `ret_type (*name)(params...)` */
                     c->token_pos++; /* ( */
                     while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
-                    if (c->tokens[c->token_pos].type == TK_IDENT && param_count < 8) {
-                        snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
-                        /* ABI: an 8-byte pointer in a register; the pointed-to
-                         * signature is not modeled (calls go through the
-                         * value). Marked func-ptr for later codegen hooks. */
-                        ZeroCCType pt = zero_cc_type_int64();
-                        ZeroCCType fpt = zero_cc_type_ptr(&pt);
-                        fpt.is_func_ptr = true;
-                        param_types[param_count] = fpt;
-                        zero_cc_add_local(c, param_names[param_count], fpt);
-                        param_count++;
+                    if (c->tokens[c->token_pos].type == TK_IDENT) {
+                        if (param_count >= ZERO_CC_MAX_PARAMS) {
+                            diag_report_error_at_token(c,
+                                "function '%s' has too many parameters (max %d)",
+                                fn_name, ZERO_CC_MAX_PARAMS);
+                        } else {
+                            snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
+                            /* ABI: an 8-byte pointer in a register; the pointed-to
+                             * signature is not modeled (calls go through the
+                             * value). Marked func-ptr for later codegen hooks. */
+                            ZeroCCType pt = zero_cc_type_int64();
+                            ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                            fpt.is_func_ptr = true;
+                            param_types[param_count] = fpt;
+                            zero_cc_add_local(c, param_names[param_count], fpt);
+                            param_count++;
+                        }
                     }
                     c->token_pos++; /* name */
                     if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
@@ -364,7 +370,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
                                       ptr_depth == 0);
                 if (!is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
-                    if (param_count < 8) {
+                    if (param_count >= ZERO_CC_MAX_PARAMS) {
+                        diag_report_error_at_token(c,
+                            "function '%s' has too many parameters (max %d)",
+                            fn_name, ZERO_CC_MAX_PARAMS);
+                    } else {
                         snprintf(param_names[param_count], sizeof(param_names[param_count]), "%s", c->tokens[c->token_pos].str_val);
                         param_types[param_count] = pt;
                         zero_cc_add_local(c, param_names[param_count], pt);
@@ -407,7 +417,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         }
                         param_types[param_count - 1] = zero_cc_type_ptr(&t);
                     }
-                } else if (!is_void_param && param_count < 8 &&
+                } else if (!is_void_param && param_count < ZERO_CC_MAX_PARAMS &&
                            c->token_pos < c->token_count &&
                            (c->tokens[c->token_pos].type == TK_COMMA ||
                             c->tokens[c->token_pos].type == TK_RPAREN)) {
@@ -419,6 +429,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     param_names[param_count][0] = '\0';
                     param_types[param_count] = pt;
                     param_count++;
+                } else if (!is_void_param && param_count >= ZERO_CC_MAX_PARAMS &&
+                           c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_COMMA ||
+                            c->tokens[c->token_pos].type == TK_RPAREN)) {
+                    diag_report_error_at_token(c,
+                        "function '%s' has too many parameters (max %d)",
+                        fn_name, ZERO_CC_MAX_PARAMS);
                 }
             }
         }
@@ -446,7 +463,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
-            for (size_t i = 0; i < param_count && i < 8; i++) {
+            for (size_t i = 0; i < param_count && i < ZERO_CC_MAX_PARAMS; i++) {
                 fn->param_types[i] = param_types[i];
                 snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
             }
@@ -472,7 +489,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->is_inline = fn_inline;
         fn->is_static = fn_static;
         /* Copy parameter types and names to function struct */
-        for (size_t i = 0; i < param_count && i < 8; i++) {
+        for (size_t i = 0; i < param_count && i < ZERO_CC_MAX_PARAMS; i++) {
             fn->param_types[i] = param_types[i];
             snprintf(fn->param_names[i], sizeof(fn->param_names[i]), "%s", param_names[i]);
         }

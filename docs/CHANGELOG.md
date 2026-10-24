@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Sprint 48] - 2026-10-24 - Function Parameter Limit Expanded to 32 & Caller Dynamic-SP Spill-Offset Fix
+
+- **Parameter Cap Expanded (8 -> 32)**:
+  - `ZERO_CC_MAX_PARAMS` (32) defined in `src/zero_cc/types/type_system.h`. `ZeroCCFunction.param_names` and `param_types` expanded from 8 to 32.
+  - `jit/compile.h`: parser arrays expanded to `ZERO_CC_MAX_PARAMS`; fixed hardcoded `i < 8` caps in prototype copies, definition copies, and paren-declarator loops that previously silently dropped parameters 9+ (leaving them undeclared or VOID). Added explicit diagnostics when parameters exceed 32.
+  - `ir/ir.h`: `IR_CALL_MAX_ARGS` expanded from 16 to 32 to ensure any legal function call can pass all parameters.
+  - `ir/ast_lowering_expr.c`: added bounds guards when accumulating call arguments (`all_arg_count < IR_CALL_MAX_ARGS`).
+- **Dynamic-SP Spill-Offset Fix in Call & Syscall Argument Setup**:
+  - Root cause: When `omit_frame_pointer` is active (default at `-O1+`), frame slots are addressed relative to `%rsp`. When a function call passes stack arguments (5+ stack args on x86-64, i.e. 11+ parameters), the caller shifts `%rsp` downwards via `subq $8, %rsp` (odd-count alignment pad) and `pushq` of each stack argument, followed by `pushq` of register arguments for safe parallel move. Any argument temporary spilled to the stack was reloaded using the static `zero_cc_frame_disp(c, -off)` relative to current `%rsp`, reading from the wrong stack location (e.g. duplicating stack args or loading from alignment pad slots).
+  - Fix: Added `zero_cc_frame_disp_at(c, off, extra_sp)` to `src/zero_cc/isa/isa_backend.h` and `src/zero_cc/ir/ir.c`. Both JIT/raw machine code (`ast_lowering_mc.c`) and assembly emitters (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) now track `extra_sp` during call argument marshaling (accounting for pad, stack arg pushes, and register arg pushes) and syscall emission, maintaining exact caller frame slot offsets at all times.
+- **Verification**:
+  - Full n=1..32 parameter sweep in both JIT and AOT diffed against host GCC (all 32 pass identically).
+  - Clean error diagnostic for 33 parameters (`function 'f' has too many parameters (max 32)`).
+  - Added `test/jit/many_params.c` exercising 11, 16, and 32 parameter functions in JIT and AOT.
+  - All gates green: `make test` (156/156), `make test-opt` (117/117), `make test-isa-qemu` (44/44 across x86-64, aarch64, riscv64, riscv32), `tools/sret_verifier.py --verify-all` (6/6), `tools/diag_battery.py` (baseline OK), `tools/style_check.py` (0 errors), `tools/okf.py lint` (clean).
+
 ## [Sprint 47] - 2026-10-24 - Fix Float Args Mispassed on Calls With 7+ Integer Arguments
 
 Fixed the pre-existing miscompile noted in Sprint 46: any call with more than six integer arguments silently corrupted every float argument. `printf("...%g", ..., d1)` printed a stale value (often another arg's bits) while in-program comparisons of the same double were still correct.

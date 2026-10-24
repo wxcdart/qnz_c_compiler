@@ -917,17 +917,22 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
                 int n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
                 int stack_pad = (n_stack & 1) ? 8 : 0;
+                int32_t extra_sp = 0;
                 if (n_stack > 0) {
-                    if (stack_pad) BE(c)->emit_stack_adjust(c, -stack_pad);
+                    if (stack_pad) {
+                        BE(c)->emit_stack_adjust(c, -stack_pad);
+                        extra_sp += stack_pad;
+                    }
                     for (int a = arg_count - 1; a >= int_arg_count; a--) {
                         int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                         if (sp >= 0) {
                             int32_t off = spill_base_offset + (sp + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
                             r = BE(c)->scratch_reg1;
                         }
                         BE(c)->emit_push_reg(c, r);
+                        extra_sp += 8;
                     }
                 }
 
@@ -939,11 +944,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                     if (sp >= 0) {
                         int32_t off = spill_base_offset + (sp + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
                         r = BE(c)->scratch_reg1;
                     }
                     src_regs[a] = r;
                     BE(c)->emit_push_reg(c, src_regs[a]);
+                    extra_sp += 8;
                 }
                 for (int a = n_args - 1; a >= 0; a--) {
                     int dst_reg = backend_get_int_arg_reg(BE(c), a);
@@ -952,6 +958,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         continue;
                     }
                     BE(c)->emit_pop_reg(c, dst_reg);
+                    extra_sp -= 8;
                 }
 
                 /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */
@@ -974,7 +981,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (spill >= 0) {
                             /* Register r has a spill slot - save it */
                             int32_t off = spill_base_offset + (spill + 1) * 8;
-                            if (BE(c)->emit_store) BE(c)->emit_store(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                            if (BE(c)->emit_store) BE(c)->emit_store(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
                         }
                     }
                 }
@@ -993,7 +1000,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (spill >= 0) {
                             /* Register r has a spill slot - restore it */
                             int32_t off = spill_base_offset + (spill + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
                         }
                     }
                 }

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-24T04:48:52Z
+timestamp: 2026-10-24T22:46:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -220,6 +220,14 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
   - Semantic analysis in `src/zero_cc/semantic/visitor.c` and `src/zero_cc/semantic/expr.c` visits the block scope and propagates the type of the terminal expression statement (or `type_void()` if empty or terminating in non-expression statements).
   - Lowering in `src/zero_cc/ir/ast_lowering_expr.c` executes all leading statements and evaluates the last expression statement into the result virtual register.
   - Supports loops, nested statement expressions, and complex macros (e.g. `max(a, b)` with `__typeof__`).
+
+## Parameter Capacity & Validation (`ZERO_CC_MAX_PARAMS`)
+
+In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` tracks parameter metadata via fixed arrays:
+- `ZERO_CC_MAX_PARAMS` (32): Replaced the former 8-parameter cap.
+- `ZeroCCFunction.param_names[ZERO_CC_MAX_PARAMS][128]` and `ZeroCCFunction.param_types[ZERO_CC_MAX_PARAMS]`.
+- Corresponding caller-side tracking: `IR_CALL_MAX_ARGS` (32) in `src/zero_cc/ir/ir.h`.
+- Bounds enforcement: `src/zero_cc/jit/compile.h` reports clean diagnostics (`function '%s' has too many parameters (max %d)`) instead of silently dropping parameters past the cap, and all prototype copy and paren-declarator loops run up to `ZERO_CC_MAX_PARAMS`.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

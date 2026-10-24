@@ -63,7 +63,7 @@ def compile_to_asm(source_code: str) -> Tuple[Optional[str], Optional[str]]:
     try:
         # Compile to object file
         result = subprocess.run(
-            ['./build/bin/zerocc', '-c', src_file, '-o', obj_file],
+            ['./build/bin/zerocc', '-Isrc', '-Iinclude', '-fno-omit-frame-pointer', '-c', src_file, '-o', obj_file],
             capture_output=True, text=True, cwd='/home/ubuntu/dev/qnz_c_compiler'
         )
         
@@ -503,7 +503,7 @@ def main():
                 s_file = f"/tmp/sret_test_{target_name}.s"
                 bin_file = f"/tmp/sret_test_{target_name}"
                 target_flag = f"--target {target_name}" if target_name != "x86-64" else ""
-                cmd1 = f"./build/bin/zerocc {t} {target_flag} -S -o {s_file}"
+                cmd1 = f"./build/bin/zerocc -Isrc -Iinclude {t} {target_flag} -S -o {s_file}"
                 r1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True)
                 if r1.returncode != 0:
                     print(f"  ✗ [{target_name}] Code generation failed: {r1.stderr.strip()}")

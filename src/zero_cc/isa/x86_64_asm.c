@@ -159,10 +159,10 @@ static void x86_emit_mov_reg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
  * another argument's syscall slot). Spill reloads use r11, same idiom as
  * x86_emit_call_asm. */
 static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
-    static const int sysv_syscall_regs[7] = {0, 7, 6, 2, 10, 8, 9};
     static const char *sysv_syscall_reg_names[7] = {"rax", "rdi", "rsi", "rdx", "r10", "r8", "r9"};
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
     int n = (arg_count < 7) ? arg_count : 7;
+    int32_t extra_sp = 0;
     /* Pass 1: resolve + push sources needing a move. */
     for (int a = 0; a < n; a++) {
         int temp = arg_temps[a];
@@ -170,7 +170,8 @@ static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *ar
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%%s),%%r11\n", (int)zero_cc_frame_disp(c, -off),
+            fprintf(out, "\tmovq\t%d(%%%s),%%r11\n",
+                    (int)zero_cc_frame_disp_at(c, -off, extra_sp),
                     BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
             src_name = "r11";
         } else {
@@ -178,6 +179,7 @@ static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *ar
         }
         if (strcmp(src_name, sysv_syscall_reg_names[a]) != 0) {
             fprintf(out, "\tpushq\t%%%s\n", src_name);
+            extra_sp += 8;
         }
     }
     /* Pass 2: pop into the syscall registers (reverse order - LIFO). */
@@ -580,19 +582,25 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     /* Arguments beyond 6 are passed on the stack: push in reverse order, maintain 16-byte alignment */
     int n_stack = (total_int_count > 6) ? total_int_count - 6 : 0;
     int stack_pad = (n_stack & 1) ? 8 : 0;
+    int32_t extra_sp = 0;
     if (n_stack > 0) {
-        if (stack_pad) fprintf(out, "\tsubq\t$8, %%rsp\n");
+        if (stack_pad) {
+            fprintf(out, "\tsubq\t$8, %%rsp\n");
+            extra_sp += 8;
+        }
         for (int a = total_int_count - 1; a >= 6; a--) {
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n", (int)zero_cc_frame_disp(c, -off),
+                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                        (int)zero_cc_frame_disp_at(c, -off, extra_sp),
                         BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
                 fprintf(out, "\tpushq\t%%r10\n");
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
                 fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
             }
+            extra_sp += 8;
         }
     }
 
@@ -601,13 +609,15 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n", (int)zero_cc_frame_disp(c, -off),
+            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                    (int)zero_cc_frame_disp_at(c, -off, extra_sp),
                     BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
             fprintf(out, "\tpushq\t%%r10\n");
         } else {
             int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
             fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
         }
+        extra_sp += 8;
     }
     /* Pop in reverse into destination ABI registers */
     for (int i = n_int_args - 1; i >= 0; i--) {

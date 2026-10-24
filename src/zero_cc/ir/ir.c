@@ -26,8 +26,12 @@ int zero_cc_frame_base_reg(const ZeroCCCompiler *c) {
     return c->lowering.omit_frame_pointer ? c->isa_backend->sp_reg : c->isa_backend->fp_reg;
 }
 
+int32_t zero_cc_frame_disp_at(const ZeroCCCompiler *c, int32_t off, int32_t extra_sp) {
+    return c->lowering.omit_frame_pointer ? (off + c->lowering.frame_delta + extra_sp) : off;
+}
+
 int32_t zero_cc_frame_disp(const ZeroCCCompiler *c, int32_t off) {
-    return c->lowering.omit_frame_pointer ? (off + c->lowering.frame_delta) : off;
+    return zero_cc_frame_disp_at(c, off, 0);
 }
 
 /* Get the current compiler's IR arena */
