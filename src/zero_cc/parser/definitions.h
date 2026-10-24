@@ -1161,6 +1161,15 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     ZeroCCType ttype; memset(&ttype, 0, sizeof(ttype));
     bool is_unsigned = false;
     bool is_signed = false;
+    bool is_atomic = false;
+
+    /* Handle _Atomic qualifier at the start: typedef _Atomic int x; */
+    if (t == TK_ATOMIC) {
+        is_atomic = true;
+        c->token_pos++;
+        t = c->tokens[c->token_pos].type;
+    }
+
     if (t == TK_UNSIGNED) { is_unsigned = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
     else if (t == TK_SIGNED) { is_signed = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
 
@@ -1189,6 +1198,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
     }
     (void)is_signed;
+    if (is_atomic) ttype.is_atomic = true;
     bool is_ptr = false;
     while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
     if (is_ptr) { ttype = zero_cc_type_ptr(&ttype); }

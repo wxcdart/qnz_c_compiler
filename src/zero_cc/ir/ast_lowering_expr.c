@@ -133,6 +133,106 @@ static void lower_extend_narrow(ZeroCCCompiler *c, int temp, const TypeInfo *ti)
     else ir_emit_sext(temp, (int)sz);
 }
 
+/* ---- C11/GCC atomic-builtin dispatch (C11 7.6 / GNU __sync + __atomic) ----
+ *
+ * Every __sync_* / __atomic_* builtin is a flat name -> fixed-arity -> IR
+ * mapping: there is no context-dependent token stream, so the dispatch is a
+ * static table + one switch (a state machine would track state that never
+ * transitions). Previously ~14 of the builtins were individual
+ * strcmp if-blocks hardcoding a 32-bit access width, and every name that
+ * was not listed (e.g. __atomic_thread_fence, __atomic_fetch_or, the
+ * non-_n variants) fell through to the generic call emitter and became an
+ * external call to a nonexistent symbol — a runtime segfault.
+ *
+ * Width: the access width is derived from the pointer operand's semantic
+ * TypeInfo (C11 requires every integer width, not just 32-bit). Memory-
+ * order arguments are accepted and ignored: x86-64 TSO makes every locked
+ * RMW seq_cst-strength, and OP_MFENCE is a valid (over-strong) lowering of
+ * any fence order. */
+typedef enum ZCAtomicKind {
+    ZC_AT_FETCH_ADD, ZC_AT_ADD_FETCH,
+    ZC_AT_FETCH_SUB, ZC_AT_SUB_FETCH,
+    ZC_AT_FETCH_OR,  ZC_AT_OR_FETCH,
+    ZC_AT_FETCH_AND, ZC_AT_AND_FETCH,
+    ZC_AT_FETCH_XOR, ZC_AT_XOR_FETCH,
+    ZC_AT_CAS_OLD,   ZC_AT_CAS_BOOL,   ZC_AT_CAS_BOOL_SYNC,
+    ZC_AT_EXCHANGE,  ZC_AT_STORE,
+    ZC_AT_LOAD,      ZC_AT_STORE_0,
+    ZC_AT_FENCE,     ZC_AT_TEST_AND_SET,
+    ZC_AT_CLEAR,     ZC_AT_IS_LOCK_FREE
+} ZCAtomicKind;
+
+static const struct {
+    const char   *name;
+    ZCAtomicKind  kind;
+} zc_atomic_builtin_table[] = {
+    { "__sync_fetch_and_add",          ZC_AT_FETCH_ADD },
+    { "__atomic_fetch_add",            ZC_AT_FETCH_ADD },
+    { "__sync_add_and_fetch",          ZC_AT_ADD_FETCH },
+    { "__atomic_add_fetch",            ZC_AT_ADD_FETCH },
+    { "__sync_fetch_and_sub",          ZC_AT_FETCH_SUB },
+    { "__atomic_fetch_sub",            ZC_AT_FETCH_SUB },
+    { "__sync_sub_and_fetch",          ZC_AT_SUB_FETCH },
+    { "__atomic_sub_fetch",            ZC_AT_SUB_FETCH },
+    { "__sync_fetch_and_or",           ZC_AT_FETCH_OR },
+    { "__atomic_fetch_or",             ZC_AT_FETCH_OR },
+    { "__sync_or_and_fetch",           ZC_AT_OR_FETCH },
+    { "__atomic_or_fetch",             ZC_AT_OR_FETCH },
+    { "__sync_fetch_and_and",          ZC_AT_FETCH_AND },
+    { "__atomic_fetch_and",            ZC_AT_FETCH_AND },
+    { "__sync_and_and_fetch",          ZC_AT_AND_FETCH },
+    { "__atomic_and_fetch",            ZC_AT_AND_FETCH },
+    { "__sync_fetch_and_xor",          ZC_AT_FETCH_XOR },
+    { "__atomic_fetch_xor",            ZC_AT_FETCH_XOR },
+    { "__sync_xor_and_fetch",          ZC_AT_XOR_FETCH },
+    { "__atomic_xor_fetch",            ZC_AT_XOR_FETCH },
+    { "__sync_val_compare_and_swap",   ZC_AT_CAS_OLD },
+    { "__sync_bool_compare_and_swap",  ZC_AT_CAS_BOOL_SYNC },
+    { "__atomic_compare_exchange_n",   ZC_AT_CAS_BOOL },
+    { "__atomic_compare_exchange",     ZC_AT_CAS_BOOL },
+    { "__sync_lock_test_and_set",      ZC_AT_EXCHANGE },
+    { "__atomic_exchange_n",           ZC_AT_EXCHANGE },
+    { "__atomic_exchange",             ZC_AT_EXCHANGE },
+    { "__atomic_store_n",              ZC_AT_STORE },
+    { "__atomic_store",                ZC_AT_STORE },
+    { "__atomic_load_n",               ZC_AT_LOAD },
+    { "__atomic_load",                 ZC_AT_LOAD },
+    { "__sync_lock_release",           ZC_AT_STORE_0 },
+    { "__sync_synchronize",            ZC_AT_FENCE },
+    { "__atomic_thread_fence",         ZC_AT_FENCE },
+    { "__atomic_test_and_set",         ZC_AT_TEST_AND_SET },
+    { "__atomic_clear",                ZC_AT_CLEAR },
+    { "__atomic_is_lock_free",         ZC_AT_IS_LOCK_FREE },
+};
+
+/* Access width for an atomic builtin: the size of the pointer operand's
+ * pointee, clamped to the x86-64 atomic widths (1/2/4/8). Falls back to 4
+ * when the operand type is unavailable (matches the pre-table behavior). */
+static int zc_atomic_access_width(ZeroCCCompiler *c, const ZeroCCASTNode *arg0_node) {
+    TypeInfo *ti = ast_node_get_typeinfo(c, arg0_node);
+    if (ti && ti->kind == TYPE_KIND_POINTER && ti->details.pointer.base) {
+        size_t sz = type_size(ti->details.pointer.base);
+        if (sz == 1 || sz == 2 || sz == 4 || sz == 8) return (int)sz;
+    }
+    return 4;
+}
+
+/* Extend a value operand for a wider atomic access (C99 6.3.1.2). Skips
+ * 64-bit integer literals: the semantic model types every NODE_INT as
+ * 32-bit int, so SEXT32-ing a literal whose value needs 64 bits would
+ * corrupt it (e.g. __atomic_store_n(&l, 0x1122334455667788LL)). A literal
+ * whose int64 value fits in signed int32 is exactly C's int-typed literal
+ * (decimal in-range, or hex/unsigned within uint32 where the mathematical
+ * value already equals its C-converted form), so normal extension applies. */
+static void zc_atomic_extend_value(ZeroCCCompiler *c, int temp,
+                                   const ZeroCCASTNode *node, const TypeInfo *ti) {
+    if (node && node->tag == NODE_INT) {
+        int64_t v = node->int_val;
+        if (v < INT32_MIN || v > INT32_MAX) return;  /* genuine 64-bit literal */
+    }
+    lower_extend_narrow(c, temp, ti);
+}
+
 /* C11 6.5.2.4/6.5.6: the step of ++/-- on an lvalue of type t is
  * sizeof(pointee) for pointer types (pointer arithmetic is scaled by the
  * object size) and 1 otherwise.  A pointer to an incomplete/zero-sized
@@ -2847,144 +2947,194 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return VREG_0;
                 }
 
-                /* Intercept atomic builtins */
-                if (strcmp(name, "__sync_fetch_and_add") == 0 || strcmp(name, "__atomic_fetch_add") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_atomic_xadd(res_temp, ptr_temp, val_temp, 4);
+                /* C11/GNU atomic-builtin intercept (table: zc_atomic_builtin_table).
+                 * Access width comes from the pointer operand's pointee type;
+                 * narrow integer value operands are extended at the value
+                 * boundary (C99 6.3.1.2, see lower_extend_narrow). */
+                for (size_t zc_at_i = 0;
+                     zc_at_i < sizeof(zc_atomic_builtin_table) / sizeof(zc_atomic_builtin_table[0]);
+                     zc_at_i++) {
+                    if (strcmp(name, zc_atomic_builtin_table[zc_at_i].name) != 0) continue;
+                    ZCAtomicKind kind = zc_atomic_builtin_table[zc_at_i].kind;
+                    ASTRef a0 = node->right;
+                    ASTRef a1 = (a0 != AST_NULL) ? zero_cc_ast_get(arena, a0)->next : AST_NULL;
+                    ASTRef a2 = (a1 != AST_NULL) ? zero_cc_ast_get(arena, a1)->next : AST_NULL;
+                    ZeroCCASTNode *a0_node = zero_cc_ast_get(arena, a0);
+                    ZeroCCASTNode *a1_node = (a1 != AST_NULL) ? zero_cc_ast_get(arena, a1) : NULL;
+                    ZeroCCASTNode *a2_node = (a2 != AST_NULL) ? zero_cc_ast_get(arena, a2) : NULL;
+                    int width = zc_atomic_access_width(c, a0_node);
+                    int res_temp = -1;
+
+                    if (kind == ZC_AT_FENCE) {
+                        /* __sync_synchronize / __atomic_thread_fence: x86-64 TSO
+                         * gives full ordering, so MFENCE is a valid (over-strong)
+                         * lowering for every memory order, incl. seq_cst. */
+                        ir_emit_mfence();
+                        res_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(res_temp, 0);
+                    } else if (kind == ZC_AT_IS_LOCK_FREE) {
+                        /* C11 7.17.2: aligned integer atomics up to 8 bytes are
+                         * lock-free on x86-64. */
+                        res_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(res_temp, 1);
+                    } else {
+                        int ptr_temp = lower_expr(c, arena, a0);
+                        switch (kind) {
+                        case ZC_AT_LOAD: {
+                            res_temp = c->next_temp_id++;
+                            if (width == 1) ir_emit_load_byte(res_temp, ptr_temp);
+                            else if (width == 2) ir_emit_load_16(res_temp, ptr_temp);
+                            else if (width == 8) ir_emit_deref(res_temp, ptr_temp);
+                            else ir_emit_load_32(res_temp, ptr_temp);
+                            TypeInfo *pti = ast_node_get_typeinfo(c, a0_node);
+                            if (pti && pti->kind == TYPE_KIND_POINTER && pti->details.pointer.base) {
+                                lower_extend_narrow(c, res_temp, pti->details.pointer.base);
+                            }
+                            break;
+                        }
+                        case ZC_AT_STORE:
+                        case ZC_AT_EXCHANGE: {
+                            /* (ptr, val, order) for both __atomic_store_n and the
+                             * bare __atomic_store (GCC's documented convention).
+                             * xchg returns the old value (exchange semantics);
+                             * store discards it (returned as a dead temp). */
+                            int val_temp = lower_expr(c, arena, a1);
+                            zc_atomic_extend_value(c, val_temp, a1_node, ast_node_get_typeinfo(c, a1_node));
+                            res_temp = c->next_temp_id++;
+                            ir_emit_atomic_xchg(res_temp, ptr_temp, val_temp, width);
+                            break;
+                        }
+                        case ZC_AT_STORE_0: {
+                            /* __sync_lock_release: store 0 at the pointee. */
+                            int zero_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(zero_temp, 0);
+                            if (width == 1) ir_emit_store_byte(zero_temp, ptr_temp);
+                            else if (width == 2) ir_emit_store_16(zero_temp, ptr_temp);
+                            else if (width == 8) ir_emit_store_64(zero_temp, ptr_temp);
+                            else ir_emit_store_32(zero_temp, ptr_temp);
+                            res_temp = zero_temp;
+                            break;
+                        }
+                        case ZC_AT_FETCH_ADD:
+                        case ZC_AT_ADD_FETCH:
+                        case ZC_AT_FETCH_SUB:
+                        case ZC_AT_SUB_FETCH: {
+                            int is_sub = (kind == ZC_AT_FETCH_SUB || kind == ZC_AT_SUB_FETCH);
+                            int val_temp = lower_expr(c, arena, a1);
+                            zc_atomic_extend_value(c, val_temp, a1_node, ast_node_get_typeinfo(c, a1_node));
+                            if (is_sub) {
+                                int neg_temp = c->next_temp_id++;
+                                ir_emit_neg(neg_temp, val_temp);
+                                val_temp = neg_temp;
+                            }
+                            int val_copy = c->next_temp_id++;
+                            ir_emit_mov_reg(val_copy, val_temp);
+                            int old_temp = c->next_temp_id++;
+                            ir_emit_atomic_xadd(old_temp, ptr_temp, val_temp, width);
+                            if (kind == ZC_AT_FETCH_ADD || kind == ZC_AT_FETCH_SUB) {
+                                res_temp = old_temp;
+                            } else {
+                                res_temp = c->next_temp_id++;
+                                if (kind == ZC_AT_ADD_FETCH) ir_emit_add(res_temp, old_temp, val_copy);
+                                else if (kind == ZC_AT_SUB_FETCH) ir_emit_add(res_temp, old_temp, val_copy);
+                                else ir_emit_sub(res_temp, old_temp, val_copy);
+                            }
+                            break;
+                        }
+                        case ZC_AT_FETCH_OR:
+                        case ZC_AT_OR_FETCH:
+                        case ZC_AT_FETCH_AND:
+                        case ZC_AT_AND_FETCH:
+                        case ZC_AT_FETCH_XOR:
+                        case ZC_AT_XOR_FETCH: {
+                            int val_temp = lower_expr(c, arena, a1);
+                            zc_atomic_extend_value(c, val_temp, a1_node, ast_node_get_typeinfo(c, a1_node));
+                            int old_temp = c->next_temp_id++;
+                            if (kind == ZC_AT_FETCH_OR || kind == ZC_AT_OR_FETCH) ir_emit_atomic_or(old_temp, ptr_temp, val_temp, width);
+                            else if (kind == ZC_AT_FETCH_AND || kind == ZC_AT_AND_FETCH) ir_emit_atomic_and(old_temp, ptr_temp, val_temp, width);
+                            else ir_emit_atomic_xor(old_temp, ptr_temp, val_temp, width);
+                            if (kind == ZC_AT_OR_FETCH || kind == ZC_AT_AND_FETCH || kind == ZC_AT_XOR_FETCH) {
+                                res_temp = c->next_temp_id++;
+                                if (kind == ZC_AT_OR_FETCH) ir_emit_or(res_temp, old_temp, val_temp);
+                                else if (kind == ZC_AT_AND_FETCH) ir_emit_and(res_temp, old_temp, val_temp);
+                                else ir_emit_xor(res_temp, old_temp, val_temp);
+                            } else {
+                                res_temp = old_temp;
+                            }
+                            break;
+                        }
+                        case ZC_AT_CAS_OLD: {
+                            /* __sync_val_compare_and_swap(ptr, expected, desired) */
+                            int exp_temp = lower_expr(c, arena, a1);
+                            zc_atomic_extend_value(c, exp_temp, a1_node, ast_node_get_typeinfo(c, a1_node));
+                            int des_temp = lower_expr(c, arena, a2);
+                            zc_atomic_extend_value(c, des_temp, a2_node, ast_node_get_typeinfo(c, a2_node));
+                            res_temp = c->next_temp_id++;
+                            ir_emit_atomic_cmpxchg(res_temp, ptr_temp, exp_temp, des_temp, width);
+                            break;
+                        }
+                        case ZC_AT_CAS_BOOL_SYNC: {
+                            /* __sync_bool_compare_and_swap(ptr, expected, desired) */
+                            int exp_temp = lower_expr(c, arena, a1);
+                            zc_atomic_extend_value(c, exp_temp, a1_node, ast_node_get_typeinfo(c, a1_node));
+                            int des_temp = lower_expr(c, arena, a2);
+                            zc_atomic_extend_value(c, des_temp, a2_node, ast_node_get_typeinfo(c, a2_node));
+                            res_temp = c->next_temp_id++;
+                            ir_emit_atomic_cmpxchg_bool(res_temp, ptr_temp, exp_temp, des_temp, width);
+                            break;
+                        }
+                        case ZC_AT_CAS_BOOL: {
+                            /* __atomic_compare_exchange[_n](ptr, &expected, desired, ...) */
+                            int exp_ptr_temp = lower_expr(c, arena, a1);
+                            int exp_temp = c->next_temp_id++;
+                            if (width == 1) ir_emit_load_byte(exp_temp, exp_ptr_temp);
+                            else if (width == 2) ir_emit_load_16(exp_temp, exp_ptr_temp);
+                            else if (width == 8) ir_emit_deref(exp_temp, exp_ptr_temp);
+                            else ir_emit_load_32(exp_temp, exp_ptr_temp);
+                            TypeInfo *epti = ast_node_get_typeinfo(c, a1_node);
+                            if (epti && epti->kind == TYPE_KIND_POINTER && epti->details.pointer.base) {
+                                lower_extend_narrow(c, exp_temp, epti->details.pointer.base);
+                            }
+                            int des_temp = lower_expr(c, arena, a2);
+                            zc_atomic_extend_value(c, des_temp, a2_node, ast_node_get_typeinfo(c, a2_node));
+                            int actual_old = c->next_temp_id++;
+                            ir_emit_atomic_cmpxchg(actual_old, ptr_temp, exp_temp, des_temp, width);
+                            if (width == 1) ir_emit_store_byte(actual_old, exp_ptr_temp);
+                            else if (width == 2) ir_emit_store_16(actual_old, exp_ptr_temp);
+                            else if (width == 8) ir_emit_store_64(actual_old, exp_ptr_temp);
+                            else ir_emit_store_32(actual_old, exp_ptr_temp);
+                            res_temp = c->next_temp_id++;
+                            ir_emit_cmp(actual_old, exp_temp);
+                            ir_emit_cond_set(res_temp, CC_EQ);
+                            break;
+                        }
+                        case ZC_AT_TEST_AND_SET: {
+                            /* exchange(ptr, 1), return (old != 0). */
+                            int one_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(one_temp, 1);
+                            int zero_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(zero_temp, 0);
+                            int old_temp = c->next_temp_id++;
+                            ir_emit_atomic_xchg(old_temp, ptr_temp, one_temp, width);
+                            res_temp = c->next_temp_id++;
+                            ir_emit_cmp(old_temp, zero_temp);
+                            ir_emit_cond_set(res_temp, CC_NE);
+                            break;
+                        }
+                        case ZC_AT_CLEAR: {
+                            /* xchg(ptr, 0); the old value is dead (void op). */
+                            int zero_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(zero_temp, 0);
+                            res_temp = c->next_temp_id++;
+                            ir_emit_atomic_xchg(res_temp, ptr_temp, zero_temp, width);
+                            break;
+                        }
+                        default:
+                            break;
+                        }
+                    }
                     c->last_expr_is_float = 0;
                     return res_temp;
-                }
-                if (strcmp(name, "__sync_add_and_fetch") == 0 || strcmp(name, "__atomic_add_fetch") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int val_copy = c->next_temp_id++;
-                    ir_emit_mov_reg(val_copy, val_temp);
-                    int old_temp = c->next_temp_id++;
-                    ir_emit_atomic_xadd(old_temp, ptr_temp, val_temp, 4);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_add(res_temp, old_temp, val_copy);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_fetch_and_sub") == 0 || strcmp(name, "__atomic_fetch_sub") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int neg_temp = c->next_temp_id++;
-                    ir_emit_neg(neg_temp, val_temp);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_atomic_xadd(res_temp, ptr_temp, neg_temp, 4);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_sub_and_fetch") == 0 || strcmp(name, "__atomic_sub_fetch") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int val_copy = c->next_temp_id++;
-                    ir_emit_mov_reg(val_copy, val_temp);
-                    int neg_temp = c->next_temp_id++;
-                    ir_emit_neg(neg_temp, val_temp);
-                    int old_temp = c->next_temp_id++;
-                    ir_emit_atomic_xadd(old_temp, ptr_temp, neg_temp, 4);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_sub(res_temp, old_temp, val_copy);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_val_compare_and_swap") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int old_temp = lower_expr(c, arena, arg1);
-                    int new_temp = lower_expr(c, arena, arg2);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_atomic_cmpxchg(res_temp, ptr_temp, old_temp, new_temp, 4);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_bool_compare_and_swap") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int old_temp = lower_expr(c, arena, arg1);
-                    int new_temp = lower_expr(c, arena, arg2);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_atomic_cmpxchg_bool(res_temp, ptr_temp, old_temp, new_temp, 4);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_lock_test_and_set") == 0 || strcmp(name, "__atomic_exchange_n") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_atomic_xchg(res_temp, ptr_temp, val_temp, 4);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__sync_lock_release") == 0) {
-                    ASTRef arg0 = node->right;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int zero_temp = c->next_temp_id++;
-                    ir_emit_mov_imm(zero_temp, 0);
-                    ir_emit_store_32(zero_temp, ptr_temp);
-                    c->last_expr_is_float = 0;
-                    return zero_temp;
-                }
-                if (strcmp(name, "__sync_synchronize") == 0) {
-                    ir_emit_mfence();
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_mov_imm(res_temp, 0);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__atomic_load_n") == 0) {
-                    ASTRef arg0 = node->right;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int res_temp = c->next_temp_id++;
-                    ir_emit_load_32(res_temp, ptr_temp);
-                    c->last_expr_is_float = 0;
-                    return res_temp;
-                }
-                if (strcmp(name, "__atomic_store_n") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int val_temp = lower_expr(c, arena, arg1);
-                    int dummy_res = c->next_temp_id++;
-                    ir_emit_atomic_xchg(dummy_res, ptr_temp, val_temp, 4);
-                    c->last_expr_is_float = 0;
-                    return dummy_res;
-                }
-                if (strcmp(name, "__atomic_compare_exchange_n") == 0) {
-                    ASTRef arg0 = node->right;
-                    ASTRef arg1 = (arg0 != AST_NULL) ? zero_cc_ast_get(arena, arg0)->next : AST_NULL;
-                    ASTRef arg2 = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1)->next : AST_NULL;
-                    int ptr_temp = lower_expr(c, arena, arg0);
-                    int exp_ptr_temp = lower_expr(c, arena, arg1);
-                    int exp_val_temp = c->next_temp_id++;
-                    ir_emit_load_32(exp_val_temp, exp_ptr_temp);
-                    int desired_temp = lower_expr(c, arena, arg2);
-                    int actual_old = c->next_temp_id++;
-                    ir_emit_atomic_cmpxchg(actual_old, ptr_temp, exp_val_temp, desired_temp, 4);
-                    ir_emit_store_32(actual_old, exp_ptr_temp);
-                    int bool_res = c->next_temp_id++;
-                    ir_emit_cmp(actual_old, exp_val_temp);
-                    ir_emit_cond_set(bool_res, CC_EQ);
-                    c->last_expr_is_float = 0;
-                    return bool_res;
                 }
 
                 /* Collect argument temps for both integer and FP args */
