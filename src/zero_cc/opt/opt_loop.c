@@ -136,7 +136,9 @@ static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body
             ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
             ins->op == OP_FSTORE || ins->op == OP_VSTORE ||
             ins->op == OP_VSTORESS || ins->op == OP_VSTORESD ||
-            ins->op == OP_ATOMIC_XADD || ins->op == OP_ATOMIC_CMPXCHG ||
+            ins->op == OP_ATOMIC_XADD || ins->op == OP_ATOMIC_OR ||
+            ins->op == OP_ATOMIC_AND || ins->op == OP_ATOMIC_XOR ||
+            ins->op == OP_ATOMIC_CMPXCHG ||
             ins->op == OP_ATOMIC_CMPXCHG_BOOL || ins->op == OP_ATOMIC_XCHG) {
             return false;
         }
@@ -286,6 +288,9 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_FSTORE:
         case OP_VLA_ALLOC:
         case OP_ATOMIC_XADD:
+        case OP_ATOMIC_OR:
+        case OP_ATOMIC_AND:
+        case OP_ATOMIC_XOR:
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:

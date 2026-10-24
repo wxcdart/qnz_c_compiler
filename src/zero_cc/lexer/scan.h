@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include "zero_cc/lexer/state.h"
 #include "zero_cc/types/token.h"
 
@@ -413,11 +414,37 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
     tok->type = TK_NUM;
     errno = 0;
     char *endptr = NULL;
-    long long val = strtoll(parse_str, &endptr, 0);
+    uint64_t uval = strtoull(parse_str, &endptr, 0);
     if (errno == ERANGE) {
-        val = (val < 0) ? LLONG_MIN : LLONG_MAX;
+        bool is_base10 = (parse_str[0] != '0' || (parse_str[1] &&
+            parse_str[1] != 'x' && parse_str[1] != 'X' &&
+            parse_str[1] != 'b' && parse_str[1] != 'B'));
+        if (is_base10) {
+            /* Decimal constant beyond unsigned long long: constraint
+             * violation (gcc warns); clamp to the full unsigned range. */
+            uval = ULLONG_MAX;
+        } else {
+            /* Hex/octal beyond LLONG_MAX: C 6.4.4.1p6 gives hex/octal
+             * constants the unsigned long long domain - accumulate the
+             * digits with natural two's-complement wrap at 2^64 instead
+             * of saturating to LLONG_MAX (0xF0F0F0F0F0F0F0F0 must keep
+             * its bit pattern, not become INT64_MAX). */
+            int base = (parse_str[1] == 'x' || parse_str[1] == 'X') ? 16 : 8;
+            const char *q = (base == 16) ? parse_str + 2 : parse_str;
+            uval = 0;
+            while (*q) {
+                int d;
+                if (*q >= '0' && *q <= '9') d = *q - '0';
+                else if (*q >= 'a' && *q <= 'f') d = *q - 'a' + 10;
+                else if (*q >= 'A' && *q <= 'F') d = *q - 'A' + 10;
+                else break;
+                if (d >= base) break;
+                uval = uval * (uint64_t)base + (uint64_t)d;
+                q++;
+            }
+        }
     }
-    tok->num_val = val;
+    tok->num_val = (int64_t)uval;
 
     size_t consumed_clean = (endptr && endptr > parse_str) ? (size_t)(endptr - parse_str) : 0;
     size_t matched = 0;

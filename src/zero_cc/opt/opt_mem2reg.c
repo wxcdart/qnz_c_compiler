@@ -94,6 +94,9 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_VSTORESS:
         case OP_VSTORESD:
         case OP_ATOMIC_XADD:
+        case OP_ATOMIC_OR:
+        case OP_ATOMIC_AND:
+        case OP_ATOMIC_XOR:
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:
@@ -214,6 +217,8 @@ static void opt_promote_loop_carried(void) {
                 loop_ins->op == OP_FSTORE ||
                 loop_ins->op == OP_VSTORE || loop_ins->op == OP_VSTORESS ||
                 loop_ins->op == OP_VSTORESD || loop_ins->op == OP_ATOMIC_XADD ||
+                loop_ins->op == OP_ATOMIC_OR || loop_ins->op == OP_ATOMIC_AND ||
+                loop_ins->op == OP_ATOMIC_XOR ||
                 loop_ins->op == OP_ATOMIC_CMPXCHG ||
                 loop_ins->op == OP_ATOMIC_CMPXCHG_BOOL ||
                 loop_ins->op == OP_ATOMIC_XCHG) {

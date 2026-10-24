@@ -198,7 +198,10 @@ static inline void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char 
 
 static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__STDC__", "1");
-    zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "199901L");
+    /* C11 (201112L): ZeroCC accepts the full C11 keyword set (_Generic,
+     * _Static_assert, _Alignas, _Noreturn, _Atomic, _Thread_local, anonymous
+     * struct/union members, compound literals, <stdatomic.h>/<threads.h>). */
+    zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "201112L");
     zero_cc_cpp_define_obj(cpp, "__STDC_NO_COMPLEX__", "1");
     zero_cc_cpp_define_obj(cpp, "__zerocc__", "1");
     zero_cc_cpp_define_obj(cpp, "__ZEROCC__", "1");

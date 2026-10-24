@@ -200,6 +200,15 @@ typedef enum {
     OP_ZEXT8,          /* in-place zero-extend lower 8 bits of temp_src1 */
     OP_ZEXT16,         /* in-place zero-extend lower 16 bits of temp_src1 */
     OP_ZEXT32,         /* in-place zero-extend lower 32 bits of temp_src1 */
+
+    /* C11 atomic bitwise RMW (3) - appended so existing enum values are stable.
+     * dest = pre-update memory snapshot, temp_src1 = address, temp_src2 = value,
+     * imm = access width (1/2/4/8). The backend snapshots [addr] into dest,
+     * then atomically updates memory in place (x86-64: lock or/and/xor),
+     * matching the GCC __atomic_fetch_or/and/xor pattern. */
+    OP_ATOMIC_OR,      /* atomic in-place OR; returns pre-update value */
+    OP_ATOMIC_AND,     /* atomic in-place AND; returns pre-update value */
+    OP_ATOMIC_XOR,     /* atomic in-place XOR; returns pre-update value */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -288,6 +297,9 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_STORE_64: return "STORE_64";
         case OP_VLA_ALLOC: return "VLA_ALLOC";
         case OP_ATOMIC_XADD: return "ATOMIC_XADD";
+        case OP_ATOMIC_OR: return "ATOMIC_OR";
+        case OP_ATOMIC_AND: return "ATOMIC_AND";
+        case OP_ATOMIC_XOR: return "ATOMIC_XOR";
         case OP_ATOMIC_CMPXCHG: return "ATOMIC_CMPXCHG";
         case OP_SYSCALL: return "SYSCALL";
         case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
@@ -612,6 +624,15 @@ static inline void ir_emit_atomic_cmpxchg_bool(uint16_t temp_dest, uint16_t temp
     ir_emit((Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
 }
 
+static inline void ir_emit_atomic_or(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_OR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+}
+static inline void ir_emit_atomic_and(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_AND, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+}
+static inline void ir_emit_atomic_xor(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit((Instr){.op = OP_ATOMIC_XOR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+}
 static inline void ir_emit_atomic_xchg(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
     ir_emit((Instr){.op = OP_ATOMIC_XCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }

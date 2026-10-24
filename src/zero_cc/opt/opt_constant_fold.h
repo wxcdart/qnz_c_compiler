@@ -1,6 +1,8 @@
 #ifndef ZERO_CC_PARSER_OPT_CONSTANT_FOLD_H
 #define ZERO_CC_PARSER_OPT_CONSTANT_FOLD_H
 
+#include <stdint.h>
+
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 
 /**
@@ -19,9 +21,10 @@ void opt_fold_constants(ZeroCCCompiler *c);
 int ir_is_constant(int temp);
 
 /**
- * Get constant value from temp
+ * Get constant value from temp (64-bit: wide constants fold with full
+ * double-word precision)
  */
-int ir_get_constant(int temp);
+int64_t ir_get_constant(int temp);
 
 /**
  * Replace instruction with constant

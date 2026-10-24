@@ -126,6 +126,9 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_EPILOGUE:
         case OP_VLA_ALLOC:
         case OP_ATOMIC_XADD:
+        case OP_ATOMIC_OR:
+        case OP_ATOMIC_AND:
+        case OP_ATOMIC_XOR:
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:

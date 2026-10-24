@@ -1399,7 +1399,14 @@ static void x86_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
     x86_mov_rr(c, dst_reg, X86_RSP);
 }
 
+/* Byte-width atomics: unextended ModRM fields 4-7 name AH/CH/DH/BH, so a
+ * value register of RSP/RBP/RSI/RDI (4-7) must be relocated to scratch R11
+ * (whose byte BBL encodes via REX.R) before use. */
 static void x86_emit_atomic_xadd(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    if (width == 1 && val_reg >= 4 && val_reg < 8) {
+        x86_mov_rr(c, X86_R11, val_reg);
+        val_reg = X86_R11;
+    }
     /* lock prefix: 0xF0 */
     me_emit_u8(c, 0xF0);
     if (width == 2) me_emit_u8(c, 0x66);
@@ -1416,10 +1423,57 @@ static void x86_emit_atomic_xadd(ZeroCCCompiler *c, int dst_reg, int addr_reg, i
     if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
     if (mod == 1) me_emit_u8(c, 0);
 
-    /* After xadd, val_reg holds the old value. Move to dst_reg if different */
-    if (dst_reg != val_reg) {
+    /* After xadd, val_reg holds the old value. For width 1 only the low byte
+     * changed (upper bits stale), so zero-extend from the byte register. */
+    if (width == 1) {
+        x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (val_reg >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB6);
+        x86_modrm(c, 3, dst_reg & 7, val_reg & 7);
+    } else if (dst_reg != val_reg) {
         x86_mov_rr(c, dst_reg, val_reg);
     }
+}
+
+/* Shared emitter for OP_ATOMIC_OR/AND/XOR (C11 __atomic_fetch_or/and/xor,
+ * GCC's pattern): snapshot [addr] into dst, then atomically update memory
+ * in place with `lock or/and/xor val, [addr]`. After the sequence, memory
+ * holds the updated value and dst holds the pre-update snapshot. */
+static void x86_emit_atomic_bitwise(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width, uint8_t opcode32, uint8_t opcode8) {
+    /* 1) dst = [addr] (pre-update snapshot) */
+    if (width == 1) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (dst_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    me_emit_u8(c, (width == 1) ? 0x8A : 0x8B);
+    int mod = ((addr_reg & 7) == X86_RBP) ? 1 : 0;
+    x86_modrm(c, mod, dst_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+
+    /* 2) lock <op> val, [addr] (atomic in-place update). The /r source of a
+     * byte op must be AL/CL/DL/BL/R8B..R15B - relocate RSI/RDI into R11. */
+    if (width == 1 && val_reg >= 4 && val_reg < 8) {
+        x86_mov_rr(c, X86_R11, val_reg);
+        val_reg = X86_R11;
+    }
+    me_emit_u8(c, 0xF0);
+    if (width <= 2) me_emit_u8(c, 0x66);
+    x86_rex(c, (width == 8) ? 1 : 0, (val_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
+    me_emit_u8(c, (width == 1) ? opcode8 : opcode32);
+    x86_modrm(c, mod, val_reg & 7, addr_reg & 7);
+    if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, 0);
+}
+
+static void x86_emit_atomic_or(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    x86_emit_atomic_bitwise(c, dst_reg, addr_reg, val_reg, width, 0x09, 0x08); /* or r/m, r */
+}
+
+static void x86_emit_atomic_and(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    x86_emit_atomic_bitwise(c, dst_reg, addr_reg, val_reg, width, 0x21, 0x10); /* and r/m, r */
+}
+
+static void x86_emit_atomic_xor(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    x86_emit_atomic_bitwise(c, dst_reg, addr_reg, val_reg, width, 0x31, 0x30); /* xor r/m, r */
 }
 
 static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width) {
@@ -1429,6 +1483,12 @@ static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg
         addr_reg = 10;
     }
     if (desired_reg == X86_RAX) {
+        x86_mov_rr(c, 11 /* R11 */, desired_reg);
+        desired_reg = 11;
+    }
+    /* Byte cmpxchg source must be AL/CL/DL/BL/R8B..R15B: relocate RSI/RDI
+     * (fields 6-7 name DH/BH unextended) into scratch R11 (BBL). */
+    if (width == 1 && desired_reg >= 4 && desired_reg < 8) {
         x86_mov_rr(c, 11 /* R11 */, desired_reg);
         desired_reg = 11;
     }
@@ -1451,8 +1511,14 @@ static void x86_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst_reg, int addr_reg
     if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
     if (mod == 1) me_emit_u8(c, 0);
 
-    /* Old value from memory is in RAX */
-    if (dst_reg != X86_RAX) {
+    /* Old value from memory is in RAX. For width 1 only AL is defined
+     * (byte cmpxchg leaves the upper bits stale), so zero-extend from AL. */
+    if (width == 1) {
+        x86_rex(c, 1, (dst_reg >> 3) & 1, 0, 0);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB6);
+        x86_modrm(c, 3, dst_reg & 7, 0);
+    } else if (dst_reg != X86_RAX) {
         x86_mov_rr(c, dst_reg, X86_RAX);
     }
 }
@@ -1464,6 +1530,11 @@ static void x86_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst_reg, int add
         addr_reg = 10;
     }
     if (desired_reg == X86_RAX) {
+        x86_mov_rr(c, 11 /* R11 */, desired_reg);
+        desired_reg = 11;
+    }
+    /* Byte cmpxchg source must be a valid byte register (see cmpxchg). */
+    if (width == 1 && desired_reg >= 4 && desired_reg < 8) {
         x86_mov_rr(c, 11 /* R11 */, desired_reg);
         desired_reg = 11;
     }
@@ -1501,6 +1572,10 @@ static void x86_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst_reg, int add
 }
 
 static void x86_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
+    if (width == 1 && val_reg >= 4 && val_reg < 8) {
+        x86_mov_rr(c, X86_R11, val_reg);
+        val_reg = X86_R11;
+    }
     if (width == 2) me_emit_u8(c, 0x66);
     x86_rex(c, (width == 8) ? 1 : 0, (val_reg >> 3) & 1, 0, (addr_reg >> 3) & 1);
     if (width == 1) {
@@ -1513,7 +1588,12 @@ static void x86_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, i
     if ((addr_reg & 7) == X86_RSP) me_emit_u8(c, 0x24);
     if (mod == 1) me_emit_u8(c, 0);
 
-    if (dst_reg != val_reg) {
+    if (width == 1) {
+        x86_rex(c, 1, (dst_reg >> 3) & 1, 0, (val_reg >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0xB6);
+        x86_modrm(c, 3, dst_reg & 7, val_reg & 7);
+    } else if (dst_reg != val_reg) {
         x86_mov_rr(c, dst_reg, val_reg);
     }
 }
@@ -1823,6 +1903,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_store_64 = x86_emit_store_64,
     .emit_vla_alloc = x86_emit_vla_alloc,
     .emit_atomic_xadd = x86_emit_atomic_xadd,
+    .emit_atomic_or = x86_emit_atomic_or,
+    .emit_atomic_and = x86_emit_atomic_and,
+    .emit_atomic_xor = x86_emit_atomic_xor,
     .emit_atomic_cmpxchg = x86_emit_atomic_cmpxchg,
     .emit_atomic_cmpxchg_bool = x86_emit_atomic_cmpxchg_bool,
     .emit_atomic_xchg = x86_emit_atomic_xchg,

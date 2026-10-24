@@ -363,6 +363,24 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_ATOMIC_OR:
+                if (BE(c)->emit_atomic_or) {
+                    BE(c)->emit_atomic_or(c, phys_dst, phys_src1, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+
+            case OP_ATOMIC_AND:
+                if (BE(c)->emit_atomic_and) {
+                    BE(c)->emit_atomic_and(c, phys_dst, phys_src1, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+
+            case OP_ATOMIC_XOR:
+                if (BE(c)->emit_atomic_xor) {
+                    BE(c)->emit_atomic_xor(c, phys_dst, phys_src1, phys_src2, instr->imm ? instr->imm : 4);
+                }
+                break;
+
             case OP_MFENCE:
                 if (BE(c)->emit_mfence) {
                     BE(c)->emit_mfence(c);
