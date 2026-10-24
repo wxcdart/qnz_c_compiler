@@ -44,6 +44,7 @@ typedef struct {
     int run_mode;         /* --run */
     int verbose;          /* -v */
     int opt_level;        /* 0-3 for -O0 to -O3 */
+    int omit_frame_pointer; /* -1 = default (omit at -O1+), 0 = keep, 1 = omit */
     char *include_dirs[32]; /* -I directories (Sprint 41: real search paths) */
     int include_count;
     char *define_macros[64]; /* -D macro definitions (name or name=value) */
@@ -72,6 +73,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -O1             Basic optimization (default)\n");
     fprintf(stderr, "  -O2             Standard optimization\n");
     fprintf(stderr, "  -O3             Aggressive optimization\n");
+    fprintf(stderr, "  -fomit-frame-pointer    Omit frame pointers for fixed-frame functions (default at -O1+)\n");
+    fprintf(stderr, "  -fno-omit-frame-pointer Keep frame pointers (%%rbp/x29/s0) in every non-leaf function\n");
     fprintf(stderr, "  -I<dir>         Add include directory\n");
     fprintf(stderr, "  -D<macro>       Define macro\n");
     fprintf(stderr, "  -run, --run     Run in JIT mode (default)\n");
@@ -91,6 +94,7 @@ static void print_version(void) {
 static int parse_args(int argc, char **argv, CompileOptions *opts) {
     memset(opts, 0, sizeof(*opts));
     opts->opt_level = 1; /* Default -O1 */
+    opts->omit_frame_pointer = -1; /* Default: omit for fixed frames at -O1+ */
 
     for (int i = 1; i < argc; i++) {
         const char *arg = argv[i];
@@ -129,6 +133,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-O3") == 0) {
             opts->opt_level = 3;
+        }
+        else if (strcmp(arg, "-fomit-frame-pointer") == 0) {
+            opts->omit_frame_pointer = 1;
+        }
+        else if (strcmp(arg, "-fno-omit-frame-pointer") == 0) {
+            opts->omit_frame_pointer = 0;
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
@@ -420,6 +430,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
     comp->opt_level = (OptLevel)opts->opt_level;
+    comp->omit_frame_pointer = opts->omit_frame_pointer;
 
     char *prep = preprocess_with_options(source, opts, input);
     free(source);
@@ -560,6 +571,7 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
     comp->isa = target_isa;
     comp->isa_backend = backend;
+    comp->omit_frame_pointer = -1; /* default: auto (omit at -O1+); CLI overrides */
 
     /* Initialize IR arenas */
     if (!ir_arena_init(&comp->ir_arena, 4096)) {
@@ -616,6 +628,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
+    comp->omit_frame_pointer = opts->omit_frame_pointer;
 
     /* Preprocess (with -I include dirs and -D defines from the CLI) */
     char *prep = preprocess_with_options(source, opts, input);

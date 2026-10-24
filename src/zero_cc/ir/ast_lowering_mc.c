@@ -18,7 +18,7 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
             int reg = callee_regs[i];
             if ((mask >> reg) & 1u) {
                 int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-                BE(c)->emit_store(c, reg, BE(c)->fp_reg, -slot);
+                BE(c)->emit_store(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot));
             }
         }
     }
@@ -61,12 +61,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
-                    BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off);
+                    BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
                 phys_src1 = BE(c)->fp_scratch_reg1;
             } else {
                 if (BE(c)->emit_load) {
-                    BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, BE(c)->fp_reg, -slot_off);
+                    BE(c)->emit_load(c, BE(c)->scratch_reg1 /* r10 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
                 phys_src1 = BE(c)->scratch_reg1;
             }
@@ -75,12 +75,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
-                    BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg2, BE(c)->fp_reg, -slot_off);
+                    BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
                 phys_src2 = BE(c)->fp_scratch_reg2;
             } else {
                 if (BE(c)->emit_load) {
-                    BE(c)->emit_load(c, BE(c)->scratch_reg2 /* r11 */, BE(c)->fp_reg, -slot_off);
+                    BE(c)->emit_load(c, BE(c)->scratch_reg2 /* r11 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
                 phys_src2 = BE(c)->scratch_reg2;
             }
@@ -139,11 +139,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_MOV_MEM:
-                BE(c)->emit_store(c, phys_src1, phys_src2, (int32_t)instr->imm64);
+                BE(c)->emit_store(c, phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64));
                 break;
 
             case OP_MOV:
-                BE(c)->emit_load(c, phys_dst, phys_src1, (int32_t)instr->imm64);
+                BE(c)->emit_load(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64));
                 break;
 
             case OP_MOV_REG:
@@ -153,7 +153,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_LEA:
-                BE(c)->emit_lea(c, phys_dst, phys_src1, (int32_t)instr->imm64);
+                BE(c)->emit_lea(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64));
                 break;
 
             case OP_ADD:
@@ -329,7 +329,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if ((mask >> reg) & 1u) {
                             /* slot_offsets is indexed by array position (i), not physical reg number */
                             int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-                            BE(c)->emit_load(c, reg, BE(c)->fp_reg, -slot);
+                            BE(c)->emit_load(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot));
                         }
                     }
                 }
@@ -409,13 +409,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
             case OP_FLOAD:
                 if (BE(c)->emit_load_fp) {
-                    BE(c)->emit_load_fp(c, phys_dst, phys_src1, (int32_t)instr->imm64);
+                    BE(c)->emit_load_fp(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64));
                 }
                 break;
 
             case OP_FSTORE:
                 if (BE(c)->emit_store_fp) {
-                    BE(c)->emit_store_fp(c, phys_src1, phys_src2, (int32_t)instr->imm64);
+                    BE(c)->emit_store_fp(c, phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64));
                 }
                 break;
 
@@ -803,7 +803,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp_callee = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_callee_temp);
                     if (sp_callee >= 0) {
                         int32_t off = spill_base_offset + (sp_callee + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -off);
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                     } else if (BE(c)->emit_mov_reg) {
                         BE(c)->emit_mov_reg(c, BE(c)->scratch_reg2, r_callee);
                     }
@@ -815,7 +815,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp_sret = regalloc_get_spill_slot_for_temp(&c->regalloc, aarch64_sret_temp);
                     if (sp_sret >= 0) {
                         int32_t off = spill_base_offset + (sp_sret + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, 8 /* x8 */, BE(c)->fp_reg, -off);
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, 8 /* x8 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                     } else if (BE(c)->emit_mov_reg) {
                         BE(c)->emit_mov_reg(c, 8 /* x8 */, r_sret);
                     }
@@ -839,7 +839,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                         if (sp >= 0) {
                             int32_t off = spill_base_offset + (sp + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -off);
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                             r = BE(c)->scratch_reg1;
                         }
                         BE(c)->emit_push_reg(c, r);
@@ -854,7 +854,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                     if (sp >= 0) {
                         int32_t off = spill_base_offset + (sp + 1) * 8;
-                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -off);
+                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                         r = BE(c)->scratch_reg1;
                     }
                     src_regs[a] = r;
@@ -881,7 +881,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (fp_arg_reg < 0) fp_arg_reg = f;
                         /* Load FP arg from stack slot into FP register */
                         if (BE(c)->emit_load_fp) {
-                            BE(c)->emit_load_fp(c, fp_arg_reg, BE(c)->fp_reg, -spill_off);
+                            BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
                         }
                     }
                     call_idx++;
@@ -907,7 +907,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (spill >= 0) {
                             /* Register r has a spill slot - save it */
                             int32_t off = spill_base_offset + (spill + 1) * 8;
-                            if (BE(c)->emit_store) BE(c)->emit_store(c, r, BE(c)->fp_reg, -off);
+                            if (BE(c)->emit_store) BE(c)->emit_store(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                         }
                     }
                 }
@@ -926,7 +926,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (spill >= 0) {
                             /* Register r has a spill slot - restore it */
                             int32_t off = spill_base_offset + (spill + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, r, BE(c)->fp_reg, -off);
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
                         }
                     }
                 }
@@ -1125,10 +1125,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
                 if (BE(c)->emit_store_fp) {
-                    BE(c)->emit_store_fp(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off);
+                    BE(c)->emit_store_fp(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
             } else if (BE(c)->emit_store) {
-                BE(c)->emit_store(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off);
+                BE(c)->emit_store(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
             }
         }
     }

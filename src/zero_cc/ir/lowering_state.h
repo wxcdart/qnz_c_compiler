@@ -47,6 +47,13 @@ typedef struct {
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
     bool is_frameless;                 /* True when leaf function needs no stack frame */
+    bool omit_frame_pointer;           /* Option 4: frame pointer omitted; frame slots are
+                                          addressed from the stack pointer instead. Only set
+                                          for functions with a fully static frame (no VLA). */
+    int32_t frame_delta;               /* Displacement delta added to FP-relative offsets when
+                                          addressing frame slots from SP (0 when the frame
+                                          pointer is present). Equals the ISA prologue's
+                                          (FP - final_SP) distance. */
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */

@@ -41,14 +41,41 @@ static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
 }
 
 /* Prologue: stp x29, x30, [sp, #-16]!, mov x29, sp, sub sp, sp, #frame_size, save callee-saved */
+static void aarch64_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
+static void aarch64_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
 static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     if (c->lowering.is_frameless) return;
     FILE *out = c->asm_out ? c->asm_out : stdout;
 
+    size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
+
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer. Save only the return address (16 bytes
+         * to keep SP 16-byte aligned); slots are addressed from SP with a
+         * delta of `aligned_sz`. */
+        fprintf(out, "\tstr\tx30, [sp, #-16]!\n");
+        if (aligned_sz > 0) {
+            fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
+        }
+
+        /* Save callee-saved registers x19..x28 at [sp, #aligned_sz-offset] */
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (reg == 29 || reg == 30) continue; /* x29, x30 already saved by str */
+            if (!((mask >> reg) & 1u)) continue;
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            aarch64_emit_store_asm(c, reg, BE(c)->sp_reg, zero_cc_frame_disp(c, -offset), out);
+        }
+        return;
+    }
+
     /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp */
     fprintf(out, "\tstp\tx29, x30, [sp, #-16]!\n");
     fprintf(out, "\tmov\tx29, sp\n");
-    size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     if (aligned_sz > 0) {
         fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
     }
@@ -72,6 +99,30 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     if (c->lowering.is_frameless) {
+        fprintf(out, "\tret\n");
+        return;
+    }
+
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: restore CSRs from [sp, #aligned_sz-offset], raise SP by
+         * the frame, restore x30, ret. */
+        size_t aligned_sz = (size_t)c->lowering.frame_delta;
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (reg == 29 || reg == 30) continue;
+            if (!((mask >> reg) & 1u)) continue;
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            aarch64_emit_load_asm(c, reg, BE(c)->sp_reg, zero_cc_frame_disp(c, -offset), out);
+        }
+
+        if (aligned_sz > 0) {
+            fprintf(out, "\tadd\tsp, sp, #%zu\n", aligned_sz);
+        }
+        fprintf(out, "\tldr\tx30, [sp], #16\n");
         fprintf(out, "\tret\n");
         return;
     }
@@ -333,24 +384,17 @@ static void aarch64_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *ou
     fprintf(out, "\tldr\t%s, [%s]\n", dst_name, src_name);
 }
 
-/* PARAM_SAVE_INT: save incoming integer parameter (or x8 sret pointer) to [x29, #-offset] */
+/* PARAM_SAVE_INT: save incoming integer parameter (or x8 sret pointer) to -offset(%%fp) (or SP+delta) */
+static void aarch64_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
 static void aarch64_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
     if (reg_idx < 0 || reg_idx > 8) return;
-    const char *reg_name = aarch64_get_hw_reg_name(reg_idx); /* x0..x7, or x8 for sret */
-    aarch64_emit_store_asm(c, reg_idx, 29, -offset, out);
-    (void)reg_name;
+    aarch64_emit_store_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
 }
 
-/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to [x29, #-offset] */
+/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to -offset(%%fp) (or SP+delta) */
 static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
-    (void)c;
     if (reg_idx < 0 || reg_idx >= 8) return;
-    if (-offset < -256) {
-        fprintf(out, "\tsub\tx9, x29, #%d\n", offset);
-        fprintf(out, "\tstr\td%d, [x9]\n", reg_idx);
-    } else {
-        fprintf(out, "\tstr\td%d, [x29, #-%d]\n", reg_idx, offset);
-    }
+    aarch64_emit_store_fp_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
 }
 
 /* CALL - Full AArch64 AAPCS64 compliance (including x8 sret and indirect blr calls) */
@@ -396,7 +440,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_temp);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            BE(c)->emit_load_asm(c, 10 /* x10 */, BE(c)->fp_reg, -off, out);
+            BE(c)->emit_load_asm(c, 10 /* x10 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
         } else {
             int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_temp);
             fprintf(out, "\tmov\tx10, %s\n", BE(c)->get_hw_reg_name(r_callee));
@@ -408,7 +452,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, sret_temp);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            BE(c)->emit_load_asm(c, 8 /* x8 */, BE(c)->fp_reg, -off, out);
+            BE(c)->emit_load_asm(c, 8 /* x8 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
         } else {
             int r_sret = regalloc_get_reg_for_temp(&c->regalloc, sret_temp);
             fprintf(out, "\tmov\tx8, %s\n", BE(c)->get_hw_reg_name(r_sret));
@@ -424,7 +468,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 9 /* x9 */, BE(c)->fp_reg, -off, out);
+                BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
                 fprintf(out, "\tstr\tx9, [sp, #%d]\n", (a - 8) * 8);
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
@@ -441,7 +485,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 9 /* x9 */, BE(c)->fp_reg, -off, out);
+                BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
                 fprintf(out, "\tstr\tx9, [sp, #%d]\n", a * 8);
             } else {
                 fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);

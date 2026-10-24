@@ -51,6 +51,23 @@ int early_ret(int x) {
     if (x <= 0) return -1;
     return x * 2;
 }
+
+int helper(int n) {
+    return n + 1;
+}
+
+/* Fixed-frame non-leaf: eligible for frame pointer omission at -O1+.
+ * Many live temporaries force callee-saved register usage. */
+int frame_user(int a, int b) {
+    int x0 = a + 1;
+    int x1 = b + 2;
+    int x2 = x0 * x1;
+    int x3 = x2 + a;
+    int x4 = x3 - b;
+    int x5 = x4 * 2;
+    int h = helper(x5);
+    return x0 + x1 + x2 + x3 + x4 + x5 + h;
+}
 """
 
 
@@ -174,6 +191,74 @@ def check_leaf_frameless(asm: str, target: str, func_name: str, verbose: bool) -
     return True
 
 
+def extract_func_lines(asm: str, func_name: str):
+    """Extract the stripped lines of one function body from the asm."""
+    lines = asm.splitlines()
+    in_func = False
+    func_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == f"{func_name}:":
+            in_func = True
+            continue
+        elif in_func and (re.match(r"^\.globl\s+", stripped) or re.match(r"^[a-zA-Z0-9_]+:\s*$", stripped)):
+            break
+        elif in_func:
+            func_lines.append(stripped)
+    return func_lines
+
+
+def check_omit_frame_pointer(asm: str, target: str, func_name: str, verbose: bool) -> bool:
+    """Option 4: fixed-frame non-leaf functions must omit the frame pointer
+    and address everything from SP with a balanced prologue/epilogue."""
+    func_asm = "\n".join(extract_func_lines(asm, func_name))
+    if verbose:
+        print(f"[{target}:{func_name}]:\n{func_asm}\n")
+
+    if target == "x86-64":
+        if "pushq\t%rbp" in func_asm or "movq\t%rsp, %rbp" in func_asm or "leave" in func_asm:
+            print(f"FAILED [{target}:{func_name}]: Frame pointer present in fixed-frame function")
+            return False
+        subs = re.findall(r"subq\t\$(\d+), %rsp", func_asm)
+        adds = re.findall(r"addq\t\$(\d+), %rsp", func_asm)
+        if not subs:
+            print(f"FAILED [{target}:{func_name}]: No SP allocation found")
+            return False
+        if sorted(subs) != sorted(adds):
+            print(f"FAILED [{target}:{func_name}]: Unbalanced SP adjustments (sub {subs} vs add {adds})")
+            return False
+    elif target == "aarch64":
+        if "stp\tx29, x30" in func_asm or "ldp\tx29, x30" in func_asm or "mov\tx29, sp" in func_asm:
+            print(f"FAILED [{target}:{func_name}]: Frame pointer present in fixed-frame function")
+            return False
+        if "str\tx30, [sp, #-16]!" not in func_asm or "ldr\tx30, [sp], #16" not in func_asm:
+            print(f"FAILED [{target}:{func_name}]: Missing LR save/restore")
+            return False
+        subs = re.findall(r"sub\tsp, sp, #(\d+)", func_asm)
+        adds = re.findall(r"add\tsp, sp, #(\d+)", func_asm)
+        if not subs or sorted(subs) != sorted(adds):
+            print(f"FAILED [{target}:{func_name}]: Unbalanced SP adjustments (sub {subs} vs add {adds})")
+            return False
+    elif target in ("riscv64", "riscv32"):
+        if re.search(r"\baddi\ts0,\b", func_asm):
+            print(f"FAILED [{target}:{func_name}]: Frame pointer (s0) present in fixed-frame function")
+            return False
+        down = re.findall(r"addi\tsp, sp, -(\d+)", func_asm)
+        up = re.findall(r"addi\tsp, sp, (\d+)", func_asm)
+        if not down or sorted(down) != sorted(up):
+            print(f"FAILED [{target}:{func_name}]: Unbalanced SP adjustments (down {down} vs up {up})")
+            return False
+        w = "sw" if target == "riscv32" else "sd"
+        l = "lw" if target == "riscv32" else "ld"
+        st = re.findall(rf"{w}\tra, (\d+)\(sp\)", func_asm)
+        ld = re.findall(rf"{l}\tra, (\d+)\(sp\)", func_asm)
+        if not st or sorted(st) != sorted(ld):
+            print(f"FAILED [{target}:{func_name}]: Unbalanced ra save/restore (store {st} vs load {ld})")
+            return False
+
+    return True
+
+
 def check_x86_red_zone(asm: str, verbose: bool) -> bool:
     """Ensure leaf functions with <= 128 bytes omit subq %rsp on x86-64."""
     lines = asm.splitlines()
@@ -197,30 +282,38 @@ def check_x86_red_zone(asm: str, verbose: bool) -> bool:
 
 
 def check_symmetry(asm: str, target: str, verbose: bool) -> bool:
-    """Ensure all saved CSRs are symmetrically restored."""
+    """Ensure all saved CSRs are symmetrically restored (FP-based and SP-based)."""
     lines = [line.strip() for line in asm.splitlines()]
     stores = []
     loads = []
 
     if target == "aarch64":
         for l in lines:
-            m_str = re.search(r"str\s+(x\d+),\s*\[x29,\s*#-(\d+)\]", l)
+            m_str = re.search(r"str\s+(x\d+),\s*\[(x29|sp),\s*#?(-?\d+)\]", l)
             if m_str and m_str.group(1) in CSR_REGS["aarch64"]:
-                stores.append((m_str.group(1), int(m_str.group(2))))
-            m_ldr = re.search(r"ldr\s+(x\d+),\s*\[x29,\s*#-(\d+)\]", l)
+                stores.append((m_str.group(1), int(m_str.group(3))))
+            m_ldr = re.search(r"ldr\s+(x\d+),\s*\[(x29|sp),\s*#?(-?\d+)\]", l)
             if m_ldr and m_ldr.group(1) in CSR_REGS["aarch64"]:
-                loads.append((m_ldr.group(1), int(m_ldr.group(2))))
+                loads.append((m_ldr.group(1), int(m_ldr.group(3))))
     elif target == "riscv64":
         for l in lines:
-            m_str = re.search(r"sd\s+(s\d+),\s*-(\d+)\(s0\)", l)
+            m_str = re.search(r"sd\s+(s\d+),\s*(-?\d+)\((s0|sp)\)", l)
             if m_str and m_str.group(1) in CSR_REGS["riscv64"]:
                 stores.append((m_str.group(1), int(m_str.group(2))))
-            m_ldr = re.search(r"ld\s+(s\d+),\s*-(\d+)\(s0\)", l)
+            m_ldr = re.search(r"ld\s+(s\d+),\s*(-?\d+)\((s0|sp)\)", l)
             if m_ldr and m_ldr.group(1) in CSR_REGS["riscv64"]:
                 loads.append((m_ldr.group(1), int(m_ldr.group(2))))
+    elif target == "x86-64":
+        for l in lines:
+            m_str = re.search(r"movq\s+%([a-z0-9]+),\s*(-?\d+)\(%(rbp|rsp)\)", l)
+            if m_str and m_str.group(1) in CSR_REGS["x86-64"]:
+                stores.append((m_str.group(1), int(m_str.group(2))))
+            m_ldr = re.search(r"movq\s+(-?\d+)\(%(rbp|rsp)\),\s*%([a-z0-9]+)", l)
+            if m_ldr and m_ldr.group(2) in CSR_REGS["x86-64"]:
+                loads.append((m_ldr.group(2), int(m_ldr.group(1))))
 
     if sorted(stores) != sorted(loads):
-        print(f"FAILED [{target}]: Asymmetrical CSR stores ({stores}) vs loads ({loads})")
+        print(f"FAILED [{target}]: Asymmetrical CSR stores ({sorted(stores)}) vs loads ({sorted(loads)})")
         return False
     return True
 
@@ -241,6 +334,8 @@ def run_checks(targets, verbose=False) -> bool:
         if not check_leaf_csr_omission(asm, target, "leaf_arith", verbose):
             all_ok = False
         if target == "x86-64" and not check_x86_red_zone(asm, verbose):
+            all_ok = False
+        if not check_omit_frame_pointer(asm, target, "frame_user", verbose):
             all_ok = False
         if not check_fallthrough_jump_elimination(asm, target, verbose):
             all_ok = False

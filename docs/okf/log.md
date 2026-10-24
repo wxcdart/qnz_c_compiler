@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T01:17:00Z
+timestamp: 2026-10-24T02:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -401,3 +401,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `ir-and-regalloc.md`
 - Document OP_PARAM_LOAD opcode and semantics
+
+## 2026-10-24 — Updated `isa-backends.md`
+- Document frame pointer omission on fixed-frame functions (-fomit-frame-pointer): per-ISA FP-less prologues/epilogues, frame-slot SP rebasing via zero_cc_frame_base_reg/zero_cc_frame_disp, and RISC-V immediate-range fallback
+
+## 2026-10-24 — Updated `ir-and-regalloc.md`
+- Document frame-slot base rebasing (FP-relative IR offsets resolved via frame_delta when the frame pointer is omitted)
+
+## 2026-10-24 — Updated `build-and-verification.md`
+- prologue_epilogue_verifier.py now covers omit-frame-pointer shapes and SP-based CSR symmetry

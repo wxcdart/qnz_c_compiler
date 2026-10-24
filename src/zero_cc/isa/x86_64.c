@@ -114,6 +114,39 @@ static void x86_alu3_comm(ZeroCCCompiler *c, uint8_t opcode, int dst, int src1, 
 static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     if (c->lowering.is_frameless) return;
 
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer. Frame slots are addressed from RSP
+         * with a constant delta (LoweringState.frame_delta = X - 8, where
+         * X is the SP adjustment below). X = frame_delta + 8, i.e.
+         *   - red-zone leaf:            X = 0   (no SP adjustment at all)
+         *   - alloc == 0, non-leaf:     X = 8   (keep 16-byte call alignment)
+         *   - normal:                   X = alloc + 8 */
+        size_t X = (size_t)c->lowering.frame_delta + 8;
+        (void)stack_size;
+        (void)callee_save_mask;  /* CSR stores are emitted by emit_prologue_mc() */
+        if (X > 4096) {
+            size_t top_page = (X - 1) / 4096;
+            for (size_t k = top_page; k >= 1; k--) {
+                size_t off = k * 4096;
+                /* mov rax, rsp */
+                me_emit_u8(c, 0x48); me_emit_u8(c, 0x89); me_emit_u8(c, 0xE0);
+                /* sub rax, off */
+                me_emit_u8(c, 0x48); me_emit_u8(c, 0x81); me_emit_u8(c, 0xE8);
+                me_emit_u32(c, (uint32_t)off);
+                x86_rm(c, 0x80, 0, X86_RAX, 0);
+                me_emit_u8(c, 0);
+            }
+        }
+        if (X > 0) {
+            /* sub rsp, X (imm32) */
+            me_emit_u8(c, 0x48);
+            me_emit_u8(c, 0x81);
+            me_emit_u8(c, 0xEC);
+            me_emit_u32(c, (uint32_t)X);
+        }
+        return;
+    }
+
     /* push rbp */
     me_emit_u8(c, 0x55);
     /* mov rbp, rsp */
@@ -163,10 +196,30 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
     }
 }
 
+/* Option 4: restore SP by the prologue's adjustment X = frame_delta + 8
+ * (X == 0 for the red-zone leaf case: SP was never lowered). */
+static void x86_emit_frame_teardown(ZeroCCCompiler *c) {
+    size_t X = (size_t)c->lowering.frame_delta + 8;
+    if (X == 0) return;
+    if (X <= 127) {
+        /* add rsp, imm8 */
+        me_emit_u8(c, 0x48); me_emit_u8(c, 0x83); me_emit_u8(c, 0xC4);
+        me_emit_u8(c, (uint8_t)X);
+    } else {
+        /* add rsp, imm32 */
+        me_emit_u8(c, 0x48); me_emit_u8(c, 0x81); me_emit_u8(c, 0xC4);
+        me_emit_u32(c, (uint32_t)X);
+    }
+}
+
 static void x86_emit_epilogue(ZeroCCCompiler *c) {
     if (!c->lowering.is_frameless) {
-        /* leave */
-        me_emit_u8(c, 0xc9);
+        if (c->lowering.omit_frame_pointer) {
+            x86_emit_frame_teardown(c);
+        } else {
+            /* leave */
+            me_emit_u8(c, 0xc9);
+        }
     }
     /* ret */
     me_emit_u8(c, 0xc3);
@@ -174,6 +227,10 @@ static void x86_emit_epilogue(ZeroCCCompiler *c) {
 
 static void x86_emit_leave(ZeroCCCompiler *c) {
     if (c->lowering.is_frameless) return;
+    if (c->lowering.omit_frame_pointer) {
+        x86_emit_frame_teardown(c);
+        return;
+    }
     /* leave */
     me_emit_u8(c, 0xc9);
 }
@@ -1568,52 +1625,39 @@ static void x86_emit_lea_rip(ZeroCCCompiler *c, int dst_reg, size_t rodata_offse
 
 /* Parameter spilling: integer register to stack */
 static void x86_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
-    /* mov [rbp - offset], reg */
-    static const uint8_t save_int_regs[6][3] = {
-        {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi (reg 7) */
-        {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi (reg 6) */
-        {0x48, 0x89, 0x95}, /* mov [rbp - offset], rdx (reg 2) */
-        {0x48, 0x89, 0x8D}, /* mov [rbp - offset], rcx (reg 1) */
-        {0x4C, 0x89, 0x85}, /* mov [rbp - offset], r8  (reg 8) */
-        {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  (reg 9) */
-    };
-    int reg = reg_idx;
-    if (reg >= 0 && reg < 6) {
-        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][0]);
-        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][1]);
-        zero_cc_emit_u8(&c->text_section, save_int_regs[reg][2]);
-        zero_cc_emit_u32(&c->text_section, (uint32_t)(-offset));
+    /* mov base,disp <- reg; base = FP (or SP with delta, Option 4) */
+    if (reg_idx >= 0 && reg_idx < 6) {
+        static const uint8_t arg_regs[6] = {7, 6, 2, 1, 8, 9}; /* rdi rsi rdx rcx r8 r9 */
+        x86_rm(c, 0x89, arg_regs[reg_idx], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset));
     }
 }
 
 /* Parameter spilling: float register (XMM) to stack */
 static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
-    /* movsd [rbp - offset], xmmN */
-    if (reg_idx >= 0 && reg_idx < 8) {
-        zero_cc_emit_u8(&c->text_section, 0xF2);
-        zero_cc_emit_u8(&c->text_section, 0x0F);
-        zero_cc_emit_u8(&c->text_section, 0x11);
-        zero_cc_emit_u8(&c->text_section, 0x85 | ((reg_idx & 7) << 3));
-        zero_cc_emit_u32(&c->text_section, (uint32_t)(-offset));
-    }
+    /* movsd base,disp <- xmmN; base = FP (or SP with delta, Option 4). */
+    if (reg_idx < 0 || reg_idx >= 8) return;
+    int base = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -offset);
+    x86_rex(c, 0, 0, 0, (base >> 3) & 1);  /* no REX.W: 128-bit SSE */
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);
+    int mod;
+    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (disp >= -128 && disp <= 127)   mod = 1;
+    else                                     mod = 2;
+    x86_modrm(c, mod, reg_idx, base);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);  /* SIB: base=rsp, no index */
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
 }
 
 /* Variadic spill: spill remaining integer registers for va_start */
 static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
-    static const uint8_t save_int_regs[6][3] = {
-        {0x48, 0x89, 0xBD}, /* mov [rbp - offset], rdi */
-        {0x48, 0x89, 0xB5}, /* mov [rbp - offset], rsi */
-        {0x48, 0x89, 0x95}, /* mov [rbp - offset], rdx */
-        {0x48, 0x89, 0x8D}, /* mov [rbp - offset], rcx */
-        {0x4C, 0x89, 0x85}, /* mov [rbp - offset], r8  */
-        {0x4C, 0x89, 0x8D}  /* mov [rbp - offset], r9  */
-    };
+    static const uint8_t arg_regs[6] = {7, 6, 2, 1, 8, 9}; /* rdi rsi rdx rcx r8 r9 */
     for (size_t p = param_count; p < 6; p++) {
         int32_t spill_offset = base_offset + (int32_t)(p - param_count) * 8;
-        zero_cc_emit_u8(&c->text_section, save_int_regs[p][0]);
-        zero_cc_emit_u8(&c->text_section, save_int_regs[p][1]);
-        zero_cc_emit_u8(&c->text_section, save_int_regs[p][2]);
-        zero_cc_emit_u32(&c->text_section, (uint32_t)(-spill_offset));
+        x86_rm(c, 0x89, arg_regs[p], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_offset));
     }
 }
 

@@ -329,6 +329,15 @@ const ZeroCCISABackend *zero_cc_get_native_backend(void);
 /* Convenience macro for compiler access */
 #define BE(c) ((c)->isa_backend)
 
+/* Frame slot addressing (Option 4: -fomit-frame-pointer). Frame-slot IR
+ * operands (OP_MOV / OP_MOV_MEM / OP_LEA / OP_FLOAD / OP_FSTORE /
+ * OP_PARAM_SAVE_* / spills / callee-save slots) are recorded FP-relative.
+ * When the frame pointer is omitted for a fixed-frame function, slots are
+ * addressed from SP with a constant delta (LoweringState.frame_delta);
+ * these accessors keep every emission site uniform. Implemented in ir.c. */
+int zero_cc_frame_base_reg(const ZeroCCCompiler *c);   /* fp_reg or sp_reg */
+int32_t zero_cc_frame_disp(const ZeroCCCompiler *c, int32_t off); /* off + delta */
+
 /* Helper functions for calling convention access */
 static inline int backend_get_int_arg_reg(const ZeroCCISABackend *be, int idx) {
     if (be->conv && idx < be->conv->int_arg_reg_count) {

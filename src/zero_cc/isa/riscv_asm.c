@@ -47,6 +47,30 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     size_t total_alloc = aligned_sz + 16; /* 16 bytes for ra and s0 above s0 */
 
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer (s0). The decision in ast_lowering.c
+         * guarantees total_alloc <= 2047. The s0 slot is left unused, so
+         * slot geometry (and the delta) match the FP layout. */
+        const char *s = (c->isa == ISA_RISCV32) ? "sw" : "sd";
+        fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
+        fprintf(out, "\t%s\tra, %zu(sp)\n", s, aligned_sz + 8);
+
+        /* Save callee-saved registers s1..s11 at (aligned_sz-offset)(sp) */
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (!((mask >> reg) & 1u)) continue;
+            const char *reg_name = BE(c)->get_hw_reg_name(reg);
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            fprintf(out, "\t%s\t%s, %d(sp)\n", s, reg_name,
+                    (int)(aligned_sz - (size_t)offset));
+        }
+        return;
+    }
+
     fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
     fprintf(out, "\tsd\tra, %zu(sp)\n", aligned_sz + 8);
     fprintf(out, "\tsd\ts0, %zu(sp)\n", aligned_sz);
@@ -75,6 +99,31 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
     if (c->lowering.is_frameless) {
+        fprintf(out, "\tret\n");
+        return;
+    }
+
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no s0. aligned_sz = frame_delta. */
+        size_t aligned_sz = (size_t)c->lowering.frame_delta;
+        const char *l = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+
+        /* Restore callee-saved registers (only allocated ones) */
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (!((mask >> reg) & 1u)) continue;
+            const char *reg_name = BE(c)->get_hw_reg_name(reg);
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            fprintf(out, "\t%s\t%s, %d(sp)\n", l, reg_name,
+                    (int)(aligned_sz - (size_t)offset));
+        }
+
+        fprintf(out, "\t%s\tra, %zu(sp)\n", l, aligned_sz + 8);
+        fprintf(out, "\taddi\tsp, sp, %zu\n", aligned_sz + 16);
         fprintf(out, "\tret\n");
         return;
     }
@@ -319,18 +368,19 @@ static void riscv_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tld\t%s, 0(%s)\n", dst_name, src_name);
 }
 
-/* PARAM_SAVE_INT: save incoming integer parameter a0..a7 to -offset(s0) */
+/* PARAM_SAVE_INT: save incoming integer parameter a0..a7 to -offset(s0) (or SP+delta) */
 static void riscv_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
-    (void)c;
     if (reg_idx < 0 || reg_idx >= 8) return;
-    fprintf(out, "\tsd\ta%d, -%d(s0)\n", reg_idx, offset);
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+    const char *s = (c->isa == ISA_RISCV32) ? "sw" : "sd";
+    fprintf(out, "\t%s\ta%d, %d(%s)\n", s, reg_idx, (int)zero_cc_frame_disp(c, -offset), base_name);
 }
 
-/* PARAM_SAVE_FP: save incoming FP parameter fa0..fa7 to -offset(s0) */
+/* PARAM_SAVE_FP: save incoming FP parameter fa0..fa7 to -offset(s0) (or SP+delta) */
 static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
-    (void)c;
-    if (reg_idx < 0 || reg_idx >= 8) return;
-    fprintf(out, "\tfsd\tfa%d, -%d(s0)\n", reg_idx, offset);
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+    const char *s = (c->isa == ISA_RISCV32) ? "fsw" : "fsd";
+    fprintf(out, "\t%s\tfa%d, %d(%s)\n", s, reg_idx, (int)zero_cc_frame_disp(c, -offset), base_name);
 }
 
 /* CALL - Full RISC-V LP64D ABI compliance (including sret in a0 and indirect jalr calls) */
@@ -372,7 +422,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_temp);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            BE(c)->emit_load_asm(c, 6 /* t1 */, BE(c)->fp_reg, -off, out);
+            BE(c)->emit_load_asm(c, 6 /* t1 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
         } else {
             int r_callee = regalloc_get_reg_for_temp(&c->regalloc, indirect_temp);
             fprintf(out, "\tmv\tt1, %s\n", BE(c)->get_hw_reg_name(r_callee));
@@ -388,7 +438,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 5 /* t0 */, BE(c)->fp_reg, -off, out);
+                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
                 fprintf(out, "\tsd\tt0, %d(sp)\n", (a - 8) * 8);
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
@@ -405,7 +455,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 5 /* t0 */, BE(c)->fp_reg, -off, out);
+                BE(c)->emit_load_asm(c, 5 /* t0 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
                 fprintf(out, "\tsd\tt0, %d(sp)\n", a * 8);
             } else {
                 fprintf(out, "\tsd\t%s, %d(sp)\n", BE(c)->get_hw_reg_name(int_src_regs[a]), a * 8);

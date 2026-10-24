@@ -78,6 +78,23 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
     /* Ensure 16-byte alignment as required by AArch64 ABI */
     stack_size = (stack_size + 15) & ~15;
 
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer. Only the return address is saved
+         * (16 bytes to keep SP 16-byte aligned); slots are addressed from
+         * SP with a delta of `aligned` (see ast_lowering.c). */
+        arm64_emit_u32(c, 0xF81F0FFEu);  /* str x30, [sp, #-16]! */
+        if (stack_size > 0) {
+            if (stack_size <= 4095) {
+                uint32_t imm12 = (uint32_t)stack_size & 0xFFF;
+                arm64_emit_u32(c, 0xD10003FF | (imm12 << 10));  /* sub sp, sp, #stack_size */
+            } else {
+                aarch64_emit_mov_imm(c, 16, stack_size);
+                arm64_emit_u32(c, 0xCB3063FF);  /* sub sp, sp, x16 */
+            }
+        }
+        return;
+    }
+
     /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp:
      * 1. stp x29, x30, [sp, #-16]!
      * 2. mov x29, sp
@@ -96,20 +113,47 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
     }
 }
 
+static void aarch64_emit_fp_teardown(ZeroCCCompiler *c); /* fwd (Option 4 teardown) */
+
 static void aarch64_emit_epilogue(ZeroCCCompiler *c) {
     if (!c->lowering.is_frameless) {
-        /* 1. mov sp, x29
-         * 2. ldp x29, x30, [sp], #16
-         */
-        arm64_emit_u32(c, 0x910003BF);  /* mov sp, x29 */
-        arm64_emit_u32(c, 0xA8C17BFD);  /* ldp x29, x30, [sp], #16 */
+        if (c->lowering.omit_frame_pointer) {
+            /* Option 4: raise SP by the frame, restore x30, ret. */
+            aarch64_emit_fp_teardown(c);
+        } else {
+            /* 1. mov sp, x29
+             * 2. ldp x29, x30, [sp], #16
+             */
+            arm64_emit_u32(c, 0x910003BF);  /* mov sp, x29 */
+            arm64_emit_u32(c, 0xA8C17BFD);  /* ldp x29, x30, [sp], #16 */
+        }
     }
     /* 3. ret */
     arm64_emit_u32(c, 0xD65F03C0);  /* ret */
 }
 
+/* Option 4: SP-based teardown (no x29). frame_delta == aligned frame size. */
+static void aarch64_emit_fp_teardown(ZeroCCCompiler *c) {
+    size_t aligned = (size_t)c->lowering.frame_delta;
+    if (aligned > 0) {
+        if (aligned <= 4095) {
+            arm64_emit_u32(c, 0x910003FF | (((uint32_t)aligned & 0xFFF) << 10));  /* add sp, sp, #aligned */
+        } else {
+            aarch64_emit_mov_imm(c, 16, aligned);
+            /* add x16, sp, x16 ; mov sp, x16  (SP is not a valid ADD-extended Rd) */
+            arm64_emit_u32(c, 0x8B3063F0u);
+            arm64_emit_u32(c, 0x9100021Fu);
+        }
+    }
+    arm64_emit_u32(c, 0xF84107FEu);  /* ldr x30, [sp], #16 */
+}
+
 static void aarch64_emit_leave(ZeroCCCompiler *c) {
     if (c->lowering.is_frameless) return;
+    if (c->lowering.omit_frame_pointer) {
+        aarch64_emit_fp_teardown(c);
+        return;
+    }
     /* 1. mov sp, x29
      * 2. ldp x29, x30, [sp], #16
      */
@@ -395,16 +439,41 @@ static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
     if (param_idx < 0 || param_idx > 8) return; /* Stack params handled by caller */
     int src_reg = (param_idx == 8) ? 8 : aarch64_int_arg_regs[param_idx];
-    /* stur x<src_reg>, [fp, #-offset] */
-    arm64_emit_u32(c, 0xF8000000 | ((-offset & 0x1FF) << 12) | (29 << 5) | (src_reg & 0x1F));
+    int base = zero_cc_frame_base_reg(c);
+    int32_t imm = zero_cc_frame_disp(c, -offset); /* [base, #imm] */
+    if (imm < -255 || imm > 255) {
+        /* Outside stur's +/-255 range: materialize the address in x9. */
+        if (imm <= 4095) {
+            arm64_emit_u32(c, 0x91000529u | ((uint32_t)imm << 10));  /* add x9, sp, #imm */
+        } else {
+            aarch64_emit_mov_imm(c, 16, imm);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 9u);  /* add x9, sp, x16 */
+        }
+        arm64_emit_u32(c, 0xF8000000 | (9u << 5) | (src_reg & 0x1F));  /* stur xN, [x9] */
+        return;
+    }
+    /* stur x<src_reg>, [base, #imm] */
+    arm64_emit_u32(c, 0xF8000000 | ((uint32_t)imm & 0x1FF) << 12 | ((uint32_t)base << 5) | (src_reg & 0x1F));
 }
 
 /* param_save_fp - save FP parameter */
 static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t offset) {
     if (param_idx < 0 || param_idx >= 8) return;
     int src_reg = aarch64_fp_arg_regs[param_idx];
-    /* stur d<src_reg>, [fp, #-offset] */
-    arm64_emit_u32(c, 0xFC000000 | ((-offset & 0x1FF) << 12) | (29 << 5) | (src_reg & 0x1F));
+    int base = zero_cc_frame_base_reg(c);
+    int32_t imm = zero_cc_frame_disp(c, -offset); /* [base, #imm] */
+    if (imm < -255 || imm > 255) {
+        if (imm <= 4095) {
+            arm64_emit_u32(c, 0x91000529u | ((uint32_t)imm << 10));  /* add x9, sp, #imm */
+        } else {
+            aarch64_emit_mov_imm(c, 16, imm);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 9u);  /* add x9, sp, x16 */
+        }
+        arm64_emit_u32(c, 0xFC000000 | (9u << 5) | (src_reg & 0x1F));  /* stur dN, [x9] */
+        return;
+    }
+    /* stur d<src_reg>, [base, #imm] */
+    arm64_emit_u32(c, 0xFC000000 | ((uint32_t)imm & 0x1FF) << 12 | ((uint32_t)base << 5) | (src_reg & 0x1F));
 }
 
 /* variadic_spill - spill variadic arguments */

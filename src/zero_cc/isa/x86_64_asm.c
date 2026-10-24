@@ -41,6 +41,41 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     if (c->lowering.is_frameless) return;
     FILE *out = c->asm_out;
 
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer. X = frame_delta + 8 (see the MC
+         * prologue for the per-case X values). */
+        size_t X = (size_t)c->lowering.frame_delta + 8;
+        (void)stack_size;
+        /* Stack probing for frames > 4KB (Linux guard page). RAX is scratch. */
+        if (X > 4096) {
+            size_t top_page = (X - 1) / 4096;
+            for (size_t k = top_page; k >= 1; k--) {
+                fprintf(out, "\tmovq\t%%rsp, %%rax\n");
+                fprintf(out, "\tsubq\t$%zu, %%rax\n", k * 4096);
+                fprintf(out, "\tcmpb\t$0, (%%rax)\n");
+            }
+        }
+        if (X > 0) {
+            fprintf(out, "\tsubq\t$%zu, %%rsp\n", X);
+        }
+
+        /* Save callee-saved registers from SP (only those allocated) */
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+        const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (!((mask >> reg) & 1u)) continue;
+            const char *reg_name = BE(c)->get_hw_reg_name(reg);
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            fprintf(out, "\tmovq\t%%%s, %d(%%%s)\n", reg_name,
+                    (int)zero_cc_frame_disp(c, -offset), base_name);
+        }
+        return;
+    }
+
     fprintf(out, "\tpushq\t%%rbp\n");
     fprintf(out, "\tmovq\t%%rsp, %%rbp\n");
     /* Stack probing for frames > 4KB (Linux guard page): touch every page,
@@ -83,17 +118,26 @@ static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
 
     for (int i = 0; i < count; i++) {
         int reg = callee_saved[i];
         if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tmovq\t-%d(%%rbp), %%%s\n", offset, reg_name);
+        fprintf(out, "\tmovq\t%d(%%%s), %%%s\n", (int)zero_cc_frame_disp(c, -offset), base_name, reg_name);
     }
 
-    fprintf(out, "\tleave\n");
-    fprintf(out, "\tret\n");
+    if (c->lowering.omit_frame_pointer) {
+        size_t X = (size_t)c->lowering.frame_delta + 8;
+        if (X > 0) {
+            fprintf(out, "\taddq\t$%zu, %%rsp\n", X);
+        }
+        fprintf(out, "\tret\n");
+    } else {
+        fprintf(out, "\tleave\n");
+        fprintf(out, "\tret\n");
+    }
 }
 
 /* MOV_IMM: mov $imm, dst */
@@ -126,7 +170,8 @@ static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *ar
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%rbp),%%r11\n", -off);
+            fprintf(out, "\tmovq\t%d(%%%s),%%r11\n", (int)zero_cc_frame_disp(c, -off),
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
             src_name = "r11";
         } else {
             src_name = BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp));
@@ -489,7 +534,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                fprintf(out, "\tmovq\t%d(%%rbp),%%r11\n", -off);
+                fprintf(out, "\tmovq\t%d(%%%s),%%r11\n", (int)zero_cc_frame_disp(c, -off),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
                 indirect_reg_name = "r11";
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
@@ -540,7 +586,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
             if (sp >= 0) {
                 int32_t off = spill_base_offset + (sp + 1) * 8;
-                fprintf(out, "\tmovq\t%d(%%rbp),%%r10\n", -off);
+                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n", (int)zero_cc_frame_disp(c, -off),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
                 fprintf(out, "\tpushq\t%%r10\n");
             } else {
                 int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
@@ -554,7 +601,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%rbp),%%r10\n", -off);
+            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n", (int)zero_cc_frame_disp(c, -off),
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
             fprintf(out, "\tpushq\t%%r10\n");
         } else {
             int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
@@ -746,26 +794,32 @@ static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *o
     fprintf(out, "\tmovq\t%%rsp,%%%s\n", dst_name);
 }
 
-/* PARAM_SAVE_INT: mov [rbp - offset], reg */
-static void x86_emit_param_save_int_asm(ZeroCCCompiler *, int reg_idx, int32_t offset, FILE *out) {
+/* PARAM_SAVE_INT: save incoming integer parameter to -offset(%%rbp) (or SP+delta) */
+static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
     static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     if (reg_idx >= 0 && reg_idx < 6) {
-        fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[reg_idx], -offset);
+        const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+        fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", arg_regs[reg_idx],
+                (int)zero_cc_frame_disp(c, -offset), base_name);
     }
 }
 
-/* PARAM_SAVE_FP: movsd [rbp - offset], xmmN */
-static void x86_emit_param_save_fp_asm(ZeroCCCompiler *, int reg_idx, int32_t offset, FILE *out) {
+/* PARAM_SAVE_FP: movsd incoming FP parameter d0..d7 to -offset(%%rbp) (or SP+delta) */
+static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
     if (reg_idx >= 0 && reg_idx < 8) {
-        fprintf(out, "\tmovsd\t%%xmm%d,%d(%%rbp)\n", reg_idx, -offset);
+        const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+        fprintf(out, "\tmovsd\t%%xmm%d,%d(%%%s)\n", reg_idx,
+                (int)zero_cc_frame_disp(c, -offset), base_name);
     }
 }
 
 /* VARIADIC_SPILL: spill remaining integer registers for va_start */
-static void x86_emit_variadic_spill_asm(ZeroCCCompiler *, int param_count, int32_t base_offset, FILE *out) {
+static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
     static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
     for (int i = 0; i < param_count && i < 6; i++) {
-        fprintf(out, "\tmovq\t%%%s,%d(%%rbp)\n", arg_regs[i], base_offset - i * 8);
+        fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", arg_regs[i],
+                (int)zero_cc_frame_disp(c, base_offset - i * 8), base_name);
     }
 }
 

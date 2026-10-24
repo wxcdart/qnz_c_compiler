@@ -387,6 +387,56 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         alloc_frame_size = 0;
     }
 
+    /* Option 4: Frame pointer omission for fixed-frame functions.
+     * The frame pointer (%rbp / x29 / s0) is a constant anchor for every
+     * frame slot. For a function whose frame is fully static (no runtime
+     * VLA, which lowers SP dynamically on some targets) the same anchor
+     * role is served by SP plus a per-function constant delta, so the
+     * prologue/epilogue drop the FP setup/teardown and every slot offset
+     * is rebased: disp_SP = disp_FP + (FP - final_SP).
+     *
+     * Per-ISA geometry (E = entry SP, alloc = alloc_frame_size, aligned =
+     * 16-round-up(alloc)):
+     *   x86-64  : FP = E-8 (push rbp); the prologue subtracts X = alloc+8
+     *             (alloc==0: X = 8 to keep 16-byte call alignment; red-zone
+     *             leaf: X = 0). delta = X - 8.
+     *   aarch64 : FP = E-16 (stp x29,x30); X = aligned+16. delta = aligned.
+     *   riscv   : FP = E-16 (s0 = sp+aligned); X = aligned+16. delta = aligned.
+     * RISC-V additionally requires aligned+16 <= 2047 so the FP-less
+     * epilogue (ld ra, aligned+8(sp); addi sp, sp, aligned+16) fits in
+     * immediates; larger frames keep the FP.
+     * Policy: on by default at -O1 and above (like gcc's -fomit-frame-
+     * pointer); force with -fomit-frame-pointer / -fno-omit-frame-pointer. */
+    c->lowering.omit_frame_pointer = false;
+    c->lowering.frame_delta = 0;
+    {
+        bool omit_wanted = c->omit_frame_pointer == 1 ||
+                           (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1);
+        if (omit_wanted && !c->lowering.is_frameless) {
+            bool has_vla = false;
+            for (size_t i = 0; i < ir_count; i++) {
+                if (ir_buf[i].op == OP_VLA_ALLOC) { has_vla = true; break; }
+            }
+            if (!has_vla) {
+                size_t aligned = (alloc_frame_size + 15) & ~(size_t)15;
+                if (c->isa == ISA_X86_64) {
+                    size_t X = (alloc_frame_size == 0 && is_leaf) ? 0 : alloc_frame_size + 8;
+                    c->lowering.frame_delta = (int32_t)X - 8;
+                    c->lowering.omit_frame_pointer = true;
+                } else {
+                    c->lowering.frame_delta = (int32_t)aligned;
+                    bool fits = (c->isa != ISA_RISCV64 && c->isa != ISA_RISCV32) ||
+                                (aligned + 16 <= 2047);
+                    if (fits) {
+                        c->lowering.omit_frame_pointer = true;
+                    } else {
+                        c->lowering.frame_delta = 0;
+                    }
+                }
+            }
+        }
+    }
+
     /* Emit machine code or assembly from IR with allocated registers */
     if (c->emit_asm) {
         /* For assembly: emit function label, then prologue, then IR (param saves in IR) */

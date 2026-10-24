@@ -17,6 +17,19 @@ void ir_set_compiler(ZeroCCCompiler *c) {
     g_compiler = c;
 }
 
+/* Frame slot addressing (Option 4: -fomit-frame-pointer).
+ * Frame-slot IR operands are recorded FP-relative. When the frame pointer
+ * is omitted for a fixed-frame function, slots are addressed from SP with a
+ * constant delta (LoweringState.frame_delta). These accessors keep every
+ * emission site uniform. */
+int zero_cc_frame_base_reg(const ZeroCCCompiler *c) {
+    return c->lowering.omit_frame_pointer ? c->isa_backend->sp_reg : c->isa_backend->fp_reg;
+}
+
+int32_t zero_cc_frame_disp(const ZeroCCCompiler *c, int32_t off) {
+    return c->lowering.omit_frame_pointer ? (off + c->lowering.frame_delta) : off;
+}
+
 /* Get the current compiler's IR arena */
 static inline IRArena *ir_arena(void) {
     return g_compiler ? &g_compiler->ir_arena : NULL;

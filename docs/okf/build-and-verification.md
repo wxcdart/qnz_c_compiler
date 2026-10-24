@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-23T22:55:17Z
+timestamp: 2026-10-24T02:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -119,7 +119,9 @@ python3 tools/vla/test_vla.py
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
 python3 tools/sret_verifier.py --verify-all
 
-# Verify selective prologue/epilogue CSR omission and fallthrough jump elimination
+# Verify prologue/epilogue emission: selective CSR omission, fallthrough jump
+# elimination, Red Zone, frameless leaves, and omit-frame-pointer shapes
+# (balanced SP adjustments, SP-based CSR symmetry) on all 4 target ISAs
 python3 tools/prologue_epilogue_verifier.py
 
 # Own-linker (T2) differential battery: link zerocc objects + .a archives with

@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 44] - 2026-10-24 - Frame Pointer Elimination on Fixed-Frame Functions (`-fomit-frame-pointer`)
+
+Completed Option 4 of the codegen performance roadmap (after Option 1, frameless leaf promotion, in Sprint 43): functions with fully static frames no longer set up or tear down the frame pointer. Stack slots are addressed from the stack pointer with a constant per-function displacement, and the policy is controllable from the CLI.
+
+- **Policy & CLI** (`src/main.c`, `src/zero_cc/types/symbols.h`, `src/zero_cc/ir/lowering_state.h`): new `-fomit-frame-pointer` / `-fno-omit-frame-pointer` flags (`ZeroCCCompiler.omit_frame_pointer`, tri-state). Default mirrors GCC: omit at effective `-O1` and above, keep at `-O0`. The per-function decision (omit only for non-frameless functions with no runtime VLA `OP_VLA_ALLOC`) plus the SP-rebase displacement is computed in `ast_lowering.c` and stored in `LoweringState` (`omit_frame_pointer`, `frame_delta`).
+- **Shared frame-slot accessors** (`src/zero_cc/isa/isa_backend.h`, `src/zero_cc/ir/ir.c`): `zero_cc_frame_base_reg(c)` (SP when omitted, else FP) and `zero_cc_frame_disp(c, off)` (`off + frame_delta` when omitted). Every frame-slot emission site — locals, CSR saves/loads, promoted/stack parameter saves, variadic argument spills, address-of locals — across the machine and asm paths of all four ISAs now resolves through these, keeping IR offsets FP-relative and register allocation frame-policy-agnostic.
+- **Per-ISA prologues/epilogues** (`x86_64.c`/`x86_64_asm.c`, `aarch64.c`/`aarch64_asm.c`, `riscv.c`/`riscv_asm.c`):
+  - x86-64: `sub rsp, X` / `add rsp, X` (X = `frame_delta + 8`); the red-zone leaf case (X = 0) needs no adjustment. The teardown lives in **both** `emit_epilogue` and `emit_leave` (the final-epilogue hook) — a bare `ret` after `sub rsp` leaks the frame and corrupts the caller's stack.
+  - AArch64: `str x30, [sp, #-16]!` + `sub sp, sp, #aligned` / CSR restores + `add sp, sp, #aligned` + `ldr x30, [sp], #16`. For `aligned > 4095` the epilogue uses `add x16, sp, x16; mov sp, x16` (SP is not a valid Rd of ADD(extended); Rd=31 encodes XZR).
+  - RISC-V 64/32: `addi sp, sp, -(aligned+16)` + `sd/sw ra, (aligned+8)(sp)` / `ld/lw ra` + `addi sp, sp, aligned+16`; FP is kept when `aligned + 16 > 2047` (addi immediate range). rv32 width-aware `sw`/`lw` for ra and parameter saves.
+- **Verification** (`tools/prologue_epilogue_verifier.py`): extended with omit-FP shape checks (FP-free prologue/epilogue, balanced SP adjustments, LR/ra save-restore symmetry on all four ISAs) and SP-based (`[sp, #N]` / `N(sp)` / `N(%rsp)`) CSR store-load symmetry alongside the existing FP-based checks.
+- **Scope note**: the frame-pointer register (`%rbp`/`x29`/`s0`) is currently only *not set up* — it is not yet handed to the register allocator as a general-purpose register, so the win is prologue/epilogue cost, not register pressure.
+
+Gates: test **153/153**, test-opt **114/114** (-O0..-O3 JIT+AOT), test-isa-qemu **44/44**, prologue/epilogue verifier (extended) all 4 ISAs, extension verifier 14/14, diag battery baseline OK, style 0 errors, okf lint clean.
+
 ## [Sprint 43] - 2026-10-23 - High-ROI GNU/Clang Extensions (Offsetof, Case/Init Ranges, Statement Expressions)
 
 Implemented three high-ROI GNU/Clang extensions verified differentially against GCC via `tools/extension_verifier.py` (14/14 tests pass across JIT and AOT):

@@ -69,19 +69,19 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_MOV:  /* Load from stack */
             if (BE(c)->emit_load_asm) {
-                BE(c)->emit_load_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
+                BE(c)->emit_load_asm(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64), out);
             }
             return;
 
         case OP_MOV_MEM:  /* Store to stack */
             if (BE(c)->emit_store_asm) {
-                BE(c)->emit_store_asm(c, phys_src1, BE(c)->fp_reg, (int32_t)instr->imm64, out);
+                BE(c)->emit_store_asm(c, phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64), out);
             }
             return;
 
         case OP_LEA:
             if (BE(c)->emit_lea_asm) {
-                BE(c)->emit_lea_asm(c, phys_dst, BE(c)->fp_reg, (int32_t)instr->imm64, out);
+                BE(c)->emit_lea_asm(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64), out);
             }
             return;
 
@@ -571,13 +571,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         /* Floating Point */
         case OP_FLOAD:
             if (BE(c)->emit_load_fp_asm) {
-                BE(c)->emit_load_fp_asm(c, phys_dst, phys_src1, (int32_t)instr->imm64, out);
+                BE(c)->emit_load_fp_asm(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64), out);
             }
             return;
 
         case OP_FSTORE:
             if (BE(c)->emit_store_fp_asm) {
-                BE(c)->emit_store_fp_asm(c, phys_src1, phys_src2, (int32_t)instr->imm64, out);
+                BE(c)->emit_store_fp_asm(c, phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, (int32_t)instr->imm64), out);
             }
             return;
 
@@ -1016,12 +1016,12 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
             if (BE(c)->emit_load_fp_asm) {
-                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }
             phys_src1 = BE(c)->fp_scratch_reg1;
         } else {
             if (BE(c)->emit_load_asm) {
-                BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+                BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }
             phys_src1 = BE(c)->scratch_reg1;
         }
@@ -1030,12 +1030,12 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
             if (BE(c)->emit_load_fp_asm) {
-                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+                BE(c)->emit_load_fp_asm(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }
             phys_src2 = BE(c)->fp_scratch_reg2;
         } else {
             if (BE(c)->emit_load_asm) {
-                BE(c)->emit_load_asm(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -slot_off, out);
+                BE(c)->emit_load_asm(c, BE(c)->scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }
             phys_src2 = BE(c)->scratch_reg2;
         }
@@ -1056,10 +1056,10 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
             if (BE(c)->emit_store_fp_asm) {
-                BE(c)->emit_store_fp_asm(c, BE(c)->fp_scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+                BE(c)->emit_store_fp_asm(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }
         } else if (BE(c)->emit_store_asm) {
-            BE(c)->emit_store_asm(c, BE(c)->scratch_reg1, BE(c)->fp_reg, -slot_off, out);
+            BE(c)->emit_store_asm(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
         }
     }
 }

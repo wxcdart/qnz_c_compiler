@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-24T01:16:57Z
+timestamp: 2026-10-24T02:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -68,8 +68,18 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
    - For leaf functions (`!has_calls`) with no local stack variables (`c->local_count == fn->param_count`), no address-of parameter (`&param`), and no parameter mutations (assignments, increments, decrements), incoming ABI argument registers are directly promoted into virtual registers (`sym->is_promoted = true`, `sym->promoted_vreg`) via `OP_PARAM_LOAD`.
    - Frame pointer setup (`push rbp` / `stp x29, x30` / `addi sp, sp, -16; sd ra, s0`), stack frame allocation (`c->current_stack_frame = 0`), and stack parameter spill stores/loads are completely bypassed.
    - The function emits direct computation straight to return register followed by a single `ret`. Supported up to 3 integer arguments on x86-64 (matching `rdi, rsi, rdx` without clobber hazards against reserved `rcx`) and up to 8 arguments on AArch64 and RISC-V (`x0..x7` / `a0..a7`).
-6. **Verification Tools**:
-   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, and store-load symmetry across all target ISAs.
+6. **Frame Pointer Omission on Fixed-Frame Functions (`-fomit-frame-pointer`, default at `-O1`+)**:
+   - Functions whose frame is fully static — not frameless, no runtime VLA (`OP_VLA_ALLOC`) — omit the frame pointer and address every frame slot from the stack pointer with a constant per-function displacement. Policy is decided once per function in `ast_lowering.c` and stored in `LoweringState` (`omit_frame_pointer`, `frame_delta`). The decision mirrors GCC: omitted by default at effective `-O1` and above, kept at `-O0` unless the user forces it.
+   - CLI: `-fomit-frame-pointer` (force omit) and `-fno-omit-frame-pointer` (force keep) are parsed in `src/main.c` and forwarded to `ZeroCCCompiler.omit_frame_pointer`.
+   - **Slot rebasing**: IR/lowering continue to record frame slots as FP-relative. All frame-slot emission sites (machine + asm, all four ISAs, including CSR saves, promoted/stack parameter saves, and variadic spills) go through `zero_cc_frame_base_reg(c)` / `zero_cc_frame_disp(c, off)` (declared in `isa_backend.h`, implemented in `ir.c`): with omission the base becomes SP and the displacement becomes `off + frame_delta`.
+   - **Per-ISA geometry** (`frame_delta` = old FP − final SP):
+     - x86-64: prologue `sub rsp, X` (X = `frame_delta + 8`); `frame_delta = X - 8` (i.e. `alloc_frame_size` normally, `-8` for the red-zone leaf case with X = 0). Epilogue `add rsp, X` (emitted by both `emit_epilogue` and `emit_leave`, the latter being the real final-epilogue hook — an FP-less epilogue that only `ret`s leaks the frame and corrupts the caller's stack).
+     - AArch64: prologue `str x30, [sp, #-16]!` + `sub sp, sp, #aligned`; `frame_delta = aligned`. Epilogue restores CSRs, `add sp, sp, #aligned`, `ldr x30, [sp], #16`. For `aligned > 4095` the epilogue uses `add x16, sp, x16; mov sp, x16` because SP is not a valid Rd of ADD (extended) (Rd = 31 encodes XZR).
+     - RISC-V (64 & 32): prologue `addi sp, sp, -(aligned+16)` + `sd/sw ra, (aligned+8)(sp)`; `frame_delta = aligned`. Epilogue `ld/lw ra`, `addi sp, sp, aligned+16`. The FP is kept (fallback) when `aligned + 16 > 2047` to stay inside the `addi` immediate range.
+   - **Scope**: the frame-pointer register (`%rbp` / `x29` / `s0`) is currently only *not set up*; it is not yet handed to the register allocator as a general-purpose register, so the win is prologue/epilogue cost, not register pressure.
+   - Verified by the QEMU raw-emitter battery (44/44) and the extended `prologue_epilogue_verifier.py` (see below).
+7. **Verification Tools**:
+   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, omit-frame-pointer shapes (FP-free prologue/epilogue with balanced SP adjustments and LR/ra save-restore on all four ISAs), and store-load symmetry for both FP-based (`[x29, #-N]` / `N(s0)` / `N(%rbp)`) and SP-based (`[sp, #N]` / `N(sp)` / `N(%rsp)`) CSR slots.
    - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
 
 ## Parallel Argument Setup in Function Calls

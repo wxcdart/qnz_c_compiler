@@ -137,6 +137,12 @@ typedef struct ZeroCCCompiler {
     /* Optimization level (from -O flag) */
     OptLevel opt_level;
 
+    /* Frame pointer policy (from -fomit-frame-pointer / -fno-omit-frame-pointer):
+     * -1 = default (omit for fixed-frame functions at -O1 and above),
+     *  0 = always keep the frame pointer,
+     *  1 = always omit when the frame is static. */
+    int omit_frame_pointer;
+
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */
     IRCallArgsArena ir_call_args;  /* Call argument tracking arena */

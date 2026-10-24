@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-24T01:17:00Z
+timestamp: 2026-10-24T02:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -82,6 +82,7 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
   - **Materialized FP call returns (C8)**: a float/double `OP_CALL` result is materialized into a fresh tracked temp via `OP_FMOV` immediately after the call (`ir/ast_lowering_expr.c`) - the physical return register (`VREG_F0`) is never referenced directly as an operand, so the LRA/regalloc sees the result's live range and spills it across subsequent calls when needed.
   - **XMM↔VEC pool cross-marking (C8)**: VEC-class temps (scalar float locals load via 16-byte `OP_VLOAD`) and XMM-class temps share the same physical registers 0–7 on x86/AArch64. Allocation cross-marks both pools at indices 0–7 (allocate and expire) so an overlapping VEC load can never clobber an XMM temp; on RISC-V the v-registers are separate hardware and the pools stay independent.
   - Prologue and epilogue symmetrically emit `OP_CALLEE_SAVE_STORES` and `OP_CALLEE_SAVE_LOADS` across both JIT and AOT backends (`src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/isa/{x86_64,aarch64,riscv}_asm.c`), preserving `%rbx`/`%r12`–`%r15` (x86-64), `x19`–`x23` (AArch64), and `s1`–`s5` (RISC-V) at `-8(%rbp)`..`-40(%rbp)` so caller registers (such as `main`'s `%rbx` used by `libc`) are never clobbered.
+  - **Frame-slot base rebasing (frame pointer omission)**: IR and lowering record frame slots as FP-relative (negative for locals/CSR/parameter saves, positive for the caller's stack arguments) regardless of the frame-pointer policy. When a function omits the frame pointer (`LoweringState.omit_frame_pointer`, see [Multi-ISA Backends](./isa-backends.md) → *Frame Pointer Omission on Fixed-Frame Functions*), every emission site resolves the actual base/displacement through `zero_cc_frame_base_reg(c)` (SP instead of FP) and `zero_cc_frame_disp(c, off)` (`off + frame_delta`), so register allocation and spill-slot bookkeeping remain frame-policy-agnostic. The FP register stays in the reserved (non-allocatable) set even when omitted.
 - **Loop Live-Range Extension (`live_range.h`)**:
   - Any virtual register live across a loop header has its live interval extended to the loop exit (`backedge`) so its physical register is not prematurely recycled mid-loop.
 

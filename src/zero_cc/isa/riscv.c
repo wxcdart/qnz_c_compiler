@@ -120,6 +120,18 @@ static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
     (void)callee_save_mask;  /* callee-save stores are emitted by emit_prologue_mc() */
     size_t aligned = (stack_size + 15) & ~(size_t)15;
     size_t total = aligned + 16;
+
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no frame pointer (s0). The decision in ast_lowering.c
+         * guarantees total <= 2047 so a single addi suffices. The 8 bytes
+         * that would hold s0 are left unused, keeping slot geometry
+         * identical to the FP layout (delta = aligned). */
+        int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* sw (32-bit) vs sd (64-bit) */
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-(int32_t)total), 0x13));
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, f3, (int16_t)(aligned + 8), 0x23));  /* s ra, aligned+8(sp) */
+        return;
+    }
+
     int big = (total > 2047);
     if (big) {
         riscv64_emit_mov_imm(c, RV64_T0, (int64_t)total);  /* li t0, total */
@@ -149,6 +161,15 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
 
 static void riscv64_emit_leave(ZeroCCCompiler *c) {
     if (c->lowering.is_frameless) return;
+    if (c->lowering.omit_frame_pointer) {
+        /* Option 4: no s0. aligned = frame_delta (decision in
+         * ast_lowering.c guarantees aligned+16 <= 2047). */
+        int aligned = (int)c->lowering.frame_delta;
+        int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* lw (32-bit) vs ld (64-bit) */
+        riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, f3, (int16_t)(aligned + 8), 0x03));  /* l ra, aligned+8(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(aligned + 16), 0x13));  /* addi sp, sp, aligned+16 */
+        return;
+    }
     /* Deallocate the frame without knowing its size: s0 = entry_sp - 16. */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
     riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
@@ -854,20 +875,20 @@ static void riscv64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 
 /* Function ABI */
 
-/* param_save_int reg_idx, offset - save incoming integer parameter a0..a7 to -offset(s0) */
+/* param_save_int reg_idx, offset - save incoming integer parameter a0..a7 to -offset(s0) (or SP+delta) */
 static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int slot) {
     if (reg_idx < 0 || reg_idx >= 8) return;
     int reg = 10 + reg_idx;  /* a0..a7 = x10..x17 */
     int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* sw (32-bit) vs sd (64-bit) */
-    riscv_emit_u32(c, rv64_S(RV64_S0, reg, f3, (int16_t)(-slot), 0x23));
+    riscv_emit_u32(c, rv64_S(zero_cc_frame_base_reg(c), reg, f3, (int16_t)zero_cc_frame_disp(c, -slot), 0x23));
 }
 
-/* param_save_fp reg_idx, offset - save incoming FP parameter fa0..fa7 to -offset(s0) */
+/* param_save_fp reg_idx, offset - save incoming FP parameter fa0..fa7 to -offset(s0) (or SP+delta) */
 static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot) {
     if (reg_idx < 0 || reg_idx >= 8) return;
     int reg = 10 + reg_idx;  /* fa0..fa7 = f10..f17 */
     int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* fsw (32-bit) vs fsd (64-bit) */
-    riscv_emit_u32(c, rv64_S(RV64_S0, reg, f3, (int16_t)(-slot), 0x27));
+    riscv_emit_u32(c, rv64_S(zero_cc_frame_base_reg(c), reg, f3, (int16_t)zero_cc_frame_disp(c, -slot), 0x27));
 }
 
 /* variadic_spill - spill variadic arguments */
