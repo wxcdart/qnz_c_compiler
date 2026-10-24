@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-24T00:35:51Z
+timestamp: 2026-10-24T00:37:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -48,6 +48,8 @@ Across target ISAs, structs exceeding 16 bytes return via an implicit caller-all
   - Callee preserves `x8` in its prologue (`param_save_int_asm(8, sret_offset)`) and returns the pointer in `x0`.
 - **RISC-V (RV64GC LP64D ABI)**:
   - Caller allocates buffer and passes its pointer in `a0` (first integer argument register).
+  - Regular integer arguments shift starting from `a1` (index 1).
+  - Callee writes struct to caller buffer and returns pointer in `a0`.
 
 ## Prologue & Epilogue Management
 
@@ -67,8 +69,6 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
 6. **Verification Tools**:
    - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, pure leaf frameless emission, Red Zone usage, and store-load symmetry across all target ISAs.
    - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
-  - Regular integer arguments shift starting from `a1` (index 1).
-  - Callee writes struct to caller buffer and returns pointer in `a0`.
 
 ## Parallel Argument Setup in Function Calls
 
