@@ -15,6 +15,7 @@
 #include "zero_cc/semantic/semantic.h"
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
+#include "zero_cc/parser/zero_cc_declarator_stack.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
 
@@ -135,14 +136,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         c->token_pos++;
     }
 
-    if (c->tokens[c->token_pos].type != TK_IDENT) return;
+    /* Function name and parameter list. Two shapes:
+     *   name ( params )            - the common form
+     *   (*name(params))(params2)   - parenthesized declarator (a function
+     *                                 returning a (function) pointer) */
     char fn_name[128];
-    snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
-    c->token_pos++;
-
-    if (c->tokens[c->token_pos].type != TK_LPAREN) return;
-    c->token_pos++;
-
     /* Parse Parameters in signature */
     ZeroCCType param_types[8];
     char param_names[8][128];
@@ -154,7 +152,54 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
     }
 
-    while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+        c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
+        /* Parenthesized declarator: parse the full declarator and extract
+         * the name, its parameter list, and the (pointer) return type. */
+        ZeroCCASTArena darena;
+        ZeroCCDeclarator d;
+        zero_cc_ast_arena_init(&darena, 256);
+        if (!zero_cc_parse_declarator(c, &darena, ctx, &d) || !d.name ||
+            !zero_cc_declarator_is_function(&d)) {
+            zero_cc_ast_arena_free(&darena);
+            return;
+        }
+        snprintf(fn_name, sizeof(fn_name), "%s", d.name);
+        fn_ret_type = zero_cc_declarator_apply_return(&d, fn_ret_type);
+        if (fn_ret_type.is_func) {
+            diag_report_error_at_token(c, "function '%s' cannot return a function", d.name);
+            zero_cc_ast_arena_free(&darena);
+            return;
+        }
+        const ZeroCCDeclaratorChunk *fc = zero_cc_declarator_get_function_chunk(&d);
+        if (fc) {
+            is_variadic_fn = fc->is_variadic;
+            has_prototype = fc->has_prototype;
+            ASTRef pl = fc->param_list;
+            size_t pi = 0;
+            while (pl != AST_NULL && pi < 8) {
+                ZeroCCASTNode *pn = zero_cc_ast_get(&darena, pl);
+                if (!pn) break;
+                if (pi < fc->param_count) {
+                    TypeInfo *pti = ast_node_get_typeinfo(c, pn);
+                    if (pti) param_types[pi] = typeinfo_to_zero_cc_type(pti);
+                }
+                snprintf(param_names[pi], sizeof(param_names[pi]), "%s",
+                         (pn->s.str && pn->s.str[0]) ? pn->s.str : "");
+                pl = pn->next;
+                pi++;
+            }
+            param_count = pi;
+        }
+        zero_cc_ast_arena_free(&darena);
+    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+        snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
+        c->token_pos++;
+
+        if (c->tokens[c->token_pos].type != TK_LPAREN) return;
+        c->token_pos++;
+
+        while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
         size_t ppos = c->token_pos;
         has_prototype = true; /* any entry (param or ...) makes this a prototype */
         if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
@@ -379,8 +424,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
         if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
         if (c->token_pos == ppos) c->token_pos++;
+        }
+        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+    } else {
+        return;
     }
-    if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
 
     if (c->tokens[c->token_pos].type == TK_SEMI) {
         /* Function prototype declaration: record prototype, no code emit */

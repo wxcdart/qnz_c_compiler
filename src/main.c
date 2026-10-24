@@ -277,6 +277,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
         for (size_t i = 0; i < global_var_count; i++) {
             ZeroCCGlobalVar *gv = &global_vars[i];
             if (!gv->name[0]) continue;
+            /* TLS variables live in .tdata/.tbss (emitted below), not .data */
+            if (gv->is_tls) continue;
 
             /* Fill any alignment padding gap before this variable */
             if (gv->data_offset > cur_offset && cur_offset < data_len) {
@@ -346,6 +348,64 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
         if (cur_offset < data_len) {
             for (size_t b = cur_offset; b < data_len; b++) {
                 fprintf(comp->asm_out, "\t.byte\t0x%02x\n", data_buf[b]);
+            }
+        }
+    }
+
+    /* Emit the static TLS block (initial-exec, x86-64): .tdata holds the
+     * initialized variables (packed image in tls_data_section), .tbss the
+     * uninitialized ones.  In-block offsets come from the TLS backend
+     * (tls_backend.c); the code references them via name@tpoff. */
+    if (comp->tls_data_section.length > 0 || comp->tls_bss_size > 0) {
+        const uint8_t *tdata = (const uint8_t *)comp->tls_data_section.data;
+        size_t tdata_len = comp->tls_data_section.length;
+        size_t emitted = 0;
+        fprintf(comp->asm_out, "\t.section\t.tdata,\"awT\",@progbits\n");
+        for (size_t i = 0; i < global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &global_vars[i];
+            if (!gv->is_tls || !gv->name[0]) continue;
+            if (gv->data_offset >= tdata_len) continue;
+            if (gv->data_offset > emitted) {
+                for (size_t b = emitted; b < gv->data_offset && b < tdata_len; b++) {
+                    fprintf(comp->asm_out, "\t.byte\t0x%02x\n", tdata[b]);
+                }
+                emitted = gv->data_offset;
+            }
+            size_t talign = gv->type.align ? gv->type.align : 8;
+            int tp2 = 0;
+            while ((1u << tp2) < talign) tp2++;
+            fprintf(comp->asm_out, "\t.p2align\t%d\n", tp2);
+            if (!gv->is_static) {
+                fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);
+            }
+            fprintf(comp->asm_out, "%s:\n", gv->name);
+            for (size_t b = 0; b < gv->size && emitted + b < tdata_len; b++) {
+                fprintf(comp->asm_out, "\t.byte\t0x%02x\n", tdata[emitted + b]);
+            }
+            emitted += gv->size;
+        }
+        if (comp->tls_bss_size > 0) {
+            size_t tbss_off = 0;
+            fprintf(comp->asm_out, "\t.section\t.tbss,\"aw\",@nobits\n");
+            for (size_t i = 0; i < global_var_count; i++) {
+                ZeroCCGlobalVar *gv = &global_vars[i];
+                if (!gv->is_tls || !gv->name[0]) continue;
+                if (gv->data_offset < tdata_len) continue;
+                size_t boff = gv->data_offset - tdata_len;
+                if (boff > tbss_off) {
+                    fprintf(comp->asm_out, "\t.space\t%zu\n", boff - tbss_off);
+                    tbss_off = boff;
+                }
+                size_t talign = gv->type.align ? gv->type.align : 8;
+                int tp2 = 0;
+                while ((1u << tp2) < talign) tp2++;
+                fprintf(comp->asm_out, "\t.p2align\t%d\n", tp2);
+                if (!gv->is_static) {
+                    fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);
+                }
+                fprintf(comp->asm_out, "%s:\n", gv->name);
+                fprintf(comp->asm_out, "\t.space\t%zu\n", gv->size);
+                tbss_off += gv->size;
             }
         }
     }
@@ -452,6 +512,8 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
         opt_profile_enable(1);
         opt_profile_reset();
     }
+    /* JIT mode: TLS variables live in the data section (see tls_backend.c) */
+    comp->jit_mode = 1;
 
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
@@ -785,11 +847,38 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                8);
     }
 
+    /* Add .tdata (initialized TLS) and .tbss (uninitialized TLS) sections.
+     * The TLS backend (tls_backend.c) packs the block; each _Thread_local
+     * variable gets a symbol in its section, and OP_TLS_LEA accesses get
+     * R_X86_64_TPOFF32 relocations (initial-exec static TLS). */
+    size_t tls_align = comp->tls_block_align > 0 ? comp->tls_block_align : 8;
+    if (comp->tls_data_section.length > 0) {
+        elf_writer_add_section(&elf_ctx, ".tdata",
+                               (uint8_t*)comp->tls_data_section.data,
+                               comp->tls_data_section.length,
+                               ELF_SHT_PROGBITS,
+                               ELF_SHF_ALLOC | ELF_SHF_WRITE | 0x400 /* SHF_TLS */,
+                               tls_align);
+    }
+    if (comp->tls_bss_size > 0) {
+        uint8_t *tbss_zeros = (uint8_t *)calloc(comp->tls_bss_size, 1);
+        if (tbss_zeros) {
+            elf_writer_add_section(&elf_ctx, ".tbss",
+                                   tbss_zeros, comp->tls_bss_size,
+                                   ELF_SHT_NOBITS,
+                                   ELF_SHF_ALLOC | ELF_SHF_WRITE | 0x400 /* SHF_TLS */,
+                                   tls_align);
+            free(tbss_zeros);
+        }
+    }
+
     /* Resolve real section indices: empty sections are not emitted, so the
      * positions of later sections shift (a no-.text object has .data at 1). */
     uint16_t text_idx = elf_writer_section_index(&elf_ctx, ".text");
     uint16_t rodata_idx = elf_writer_section_index(&elf_ctx, ".rodata");
     uint16_t data_idx = elf_writer_section_index(&elf_ctx, ".data");
+    uint16_t tdata_idx = elf_writer_section_index(&elf_ctx, ".tdata");
+    uint16_t tbss_idx = elf_writer_section_index(&elf_ctx, ".tbss");
 
     /* Add .rodata section symbol first (needed for string literal relocations) */
     /* Section symbols must come before global symbols for correct sh_info calculation */
@@ -837,6 +926,25 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         ZeroCCGlobalVar *gv = &global_vars[i];
         if (gv->name[0]) {
             int binding = gv->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            if (gv->is_tls) {
+                /* TLS variable: symbol lives in .tdata or .tbss at its
+                 * in-block offset (data_offset was patched by finalize). */
+                size_t tdata_len = comp->tls_data_section.length;
+                if (gv->data_offset < tdata_len) {
+                    elf_writer_add_symbol(&elf_ctx, gv->name,
+                                          binding, ELF_STT_OBJECT,
+                                          tdata_idx,
+                                          gv->data_offset,
+                                          gv->size);
+                } else {
+                    elf_writer_add_symbol(&elf_ctx, gv->name,
+                                          binding, ELF_STT_OBJECT,
+                                          tbss_idx,
+                                          gv->data_offset - tdata_len,
+                                          gv->size);
+                }
+                continue;
+            }
             elf_writer_add_symbol(&elf_ctx, gv->name,
                                   binding, ELF_STT_OBJECT,
                                   data_section_idx,
@@ -894,6 +1002,15 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                       symbol_idx,
                                       reloc_type_call,
                                       addend_call);
+        } else if (r->is_tls) {
+            /* Static TLS (initial-exec, x86-64): the 32-bit displacement of
+             * lea reg, [fs+disp32] gets R_X86_64_TPOFF32 against the
+             * variable's .tdata/.tbss symbol. */
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      r->text_patch_offset,
+                                      symbol_idx,
+                                      0x17 /* R_X86_64_TPOFF32 */,
+                                      0);
         } else if (symbol_idx > 0) {
             if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
                 r->text_patch_offset >= 4) {

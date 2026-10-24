@@ -9,6 +9,7 @@
 
 #include "zero_cc/types/types.h"
 #include "zero_cc/parser/parser.h"
+#include "zero_cc/parser/ast_expr.h"
 #include "zero_cc/parser/ast_arena.h"
 #include "zero_cc/jit/type_info.h"
 #include "zero_cc/semantic/visitor.h"
@@ -581,7 +582,10 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
         p.is_volatile = chunk->is_volatile;
         p.is_restrict = chunk->is_restrict;
         p.is_atomic = chunk->is_atomic;
-        p.is_func_ptr = chunk->is_func_ptr;
+        /* A pointer whose pointee is (or became) a function type is a
+         * function pointer: `int (*fp)(void)` and `func *fp` (where
+         * `typedef int func(void);`) both need is_func_ptr set. */
+        p.is_func_ptr = chunk->is_func_ptr || target.is_func;
         return p;
     }
     if (chunk->kind == ZERO_CC_DECL_CHUNK_ARRAY) {
@@ -599,6 +603,12 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
         return arr;
     }
     if (chunk->kind == ZERO_CC_DECL_CHUNK_FUNCTION) {
+        /* A function suffix makes the type a function type.  When this
+         * chunk is not the name's own (it is skipped in apply_return),
+         * it builds an outer function type, e.g. `void (*f(void))(void)`
+         * — a function returning a function pointer: the outer suffix
+         * marks is_func and the inner pointer chunk converts it. */
+        target.is_func = true;
         return target;
     }
     return target;

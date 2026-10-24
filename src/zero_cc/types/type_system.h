@@ -65,6 +65,12 @@ typedef struct ZeroCCType {
     bool is_restrict;
     bool is_vla;
     bool is_func_ptr;
+    /* Function type marker: the type denotes a function, not an object
+     * (e.g. the alias in `typedef int f(void);`).  Applying a pointer
+     * declarator on top of it yields a function pointer (is_func_ptr).
+     * A function suffix applied to a base type sets this flag; a pointer
+     * chunk then converts it. */
+    bool is_func;
 
     size_t member_count;
 } ZeroCCType;
@@ -165,6 +171,7 @@ typedef struct {
     size_t text_patch_offset;
     char target_symbol[128];
     bool is_call;
+    bool is_tls;        /* TLS access: AOT emits R_X86_64_TPOFF64 */
     size_t data_offset;  /* For data references (global variables) */
 } ZeroCCReloc;
 

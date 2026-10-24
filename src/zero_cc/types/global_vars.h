@@ -8,10 +8,11 @@
 typedef struct {
     char name[128];
     ZeroCCType type;
-    size_t data_offset;       /* Offset in data_section */
+    size_t data_offset;       /* Offset in data_section (JIT/TLS: TLS block offset) */
     size_t size;              /* Size in bytes */
     bool is_static;           /* Internal linkage */
     bool has_initializer;     /* Has = expression */
+    bool is_tls;              /* _Thread_local (static TLS) */
 } ZeroCCGlobalVar;
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
@@ -63,6 +64,7 @@ static int add_global_var(const char *name, ZeroCCType type, size_t offset, size
     gv->size = size;
     gv->is_static = is_static;
     gv->has_initializer = has_init;
+    gv->is_tls = false;
     return global_var_count - 1;
 }
 

@@ -209,6 +209,15 @@ typedef enum {
     OP_ATOMIC_OR,      /* atomic in-place OR; returns pre-update value */
     OP_ATOMIC_AND,     /* atomic in-place AND; returns pre-update value */
     OP_ATOMIC_XOR,     /* atomic in-place XOR; returns pre-update value */
+
+    /* Static TLS (appended so existing enum values are stable) */
+    OP_TLS_LEA,        /* dest = address of a _Thread_local static variable.
+                        * imm64 holds the variable name (const char*). AOT
+                        * x86-64 (initial-exec): movq %fs:0 + leaq $var@tpoff
+                        * (dst) with an R_X86_64_TPOFF32 relocation. -S
+                        * emits the same idiom. JIT mode never emits this
+                        * op - TLS variables are plain globals (OP_MOV_GLOBAL)
+                        * in the data section. */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -803,6 +812,12 @@ static inline void ir_emit_lea_rip(uint16_t temp_dest, int64_t rodata_offset) {
 /* Global variable load with relocation (imm64 holds symbol name pointer) */
 static inline void ir_emit_mov_global(uint16_t temp_dest, const char *symbol_name) {
     ir_emit((Instr){.op = OP_MOV_GLOBAL, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
+}
+
+/* TLS variable address (imm64 holds symbol name pointer). AOT x86-64 only:
+ * the relocator records an is_tls reloc resolved to R_X86_64_TPOFF64. */
+static inline void ir_emit_tls_lea(uint16_t temp_dest, const char *symbol_name) {
+    ir_emit((Instr){.op = OP_TLS_LEA, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */

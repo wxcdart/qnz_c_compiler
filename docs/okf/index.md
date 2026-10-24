@@ -4,7 +4,7 @@ title: ZeroCC Knowledge Graph (OKF Bundle)
 description: Root navigator and knowledge graph entry point for AI coding agents working on ZeroCC, a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V.
 resource: okf/index
 tags: [zerocc, compiler, index, navigation, okf]
-timestamp: 2026-10-23T04:25:11Z
+timestamp: 2026-10-24T21:17:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -51,6 +51,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
 - **[Global Variables, Data Section & Pointer Relocations](./global-data-relocs.md)**
   - File-scope initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from strings), `ZeroCCDataReloc`, JIT data-page patching, and AOT `.rela.<sec>` emission.
+- **[Static TLS (`_Thread_local`) Support](./tls-static.md)**
+  - `ZeroCCTLSBackend` declare/finalize, `OP_TLS_LEA` lowering via `ir_emit_global_addr`, the x86-64 initial-exec idiom (`mov %fs:0` + `lea $var@tpoff` with `R_X86_64_TPOFF32`), `.tdata`/`.tbss` sections & symbols, and the JIT data-section fallback.
 - **[Scalar Float Pipeline (x86-64) & WSL2 RX-Page 128-Byte Read Limitation](./scalar-float-x86.md)**
   - Double-width scalar FP model, `VLOADSS/SD`/`VSTORESS/SD` emitters (movss/movsd + widen/narrow), XMM-vs-VEC classing of scalar V-loads, and the WSL2 GPF on 16-byte reads from RX pages (why float negation is `0.0 - x`).
 

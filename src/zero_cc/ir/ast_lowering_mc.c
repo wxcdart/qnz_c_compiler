@@ -777,6 +777,49 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             }
 
+            case OP_TLS_LEA: {
+                /* Address of a _Thread_local static (initial-exec, x86-64
+                 * AOT only).  The canonical idiom (the same one GCC emits
+                 * for &tlsvar), with both halves in the destination
+                 * register so no scratch is needed:
+                 *   movq %fs:0, dst            (64 48 8B 04 25 00*4)
+                 *   leaq $var@tpoff(dst), dst  (48 8D modrm disp32)
+                 * with an R_X86_64_TPOFF32 relocation over the lea's
+                 * 32-bit displacement (S + A - G), so the register ends
+                 * up holding thread_ptr + (S - G) = the variable address.
+                 * JIT mode never reaches here (TLS vars are plain globals
+                 * there, lowered as OP_MOV_GLOBAL). */
+                const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+                if (c->isa != ISA_X86_64) {
+                    /* Defensive: the TLS backend rejects non-x86-64 at
+                     * declaration time, so this is unreachable in practice. */
+                    BE(c)->emit_mov_imm(c, phys_dst, 0);
+                    break;
+                }
+                int d = phys_dst & 7;
+                /* movq %fs:0, dst */
+                zero_cc_emit_u8(&c->text_section, 0x64);                 /* FS override */
+                zero_cc_emit_u8(&c->text_section, 0x48 | (phys_dst >> 3)); /* REX.W|R */
+                zero_cc_emit_u8(&c->text_section, 0x8B);                 /* mov r64, r/m64 */
+                zero_cc_emit_u8(&c->text_section, (d << 3) | 4);         /* mod=00 reg=dst rm=101 */
+                zero_cc_emit_u8(&c->text_section, 0x25);                 /* SIB: disp32-only */
+                zero_cc_emit_u32(&c->text_section, 0);                   /* disp32 = 0 */
+                /* leaq $var@tpoff, dst: mod=10, reg=dst, rm=dst */
+                zero_cc_emit_u8(&c->text_section, 0x48 | (phys_dst >> 3)); /* REX.W|R */
+                zero_cc_emit_u8(&c->text_section, 0x8D);                 /* lea r64, m */
+                zero_cc_emit_u8(&c->text_section, 0x80 | (d << 3) | d);  /* mod=10 reg=dst rm=dst */
+                if (d == 4) zero_cc_emit_u8(&c->text_section, 0x24);     /* SIB for rsp base */
+                zero_cc_emit_u32(&c->text_section, 0);                   /* disp32 <- TPOFF32 */
+                if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                    ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                    r->text_patch_offset = BE(c)->get_code_offset(c) - 4;
+                    snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
+                    r->is_call = false;
+                    r->is_tls = true;
+                }
+                break;
+            }
+
             case OP_JMP_LABEL: {
                 /* Unconditional jump to label (for break/continue/goto) */
                 BE(c)->emit_jmp(c, "");

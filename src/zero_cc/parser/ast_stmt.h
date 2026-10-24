@@ -1030,6 +1030,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 base_ret.is_atomic = is_atomic;
 
                 ZeroCCType ret_type = zero_cc_declarator_apply_return(&decl, base_ret);
+                /* C99 6.7.5.3: a function cannot return a function type
+                 * (e.g. `func f(void);` with `typedef int func(void);`). */
+                if (ret_type.is_func) {
+                    diag_report_error_at_token(c, "function '%s' cannot return a function", vname);
+                    return AST_NULL;
+                }
                 TypeInfo *ret_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ret_type);
 
                 const ZeroCCDeclaratorChunk *fc = zero_cc_declarator_get_function_chunk(&decl);
@@ -1125,6 +1131,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 base_decl.is_atomic = is_atomic;
 
                 ZeroCCType decl_type = zero_cc_declarator_apply(&decl, base_decl);
+                /* C99 6.7.2.1: objects cannot have function type
+                 * (e.g. `func f;` with `typedef int func(void);`). */
+                if (decl_type.is_func) {
+                    diag_report_error_at_token(c, "cannot declare variable '%s' with function type", vname);
+                    return AST_NULL;
+                }
 
                 /* C99 6.7.9: an unsized array's outermost dimension is
                  * inferred from its initializer. Measure it (without

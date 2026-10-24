@@ -1230,10 +1230,22 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         // default
         ty = zero_cc_type_int64();
     }
-    /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float) */
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
-        c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
-        c->token_pos++; /* consume '(' */
+    /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float).
+     * A parenthesized declarator that contains an identifier (`(*fp)(void)`)
+     * is a NAMED declarator, not an abstract type: leave the tokens for the
+     * declarator parser instead of swallowing the name. */
+    {
+        size_t probe = c->token_pos + 2;
+        while (probe < c->token_count && c->tokens[probe].type == TK_STAR) probe++;
+        while (probe < c->token_count &&
+               (c->tokens[probe].type == TK_CONST ||
+                c->tokens[probe].type == TK_VOLATILE ||
+                c->tokens[probe].type == TK_RESTRICT)) probe++;
+        bool named_declarator = (probe < c->token_count && c->tokens[probe].type == TK_IDENT);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+            c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR &&
+            !named_declarator) {
+            c->token_pos++; /* consume '(' */
         int ptr_cnt = 0;
         bool is_func = false;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
@@ -1285,6 +1297,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         if (inner_arr_len >= 0) {
             ZeroCCType elem_ty = ty;
             ty = zero_cc_type_array(&elem_ty, inner_arr_len);
+        }
         }
     }
     // Parse pointer stars

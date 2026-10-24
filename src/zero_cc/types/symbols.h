@@ -20,6 +20,17 @@
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCStrChunk ZeroCCStrChunk;
+
+/* Static TLS variable descriptor (declaration order). The TLS backend's
+ * finalize() lays these out into the .tdata/.tbss block. */
+typedef struct {
+    char name[128];
+    size_t size;
+    size_t align;
+    bool has_init;
+    int64_t init;
+} ZeroCCTLSVar;
+
 typedef struct ZeroCCCompiler {
     ZeroCCToken *tokens;
     size_t token_count;
@@ -87,6 +98,13 @@ typedef struct ZeroCCCompiler {
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */
     ZeroCCBuffer data_section;            /* Initialized globals (.data) */
+    /* Static TLS block (_Thread_local, x86-64).  AOT: .tdata (initialized)
+     * followed by .tbss (uninitialized); finalized by the TLS backend after
+     * all top-level declarations.  JIT: the block lives in the data section
+     * and TLS variables are ordinary globals (jit_mode = 1). */
+    ZeroCCBuffer tls_data_section;        /* .tdata contents (AOT) */
+    size_t tls_bss_size;                  /* .tbss size (AOT) */
+    size_t tls_block_align;               /* .tdata/.tbss section alignment */
     // Thread‑local (static alias) storage – per compiler instance
     struct {
         char name[128];
@@ -94,8 +112,13 @@ typedef struct ZeroCCCompiler {
         ZeroCCType type;
     } thread_locals[64];
     size_t thread_local_count;
+    /* TLS variable descriptors (declaration order) used by finalize to lay
+     * out the .tdata/.tbss block and patch each global's data_offset. */
+    ZeroCCTLSVar tls_vars[64];
+    size_t tls_var_count;
     /* Backend pointers */
     const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
+    int jit_mode;                         /* 1 when compiling for --run JIT */
     int had_error;
     /* Legacy display buffer. Sized to hold a formatted message plus the
      * "(near '<token>')" suffix that diag_report_error_at_token appends

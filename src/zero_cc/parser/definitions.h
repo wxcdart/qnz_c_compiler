@@ -1235,6 +1235,21 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         char alias[128];
         snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
+        /* Function-type typedef (C99 6.7): `typedef int f(void);` or
+         * `typedef int binop(int, int);`.  Consume the balanced parameter
+         * list so the declarator is not left dangling at file scope, and
+         * mark the alias as a function type; `f *p` then yields a
+         * function pointer via zero_cc_chunk_apply. */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            int pdepth = 1;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && pdepth > 0) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                c->token_pos++;
+            }
+            ttype.is_func = true;
+        }
         zero_cc_register_typedef(c, alias, ttype);
     }
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;

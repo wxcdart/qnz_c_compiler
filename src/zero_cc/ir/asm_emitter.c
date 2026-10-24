@@ -515,6 +515,22 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_TLS_LEA: {
+            /* Address of a _Thread_local static (initial-exec, x86-64):
+             * the canonical GCC idiom - load the thread pointer, then add
+             * the @tpoff displacement (the assembler emits TPOFF32). */
+            const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            if (c->isa != ISA_X86_64) {
+                /* Unreachable: the TLS backend rejects other ISAs. */
+                fprintf(out, "\tmovq\t$0,%%%s\n", dst_name);
+                return;
+            }
+            fprintf(out, "\tmovq\t%%fs:0,%%%s\n", dst_name);
+            fprintf(out, "\tleaq\t%s@tpoff(%%%s),%%%s\n", symbol_name, dst_name, dst_name);
+            return;
+        }
+
         case OP_CALL: {
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;

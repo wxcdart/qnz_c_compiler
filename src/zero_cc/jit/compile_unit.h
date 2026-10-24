@@ -18,6 +18,7 @@
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
 #include "zero_cc/parser/definitions.h"
+#include "zero_cc/parser/zero_cc_declarator_stack.h"
 #include "zero_cc/parser/init_common.h"
 
 /* Forward declaration */
@@ -329,12 +330,113 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
     return false;
 }
 
+/* Handle a file-scope _Thread_local declaration (C11 6.9).  Accepted
+ * shapes: `_Thread_local type name [= constant];` with any combination of
+ * leading `static`/`_Thread_local` specifiers.  Storage is allocated by the
+ * TLS backend (JIT: data section; AOT: .tdata/.tbss), the variable is
+ * registered as a global (is_tls) and as a semantic symbol.  Only scalar
+ * and pointer types up to 8 bytes are supported.  On return the declaration
+ * (including its semicolon) has been consumed. */
+static void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx, Arena *perm, bool is_static_in) {
+    bool is_static = is_static_in;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_EXTERN ||
+            c->tokens[c->token_pos].type == TK_THREAD_LOCAL)) {
+        if (c->tokens[c->token_pos].type == TK_STATIC) is_static = true;
+        c->token_pos++;
+    }
+    ZeroCCType vtype = zero_cc_parse_type_name(c);
+    /* Pointer declarators: _Thread_local int *p; */
+    int ptr_depth = 0;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+        c->token_pos++;
+        ptr_depth++;
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+            c->token_pos++;
+        }
+    }
+    for (int pd = 0; pd < ptr_depth; pd++) {
+        vtype = zero_cc_type_ptr(&vtype);
+    }
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+        diag_report_error_at_token(c, "expected identifier in _Thread_local declaration");
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+               c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+    char var_name[128];
+    snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+    c->token_pos++;
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+        diag_report_error_at_token(c, "arrays of _Thread_local are not supported");
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+               c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+    int64_t init_val = 0;
+    bool has_init = false;
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_AMP) {
+            diag_report_error_at_token(c,
+                "_Thread_local initializers must be constants (address expressions are not supported)");
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+                   c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            return;
+        }
+        bool is_flt = (vtype.tag == TYPE_FLOAT || vtype.tag == TYPE_DOUBLE) ||
+                      (vtype.base && (vtype.base->tag == TYPE_FLOAT || vtype.base->tag == TYPE_DOUBLE));
+        if (is_flt) {
+            double dv = zero_cc_eval_const_expr_float(c);
+            memcpy(&init_val, &dv, sizeof(init_val));
+        } else {
+            init_val = zero_cc_eval_const_expr(c);
+        }
+        has_init = true;
+    }
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+
+    size_t vsz = vtype.size;
+    if (vsz == 0 || vsz > 8) {
+        diag_report_error_at_token(c,
+            "unsupported _Thread_local type (integral or pointer scalars up to 8 bytes only)");
+        return;
+    }
+    int off = c->tls_backend ? c->tls_backend->declare(c, var_name, &vtype, init_val, has_init) : -1;
+    if (off < 0) {
+        c->had_error = 1;
+        return;
+    }
+    if (add_global_var(var_name, vtype, (size_t)off, vsz, is_static, has_init) < 0) {
+        diag_report_error_at_token(c, "out of memory registering global variable");
+        return;
+    }
+    ZeroCCGlobalVar *gv = find_global_var(var_name);
+    if (gv) gv->is_tls = true;
+    /* Register in semantic scope (global scope is current_scope) */
+    TypeInfo *ti = zero_cc_type_to_typeinfo(perm, vtype);
+    if (ti && shared_ctx->current_scope) {
+        Symbol *sym = scope_put_symbol(shared_ctx->current_scope, var_name, SYMBOL_VAR, ti);
+        if (sym) {
+            sym->flags |= (1 << 0); /* Mark as TLS */
+        }
+    }
+}
+
 /* Master Translation Unit Compiler */
 static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     zero_cc_type_pool_free();
     zero_cc_buf_init(&c->text_section, 4096);
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
+    zero_cc_buf_init(&c->tls_data_section, 256);
+    c->tls_bss_size = 0;
+    c->tls_var_count = 0;
     c->function_count = 0;
     reset_global_vars(); /* Reset global variable state */
     // Create permanent and temporary arenas for semantic analysis
@@ -423,6 +525,10 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->token_pos++;
         }
         file_scope_prev_pos = c->token_pos;
+        /* C23 6.7.1 / C11 6.7: leading attribute tokens `[[ ... ]]` may
+         * precede any file-scope declaration (e.g. `[[nodiscard]] int f(void);`).
+         * Known and unknown attributes alike are accepted and ignored. */
+        skip_c23_attributes(c);
         if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
             (c->tokens[c->token_pos].type == TK_ENUM &&
              (c->token_pos + 1 < c->token_count &&
@@ -546,15 +652,24 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             size_t global_start = c->token_pos;
             /* Check for static / inline keywords */
             bool is_static = false;
+            bool is_thread_local = false;
             while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_STATIC ||
                    c->tokens[c->token_pos].type == TK_INLINE ||
                    c->tokens[c->token_pos].type == TK_CONST ||
                    c->tokens[c->token_pos].type == TK_VOLATILE ||
-                   c->tokens[c->token_pos].type == TK_EXTERN)) {
+                   c->tokens[c->token_pos].type == TK_EXTERN ||
+                   c->tokens[c->token_pos].type == TK_THREAD_LOCAL)) {
                 if (c->tokens[c->token_pos].type == TK_STATIC) {
                     is_static = true;
                 }
+                if (c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
+                    is_thread_local = true;
+                }
                 c->token_pos++;
+            }
+            if (is_thread_local) {
+                zero_cc_decl_thread_local(c, &shared_ctx, perm, is_static);
+                continue;
             }
             /* Tag-only forward declaration: `struct A;` / `union B;` /
              * `enum C;`.  Legal C, ubiquitous in shared headers; nothing to
@@ -583,8 +698,78 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             for (int pd = 0; pd < ptr_depth; pd++) {
                 gtype = zero_cc_type_ptr(&gtype);
             }
-            /* Expect identifier */
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
+            /* Parenthesized pointer declarator: `int (*fp)(void);` — a global
+             * function-pointer (or pointer) variable — or a function with a
+             * parenthesized declarator such as `void (*getnop(void))(void);`
+             * (function returning a function pointer).  The plain
+             * `IDENT (params)` shapes below cannot parse the leading `(`. */
+            bool pdecl_handoff_fn = false;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+                c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
+                do {
+                    ZeroCCASTArena darena;
+                    ZeroCCDeclarator d;
+                    zero_cc_ast_arena_init(&darena, 256);
+                    if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d) || !d.name ||
+                        zero_cc_declarator_is_function(&d)) {
+                        /* A function declarator (definition or prototype):
+                         * back up and let the function parser handle it. */
+                        zero_cc_ast_arena_free(&darena);
+                        c->token_pos = global_start;
+                        pdecl_handoff_fn = true;
+                        break;
+                    }
+                    ZeroCCType decl_type = zero_cc_declarator_apply(&d, gtype);
+                    size_t vsize = decl_type.size > 0 ? decl_type.size : 8;
+                    size_t valign = decl_type.align > 0 ? decl_type.align : 8;
+                    if (valign < 8) valign = 8;
+                    size_t vpad = (valign - (c->data_section.length % valign)) % valign;
+                    for (size_t i = 0; i < vpad; i++) zero_cc_emit_u8(&c->data_section, 0);
+                    size_t voff = c->data_section.length;
+                    bool vinit = false;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                        c->token_pos++; /* = */
+                        vinit = true;
+                        if (c->tokens[c->token_pos].type == TK_IDENT &&
+                            zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
+                            c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                            /* `int (*fp)(void) = foo;`: function designator
+                             * decays to its address (data reloc, kind 3). */
+                            char fn_name[128];
+                            snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
+                            c->token_pos++;
+                            zero_cc_emit_u64(&c->data_section, 0);
+                            ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                            dr->data_patch_offset = voff;
+                            dr->target_kind = 3; /* function symbol */
+                            dr->rodata_offset = 0;
+                            dr->target_data_offset = 0;
+                            dr->target_global_idx = -1;
+                            snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fn_name);
+                        } else {
+                            int64_t iv = zero_cc_eval_const_expr(c);
+                            for (size_t b = 0; b < 8; b++)
+                                zero_cc_emit_u8(&c->data_section, (uint8_t)((uint64_t)iv >> (8 * b)));
+                        }
+                    } else {
+                        zero_cc_emit_u64(&c->data_section, 0);
+                    }
+                    if (add_global_var(d.name, decl_type, voff, vsize, is_static, vinit) < 0) {
+                        diag_report_error_at_token(c, "out of memory registering global variable");
+                    }
+                    zero_cc_ast_arena_free(&darena);
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                        c->token_pos++; /* next declarator with the same base type */
+                        continue;
+                    }
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                    break;
+                } while (1);
+                if (!pdecl_handoff_fn) continue;
+                /* Function handoff: fall through to the function parser. */
+            }
+            /* Expect identifier (skipped on function handoff) */
+            if (!pdecl_handoff_fn && c->tokens[c->token_pos].type == TK_IDENT) {
                 /* Check if this is a function (followed by '(') or variable */
                 if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                     /* This is a function definition, back up to start and let function parser handle it */
@@ -1035,7 +1220,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     } while (1);
                     continue; /* Skip function parser for variables */
                 }
-            } else {
+            } else if (!pdecl_handoff_fn) {
                 /* Syntax error: report error and skip until semicolon */
                 diag_report_error_at_token(c, "expected identifier in declaration");
                 while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
@@ -1045,44 +1230,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             /* If we got here, it's a function - don't continue, let it fall through to function parser */
         }
 
-        /* Thread‑local variable handling via backend */
+        /* Thread‑local variable declaration via the TLS backend */
         if (c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
-            // Skip the _Thread_local token
-            c->token_pos++;
-            // Parse the type (may include pointers, etc.)
-            ZeroCCType vtype = zero_cc_parse_type_name(c);
-            // Expect identifier
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
-                char var_name[128];
-                snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
-                c->token_pos++;
-                int64_t init_val = 0;
-                // Optional initializer
-                if (c->tokens[c->token_pos].type == TK_ASSIGN) {
-                    c->token_pos++;
-                    init_val = zero_cc_eval_const_expr(c);
-                }
-                // Consume trailing semicolon
-                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                // Register via TLS backend
-                void *tls_handle = NULL;
-                if (c->tls_backend) {
-                    tls_handle = c->tls_backend->declare(c, var_name, &vtype, init_val);
-                }
-                // Also register in semantic scope (global scope is current_scope)
-                TypeInfo *ti = zero_cc_type_to_typeinfo(perm, vtype);
-                if (ti && shared_ctx.current_scope) {
-                    Symbol *sym = scope_put_symbol(shared_ctx.current_scope, var_name, SYMBOL_VAR, ti);
-                    if (sym) {
-                        sym->flags |= (1 << 0); /* Mark as TLS */
-                    }
-                }
-            } else {
-                // Syntax error: report error and skip until semicolon
-                diag_report_error_at_token(c, "expected identifier in _Thread_local declaration");
-                while (c->tokens[c->token_pos].type != TK_EOF && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
-                if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-            }
+            zero_cc_decl_thread_local(c, &shared_ctx, perm, false);
             continue;
         }
 
@@ -1097,6 +1247,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             diag_report_error_at_token(c, "unexpected token at file scope");
             c->token_pos++;
         }
+    }
+    /* Finalize the static TLS block (.tdata/.tbss layout + per-variable
+     * offsets) now that all top-level declarations are known. */
+    if (c->tls_backend && c->tls_backend->finalize) {
+        c->tls_backend->finalize(c);
     }
     // End of compilation
     /* Merge semantic diagnostics into compiler buffer */

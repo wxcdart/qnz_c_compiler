@@ -1063,17 +1063,15 @@ static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena) 
     return left;
 }
 
-/* Public entry point for Expression AST parsing */
-ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
-    if (!c || !arena) return AST_NULL;
-    return parse_expr_ast_internal(c, arena);
-}
+/* Public entry point for Expression AST parsing.
+ * Defined in parser.c (single-definition TU; see ast_arena.h note). */
+ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 /* =========================================================================
  *  Statement AST Builder
  * ========================================================================= */
 
-static void skip_c23_attributes(ZeroCCCompiler *c) {
+static inline void skip_c23_attributes(ZeroCCCompiler *c) {
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LDBRACKET) {
         c->token_pos++;
         int depth = 1;

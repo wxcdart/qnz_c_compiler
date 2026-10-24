@@ -1,5 +1,22 @@
 # ZeroCC Changelog
 
+## [Sprint 46] - 2026-10-24 - Static TLS (`_Thread_local`) End-to-End & Function-Declarator Void-Parameter Fixes
+
+Completed C11 `_Thread_local` for file-scope statics in **all four modes** (JIT `--run`, AOT `-c`/`-o` via zerocc's ELF writer, AOT `-S`, and gcc-linked objects, dynamic and static) using the initial-exec model on x86-64, and fixed a cluster of void-parameter / function-declarator parsing bugs.
+
+- **TLS pipeline** (OKF: [`okf/tls-static.md`](okf/tls-static.md)):
+  - New `OP_TLS_LEA` IR op + `ir_emit_global_addr()` helper in `ast_lowering_expr.c`: every global address load now centralizes the `is_tls` decision (AOT: `OP_TLS_LEA`; JIT: plain `OP_MOV_GLOBAL`, since JIT TLS vars live in the data section as ordinary globals).
+  - x86-64 initial-exec idiom for `&tlsvar` (the same two-instruction form GCC emits): `movq %fs:0, dst` + `leaq $var@tpoff(dst), dst` with `R_X86_64_TPOFF32` over the lea's disp32 — both halves in the destination register, so no scratch register is needed (a single `lea $off(%fs),%reg` is not a valid encoding; `add $imm32` is RAX-only). Emitted raw in `ast_lowering_mc.c` and as text in `asm_emitter.c`.
+  - `tls_backend.c`: `declare` records size/align/init per variable; `finalize` packs `.tdata` (initialized, declaration order, type-aligned) and `.tbss` (uninitialized, aligned after `.tdata`), patches each global's in-block offset, and builds the packed `.tdata` image. The AOT content loop zero-pads the append-only buffer (it previously wrote variables with no alignment padding, corrupting the block) and the `.tbss` size accounting now includes variable sizes.
+  - ELF writer (`main.c`): `.tdata` (`PROGBITS`, `SHF_TLS`) / `.tbss` (`NOBITS`, `SHF_TLS`) sections, per-variable symbols in the correct section, `R_X86_64_TPOFF32` relocations (`ZeroCCReloc.is_tls`).
+  - `-S` path: TLS globals are skipped in `.data` emission and get proper `.section .tdata,"awT",@progbits` / `.section .tbss,"aw",@nobits` sections with labeled symbols (previously GAS failed with "Accessing X as thread-local object").
+  - Frontend: `zero_cc_decl_thread_local()` parses `_Thread_local [static] type *... name [= const];` (float initializers via the float const-eval path), registers the variable as an `is_tls` global + semantic symbol.
+- **Void-parameter / function-declarator parsing** (regression coverage `test/jit/vt1..vt10.c`): `pdecl_handoff_fn` is now declared before the `(*fp)` branch so it stays in scope for the identifier check; indirect calls through a global function-pointer variable are detected in NODE_CALL lowering (`callee_gv->type.is_func_ptr`, return type from `callee_gv->type.base`), fixing file-scope `int (*fp)(void)` calls.
+- **C23**: file-scope `[[nodiscard]]` / `[[maybe_unused]]` / general `[[attribute-list]]` are skipped via `skip_c23_attributes()` before type parsing.
+- **Known pre-existing issue (out of scope)**: variadic calls with ≥5 mixed args can misclassify a `double` argument (printf shows a garbage value while in-program comparisons are correct); reproduces without TLS and is unrelated to this sprint.
+
+Gates: test **154/154**, test-opt **115/115** (-O0..-O3 JIT+AOT; 1 pre-existing nondeterministic `generic.c` pointer print), test-isa-qemu **44/44**, diag battery baseline OK, style 0 errors, okf lint clean. `test/jit/tls.c` expanded to the full tdata/tbss/pointer/double matrix; TLS verified via zerocc JIT, zerocc AOT, `-S`+gcc, and `gcc -no-pie` (dynamic + static) on the same object — all identical output.
+
 ## [Sprint 45] - 2026-10-24 - Unified C99 6.7.8/6.7.9 Aggregate-Initializer Engine (Designated, Chained, Range, Elided-Brace)
 
 Fixed a cluster of SILENT initializer miscompiles (values landing in the wrong field, dropped global designator values, out-of-bounds string fills) by replacing the divergent per-path initializer walkers with one shared C99 6.7.8/6.7.9 engine (`src/zero_cc/parser/init_common.h`) used by both the AST parser (local/compound-literal initializers) and the file-scope `.data` writer (`zero_cc_emit_brace_init_global` in `jit/compile_unit.h`).

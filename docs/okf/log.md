@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T04:48:52Z
+timestamp: 2026-10-24T21:17:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -413,3 +413,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `frontend-and-types.md`
 - Sprint 45: unified C99 6.7.8/6.7.9 aggregate-initializer engine (shared designator/positional resolution, AST abs-stamps, recursive global writer, cursor advancement, string-fill semantics)
+
+## 2026-10-24 — Updated `tls-static.md`
+- Sprint 46: static TLS (_Thread_local) end-to-end - OP_TLS_LEA initial-exec idiom, .tdata/.tbss packing, TPOFF32 relocations, -S/ELF/JIT paths
+
+## 2026-10-24 — Updated `index.md`
+- Link tls-static concept node

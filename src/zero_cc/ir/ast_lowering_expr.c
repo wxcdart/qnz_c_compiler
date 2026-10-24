@@ -3,6 +3,16 @@
 #include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/isa/isa_backend.h"
 
+/* Address of a global variable into a temp. TLS statics live in the
+ * program's TLS block (AOT x86-64: .tdata/.tbss, not .data), so they need
+ * OP_TLS_LEA (R_X86_64_TPOFF64). In JIT mode the TLS block is the data
+ * section and TLS variables are plain globals, so OP_MOV_GLOBAL works for
+ * both. Subsequent loads/stores use the ordinary width-aware ops. */
+static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const ZeroCCGlobalVar *gv) {
+    if (gv->is_tls && !c->jit_mode) ir_emit_tls_lea(temp, gv->name);
+    else ir_emit_mov_global(temp, gv->name);
+}
+
 /* Infer the C99 narrow-int width of an operand expression when it can be
  * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
  * pointer / non-int). Used for binop result-width marking and signed >>.
@@ -25,8 +35,6 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         case NODE_IDENT: {
             ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
             if (sym) return zero_cc_narrow_int_width(&sym->type, sign);
-            void *tls = zero_cc_find_tls(c, n->s.str);
-            if (tls) return 0; /* TLS int width not tracked yet */
             ZeroCCGlobalVar *gv = find_global_var(n->s.str);
             if (gv) return zero_cc_narrow_int_width(&gv->type, sign);
             return 0;
@@ -68,7 +76,7 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
             ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
         } else if (ggv) {
             addr = c->next_temp_id++;
-            ir_emit_mov_global(addr, ggv->name);
+            ir_emit_global_addr(c, addr, ggv);
         } else {
             generic_base = true;
         }
@@ -320,9 +328,6 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
         case NODE_IDENT: {
             ZeroCCSym *s = zero_cc_find_local(c, n->s.str);
             if (s) return s->type.tag == TYPE_FLOAT || s->type.tag == TYPE_DOUBLE;
-            /* Check thread-local */
-            void *tls = zero_cc_find_tls(c, n->s.str);
-            if (tls) return 0; /* TLS backend only handles integer types for now */
             ZeroCCGlobalVar *g = find_global_var(n->s.str);
             if (g) return g->type.tag == TYPE_FLOAT || g->type.tag == TYPE_DOUBLE;
             return 0;
@@ -484,20 +489,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return temp;
                 }
             } else {
-                /* Check for thread-local variable */
-                void *tls_handle = zero_cc_find_tls(c, name);
-                if (tls_handle) {
-                    int temp = c->next_temp_id++;
-                    if (c->tls_backend && c->tls_backend->emit_load) {
-                        c->tls_backend->emit_load(c, temp, tls_handle);
-                    }
-                    c->last_expr_is_float = 0;
-                    return temp;
-                }
+                /* TLS statics are registered globals (is_tls) - the address
+                 * op below selects OP_TLS_LEA (AOT) automatically. */
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
                     int addr_temp = c->next_temp_id++;
-                    ir_emit_mov_global(addr_temp, gv->name);
+                    ir_emit_global_addr(c, addr_temp, gv);
                     /* Arrays and structs decay/return address, scalars load value */
                     if (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) {
                         c->last_expr_is_float = 0;
@@ -877,7 +874,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ZeroCCGlobalVar *gv = find_global_var(var);
                     if (gv) {
                         int gaddr_temp = c->next_temp_id++;
-                        ir_emit_mov_global(gaddr_temp, gv->name);
+                        ir_emit_global_addr(c, gaddr_temp, gv);
                         int val_temp = c->next_temp_id++;
                         int one_temp = c->next_temp_id++;
                         int res_temp = c->next_temp_id++;
@@ -965,7 +962,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     }
                                 } else if (bgv) {
                                     base_addr = c->next_temp_id++;
-                                    ir_emit_mov_global(base_addr, bgv->name);
+                                    ir_emit_global_addr(c, base_addr, bgv);
                                     if (is_arrow) {
                                         /* global pointer var: deref to get value */
                                         base_addr = c->next_temp_id++;
@@ -1048,7 +1045,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ZeroCCGlobalVar *gv = find_global_var(operand->s.str);
                     if (gv) {
                         int addr_temp = c->next_temp_id++;
-                        ir_emit_mov_global(addr_temp, gv->name);
+                        ir_emit_global_addr(c, addr_temp, gv);
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -1474,7 +1471,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (ggv) {
                         /* Global struct/union or pointer base: `g.member = val` or `p->member = val`. */
                         int gaddr = c->next_temp_id++;
-                        ir_emit_mov_global(gaddr, ggv->name);
+                        ir_emit_global_addr(c, gaddr, ggv);
                         if (base_is_ptr) {
                             int ptr_temp = c->next_temp_id++;
                             ir_emit_deref(ptr_temp, gaddr);
@@ -2092,7 +2089,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCGlobalVar *gv = find_global_var(var);
                 if (gv) {
                     int gaddr_temp = c->next_temp_id++;
-                    ir_emit_mov_global(gaddr_temp, gv->name);
+                    ir_emit_global_addr(c, gaddr_temp, gv);
                     int final_val = right_temp;
                     size_t gv_sz = gv->size > 0 ? gv->size : 4;
                     bool gv_is_float = (gv->type.tag == TYPE_FLOAT);
@@ -2742,7 +2739,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         /* Global struct/union base: load the variable address,
                          * add the member offset, then load/deref. */
                         int gaddr = c->next_temp_id++;
-                        ir_emit_mov_global(gaddr, ggv->name);
+                        ir_emit_global_addr(c, gaddr, ggv);
                         if (base_is_ptr) {
                             int ptr_temp = c->next_temp_id++;
                             ir_emit_deref(ptr_temp, gaddr);
@@ -3165,7 +3162,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                 ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
                 ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
-                bool is_indirect_call = (callee_fn == NULL && callee_sym != NULL);
+                /* Global function pointer: `int (*fp)(void); ... fp();`
+                 * The callee is the pointer VALUE stored in the global, so
+                 * the call must be indirect. */
+                ZeroCCGlobalVar *callee_gv = (!callee_fn && !callee_sym) ? find_global_var(name) : NULL;
+                bool is_indirect_call = (callee_fn == NULL &&
+                    (callee_sym != NULL || (callee_gv != NULL && callee_gv->type.is_func_ptr)));
 
                 /* Small Function Inlining: Expand candidate body directly at call site */
                 if (callee_fn && callee_fn->can_inline && callee_fn->inline_body != AST_NULL &&
@@ -3244,6 +3246,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     call_ret_type = callee_fn->return_type;
                 } else if (callee_sym && callee_sym->type.tag == TYPE_PTR && callee_sym->type.base) {
                     call_ret_type = *callee_sym->type.base;
+                } else if (callee_gv && callee_gv->type.tag == TYPE_PTR && callee_gv->type.base) {
+                    call_ret_type = *callee_gv->type.base;
                 } else {
                     TypeInfo *ret_ti = ast_node_get_typeinfo(c, node);
                     if (ret_ti) {
