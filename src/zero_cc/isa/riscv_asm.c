@@ -42,6 +42,7 @@ static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
 
 /* Prologue: allocate frame with s0 (fp) at top of local frame so negative offsets -off(s0) lie above sp */
 static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    if (c->lowering.is_frameless) return;
     FILE *out = c->asm_out ? c->asm_out : stdout;
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     size_t total_alloc = aligned_sz + 16; /* 16 bytes for ra and s0 above s0 */
@@ -73,6 +74,10 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, restore ra/s0, deallocate frame, ret */
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
+    if (c->lowering.is_frameless) {
+        fprintf(out, "\tret\n");
+        return;
+    }
 
     /* Restore callee-saved registers s1..s11 (only allocated ones) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;

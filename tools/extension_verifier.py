@@ -21,6 +21,7 @@ import subprocess
 import sys
 import os
 import tempfile
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -355,9 +356,12 @@ def run_test(compiler: str, test: ExtensionTestCase, verbose: bool = False, diff
         if os.path.exists(bin_path): os.unlink(bin_path)
         if os.path.exists(gcc_bin): os.unlink(gcc_bin)
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_COMPILER = str(REPO_ROOT / "build" / "bin" / "zerocc")
+
 def main():
     parser = argparse.ArgumentParser(description="ZeroCC C Extension Verification Suite")
-    parser.add_argument("--compiler", default="./build/bin/zerocc", help="Path to zerocc")
+    parser.add_argument("--compiler", default=DEFAULT_COMPILER, help="Path to zerocc")
     parser.add_argument("--all", action="store_true", help="Run all tests")
     parser.add_argument("--feature", choices=["stmt_expr", "case_range", "init_range", "offsetof"], help="Filter by feature")
     parser.add_argument("--diff-gcc", action="store_true", help="Cross-verify test with GCC")

@@ -112,6 +112,7 @@ static void x86_alu3_comm(ZeroCCCompiler *c, uint8_t opcode, int dst, int src1, 
 
 /* x86-64 backend implementation */
 static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
+    if (c->lowering.is_frameless) return;
 
     /* push rbp */
     me_emit_u8(c, 0x55);
@@ -163,13 +164,16 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
 }
 
 static void x86_emit_epilogue(ZeroCCCompiler *c) {
-    /* leave */
-    me_emit_u8(c, 0xc9);
+    if (!c->lowering.is_frameless) {
+        /* leave */
+        me_emit_u8(c, 0xc9);
+    }
     /* ret */
     me_emit_u8(c, 0xc3);
 }
 
 static void x86_emit_leave(ZeroCCCompiler *c) {
+    if (c->lowering.is_frameless) return;
     /* leave */
     me_emit_u8(c, 0xc9);
 }

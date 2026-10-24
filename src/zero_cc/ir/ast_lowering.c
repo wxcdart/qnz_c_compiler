@@ -295,8 +295,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Allocate frame spill slots for any temps that were spilled */
     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-    /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area */
-    if (c->current_stack_frame < BE(c)->callee_save_frame_reserve) {
+    /* Ensure spill_base_offset is at least CALLEE_SAVE_FRAME_RESERVE to avoid overlapping with callee-saved register area,
+     * unless the function has no locals, no spills, and no callee-saved registers. */
+    if (c->local_count == 0 && c->regalloc.next_spill_slot == 0 && c->regalloc.used_callee_saved_gpr_mask == 0) {
+        c->current_stack_frame = 0;
+    } else if (c->current_stack_frame < BE(c)->callee_save_frame_reserve) {
         c->current_stack_frame = BE(c)->callee_save_frame_reserve;
     }
     int32_t spill_base_offset = c->current_stack_frame;
@@ -311,15 +314,37 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
 
+    /* Determine if function is a leaf (no calls, no VLAs) */
+    bool is_leaf = true;
+    size_t ir_count = ir_get_count();
+    const Instr *ir_buf = ir_get_buffer();
+    for (size_t i = 0; i < ir_count; i++) {
+        if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT || ir_buf[i].op == OP_VLA_ALLOC) {
+            is_leaf = false;
+            break;
+        }
+    }
+
+    /* Option 1: Leaf functions with no stack needs are frameless */
+    c->lowering.is_frameless = (is_leaf && total_frame_size == 0 && c->regalloc.used_callee_saved_gpr_mask == 0 && c->lowering.static_local_rt_off == 0);
+
+    /* Option 3: x86-64 System V Red Zone optimization:
+     * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
+     * without adjusting %rsp. */
+    size_t alloc_frame_size = total_frame_size;
+    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128) {
+        alloc_frame_size = 0;
+    }
+
     /* Emit machine code or assembly from IR with allocated registers */
     if (c->emit_asm) {
         /* For assembly: emit function label, then prologue, then IR (param saves in IR) */
         emit_function_label_asm(c);
-        emit_prologue_asm(c, total_frame_size);
+        emit_prologue_asm(c, alloc_frame_size);
         emit_ir_to_asm(c, spill_base_offset);
     } else {
         /* For machine code: emit prologue first, then IR (param saves in IR) */
-        emit_prologue_mc(c, total_frame_size);
+        emit_prologue_mc(c, alloc_frame_size);
         emit_ir_to_machine_code(c, spill_base_offset);
     }
 

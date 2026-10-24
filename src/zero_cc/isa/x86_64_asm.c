@@ -38,6 +38,7 @@ static const char *x86_get_vec_reg_name(int vec_reg_idx) {
 
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
 static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    if (c->lowering.is_frameless) return;
     FILE *out = c->asm_out;
 
     fprintf(out, "\tpushq\t%%rbp\n");
@@ -52,7 +53,9 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             fprintf(out, "\tcmpb\t$0, (%%rax)\n");
         }
     }
-    fprintf(out, "\tsubq\t$%zu, %%rsp\n", stack_size);
+    if (stack_size > 0) {
+        fprintf(out, "\tsubq\t$%zu, %%rsp\n", stack_size);
+    }
 
     /* Save callee-saved registers (only those allocated by register allocator) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
@@ -71,6 +74,10 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, leave, ret */
 static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out;
+    if (c->lowering.is_frameless) {
+        fprintf(out, "\tret\n");
+        return;
+    }
 
     /* Restore callee-saved registers (only those allocated by register allocator) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;

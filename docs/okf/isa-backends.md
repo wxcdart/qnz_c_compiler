@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-23T22:54:48Z
+timestamp: 2026-10-24T00:35:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -58,8 +58,15 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
    - Functions that do not clobber callee-saved registers (such as leaf functions or small arithmetic routines) emit **0** CSR stores in the prologue and **0** CSR loads in the epilogue (saving up to 10-11 spills/reloads on AArch64 and RISC-V).
 2. **Fallthrough Jump Elimination**:
    - Both `asm_emitter.c` and `ast_lowering_mc.c` look ahead past dead/nop instructions on `OP_JMP`. If the target label immediately succeeds the jump, the branch instruction (`jmp`, `b`, `j`) is omitted and execution falls through directly into the label.
-3. **Verification Tool**:
-   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission for leaf routines, fallthrough jump elimination, and store-load symmetry across all target ISAs.
+3. **x86-64 System V Red Zone (128-byte Window)**:
+   - For leaf functions on x86-64 (`!has_calls`) with total stack requirements $\le 128$ bytes, stack allocation is serviced within the 128-byte Red Zone below `%rsp`. `subq $N, %rsp` is completely omitted in the prologue.
+4. **Inline Epilogues on Early Returns**:
+   - Early return guards in functions without static-local mirror blocks inline the epilogue directly (`leave; ret` or `ret`) instead of emitting an unconditional jump `jmp .L_epilogue`, eliminating branch latency on early exit paths.
+5. **Pure Leaf Frameless Functions (AArch64, RISC-V, x86-64)**:
+   - Pure leaf routines with no local variables, no stack spills, and no callee-saved registers omit frame pointer setup entirely (`stp x29, x30` / `sd ra, s0` / `push rbp`). Functions reduce to straight-line instructions followed directly by `ret`.
+6. **Verification Tools**:
+   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, pure leaf frameless emission, Red Zone usage, and store-load symmetry across all target ISAs.
+   - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
   - Regular integer arguments shift starting from `a1` (index 1).
   - Callee writes struct to caller buffer and returns pointer in `a0`.
 

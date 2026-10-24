@@ -1,5 +1,19 @@
 # ZeroCC Changelog
 
+## [Sprint 43] - 2026-10-23 - High-ROI GNU/Clang Extensions (Offsetof, Case/Init Ranges, Statement Expressions)
+
+Implemented three high-ROI GNU/Clang extensions verified differentially against GCC via `tools/extension_verifier.py` (14/14 tests pass across JIT and AOT):
+
+- **`__builtin_offsetof(type, member)`** (`src/zero_cc/parser/const_eval.h`, `src/zero_cc/parser/ast_expr.h`): Compile-time constant evaluation for struct/union member offsets, supporting nested structs and array indexing (`s.nested.arr[i]`). Integrated directly into `<stddef.h>` macro.
+- **Case Ranges (`case low ... high:`)** (`src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/semantic/stmt.c`, `src/zero_cc/ir/ast_lowering_stmt.c`): Ellipsis range in switch cases with semantic integer type checking and range condition lowering (`cond >= low && cond <= high`).
+- **Designated Initializer Ranges (`[low ... high] = val`)** (`src/zero_cc/parser/ast_expr.h`, `src/zero_cc/jit/compile_unit.h`): Stamped AST node duplication across the range for local aggregates, plus byte-buffer filling in file-scope data sections.
+- **Statement Expressions (`({ ... })`)** (`src/zero_cc/parser/parser.h`, `src/zero_cc/parser/ast_expr.h`, `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/ir/ast_lowering_expr.c`): Embedded compound statement blocks returning the value and type of their final expression statement. Fully supports loops, local variables, macro wrappers (e.g. `max(a, b)` with `__typeof__`), and struct returns.
+- **Typeof & Const Eval Postfix Hardening** (`src/zero_cc/parser/const_eval.h`): Added unary and postfix `++`/`--` handling in `zero_cc_type_of_unary` and `zero_cc_type_of_primary` so expressions like `__typeof__(a++)` evaluate correctly without trailing token corruption.
+- **Warning Cleanliness**: Sized `ZeroCCDataReloc.target_extern_name[128]` to match scanner identifier buffer, eliminating `-Wformat-truncation` warnings.
+- **Test Harness**: `tools/extension_verifier.py` covering all features with optional `--diff-gcc` verification.
+
+Gates: test **153/153**, test-opt **114/114** (-O0..-O3 JIT+AOT), sret 6/6, test-isa-qemu 44/44, diag battery 16/16, style 0 errors, okf lint clean.
+
 ## [Sprint 43] - 2026-10-23 - Pre-existing Codegen/Semantic Bug-Fix Cluster + Vectorizer Hardening + Truncation Diagnostic
 
 Fixed the two pre-existing issues tracked in the string-init entry (store-through-post-increment miscompile; silent truncation) plus the cluster of codegen/semantic bugs they exposed. Every fix differential-verified against gcc at `-O0..-O3`, JIT + AOT.

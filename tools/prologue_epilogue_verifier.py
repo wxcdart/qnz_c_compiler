@@ -34,6 +34,10 @@ CSR_REGS = {
 }
 
 SAMPLE_C = """
+int pure_leaf(void) {
+    return 42;
+}
+
 int leaf_add(int a, int b) {
     return a + b;
 }
@@ -41,6 +45,11 @@ int leaf_add(int a, int b) {
 int leaf_arith(int a, int b, int c, int d) {
     int x = (a + b) * (c - d);
     return x;
+}
+
+int early_ret(int x) {
+    if (x <= 0) return -1;
+    return x * 2;
 }
 """
 
@@ -130,6 +139,63 @@ def check_fallthrough_jump_elimination(asm: str, target: str, verbose: bool) -> 
     return not failed
 
 
+def check_pure_leaf_frameless(asm: str, target: str, verbose: bool) -> bool:
+    """Ensure pure leaf without stack variables has no frame setup."""
+    lines = asm.splitlines()
+    in_func = False
+    func_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "pure_leaf:":
+            in_func = True
+            continue
+        elif in_func and (re.match(r"^\.globl\s+", stripped) or re.match(r"^[a-zA-Z0-9_]+:\s*$", stripped)):
+            break
+        elif in_func:
+            func_lines.append(stripped)
+
+    func_asm = "\n".join(func_lines)
+    if verbose:
+        print(f"[{target}:pure_leaf]:\n{func_asm}\n")
+
+    if target == "x86-64":
+        if "pushq\t%rbp" in func_asm or "leave" in func_asm:
+            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            return False
+    elif target == "aarch64":
+        if "stp\tx29, x30" in func_asm or "ldp\tx29, x30" in func_asm:
+            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            return False
+    elif target in ("riscv64", "riscv32"):
+        if re.search(r"\bs[wd]\s+ra\b", func_asm) or re.search(r"\bs[wd]\s+s0\b", func_asm):
+            print(f"FAILED [{target}:pure_leaf]: Frame setup present in pure leaf")
+            return False
+
+    return True
+
+
+def check_x86_red_zone(asm: str, verbose: bool) -> bool:
+    """Ensure leaf functions with <= 128 bytes omit subq %rsp on x86-64."""
+    lines = asm.splitlines()
+    in_func = False
+    func_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "leaf_add:":
+            in_func = True
+            continue
+        elif in_func and (re.match(r"^\.globl\s+", stripped) or re.match(r"^[a-zA-Z0-9_]+:\s*$", stripped)):
+            break
+        elif in_func:
+            func_lines.append(stripped)
+
+    func_asm = "\n".join(func_lines)
+    if "subq" in func_asm and "%rsp" in func_asm:
+        print(f"FAILED [x86-64:leaf_add]: Found subq %rsp in leaf function (Red Zone missed)")
+        return False
+    return True
+
+
 def check_symmetry(asm: str, target: str, verbose: bool) -> bool:
     """Ensure all saved CSRs are symmetrically restored."""
     lines = [line.strip() for line in asm.splitlines()]
@@ -166,9 +232,13 @@ def run_checks(targets, verbose=False) -> bool:
             print(f"=== Checking target: {target} ===")
         asm = compile_to_asm(SAMPLE_C, target)
 
+        if not check_pure_leaf_frameless(asm, target, verbose):
+            all_ok = False
         if not check_leaf_csr_omission(asm, target, "leaf_add", verbose):
             all_ok = False
         if not check_leaf_csr_omission(asm, target, "leaf_arith", verbose):
+            all_ok = False
+        if target == "x86-64" and not check_x86_red_zone(asm, verbose):
             all_ok = False
         if not check_fallthrough_jump_elimination(asm, target, verbose):
             all_ok = False

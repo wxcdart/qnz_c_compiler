@@ -73,6 +73,7 @@ static void aarch64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);
 
 /* ARM64 backend implementation */
 static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
+    if (c->lowering.is_frameless) return;
     (void)callee_save_mask;
     /* Ensure 16-byte alignment as required by AArch64 ABI */
     stack_size = (stack_size + 15) & ~15;
@@ -96,18 +97,19 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
 }
 
 static void aarch64_emit_epilogue(ZeroCCCompiler *c) {
-    (void)c;
-    /* 1. mov sp, x29
-     * 2. ldp x29, x30, [sp], #16
-     * 3. ret
-     */
-    arm64_emit_u32(c, 0x910003BF);  /* mov sp, x29 */
-    arm64_emit_u32(c, 0xA8C17BFD);  /* ldp x29, x30, [sp], #16 */
+    if (!c->lowering.is_frameless) {
+        /* 1. mov sp, x29
+         * 2. ldp x29, x30, [sp], #16
+         */
+        arm64_emit_u32(c, 0x910003BF);  /* mov sp, x29 */
+        arm64_emit_u32(c, 0xA8C17BFD);  /* ldp x29, x30, [sp], #16 */
+    }
+    /* 3. ret */
     arm64_emit_u32(c, 0xD65F03C0);  /* ret */
 }
 
 static void aarch64_emit_leave(ZeroCCCompiler *c) {
-    (void)c;
+    if (c->lowering.is_frameless) return;
     /* 1. mov sp, x29
      * 2. ldp x29, x30, [sp], #16
      */

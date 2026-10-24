@@ -397,6 +397,14 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (next_idx < count && buf[next_idx].op == OP_LABEL && buf[next_idx].label_idx == instr->label_idx) {
                 return;
             }
+            /* Option 2: Inline epilogue on early returns when no static-local mirror or CSR restore is required */
+            if (instr->label_idx == c->lowering.epilogue_label &&
+                c->lowering.static_local_rt_off == 0 &&
+                c->regalloc.used_callee_saved_gpr_mask == 0 &&
+                BE(c)->emit_epilogue_asm) {
+                BE(c)->emit_epilogue_asm(c);
+                return;
+            }
             if (BE(c)->emit_jmp_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);

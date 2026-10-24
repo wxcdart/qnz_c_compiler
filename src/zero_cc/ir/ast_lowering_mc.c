@@ -965,6 +965,15 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     if (next_idx < count && instrs[next_idx].op == OP_LABEL && instrs[next_idx].label_idx == instr->label_idx) {
                         break;
                     }
+                    /* Option 2: Inline epilogue on early returns when no static-local mirror or CSR reload is required */
+                    if (instr->label_idx == c->lowering.epilogue_label &&
+                        c->lowering.static_local_rt_off == 0 &&
+                        c->regalloc.used_callee_saved_gpr_mask == 0 &&
+                        BE(c)->emit_leave && BE(c)->emit_ret) {
+                        BE(c)->emit_leave(c);
+                        BE(c)->emit_ret(c);
+                        break;
+                    }
                 }
                 size_t patch_pos = 0;
                 switch (instr->op) {

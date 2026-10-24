@@ -116,6 +116,7 @@ static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 }
 
 static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
+    if (c->lowering.is_frameless) return;
     (void)callee_save_mask;  /* callee-save stores are emitted by emit_prologue_mc() */
     size_t aligned = (stack_size + 15) & ~(size_t)15;
     size_t total = aligned + 16;
@@ -147,6 +148,7 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
 }
 
 static void riscv64_emit_leave(ZeroCCCompiler *c) {
+    if (c->lowering.is_frameless) return;
     /* Deallocate the frame without knowing its size: s0 = entry_sp - 16. */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
     riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
@@ -1097,6 +1099,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
 
 /* RISC-V 32-bit backend (for ESP32-C3/C6/H2, rv32gc) */
 static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
+    if (c->lowering.is_frameless) return;
     (void)callee_save_mask;
     size_t aligned = (stack_size + 15) & ~(size_t)15;
     size_t total = aligned + 16;
@@ -1122,6 +1125,7 @@ static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
 }
 
 static void riscv32_emit_leave(ZeroCCCompiler *c) {
+    if (c->lowering.is_frameless) return;
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
     riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 2, 4, 0x03));  /* lw ra, 4(sp) */
     riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 2, 0, 0x03));  /* lw s0, 0(sp) */

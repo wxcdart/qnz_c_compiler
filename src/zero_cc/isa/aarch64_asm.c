@@ -42,6 +42,7 @@ static const char *aarch64_get_vec_reg_name(int vec_reg_idx) {
 
 /* Prologue: stp x29, x30, [sp, #-16]!, mov x29, sp, sub sp, sp, #frame_size, save callee-saved */
 static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    if (c->lowering.is_frameless) return;
     FILE *out = c->asm_out ? c->asm_out : stdout;
 
     /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp */
@@ -70,6 +71,10 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 /* Epilogue: restore callee-saved, mov sp, x29, ldp x29, x30, [sp], #16, ret */
 static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
+    if (c->lowering.is_frameless) {
+        fprintf(out, "\tret\n");
+        return;
+    }
 
     /* Restore callee-saved registers (only allocated ones) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
