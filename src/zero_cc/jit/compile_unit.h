@@ -18,6 +18,7 @@
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/parser/static_assert.h"
 #include "zero_cc/parser/definitions.h"
+#include "zero_cc/parser/init_common.h"
 
 /* Forward declaration */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
@@ -55,6 +56,227 @@ static inline void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint
         zero_cc_emit_u8(b, (uint8_t)(bits >> (8 * i)));
     }
 }
+/* Sprint 44: recursive aggregate-initializer writer for global/static
+ * initializers (C99 6.7.8/6.7.9).  Fills buf[buf_off .. buf_off+obj_type.size)
+ * from the brace list at c->token_pos (pointing at the opening '{').
+ *
+ * Nested sub-aggregate designators (`.m = { .f = v }`), element designators
+ * (`.m[i]`, `[i..j]` ranges), designator chains (`.a.b = v`) and elided
+ * braces all resolve through the shared engine in parser/init_common.h,
+ * keeping offsets identical to the AST/lowering path.
+ * `data_patch_off` is the .data offset that receives data-reloc patches for
+ * string pointers (element 0 of the object). */
+static void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
+                                           uint8_t *buf, size_t buf_off, size_t buf_cap,
+                                           size_t data_patch_off, size_t *cursor) {
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) c->token_pos++;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+        size_t iter_start = c->token_pos;
+        bool has_desig = false;
+        bool is_range = false;
+        int64_t desig_lo = 0, desig_hi = 0;
+        size_t step = 0;
+        ZcInitTarget tgt;
+        memset(&tgt, 0, sizeof(tgt));
+        if (!zc_init_parse_designators(c, &c->token_pos, &obj_type, buf_off, &tgt,
+                                       &has_desig, &is_range, &desig_lo, &desig_hi, &step)) {
+            int depth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                    if (depth == 0) break;
+                    depth--;
+                }
+                c->token_pos++;
+            }
+            break;
+        }
+        if (!has_desig) {
+            size_t cur = cursor ? *cursor : 0;
+            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, &tgt)) {
+                /* Excess elements: warn, stop (the rest stays zero). */
+                diag_report_warning_at_token(c, "excess elements in aggregate initializer");
+                int depth = 0;
+                while (c->token_pos < c->token_count) {
+                    if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                    else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                        if (depth == 0) break;
+                        depth--;
+                    }
+                    c->token_pos++;
+                }
+                break;
+            }
+            if (cursor) *cursor = cur;
+        }
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+            /* Sub-aggregate value; transparent only for POSITIONAL scalar
+             * targets (grouping braces, C99 6.7.9).  Designated scalar
+             * targets (`.arr[i] = { v }`) take the sub-list path so that
+             * ranges re-apply the value per element. */
+            bool transparent = tgt.is_scalar && !has_desig;
+            ZeroCCType sub_type = transparent ? obj_type : tgt.val_type;
+            size_t sub_start = c->token_pos;
+            size_t sub_cursor = 0;
+            zero_cc_emit_brace_init_global(c, sub_type, buf,
+                                           transparent ? buf_off : tgt.abs_off,
+                                           buf_cap, data_patch_off,
+                                           transparent ? cursor : &sub_cursor);
+            if (cursor && !transparent) {
+                if (has_desig) {
+                    size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
+                    size_t nc = tgt.leaf_idx + cnt * tgt.advance;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
+            }
+            if (is_range && !transparent) {
+                for (int64_t k = desig_lo + 1; k <= desig_hi; k++) {
+                    c->token_pos = sub_start;
+                    sub_cursor = 0;
+                    zero_cc_emit_brace_init_global(c, sub_type, buf,
+                                                   tgt.abs_off + (size_t)(k - desig_lo) * step,
+                                                   buf_cap, data_patch_off, &sub_cursor);
+                }
+            }
+        } else if (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_STRING) {
+            if (tgt.arr_ctx_size > 0) {
+                /* String into a char array: copy (NUL-terminated when it
+                 * fits), starting at the value target. */
+                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                size_t sl = strlen(sv);
+                size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
+                    (tgt.abs_off - tgt.arr_ctx_off) : 0;
+                size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
+                    (tgt.arr_ctx_size - off_in_ctx) : 0;
+                size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
+                size_t base = tgt.abs_off;
+                for (size_t bi = 0; bi < copy; bi++) {
+                    if (base + bi < buf_cap) buf[base + bi] = (bi < sl) ? (uint8_t)sv[bi] : 0;
+                }
+                c->token_pos++;
+                if (cursor) {
+                    /* A string fully consumes an aggregate char-array
+                     * target (row / member) and a char-array member; into
+                     * a top-level char-array element it consumes just the
+                     * copied bytes. */
+                    size_t str_adv = tgt.is_scalar ?
+                        (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + str_adv;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += str_adv;
+                    }
+                }
+            } else if (tgt.val_type.tag == TYPE_PTR ||
+                       (tgt.is_scalar && tgt.val_type.tag == TYPE_INT64 &&
+                        obj_type.tag == TYPE_ARRAY &&
+                        obj_type.base && obj_type.base->tag == TYPE_PTR)) {
+                /* Pointer element: string literal -> rodata address patched
+                 * by a data reloc (the slot stays zero until patched). */
+                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                size_t ro_off = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                c->token_pos++;
+                if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                    dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                    dr->target_kind = 0; /* .rodata target */
+                    dr->rodata_offset = ro_off;
+                    dr->target_data_offset = 0;
+                    dr->target_global_idx = -1;
+                }
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
+                    }
+                }
+            } else {
+                c->token_pos++;
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += 1;
+                    }
+                }
+            }
+        } else {
+            /* Scalar constant value (int/char/float/enum/sizeof). */
+            bool is_f = (c->tokens[c->token_pos].type == TK_FLOAT ||
+                         (tgt.val_type.tag == TYPE_FLOAT || tgt.val_type.tag == TYPE_DOUBLE));
+            /* Elided braces: a scalar into an aggregate target fills the
+             * first leaf of that aggregate (C99 6.7.9p14). */
+            size_t off = tgt.abs_off;
+            size_t w = tgt.is_scalar ? tgt.scalar_sz : 0;
+            if (!tgt.is_scalar) {
+                size_t loff = 0, lsz = 0;
+                zc_object_resolve_scalar_leaf(&tgt.val_type, tgt.local_leaf, &loff, &lsz);
+                off += loff;
+                w = lsz ? lsz : 4;
+                if (cursor) {
+                    if (has_desig) {
+                        size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
+                        size_t nc = tgt.leaf_idx + cnt;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += 1; /* one leaf, not the whole sub-object */
+                    }
+                }
+            } else {
+                if (w > 8) w = 8;
+                if (w == 0) w = 4;
+                if (cursor) {
+                    if (has_desig) {
+                        size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
+                        size_t nc = tgt.leaf_idx + cnt;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
+                    }
+                }
+            }
+            if (is_f) {
+                double dv = zero_cc_eval_const_expr_float(c);
+                uint64_t bits = 0;
+                if (w <= 4) {
+                    float fv = (float)dv;
+                    memcpy(&bits, &fv, sizeof(fv));
+                } else {
+                    memcpy(&bits, &dv, sizeof(dv));
+                }
+                for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
+                    size_t eo = off + (size_t)k * step;
+                    for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                        buf[eo + i] = (uint8_t)(bits >> (8 * i));
+                    }
+                }
+            } else {
+                int64_t iv = zero_cc_eval_const_expr(c);
+                for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
+                    size_t eo = off + (size_t)k * step;
+                    for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                        buf[eo + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                    }
+                }
+            }
+        }
+        if (c->token_pos == iter_start) break; /* safety: no progress */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+    }
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+}
+
 /* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
 /* Returns true if a top-level declaration was consumed, false otherwise */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
@@ -620,248 +842,35 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 size = 8;
                             } else if (it == TK_LBRACE) {
                                 /* Aggregate initializer { ... } (arrays & structs,
-                                 * positional and designated). Write into a
-                                 * zero-cleared scratch buffer so struct member
-                                 * offsets/padding are correct, then append. */
-                                c->token_pos++; /* { */
-                                bool is_struct = (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION);
+                                 * positional, designated, nested sub-aggregates,
+                                 * [i..j] ranges, elided braces): recursive walker
+                                 * (Sprint 44) with the shared designator engine. */
                                 uint8_t *vbuf = calloc(size > 0 ? size : 1, 1);
                                 if (vbuf) {
-                                    size_t pos_off = 0;      /* positional array byte offset */
-                                    size_t next_member = 0;  /* positional struct member idx */
-                                    /* Array of structs: `T tab[] = { {..}, {..} }`.
-                                     * Each braced element initializes one struct
-                                     * at cur_base = elem_idx * sizeof(T). */
-                                    bool aos = is_struct && has_array_suffix;
-                                    size_t elem_idx = 0, cur_base = 0;
-                                    bool in_elem = false;
-                                    int init_brace_depth = 0; /* nested grouping braces in array inits */
-                                    while (c->token_pos < c->token_count &&
-                                           (c->tokens[c->token_pos].type != TK_RBRACE || in_elem || init_brace_depth > 0)) {
-                                        const char *field_name = NULL;
-                                        size_t iter_start_pos = c->token_pos;
-                                        if (!is_struct && !aos &&
-                                            c->tokens[c->token_pos].type == TK_LBRACE) {
-                                            /* Nested grouping braces in a positional array
-                                             * initializer are transparent (C99 6.7.9): the
-                                             * elements still fill the array sequentially. */
-                                            init_brace_depth++;
-                                            c->token_pos++;
-                                            continue;
+                                    ZeroCCType init_type = gtype;
+                                    if (has_array_suffix) {
+                                        ZeroCCType lv[8];
+                                        lv[0] = gtype;
+                                        size_t nd = (dim_count < 1) ? 1 : (size_t)dim_count;
+                                        if (nd > 7) nd = 7;
+                                        for (size_t k = 1; k <= nd; k++) {
+                                            lv[k].tag = TYPE_ARRAY;
+                                            lv[k].base = &lv[k - 1];
+                                            lv[k].array_len = (size_t)dims[nd - k];
+                                            lv[k].size = lv[k - 1].size * (size_t)dims[nd - k];
+                                            lv[k].align = lv[k - 1].align;
                                         }
-                                        if (!is_struct && !aos && init_brace_depth > 0 &&
-                                            c->tokens[c->token_pos].type == TK_RBRACE) {
-                                            init_brace_depth--;
-                                            c->token_pos++;
-                                            if (c->token_pos < c->token_count &&
-                                                c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-                                            continue;
+                                        init_type = lv[nd];
+                                        if (nd == 1) {
+                                            init_type.array_len = (size_t)array_len;
+                                            init_type.size = size;
+                                            init_type.align = elem_align;
                                         }
-                                        if (aos) {
-                                            if (!in_elem && c->tokens[c->token_pos].type == TK_LBRACE) {
-                                                cur_base = elem_idx * elem_size;
-                                                elem_idx++;
-                                                next_member = 0;
-                                                in_elem = true;
-                                                c->token_pos++;
-                                                continue;
-                                            }
-                                            if (in_elem && c->tokens[c->token_pos].type == TK_RBRACE) {
-                                                in_elem = false;
-                                                c->token_pos++;
-                                                if (c->token_pos < c->token_count &&
-                                                    c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-                                                continue;
-                                            }
-                                            if (!in_elem && next_member >= gtype.member_count) {
-                                                /* Brace-elided element: start the next struct */
-                                                cur_base = elem_idx * elem_size;
-                                                elem_idx++;
-                                                next_member = 0;
-                                            } else if (!in_elem && elem_idx == 0) {
-                                                cur_base = 0;
-                                                elem_idx = 1;
-                                            }
-                                        }
-                                        size_t m_off = 0, m_sz = 0;
-                                        bool m_float = false;
-                                        bool m_char_arr = false;
-                                        int64_t arr_desig_low = -1;
-                                        int64_t arr_desig_high = -1;
-                                        if (c->tokens[c->token_pos].type == TK_DOT) {
-                                            /* Designated initializer: .field = */
-                                            c->token_pos++;
-                                            if (c->token_pos < c->token_count &&
-                                                c->tokens[c->token_pos].type == TK_IDENT) {
-                                                field_name = c->tokens[c->token_pos].str_val;
-                                                c->token_pos++;
-                                            }
-                                            if (field_name && is_struct) {
-                                                bool found = false;
-                                                for (size_t m = 0; m < gtype.member_count; m++) {
-                                                    if (strcmp(gtype.members[m].name, field_name) == 0) {
-                                                        m_off = gtype.members[m].offset;
-                                                        m_sz = gtype.members[m].size ? gtype.members[m].size : 8;
-                                                        m_float = (gtype.members[m].tag == TYPE_FLOAT ||
-                                                                   gtype.members[m].tag == TYPE_DOUBLE);
-                                                        m_char_arr = (gtype.members[m].tag == TYPE_ARRAY &&
-                                                                      gtype.members[m].base &&
-                                                                      (gtype.members[m].base->tag == TYPE_INT8 ||
-                                                                       gtype.members[m].base->tag == TYPE_UINT8));
-                                                        found = true;
-                                                        break;
-                                                    }
-                                                }
-                                                if (!found) break;
-                                            } else {
-                                                /* Array designator [N] = : skip it */
-                                                while (c->token_pos < c->token_count &&
-                                                       c->tokens[c->token_pos].type != TK_ASSIGN) c->token_pos++;
-                                                if (c->token_pos < c->token_count) c->token_pos++; /* = */
-                                                break;
-                                            }
-                                            if (c->token_pos < c->token_count &&
-                                                c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
-                                        } else if (c->tokens[c->token_pos].type == TK_LBRACKET) {
-                                            c->token_pos++; /* [ */
-                                            int64_t low = zero_cc_eval_const_expr(c);
-                                            int64_t high = low;
-                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELLIPSIS) {
-                                                c->token_pos++;
-                                                high = zero_cc_eval_const_expr(c);
-                                            }
-                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
-                                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
-                                            arr_desig_low = low;
-                                            arr_desig_high = high;
-                                        }
-                                        if (c->token_pos >= c->token_count ||
-                                            c->tokens[c->token_pos].type == TK_RBRACE) break;
-
-                                        size_t e_off, e_sz;
-                                        bool e_float;
-                                        bool e_char_arr;
-                                        if (is_struct) {
-                                            if (field_name) {
-                                                e_off = cur_base + m_off; e_sz = m_sz; e_float = m_float;
-                                                e_char_arr = m_char_arr;
-                                            } else {
-                                                if (next_member >= gtype.member_count) break;
-                                                e_off = cur_base + gtype.members[next_member].offset;
-                                                e_sz = gtype.members[next_member].size ? gtype.members[next_member].size : 8;
-                                                e_float = (gtype.members[next_member].tag == TYPE_FLOAT ||
-                                                           gtype.members[next_member].tag == TYPE_DOUBLE);
-                                                e_char_arr = (gtype.members[next_member].tag == TYPE_ARRAY &&
-                                                              gtype.members[next_member].base &&
-                                                              (gtype.members[next_member].base->tag == TYPE_INT8 ||
-                                                               gtype.members[next_member].base->tag == TYPE_UINT8));
-                                                next_member++;
-                                            }
-                                        } else {
-                                            e_off = (arr_desig_low >= 0) ? ((size_t)arr_desig_low * elem_size) : pos_off;
-                                            e_sz = elem_size;
-                                            e_float = (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE);
-                                            e_char_arr = is_char_array;
-                                        }
-                                        if (e_off >= size) break;
-
-                                        ZeroCCTokType vt = c->tokens[c->token_pos].type;
-                                        if (vt == TK_STRING && (is_char_array || e_char_arr)) {
-                                            /* char array from string literal (truncated to fit).
-                                             * In multi-dimensional char arrays each string
-                                             * fills one row (row_bytes), NUL included when
-                                             * the row has room for it. */
-                                            const char *sv = c->tokens[c->token_pos].allocated_str ?
-                                                c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                                            size_t sl = strlen(sv);
-                                            size_t adv;
-                                            if (dim_count >= 2) {
-                                                int64_t inner = (dims[dim_count - 1] > 0) ? dims[dim_count - 1] : 1;
-                                                size_t row_bytes = (size_t)inner * elem_size;
-                                                size_t room_row = (e_off + row_bytes <= size) ? row_bytes : (size - e_off);
-                                                size_t maxc = (sl + 1 <= room_row) ? (sl + 1) : room_row;
-                                                memcpy(vbuf + e_off, sv, maxc);
-                                                adv = row_bytes;
-                                            } else {
-                                                /* Struct members fill only their own
-                                                 * bytes; top-level arrays fill to the
-                                                 * end of the object. */
-                                                size_t room = e_char_arr && is_struct ? e_sz :
-                                                    ((e_off < size) ? (size - e_off) : 0);
-                                                size_t maxc = (sl + 1 <= room) ? (sl + 1) : room;
-                                                memcpy(vbuf + e_off, sv, maxc);
-                                                adv = maxc;
-                                            }
-                                            c->token_pos++;
-                                            if (!is_struct) pos_off = e_off + adv; /* string consumed its bytes */
-                                        } else if (vt == TK_STRING && !is_char_array) {
-                                            /* Pointer-array element: string literal ->
-                                             * rodata address patched by a data reloc
-                                             * (the vbuf slot stays zero). */
-                                            const char *sv = c->tokens[c->token_pos].allocated_str ?
-                                                c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                                            size_t ro_off = c->rodata_section.length;
-                                            zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
-                                            c->token_pos++;
-                                            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
-                                                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
-                                                dr->data_patch_offset = var_offset + e_off;
-                                                dr->target_kind = 0; /* .rodata target */
-                                                dr->rodata_offset = ro_off;
-                                                dr->target_data_offset = 0;
-                                                dr->target_global_idx = -1;
-                                            }
-                                        } else if (vt == TK_FLOAT || (e_float && vt == TK_NUM)) {
-                                            double dv = zero_cc_eval_const_expr_float(c);
-                                            uint64_t bits = 0;
-                                            /* Float members (4 bytes) must store the
-                                             * float pattern, not the low 32 bits
-                                             * of the double. Copy only the 4 float
-                                             * bytes; the rest of bits stays zero. */
-                                            if (e_sz <= 4) {
-                                                float fv = (float)dv;
-                                                memcpy(&bits, &fv, sizeof(fv));
-                                            } else {
-                                                memcpy(&bits, &dv, sizeof(bits));
-                                            }
-                                            size_t w = (e_sz < 8) ? e_sz : 8;
-                                            if (arr_desig_low >= 0 && arr_desig_high >= arr_desig_low) {
-                                                for (int64_t k = arr_desig_low; k <= arr_desig_high; k++) {
-                                                    size_t cur_off = (size_t)k * elem_size;
-                                                    size_t cw = w;
-                                                    if (cur_off + cw > size) cw = (cur_off < size) ? (size - cur_off) : 0;
-                                                    for (size_t i = 0; i < cw; i++) vbuf[cur_off + i] = (uint8_t)(bits >> (8 * i));
-                                                }
-                                                pos_off = ((size_t)arr_desig_high + 1) * elem_size;
-                                            } else {
-                                                if (e_off + w > size) w = size - e_off;
-                                                for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)(bits >> (8 * i));
-                                            }
-                                        } else {
-                                            int64_t iv = zero_cc_eval_const_expr(c);
-                                            size_t w = (e_sz < 8) ? e_sz : 8;
-                                            if (arr_desig_low >= 0 && arr_desig_high >= arr_desig_low) {
-                                                for (int64_t k = arr_desig_low; k <= arr_desig_high; k++) {
-                                                    size_t cur_off = (size_t)k * elem_size;
-                                                    size_t cw = w;
-                                                    if (cur_off + cw > size) cw = (cur_off < size) ? (size - cur_off) : 0;
-                                                    for (size_t i = 0; i < cw; i++) vbuf[cur_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
-                                                }
-                                                pos_off = ((size_t)arr_desig_high + 1) * elem_size;
-                                            } else {
-                                                if (e_off + w > size) w = size - e_off;
-                                                for (size_t i = 0; i < w; i++) vbuf[e_off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
-                                            }
-                                        }
-                                        if (!is_struct && !(vt == TK_STRING && is_char_array) && arr_desig_low < 0) pos_off += elem_size;
-                                        if (c->token_pos == iter_start_pos) break; /* safety: no progress */
-                                        if (c->token_pos < c->token_count &&
-                                            c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
                                     }
-                                    if (c->token_pos < c->token_count &&
-                                        c->tokens[c->token_pos].type == TK_RBRACE) {
-                                        c->token_pos++; /* } */
-                                    }
+                                    size_t top_cursor = 0;
+                                    zero_cc_emit_brace_init_global(c, init_type, vbuf, 0,
+                                                                   size, var_offset,
+                                                                   &top_cursor);
                                     zero_cc_buf_put_bytes(&c->data_section, vbuf, size);
                                 } else {
                                     /* Allocation failed: zero-fill and skip to } */

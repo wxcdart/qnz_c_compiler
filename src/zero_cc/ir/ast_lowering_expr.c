@@ -3,123 +3,6 @@
 #include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/isa/isa_backend.h"
 
-static bool struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, size_t *cur_idx,
-                                       size_t base_off, size_t *out_off, size_t *out_sz,
-                                       const char **out_flex_name) {
-    for (size_t i = 0; i < st->member_count; i++) {
-        const ZeroCCStructMember *m = &st->members[i];
-        if (m->is_flexible) {
-            if (*cur_idx == target_idx) {
-                if (out_flex_name) *out_flex_name = m->name;
-                return false;
-            }
-            continue;
-        }
-        if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
-            size_t count = m->size / m->base->size;
-            if (target_idx < *cur_idx + count) {
-                size_t a_idx = target_idx - *cur_idx;
-                *out_off = base_off + m->offset + a_idx * m->base->size;
-                *out_sz = m->base->size;
-                return true;
-            }
-            *cur_idx += count;
-        } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
-            if (struct_resolve_scalar_leaf(m->base, target_idx, cur_idx, base_off + m->offset, out_off, out_sz, out_flex_name)) {
-                return true;
-            }
-            if (out_flex_name && *out_flex_name) return false;
-        } else {
-            if (*cur_idx == target_idx) {
-                *out_off = base_off + m->offset;
-                *out_sz = m->size;
-                return true;
-            }
-            (*cur_idx)++;
-        }
-    }
-    return false;
-}
-
-/* Number of scalar leaves in one object of type t (C layout order).
- * Sprint 40: the parser flattens nested brace-initializer lists into a
- * leaf-level chain, so initializers are placed by leaf index. */
-static size_t object_count_scalar_leaves(const ZeroCCType *t) {
-    if (!t) return 0;
-    if (t->tag == TYPE_ARRAY) {
-        if (!t->base || t->array_len == 0) return 0;
-        return t->array_len * object_count_scalar_leaves(t->base);
-    }
-    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
-        size_t n = 0;
-        for (size_t i = 0; i < t->member_count; i++) {
-            const ZeroCCStructMember *m = &t->members[i];
-            if (m->is_flexible) continue;
-            if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
-                n += (m->size / m->base->size) * object_count_scalar_leaves(m->base);
-            } else if (m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) {
-                n += m->base ? object_count_scalar_leaves(m->base) : 1;
-            } else {
-                n++;
-            }
-        }
-        return n;
-    }
-    return 1;
-}
-
-/* Resolve the (offset, size) of the target_idx-th scalar leaf of one
- * object of type t (array or struct) in C layout order.  Used by the
- * compound-literal initializer to place flattened positional elements.
- * Pre-Sprint-40, array initializers placed element k at k * base_size
- * with a base_size store - correct only for 1-D arrays of scalars; a
- * 2-D `int m[2][4]` (base_size = 16) stored element 1 at byte 16, and
- * `struct P v[2]` (flattened to 8 ints) stored each int 16 bytes apart.
- * Returns false when the index is out of range or the layout is
- * unresolvable (caller falls back to the legacy behavior). */
-static bool object_resolve_scalar_leaf(const ZeroCCType *t, size_t target_idx,
-                                       size_t *out_off, size_t *out_sz) {
-    if (!t) return false;
-    if (t->tag == TYPE_ARRAY) {
-        const ZeroCCType *el = t->base;
-        if (!el || el->size == 0 || t->array_len == 0) return false;
-        if (el->tag == TYPE_ARRAY || el->tag == TYPE_STRUCT || el->tag == TYPE_UNION) {
-            size_t per = object_count_scalar_leaves(el);
-            if (per == 0 || target_idx >= t->array_len * per) return false;
-            size_t ei = target_idx / per;
-            size_t wi = target_idx % per;
-            size_t sub_off, sub_sz;
-            if (el->tag == TYPE_ARRAY) {
-                if (!object_resolve_scalar_leaf(el, wi, &sub_off, &sub_sz)) return false;
-            } else {
-                size_t ci = 0;
-                const char *flex = NULL;
-                if (!struct_resolve_scalar_leaf(el, wi, &ci, 0, &sub_off, &sub_sz, &flex))
-                    return false;
-            }
-            *out_off = ei * el->size + sub_off;
-            *out_sz = sub_sz;
-            return true;
-        }
-        /* scalar elements */
-        if (target_idx >= t->array_len) return false;
-        *out_off = target_idx * el->size;
-        *out_sz = el->size;
-        return true;
-    }
-    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
-        size_t ci = 0;
-        const char *flex = NULL;
-        return struct_resolve_scalar_leaf(t, target_idx, &ci, 0, out_off, out_sz, &flex);
-    }
-    if (target_idx == 0) {
-        *out_off = 0;
-        *out_sz = t->size ? t->size : 4;
-        return true;
-    }
-    return false;
-}
-
 /* Infer the C99 narrow-int width of an operand expression when it can be
  * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
  * pointer / non-int). Used for binop result-width marking and signed >>.
@@ -2351,6 +2234,44 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCASTNode *elem_node = zero_cc_ast_get(arena, cur_ref);
                 if (!elem_node) break;
                 int val_temp = lower_expr(c, arena, cur_ref);
+                /* Sprint 44: elements stamped with an absolute placement by
+                 * the brace-initializer parser (nested sub-aggregate
+                 * designators, .member[i], [i..j] ranges) bypass the
+                 * flat-leaf cursor logic below. */
+                if ((elem_node->desig_idx & ZC_INIT_ABS_TAG) != 0) {
+                    size_t abs_off = ZC_INIT_ABS_OFF(elem_node->desig_idx);
+                    size_t abs_sz = ZC_INIT_ABS_SIZE(elem_node->desig_idx);
+                    int32_t abs_store_off = -(sym->stack_offset - (int32_t)abs_off);
+                    if (abs_sz == 1) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
+                        ir_emit_store_byte(val_temp, addr_temp);
+                    } else if (abs_sz == 2) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
+                        ir_emit_store_16(val_temp, addr_temp);
+                    } else if (abs_sz == 4) {
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
+                        if (c->last_expr_is_float) {
+                            ir_emit_vstoress((uint16_t)addr_temp, (uint16_t)val_temp);
+                            c->last_expr_is_float = 0;
+                        } else {
+                            ir_emit_store_32(val_temp, addr_temp);
+                        }
+                    } else {
+                        if (c->last_expr_is_float) {
+                            int addr_temp = c->next_temp_id++;
+                            ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
+                            ir_emit_vstoresd((uint16_t)addr_temp, (uint16_t)val_temp);
+                            c->last_expr_is_float = 0;
+                        } else {
+                            ir_emit_store(val_temp, BE(c)->fp_reg, abs_store_off);
+                        }
+                    }
+                    cur_ref = elem_node->next;
+                    continue;
+                }
                 size_t elem_offset = 0;
                 size_t elem_size = 4;
                 if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
@@ -2388,7 +2309,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else {
                         size_t cur_leaf = 0;
                         const char *flex_name = NULL;
-                        if (!struct_resolve_scalar_leaf(&sym->type, idx, &cur_leaf, 0, &elem_offset, &elem_size, &flex_name)) {
+                        if (!zc_struct_resolve_scalar_leaf(&sym->type, idx, &cur_leaf, 0, &elem_offset, &elem_size, &flex_name)) {
                             if (flex_name) {
                                 diag_report_error_at_token(c,
                                     "initialization of flexible array member '%s'",
@@ -2411,12 +2332,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     size_t leaf_idx;
                     if ((elem_node->flags & NODE_FLAG_DESIGNATED) &&
                         sym->type.base) {
-                        size_t per = object_count_scalar_leaves(sym->type.base);
+                        size_t per = zc_object_count_scalar_leaves(sym->type.base);
                         leaf_idx = a_idx * (per ? per : 1);
                     } else {
                         leaf_idx = idx;
                     }
-                    if (object_resolve_scalar_leaf(&sym->type, leaf_idx, &off, &sz)) {
+                    if (zc_object_resolve_scalar_leaf(&sym->type, leaf_idx, &off, &sz)) {
                         elem_offset = off;
                         elem_size = sz;
                     } else {

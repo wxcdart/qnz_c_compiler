@@ -37,6 +37,13 @@ typedef enum {
 #define NODE_MEMBER_IS_ARROW    (1u << 0)
 #define NODE_MEMBER_IS_BITFIELD (1u << 1)
 #define NODE_FLAG_DESIGNATED    (1u << 15)  /* element has explicit designator (.field or [idx]) */
+/* Initializer elements carry their absolute placement in the HIGH BIT of
+ * desig_idx (the flags field is only 16 bits):
+ *   desig_idx = ZC_INIT_ABS_TAG | (offset << 3) | size_code
+ * (see ZC_INIT_ABS_STAMP in types/type_funcs.h).  Stamped by the
+ * brace-initializer parser so nested sub-aggregate designators, .member[i]
+ * and [i..j] ranges place at the right member/element offset. */
+#define ZC_INIT_ABS_TAG         (1u << 31)
     NODE_VA_START,    /* left = ap expr, right = last expr (for computing spill area) */
     NODE_VA_ARG,      /* left = va_list expr, aux.type_ref = target type */
     NODE_INDEX,       /* left = array_expr, right = index_expr */

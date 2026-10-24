@@ -1,0 +1,427 @@
+/*
+ * ZeroCC - Shared C99 6.7.8/6.7.9 aggregate-initializer designator engine
+ * (Sprint 44)
+ *
+ * Both aggregate-initializer walkers must agree on designator semantics:
+ *   - the AST parser (src/zero_cc/parser/ast_expr.h) stamps elements with
+ *     their absolute placement in the outermost aggregate (ZC_INIT_ABS_TAG
+ *     in desig_idx) for the lowering pass, and
+ *   - the global/static walker (src/zero_cc/jit/compile_unit.h) writes
+ *     constant values directly into the .data/.rodata buffer.
+ *
+ * This header centralizes the type-level resolution so both paths place
+ * nested sub-aggregate designators (`.m = { .f = v }`, `.m[i]`, `[i..j]`
+ * ranges, designator chains `.a.b = v`) at the same offsets.
+ */
+#ifndef ZERO_CC_PARSER_INIT_COMMON_H
+#define ZERO_CC_PARSER_INIT_COMMON_H
+
+#include "zero_cc/parser/parser.h"
+#include "zero_cc/parser/const_eval.h"
+#include "zero_cc/semantic/diagnostics.h"
+
+/* Materialize a member's value-target type (for recursion into
+ * sub-aggregates).  A struct/union member keeps its full type in m->base;
+ * an array member's element type in m->base with array_len derived from
+ * the stored size. */
+static inline ZeroCCType zc_init_member_value_type(const ZeroCCStructMember *m) {
+    ZeroCCType t;
+    memset(&t, 0, sizeof(t));
+    if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base) {
+        t = *m->base;
+    } else if (m->tag == TYPE_ARRAY && m->base) {
+        t.tag = TYPE_ARRAY;
+        t.base = m->base;
+        t.array_len = (m->base->size > 0 && m->size >= m->base->size) ? m->size / m->base->size : 0;
+        t.size = m->size;
+        t.align = m->align;
+    } else {
+        t.tag = m->tag;
+        t.size = m->size;
+        t.align = m->align;
+        t.base = m->base;
+    }
+    return t;
+}
+
+static inline bool zc_init_member_leaf_count(const ZeroCCStructMember *m, size_t *out) {
+    if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+        size_t count = m->size / m->base->size;
+        *out = count * zc_object_count_scalar_leaves(m->base);
+        if (*out == 0) *out = count;
+        return true;
+    }
+    if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
+        *out = zc_object_count_scalar_leaves(m->base);
+        if (*out == 0) *out = 1;
+        return true;
+    }
+    *out = 1;
+    return true;
+}
+
+/* Placement target of one initializer value at a brace-init level. */
+typedef struct {
+    size_t abs_off;      /* absolute byte offset of the value target */
+    ZeroCCType val_type; /* type of the value target (aggregate or scalar) */
+    bool is_scalar;      /* value target is a scalar leaf (grouping braces transparent) */
+    size_t scalar_sz;    /* store width for a scalar value (1/2/4/8) */
+    size_t local_leaf;   /* leaf index within an aggregate target (elided braces) */
+    size_t leaf_idx;     /* leaf index (in the level) of the target start */
+    bool in_member;      /* target is inside a struct/union member */
+    size_t advance;      /* leaves consumed in this level by one value/sub-list */
+    size_t arr_ctx_off;  /* start of the enclosing char array (string fills) */
+    size_t arr_ctx_size; /* its size in bytes (0 = not a char-array context) */
+} ZcInitTarget;
+
+/* Leaf index of member mi within struct/union type st (sum of the leaf
+ * counts of the preceding members). */
+static inline size_t zc_init_member_leaf_start(const ZeroCCType *st, size_t mi) {
+    size_t acc = 0;
+    if (!st->members) return 0;
+    for (size_t i = 0; i < mi && i < st->member_count; i++) {
+        size_t lc;
+        zc_init_member_leaf_count(&st->members[i], &lc);
+        acc += lc;
+    }
+    return acc;
+}
+
+/* Positional (no designator) element at *cursor of type t: resolve the
+ * value target.  For a struct/union member or an array element that is an
+ * aggregate, the target is that sub-object (a nested brace list belongs
+ * there); scalar leaves are direct value targets. */
+static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base_off,
+                                              ZcInitTarget *out) {
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        if (!t->members) return false;
+        size_t member_start = 0;
+        for (size_t mi = 0; mi < t->member_count; mi++) {
+            const ZeroCCStructMember *m = &t->members[mi];
+            size_t leaves_m = 1;
+            if (m->is_flexible) continue;
+            zc_init_member_leaf_count(m, &leaves_m);
+            if (*cursor < member_start + leaves_m) {
+                size_t local = *cursor - member_start;
+                out->in_member = true;
+                if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+                    const ZeroCCType *el = m->base;
+                    size_t per = zc_object_count_scalar_leaves(el);
+                    if (per <= 1) {
+                        out->abs_off = base_off + m->offset + local * el->size;
+                        out->val_type.tag = el->tag;
+                        out->val_type.size = el->size;
+                        out->val_type.align = el->align;
+                        out->val_type.base = el->base;
+                        out->is_scalar = true;
+                        out->scalar_sz = (el->size > 8) ? 8 : (el->size ? el->size : 4);
+                        out->advance = 1;
+                        if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) {
+                            out->arr_ctx_off = base_off + m->offset;
+                            out->arr_ctx_size = m->size;
+                        } else if (el->tag == TYPE_ARRAY && el->base &&
+                                   (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                            out->arr_ctx_off = base_off + m->offset + local * el->size;
+                            out->arr_ctx_size = el->size;
+                        }
+                    } else {
+                        size_t ei = local / per;
+                        out->abs_off = base_off + m->offset + ei * el->size;
+                        out->val_type = *el;
+                        out->is_scalar = false;
+                        out->scalar_sz = 0;
+                        out->local_leaf = local % per;
+                        out->advance = per;
+                        if (el->tag == TYPE_ARRAY && el->base &&
+                            (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                            out->arr_ctx_off = base_off + m->offset + ei * el->size;
+                            out->arr_ctx_size = el->size;
+                        }
+                    }
+                } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) &&
+                           m->base && m->base->member_count > 0) {
+                    out->abs_off = base_off + m->offset;
+                    out->val_type = *m->base;
+                    out->is_scalar = false;
+                    out->scalar_sz = 0;
+                    out->local_leaf = local;
+                    out->advance = leaves_m;
+                } else {
+                    out->abs_off = base_off + m->offset;
+                    out->val_type.tag = m->tag;
+                    out->val_type.size = m->size;
+                    out->val_type.align = m->align;
+                    out->val_type.base = m->base;
+                    out->is_scalar = true;
+                    out->scalar_sz = (m->size > 8) ? 8 : (m->size ? m->size : 4);
+                    out->advance = 1;
+                }
+                return true;
+            }
+            member_start += leaves_m;
+        }
+        return false;
+    }
+    if (t->tag == TYPE_ARRAY) {
+        const ZeroCCType *el = t->base;
+        if (!el || el->size == 0) return false;
+        size_t per = zc_object_count_scalar_leaves(el);
+        if (per <= 1) {
+            /* array_len == 0: unsized array (T a[] = { ... }) - unbounded */
+            if (t->array_len > 0 && *cursor >= t->array_len) return false;
+            out->abs_off = base_off + (*cursor) * el->size;
+            out->val_type.tag = el->tag;
+            out->val_type.size = el->size;
+            out->val_type.align = el->align;
+            out->val_type.base = el->base;
+            out->is_scalar = true;
+            out->scalar_sz = (el->size > 8) ? 8 : (el->size ? el->size : 4);
+            out->advance = 1;
+            if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) {
+                out->arr_ctx_off = base_off;
+                out->arr_ctx_size = t->size;
+            } else if (el->tag == TYPE_ARRAY && el->base &&
+                       (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                out->arr_ctx_off = base_off + (*cursor) * el->size;
+                out->arr_ctx_size = el->size;
+            }
+        } else {
+            size_t ei = *cursor / per;
+            if (t->array_len > 0 && ei >= t->array_len) return false;
+            out->abs_off = base_off + ei * el->size;
+            out->val_type = *el;
+            out->is_scalar = false;
+            out->scalar_sz = 0;
+            out->local_leaf = *cursor % per;
+            out->advance = per;
+            if (el->tag == TYPE_ARRAY && el->base &&
+                (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                out->arr_ctx_off = base_off + ei * el->size;
+                out->arr_ctx_size = el->size;
+            }
+        }
+        return true;
+    }
+    if (*cursor == 0) {
+        out->abs_off = base_off;
+        out->val_type = *t;
+        out->is_scalar = true;
+        out->scalar_sz = (t->size > 8) ? 8 : (t->size ? t->size : 4);
+        out->advance = 1;
+        return true;
+    }
+    return false;
+}
+
+/* Parse C99 6.7.8 designators against an object of obj_type located at
+ * base_off within the outermost aggregate.
+ *
+ * A designator is any interleaving of member (`.name`) and element
+ * (`[index]`) designators: `.a.b`, `.a[3]`, `.a[3].b`, `[5]`, `[1 ... 2]`.
+ * A range `[lo ... hi]` may only appear in the final element designator;
+ * the caller applies the value (or re-parses a sub-list) once per element.
+ *
+ * On entry *pos points at the first designator token (TK_DOT or
+ * TK_LBRACKET) or at the value token (no designator).  On success *pos
+ * points at the value token (any '=' already consumed) and returns true:
+ *   - no designator: *has_desig stays false, *tgt zeroed;
+ *   - designator: *has_desig = true, *tgt filled (abs_off is the start of
+ *     the final value target; for a range that is element lo; *step holds
+ *     the element stride when a range was the final element designator).
+ * On a designator error a diagnostic is emitted, *pos is left at the
+ * failing token, and false is returned (the caller performs recovery).
+ *
+ * All token access goes through c->token_pos (constant-expression
+ * evaluation also consumes from there); the caller passes a pointer to
+ * c->token_pos. */
+static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
+                                      const ZeroCCType *obj_type, size_t base_off,
+                                      ZcInitTarget *tgt, bool *has_desig,
+                                      bool *is_range, int64_t *lo, int64_t *hi,
+                                      size_t *step) {
+    /* abs_off accumulates from the level base so recursed sub-lists
+     * (base_off != 0) resolve member offsets correctly. */
+    tgt->abs_off = base_off;
+    tgt->val_type = *obj_type;
+    tgt->is_scalar = (obj_type->tag != TYPE_STRUCT && obj_type->tag != TYPE_UNION &&
+                      obj_type->tag != TYPE_ARRAY);
+    tgt->scalar_sz = tgt->is_scalar ?
+        ((obj_type->size > 8) ? 8 : (obj_type->size ? obj_type->size : 4)) : 0;
+    tgt->advance = 0;
+    tgt->leaf_idx = 0;
+    tgt->arr_ctx_off = 0;
+    tgt->arr_ctx_size = 0;
+    *has_desig = false;
+    *is_range = false;
+    *lo = 0;
+    *hi = 0;
+    *step = 0;
+
+    if (c->token_pos + 1 < c->token_count &&
+        c->tokens[c->token_pos].type == TK_DOT &&
+        c->tokens[c->token_pos + 1].type == TK_IDENT) {
+        *has_desig = true;
+    } else if (c->token_pos < c->token_count &&
+               c->tokens[c->token_pos].type == TK_LBRACKET) {
+        *has_desig = true;
+    } else {
+        *pos = c->token_pos;
+        return true;
+    }
+
+    bool desig_err = false;
+    bool first_step = true;
+    for (;;) {
+        if (c->token_pos + 1 < c->token_count &&
+            c->tokens[c->token_pos].type == TK_DOT &&
+            c->tokens[c->token_pos + 1].type == TK_IDENT) {
+            /* member designator */
+            c->token_pos += 2;
+            const char *name = c->tokens[c->token_pos - 1].str_val;
+            ZeroCCType *cur = &tgt->val_type;
+            bool found = false;
+            if (cur->tag == TYPE_STRUCT || cur->tag == TYPE_UNION) {
+                for (size_t mi = 0; mi < cur->member_count; mi++) {
+                    if (strcmp(cur->members[mi].name, name) == 0) {
+                        const ZeroCCStructMember *m = &cur->members[mi];
+                        if (m->is_flexible) {
+                            diag_report_error_at_token(c,
+                                "initialization of flexible array member '%s'", name);
+                            desig_err = true;
+                            break;
+                        }
+                        tgt->abs_off += m->offset;
+                        tgt->leaf_idx += zc_init_member_leaf_start(cur, mi);
+                        ZeroCCType vt = zc_init_member_value_type(m);
+                        size_t adv;
+                        zc_init_member_leaf_count(m, &adv);
+                        tgt->val_type = vt;
+                        tgt->advance = adv;
+                        tgt->is_scalar = (m->tag != TYPE_STRUCT && m->tag != TYPE_UNION &&
+                                          m->tag != TYPE_ARRAY);
+                        tgt->scalar_sz = tgt->is_scalar ?
+                            ((m->size > 8) ? 8 : (m->size ? m->size : 4)) : 0;
+                        if (m->tag == TYPE_ARRAY && m->base &&
+                            (m->base->tag == TYPE_INT8 || m->base->tag == TYPE_UINT8)) {
+                            tgt->arr_ctx_off = base_off + (tgt->abs_off - m->offset);
+                            tgt->arr_ctx_size = m->size;
+                        } else if (m->tag == TYPE_ARRAY && m->base &&
+                                   m->base->tag == TYPE_ARRAY && m->base->base &&
+                                   (m->base->base->tag == TYPE_INT8 ||
+                                    m->base->base->tag == TYPE_UINT8)) {
+                            tgt->arr_ctx_off = base_off + (tgt->abs_off - m->offset);
+                            tgt->arr_ctx_size = m->base->size; /* first row */
+                        }
+                        *lo = 0; *hi = 0; *is_range = false; *step = 0;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                diag_report_error_at_token(c,
+                    "designated initializer names a non-existent member");
+                desig_err = true;
+            }
+            first_step = false;
+        } else if (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_LBRACKET) {
+            /* element designator (or [N] member designation at struct level) */
+            c->token_pos++; /* [ */
+            int64_t dlo = zero_cc_eval_const_expr(c);
+            int64_t dhi = dlo;
+            bool d_range = false;
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+                c->token_pos++;
+                dhi = zero_cc_eval_const_expr(c);
+                d_range = true;
+            }
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+            if (dlo < 0 || dhi < dlo) {
+                diag_report_error_at_token(c,
+                    "invalid range in designated initializer: %ld ... %ld",
+                    (long)dlo, (long)dhi);
+                desig_err = true;
+            } else if (tgt->val_type.tag == TYPE_ARRAY) {
+                const ZeroCCType *el = tgt->val_type.base;
+                if (!el || el->size == 0) {
+                    desig_err = true;
+                } else if (tgt->val_type.array_len > 0 &&
+                           (size_t)dhi >= tgt->val_type.array_len) {
+                    diag_report_error_at_token(c,
+                        "array initializer index %ld exceeds array bound %zu",
+                        (long)dhi, tgt->val_type.array_len);
+                    desig_err = true;
+                } else {
+                    size_t per = zc_object_count_scalar_leaves(el);
+                    size_t arr_start = tgt->abs_off;
+                    size_t arr_size = tgt->val_type.size;
+                    tgt->abs_off += (size_t)dlo * el->size;
+                    tgt->leaf_idx += (size_t)dlo * per;
+                    ZeroCCType vt = *el;
+                    tgt->val_type = vt;
+                    tgt->is_scalar = (per <= 1);
+                    tgt->scalar_sz = (per <= 1) ?
+                        ((el->size > 8) ? 8 : (el->size ? el->size : 4)) : 0;
+                    tgt->advance = (per > 1) ? per : 1;
+                    if (d_range) {
+                        *step = el->size;
+                    }
+                    if (per <= 1 && (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) &&
+                        arr_size >= (size_t)dlo * el->size) {
+                        tgt->arr_ctx_off = arr_start + (size_t)dlo * el->size;
+                        tgt->arr_ctx_size = arr_size - (size_t)dlo * el->size;
+                    }
+                }
+                *lo = dlo; *hi = dhi; *is_range = d_range;
+            } else if ((tgt->val_type.tag == TYPE_STRUCT || tgt->val_type.tag == TYPE_UNION) &&
+                       first_step) {
+                /* C99 6.7.9: [N] at struct level designates member N */
+                if ((size_t)dlo >= tgt->val_type.member_count) {
+                    diag_report_error_at_token(c,
+                        "designated initializer index %ld exceeds member count",
+                        (long)dlo);
+                    desig_err = true;
+                } else {
+                    const ZeroCCStructMember *m = &tgt->val_type.members[dlo];
+                    if (m->is_flexible) {
+                        diag_report_error_at_token(c,
+                            "initialization of flexible array member '%s'", m->name);
+                        desig_err = true;
+                    } else {
+                        tgt->abs_off = base_off + m->offset;
+                        tgt->leaf_idx = zc_init_member_leaf_start(&tgt->val_type, dlo);
+                        ZeroCCType vt = zc_init_member_value_type(m);
+                        size_t adv;
+                        zc_init_member_leaf_count(m, &adv);
+                        tgt->val_type = vt;
+                        tgt->advance = adv;
+                        tgt->is_scalar = (m->tag != TYPE_STRUCT && m->tag != TYPE_UNION &&
+                                          m->tag != TYPE_ARRAY);
+                        tgt->scalar_sz = tgt->is_scalar ?
+                            ((m->size > 8) ? 8 : (m->size ? m->size : 4)) : 0;
+                        *lo = 0; *hi = 0; *is_range = false; *step = 0;
+                    }
+                }
+                first_step = false;
+            } else {
+                diag_report_error_at_token(c,
+                    "array index designator on a non-array member");
+                desig_err = true;
+            }
+        } else {
+            break;
+        }
+        if (desig_err) break;
+    }
+
+    if (desig_err) return false;
+    /* Consume '=' after designators */
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) c->token_pos++;
+    *pos = c->token_pos;
+    return true;
+}
+
+#endif

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T02:59:02Z
+timestamp: 2026-10-24T04:48:52Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -410,3 +410,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `build-and-verification.md`
 - prologue_epilogue_verifier.py now covers omit-frame-pointer shapes and SP-based CSR symmetry
+
+## 2026-10-24 — Updated `frontend-and-types.md`
+- Sprint 45: unified C99 6.7.8/6.7.9 aggregate-initializer engine (shared designator/positional resolution, AST abs-stamps, recursive global writer, cursor advancement, string-fill semantics)

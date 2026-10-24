@@ -17,7 +17,7 @@
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count);
+static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t base_off, size_t *leaf_cursor, size_t *out_elem_count);
 
 #include "zero_cc/parser/zero_cc_declarator_stack.h"
 
@@ -1235,7 +1235,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                         /* Brace-enclosed / designated initializer: struct Point p = { .x = 10 }; */
                         size_t elem_count = 0;
-                        ASTRef head_expr = parse_brace_init_list_ast(c, arena, decl_type, &elem_count);
+                        size_t decl_init_cursor = 0;
+                        ASTRef head_expr = parse_brace_init_list_ast(c, arena, decl_type, 0,
+                                                                     &decl_init_cursor, &elem_count);
                         if (decl_type.tag == TYPE_ARRAY && decl_type.array_len == 0 && elem_count > 0) {
                             /* C99 6.7.9: infer the outermost dimension.  The
                              * flattened brace list holds LEAF nodes; an element
@@ -1358,7 +1360,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         ASTRef next_init = AST_NULL;
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                             size_t elem_count = 0;
-                            ASTRef head_expr = parse_brace_init_list_ast(c, arena, next_type, &elem_count);
+                            size_t next_init_cursor = 0;
+                            ASTRef head_expr = parse_brace_init_list_ast(c, arena, next_type, 0,
+                                                                         &next_init_cursor, &elem_count);
                             if (next_type.tag == TYPE_ARRAY && next_type.array_len == 0 && elem_count > 0) {
                                 size_t inferred_len = elem_count;
                                 if (next_type.base) {

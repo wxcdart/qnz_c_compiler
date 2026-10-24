@@ -135,5 +135,126 @@ static inline ZeroCCType zero_cc_type_strip_qualifiers(ZeroCCType ty) {
     return ty;
 }
 
+/* ---------------------------------------------------------------------------
+ * Aggregate scalar-leaf walking (shared by the brace-initializer parser in
+ * parser/ast_expr.h and the compound-literal lowering in ir/ast_lowering_expr.c).
+ * A "scalar leaf" is the smallest initializable unit in C layout order: a
+ * scalar member, one element of an array member, or (recursively) the leaves
+ * of a nested struct/union member.  Padding is not a leaf.
+ * ------------------------------------------------------------------------- */
+static inline bool zc_struct_resolve_scalar_leaf(const ZeroCCType *st, size_t target_idx, size_t *cur_idx,
+                                                  size_t base_off, size_t *out_off, size_t *out_sz,
+                                                  const char **out_flex_name) {
+    if (!st || !st->members) return false;
+    for (size_t i = 0; i < st->member_count; i++) {
+        const ZeroCCStructMember *m = &st->members[i];
+        if (m->is_flexible) {
+            if (*cur_idx == target_idx) {
+                if (out_flex_name) *out_flex_name = m->name;
+                return false;
+            }
+            continue;
+        }
+        if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+            size_t count = m->size / m->base->size;
+            if (target_idx < *cur_idx + count) {
+                size_t a_idx = target_idx - *cur_idx;
+                *out_off = base_off + m->offset + a_idx * m->base->size;
+                *out_sz = m->base->size;
+                return true;
+            }
+            *cur_idx += count;
+        } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
+            if (zc_struct_resolve_scalar_leaf(m->base, target_idx, cur_idx, base_off + m->offset, out_off, out_sz, out_flex_name)) {
+                return true;
+            }
+            if (out_flex_name && *out_flex_name) return false;
+        } else {
+            if (*cur_idx == target_idx) {
+                *out_off = base_off + m->offset;
+                *out_sz = m->size;
+                return true;
+            }
+            (*cur_idx)++;
+        }
+    }
+    return false;
+}
+
+static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
+    if (!t) return 0;
+    if (t->tag == TYPE_ARRAY) {
+        if (!t->base || t->array_len == 0) return 0;
+        return t->array_len * zc_object_count_scalar_leaves(t->base);
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        if (!t->members) return 0;
+        size_t n = 0;
+        for (size_t i = 0; i < t->member_count; i++) {
+            const ZeroCCStructMember *m = &t->members[i];
+            if (m->is_flexible) continue;
+            if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+                n += (m->size / m->base->size) * zc_object_count_scalar_leaves(m->base);
+            } else if (m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) {
+                n += m->base ? zc_object_count_scalar_leaves(m->base) : 1;
+            } else {
+                n++;
+            }
+        }
+        return n;
+    }
+    return 1;
+}
+
+static inline bool zc_object_resolve_scalar_leaf(const ZeroCCType *t, size_t target_idx,
+                                                  size_t *out_off, size_t *out_sz) {
+    if (!t) return false;
+    if (t->tag == TYPE_ARRAY) {
+        const ZeroCCType *el = t->base;
+        if (!el || el->size == 0 || t->array_len == 0) return false;
+        if (el->tag == TYPE_ARRAY || el->tag == TYPE_STRUCT || el->tag == TYPE_UNION) {
+            size_t per = zc_object_count_scalar_leaves(el);
+            if (per == 0 || target_idx >= t->array_len * per) return false;
+            size_t ei = target_idx / per;
+            size_t wi = target_idx % per;
+            size_t sub_off, sub_sz;
+            if (el->tag == TYPE_ARRAY) {
+                if (!zc_object_resolve_scalar_leaf(el, wi, &sub_off, &sub_sz)) return false;
+            } else {
+                size_t ci = 0;
+                const char *flex = NULL;
+                if (!zc_struct_resolve_scalar_leaf(el, wi, &ci, 0, &sub_off, &sub_sz, &flex))
+                    return false;
+            }
+            *out_off = ei * el->size + sub_off;
+            *out_sz = sub_sz;
+            return true;
+        }
+        /* scalar elements */
+        if (target_idx >= t->array_len) return false;
+        *out_off = target_idx * el->size;
+        *out_sz = el->size;
+        return true;
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        size_t ci = 0;
+        const char *flex = NULL;
+        return zc_struct_resolve_scalar_leaf(t, target_idx, &ci, 0, out_off, out_sz, &flex);
+    }
+    if (target_idx == 0) {
+        *out_off = 0;
+        *out_sz = t->size ? t->size : 4;
+        return true;
+    }
+    return false;
+}
+
+/* Stamp encoding for NODE_FLAG_INIT_ABS initializer elements:
+ * desig_idx = (absolute byte offset within the aggregate) << 3 | size code,
+ * size code = log2(element size) (1->0, 2->1, 4->2, 8->3). */
+#define ZC_INIT_ABS_SIZE_CODE(sz)   (((sz) >= 8) ? 3u : (((sz) >= 4) ? 2u : (((sz) >= 2) ? 1u : 0u)))
+#define ZC_INIT_ABS_STAMP(off, sz)  ((uint32_t)(ZC_INIT_ABS_TAG | (((off) << 3) | ZC_INIT_ABS_SIZE_CODE((sz)))))
+#define ZC_INIT_ABS_OFF(stamp)      ((size_t)(((stamp) & 0x7FFFFFFFu) >> 3))
+#define ZC_INIT_ABS_SIZE(stamp)     ((size_t)1u << (size_t)((stamp) & 7u))
 
 #endif /* ZERO_CC_TYPES_TYPE_FUNCS_H */

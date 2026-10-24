@@ -12,6 +12,7 @@
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/const_eval.h"
+#include "zero_cc/parser/init_common.h"
 #include "zero_cc/jit/type_info.h"
 
 /* Forward declaration for statement parsing */
@@ -40,76 +41,78 @@ static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_ternary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
-static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t *out_elem_count) {
+/* Brace-initialized aggregate: parse `{ elems }` of an object with type
+ * lit_type located at base_off within the outermost aggregate.
+ *
+ * Every emitted element node is STAMPED with its absolute placement
+ * (NODE_FLAG_INIT_ABS; desig_idx = offset<<3 | size_code) so the lowering
+ * places nested sub-aggregate designators at the correct member/element
+ * offset (Sprint 44: fixes `.m = { .f = v }` / `.arr[i] = v` misplacement).
+ * Positional elements advance *leaf_cursor (a shared cursor so transparent
+ * grouping braces in array initializers continue the outer position). */
+static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                        ZeroCCType lit_type, size_t base_off,
+                                        size_t *leaf_cursor, size_t *out_elem_count) {
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
         c->token_pos++; /* consume '{' */
     }
     ASTRef head_expr = AST_NULL;
     ASTRef last_expr = AST_NULL;
     size_t elem_count = 0;
-    size_t member_cursor = 0; /* positional struct/union member consumed */
 
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
-        int32_t designated_member_idx = -1;
-        int32_t designated_range_high = -1;
-        /* Struct/union designated initializer: .field = val */
-        if (c->tokens[c->token_pos].type == TK_DOT &&
-            c->token_pos + 1 < c->token_count &&
-            c->tokens[c->token_pos + 1].type == TK_IDENT) {
-            const char *field_name = c->tokens[c->token_pos + 1].str_val;
-            c->token_pos += 2;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
-                c->token_pos++;
-            }
-            if (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION) {
-                for (size_t mi = 0; mi < lit_type.member_count; mi++) {
-                    if (strcmp(lit_type.members[mi].name, field_name) == 0) {
-                        designated_member_idx = (int32_t)mi;
-                        /* C99: flexible array members cannot be initialized */
-                        if (lit_type.members[mi].is_flexible) {
-                            diag_report_error_at_token(c, "initialization of flexible array member '%s'", field_name);
-                            return AST_NULL;
-                        }
-                        break;
-                    }
-                }
-            }
-        } else if (c->tokens[c->token_pos].type == TK_LBRACKET) {
-            /* Array designated initializer: [idx] = val or [low ... high] = val */
-            c->token_pos++; /* consume '[' */
-            int64_t low = zero_cc_eval_const_expr(c);
-            int64_t high = low;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ELLIPSIS) {
-                c->token_pos++; /* consume '...' */
-                high = zero_cc_eval_const_expr(c);
-            }
-            if (low < 0 || high < low) {
-                diag_report_error_at_token(c,
-                    "invalid range in designated initializer: %ld ... %ld",
-                    (long)low, (long)high);
-                return AST_NULL;
-            }
-            /* Bounds check for fixed-size arrays */
-            if (lit_type.tag == TYPE_ARRAY && lit_type.array_len > 0 &&
-                (size_t)high >= lit_type.array_len) {
-                diag_report_error_at_token(c,
-                    "array initializer index %ld exceeds array bound %zu",
-                    (long)high, lit_type.array_len);
-                return AST_NULL;
-            }
-            designated_member_idx = (int32_t)low;
-            designated_range_high = (int32_t)high;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
-                c->token_pos++;
-            }
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
-                c->token_pos++;
+        /* ---- designators: .field(.field2)*([i]) / [i..j] (shared engine) ---- */
+        bool has_desig = false;
+        bool is_range = false;
+        int64_t desig_lo = 0, desig_hi = 0;
+        size_t step = 0;
+        ZcInitTarget tgt;
+        memset(&tgt, 0, sizeof(tgt));
+        bool desig_err = !zc_init_parse_designators(c, &c->token_pos, &lit_type, base_off,
+                                                    &tgt, &has_desig, &is_range,
+                                                    &desig_lo, &desig_hi, &step);
+
+        /* ---- positional: resolve via the shared leaf cursor ---- */
+        if (!has_desig) {
+            size_t cur = leaf_cursor ? *leaf_cursor : 0;
+            if (!zc_init_resolve_positional(&lit_type, &cur, base_off, &tgt)) {
+                /* Excess elements (C99 6.7.9): warn and ignore the rest. */
+                diag_report_warning_at_token(c, "excess elements in aggregate initializer");
+                desig_err = true;
             }
         }
+        if (desig_err) {
+            /* Skip to the closing brace to keep recovery simple. */
+            int depth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                    if (depth == 0) break;
+                    depth--;
+                }
+                c->token_pos++;
+            }
+            break;
+        }
 
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+        bool value_is_brace = (c->token_pos < c->token_count &&
+                               c->tokens[c->token_pos].type == TK_LBRACE);
+        /* Transparent grouping braces: a POSITIONAL scalar target with
+         * braces does not introduce a new aggregate level (C99 6.7.9:
+         * `int a[3] = {{1}, 2, {3}}`).  Designated scalar targets
+         * (`.arr[i] = { v }`) take the sub-list path instead so ranges
+         * re-apply the value per element. */
+        bool transparent = value_is_brace && tgt.is_scalar && !has_desig;
+
+        if (value_is_brace) {
+            size_t sub_cursor = 0;
+            size_t *sub_cursor_ptr = transparent ? leaf_cursor : &sub_cursor;
+            ZeroCCType sub_type = transparent ? lit_type : tgt.val_type;
+            size_t sub_base = transparent ? base_off : tgt.abs_off;
+            size_t tok_start = c->token_pos;
             size_t sub_count = 0;
-            ASTRef sub_head = parse_brace_init_list_ast(c, arena, lit_type, &sub_count);
+            ASTRef sub_head = parse_brace_init_list_ast(c, arena, sub_type, sub_base,
+                                                        sub_cursor_ptr, &sub_count);
             if (sub_head != AST_NULL) {
                 if (head_expr == AST_NULL) {
                     head_expr = sub_head;
@@ -125,128 +128,137 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 }
                 elem_count += sub_count;
             }
+            if (leaf_cursor && !transparent) {
+                if (has_desig) {
+                    size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
+                    size_t nc = tgt.leaf_idx + cnt * tgt.advance;
+                    if (nc > *leaf_cursor) *leaf_cursor = nc;
+                } else {
+                    *leaf_cursor += tgt.advance;
+                }
+            }
+            /* Range designator with a sub-aggregate value: re-parse the same
+             * brace tokens for each element of the range (C99 6.7.9). */
+            if (is_range && !transparent) {
+                for (int64_t k = desig_lo + 1; k <= desig_hi; k++) {
+                    c->token_pos = tok_start;
+                    sub_cursor = 0;
+                    sub_count = 0;
+                    ASTRef again = parse_brace_init_list_ast(c, arena, sub_type,
+                                                             base_off + (size_t)k * step,
+                                                             &sub_cursor, &sub_count);
+                    if (again != AST_NULL) {
+                        if (head_expr == AST_NULL) {
+                            head_expr = again;
+                        } else if (last_expr != AST_NULL) {
+                            ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
+                            if (last_node) last_node->next = again;
+                        }
+                        ASTRef cur_sub = again;
+                        while (cur_sub != AST_NULL) {
+                            last_expr = cur_sub;
+                            ZeroCCASTNode *sn = zero_cc_ast_get(arena, cur_sub);
+                            cur_sub = sn ? sn->next : AST_NULL;
+                        }
+                        elem_count += sub_count;
+                    }
+                }
+            }
         } else {
-            /* C11 6.7.9p13: a string literal may initialize a char array.
-             * When the element target is a char array (a `char n[8]`
-             * struct member, a `char m[2][4]` row, or a char element of
-             * `char s[] = { "hi" }`), expand the literal into a run of
-             * byte-literal nodes; placement by leaf index and zero-fill of
-             * the remaining bytes are handled by the compound-literal
-             * lowering.  Pointer-typed elements keep the NODE_STRING form
-             * (string address). */
-            if (c->tokens[c->token_pos].type == TK_STRING) {
+            /* ---- scalar value: string literal or expression ---- */
+            bool stamped_any = false;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING &&
+                tgt.arr_ctx_size > 0) {
+                /* String literal filling a char array (C11 6.7.9p13): one
+                 * stamped byte node per character (NUL included when it
+                 * fits), starting at the value target. */
                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                 const ZeroCCToken *stk = &c->tokens[c->token_pos];
                 size_t sl = strlen(sv);
-                size_t cap = (size_t)-1;
-                bool into_char_array = false;
-                bool pad_to_full = false; /* emit a full element's worth of bytes */
-                if (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION) {
-                    int32_t mi = (designated_member_idx >= 0) ?
-                        designated_member_idx : (int32_t)member_cursor;
-                    if (mi >= 0 && mi < (int32_t)lit_type.member_count &&
-                        !lit_type.members[mi].is_flexible &&
-                        lit_type.members[mi].tag == TYPE_ARRAY &&
-                        lit_type.members[mi].base &&
-                        (lit_type.members[mi].base->tag == TYPE_INT8 ||
-                         lit_type.members[mi].base->tag == TYPE_UINT8)) {
-                        into_char_array = true;
-                        cap = lit_type.members[mi].size;
-                        pad_to_full = true; /* keep struct leaf alignment */
+                size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
+                    (tgt.abs_off - tgt.arr_ctx_off) : 0;
+                size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
+                    (tgt.arr_ctx_size - off_in_ctx) : 0;
+                size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
+                c->token_pos++;
+                for (size_t bi = 0; bi < copy; bi++) {
+                    ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
+                    ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
+                    bn->line = (uint32_t)stk->line;
+                    bn->col = (uint32_t)stk->col;
+                    bn->int_val = (bi < sl) ? (int64_t)(unsigned char)sv[bi] : 0;
+                    bn->flags = NODE_FLAG_DESIGNATED;
+                    bn->desig_idx = ZC_INIT_ABS_STAMP(tgt.abs_off + bi, 1);
+                    if (head_expr == AST_NULL) head_expr = br;
+                    else if (last_expr != AST_NULL) {
+                        ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
+                        if (ln) ln->next = br;
                     }
-                } else if (lit_type.tag == TYPE_ARRAY && lit_type.base) {
-                    const ZeroCCType *eb = lit_type.base;
-                    bool eb_char = (eb->tag == TYPE_INT8 || eb->tag == TYPE_UINT8);
-                    bool eb_char_arr = (eb->tag == TYPE_ARRAY && eb->base &&
-                        (eb->base->tag == TYPE_INT8 || eb->base->tag == TYPE_UINT8));
-                    if (eb_char) {
-                        /* 1-D char array: each byte is one leaf, no padding */
-                        into_char_array = true;
-                        if (lit_type.size > 0) cap = lit_type.size;
-                    } else if (eb_char_arr) {
-                        /* One row of a 2-D char array: emit the full row so
-                         * successive rows align on leaf boundaries. */
-                        into_char_array = true;
-                        cap = eb->size;
-                        pad_to_full = true;
-                    }
+                    last_expr = br;
+                    elem_count++;
+                    stamped_any = true;
                 }
-                if (into_char_array) {
-                    size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
-                    size_t emit = pad_to_full ? cap : copy;
-                    c->token_pos++;
-                    for (size_t bi = 0; bi < emit; bi++) {
-                        ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
-                        ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
-                        bn->line = (uint32_t)stk->line;
-                        bn->col = (uint32_t)stk->col;
-                        bn->int_val = (bi < sl) ? (int64_t)(unsigned char)sv[bi] : 0;
-                        if (designated_member_idx >= 0) {
-                            bn->desig_idx = (uint32_t)designated_member_idx;
-                            bn->flags |= NODE_FLAG_DESIGNATED;
-                        }
-                        if (head_expr == AST_NULL) {
-                            head_expr = br;
-                        } else if (last_expr != AST_NULL) {
-                            ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
-                            if (ln) ln->next = br;
-                        }
-                        last_expr = br;
-                        elem_count++;
+                if (leaf_cursor) {
+                    /* A string fully consumes an aggregate char-array
+                     * target (row / member) and a char-array member; into
+                     * a top-level char-array element it consumes just the
+                     * copied bytes. */
+                    size_t str_adv = tgt.is_scalar ?
+                        (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + str_adv;
+                        if (nc > *leaf_cursor) *leaf_cursor = nc;
+                    } else {
+                        *leaf_cursor += str_adv;
                     }
-                    if (designated_member_idx < 0 &&
-                        (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION)) {
-                        member_cursor++;
-                    }
-                    if (c->token_pos < c->token_count &&
-                        c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-                    continue;
                 }
             }
-            ASTRef elem = parse_assignment_ast(c, arena);
-            if (elem != AST_NULL) {
-                int32_t r_low = designated_member_idx;
-                int32_t r_high = (designated_range_high >= designated_member_idx) ? designated_range_high : designated_member_idx;
-                if (r_low >= 0 && r_high > r_low) {
-                    for (int32_t cur_i = r_low; cur_i <= r_high; cur_i++) {
-                        ASTRef node_ref = (cur_i == r_low) ? elem : zero_cc_ast_clone(arena, elem, arena);
+            if (!stamped_any) {
+                ASTRef elem = parse_assignment_ast(c, arena);
+                if (elem != AST_NULL) {
+                    /* Elided braces (C99 6.7.9p14): a scalar value into an
+                     * aggregate target fills leaf `local_leaf` of that
+                     * aggregate and consumes one leaf of the cursor. */
+                    size_t off = tgt.abs_off;
+                    size_t sz = tgt.scalar_sz;
+                    size_t adv = tgt.advance;
+                    if (!tgt.is_scalar) {
+                        size_t loff = 0, lsz = 0;
+                        zc_object_resolve_scalar_leaf(&tgt.val_type, tgt.local_leaf,
+                                                      &loff, &lsz);
+                        off += loff;
+                        sz = lsz ? lsz : 4;
+                        adv = 1;
+                    }
+                    if (sz > 8) sz = 8;
+                    if (sz == 0) sz = 4;
+                    for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
+                        ASTRef node_ref = (k == 0) ? elem : zero_cc_ast_clone(arena, elem, arena);
                         ZeroCCASTNode *en = zero_cc_ast_get(arena, node_ref);
                         if (en) {
                             en->next = AST_NULL;
-                            en->desig_idx = (uint32_t)cur_i;
-                            en->flags |= NODE_FLAG_DESIGNATED;
+                            en->flags = (has_desig ? NODE_FLAG_DESIGNATED : 0u);
+                            en->desig_idx = ZC_INIT_ABS_STAMP(off + (size_t)k * step, sz);
                         }
-                        if (head_expr == AST_NULL) {
-                            head_expr = node_ref;
-                        } else if (last_expr != AST_NULL) {
+                        if (head_expr == AST_NULL) head_expr = node_ref;
+                        else if (last_expr != AST_NULL) {
                             ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
                             if (last_node) last_node->next = node_ref;
                         }
                         last_expr = node_ref;
                         elem_count++;
                     }
-                } else {
-                    ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
-                    if (en && designated_member_idx >= 0) {
-                        en->desig_idx = (uint32_t)designated_member_idx;
-                        en->flags |= NODE_FLAG_DESIGNATED;
+                    if (leaf_cursor) {
+                        if (has_desig) {
+                            size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
+                            size_t nc = tgt.leaf_idx + cnt * adv;
+                            if (nc > *leaf_cursor) *leaf_cursor = nc;
+                        } else {
+                            *leaf_cursor += adv;
+                        }
                     }
-                    if (head_expr == AST_NULL) {
-                        head_expr = elem;
-                    } else if (last_expr != AST_NULL) {
-                        ZeroCCASTNode *last_node = zero_cc_ast_get(arena, last_expr);
-                        if (last_node) last_node->next = elem;
-                    }
-                    last_expr = elem;
-                    elem_count++;
                 }
-                if (designated_member_idx < 0 &&
-                    (lit_type.tag == TYPE_STRUCT || lit_type.tag == TYPE_UNION)) {
-                    member_cursor++;
-                }
-            } else {
-                break;
             }
         }
 
@@ -545,7 +557,9 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     /* Compound literal: (type){ ... } */
                     c->token_pos = after_rparen; /* at '{' */
                     size_t elem_count = 0;
-                    ASTRef head_expr = parse_brace_init_list_ast(c, arena, lit_type, &elem_count);
+                    size_t cl_top_cursor = 0;
+                    ASTRef head_expr = parse_brace_init_list_ast(c, arena, lit_type, 0,
+                                                                 &cl_top_cursor, &elem_count);
 
                     if (lit_type.tag == TYPE_ARRAY) {
                         if (lit_type.array_len == 0) {
