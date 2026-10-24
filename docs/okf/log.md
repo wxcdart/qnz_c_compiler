@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T21:17:08Z
+timestamp: 2026-10-24T21:25:21Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -419,3 +419,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `index.md`
 - Link tls-static concept node
+
+## 2026-10-24 — Updated `abi-sysv-x86_64.md`
+- Sprint 47: FP-arg load ordering invariant in OP_CALL (FP loads before stack-arg pushes; fixes float mispass on 7+ int args)

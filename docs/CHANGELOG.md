@@ -1,5 +1,17 @@
 # ZeroCC Changelog
 
+## [Sprint 47] - 2026-10-24 - Fix Float Args Mispassed on Calls With 7+ Integer Arguments
+
+Fixed the pre-existing miscompile noted in Sprint 46: any call with more than six integer arguments silently corrupted every float argument. `printf("...%g", ..., d1)` printed a stale value (often another arg's bits) while in-program comparisons of the same double were still correct.
+
+- **Root cause** (`OP_CALL` in `src/zero_cc/ir/ast_lowering_mc.c`): the integer-argument setup pushes the 7th+ integer args onto the caller stack (plus an 8-byte pad when the count is odd) **before** the float-argument loads, which read their spill slots with frame-relative offsets. After the pushes, the stack pointer has shifted, so the slot addresses were off by `n_stack*8 + stack_pad` and the load fetched adjacent bytes into `%xmm0..7` instead of the argument. The `-S` path (`x86_emit_call_asm`) already emitted FP args first; the raw-byte MC path did not, so `-o`/`--run` miscompiled while `-S`+gcc was fine.
+- **Fix**: emit the FP-arg loads (from the per-call `call_fp_spills` record) before the stack-argument pushes, matching the `-S` path's order. The block is shared, so the ordering invariant now holds for all ISAs (x86-64, AArch64, RISC-V 64/32).
+- **Regression coverage**: `test/jit/varargs_float.c` — 7 ints + 2 doubles (n_stack=1 + pad, `%xmm0`/`%xmm1`) and 9 ints + 1 double (n_stack=3 + pad), diffed against gcc output in JIT and AOT.
+- **Documented** the ordering invariant in `docs/okf/abi-sysv-x86_64.md` (§1).
+- **Known limitation (unchanged, separate)**: `ZeroCCType.param_types[8]` caps parsed function prototypes at 8 parameters — a 9-parameter definition drops the last (e.g. `f(…, double x, double y)` parses as 8 params, `y` undeclared). Pre-existing; expanding the array is a separate change.
+
+Gates: test **155/155**, test-opt **116/116** (-O0..-O3 JIT+AOT), test-isa-qemu **44/44**, diag battery baseline OK, style 0 errors, okf lint clean.
+
 ## [Sprint 46] - 2026-10-24 - Static TLS (`_Thread_local`) End-to-End & Function-Declarator Void-Parameter Fixes
 
 Completed C11 `_Thread_local` for file-scope statics in **all four modes** (JIT `--run`, AOT `-c`/`-o` via zerocc's ELF writer, AOT `-S`, and gcc-linked objects, dynamic and static) using the initial-exec model on x86-64, and fixed a cluster of void-parameter / function-declarator parsing bugs.

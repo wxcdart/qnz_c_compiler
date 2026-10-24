@@ -888,6 +888,30 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     fp_reg_idx = 0;
                 }
 
+                /* Load float arguments from their spill slots into the FP
+                 * argument registers of the target ABI (xmm0..7 / d0..7 /
+                 * fa0..7), using the calling-convention table (x86/AArch64
+                 * arg regs 0..7, RISC-V fa0..fa7).
+                 * MUST run before the stack-argument pushes below: those
+                 * shift the stack pointer (n_stack*8 + stack_pad), and the
+                 * frame-relative slot offsets would then address the wrong
+                 * bytes (mispassing every float arg on 7+ int args). The
+                 * -S path (x86_emit_call_asm & co) emits FP args first for
+                 * the same reason. */
+                if (call_idx < c->lowering.ir_ctx.call_count) {
+                    int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
+                    for (int f = 0; f < fp_count && f < 8; f++) {
+                        int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
+                        int fp_arg_reg = backend_get_fp_arg_reg(BE(c), f);
+                        if (fp_arg_reg < 0) fp_arg_reg = f;
+                        /* Load FP arg from stack slot into FP register */
+                        if (BE(c)->emit_load_fp) {
+                            BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
+                        }
+                    }
+                    call_idx++;
+                }
+
                 /* Args beyond int_arg_count go on the stack:
                  * so push them in reverse order, padding to keep stack 16-byte aligned. */
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
@@ -928,24 +952,6 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         continue;
                     }
                     BE(c)->emit_pop_reg(c, dst_reg);
-                }
-
-                /* Load float arguments from spill slots into the FP arg
-                 * registers of the target ABI (xmm0..7 / d0..7 / fa0..7).
-                 * Using the calling-convention table keeps x86/AArch64
-                 * (arg regs 0..7) identical while giving RISC-V fa0..fa7. */
-                if (call_idx < c->lowering.ir_ctx.call_count) {
-                    int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
-                    for (int f = 0; f < fp_count && f < 8; f++) {
-                        int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
-                        int fp_arg_reg = backend_get_fp_arg_reg(BE(c), f);
-                        if (fp_arg_reg < 0) fp_arg_reg = f;
-                        /* Load FP arg from stack slot into FP register */
-                        if (BE(c)->emit_load_fp) {
-                            BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
-                        }
-                    }
-                    call_idx++;
                 }
 
                 /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */

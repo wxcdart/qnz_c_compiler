@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-17T14:30:32Z
+timestamp: 2026-10-24T21:25:21Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -18,6 +18,7 @@ ZeroCC implements the System V AMD64 ABI for x86-64 across both JIT and AOT mode
 
 - **Integer / Pointer Arguments (up to 6)**: `%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9` (indices `0..5`).
 - **Floating-Point Arguments (up to 8)**: `%xmm0` .. `%xmm7` (indices `0..7`).
+- **FP-arg load ordering invariant (OP_CALL)**: the FP-arg loads (frame-slot → `%xmm0..7`, recorded per call in `LoweringState.call_fp_spills[]`) must be emitted **before** the 7th+ integer arguments are pushed onto the caller stack: those pushes (and the 8-byte odd-count pad) shift the stack pointer, so a frame-relative slot load after them would read the wrong bytes and silently mispass every float argument (symptom: printf prints a stale value while in-program float comparisons are still correct; repro: any call with ≥7 integer args plus a float arg, e.g. `test/jit/varargs_float.c`). Both the machine-code path (`OP_CALL` in `ast_lowering_mc.c`) and the `-S` path (`x86_emit_call_asm` in `x86_64_asm.c`, "Handle FP args first") follow this order.
 - **Stack Arguments**: Arguments exceeding the 6 GPR or 8 XMM registers are pushed right-to-left on the caller stack (`16(%rbp)`, `24(%rbp)`, ... in the callee).
 - **Struct Arguments Passed by Value (`ast_lowering.c`, `ast_lowering_expr.c`)**:
   - `<= 8` bytes: Passed in 1 integer register (or stack if no GPR remains).
