@@ -170,10 +170,18 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
 #endif
 }
 
+/* Type compatibility for _Generic selection (C11 6.5.1.1, 6.2.7).
+ * The controlling expression type (first arg) has already undergone lvalue
+ * conversion which strips top-level qualifiers. The association type (second
+ * arg) retains its qualifiers. Two types are compatible if they match per
+ * 6.2.7 - qualifiers must match identically for qualified types. */
 static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
+    /* Strip qualifiers only from controlling type (a), not association (b) */
     a = zero_cc_type_strip_qualifiers(a);
-    b = zero_cc_type_strip_qualifiers(b);
     if (a.tag != b.tag) return 0;
+    /* For qualified types, qualifiers must match identically (6.2.7p3).
+     * Since a has no top-level qualifiers after stripping, b must also have none. */
+    if (b.is_const || b.is_volatile || b.is_atomic) return 0;
     switch (a.tag) {
         case TYPE_VOID:
         case TYPE_BOOL:
@@ -190,13 +198,11 @@ static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
         case TYPE_NULLPTR:
             return 1;
         case TYPE_PTR:
-            /* If either base pointer is NULL or TYPE_VOID, treat as compatible with any object pointer */
-            if (!a.base || !b.base || a.base->tag == TYPE_VOID || b.base->tag == TYPE_VOID) {
-                return 1;
-            }
+            /* Pointer types compatible only if pointee types compatible */
+            if (!a.base || !b.base) return 0;
             return zero_cc_types_compatible(*a.base, *b.base);
         case TYPE_ARRAY:
-            if (!a.base || !b.base) return 1;
+            if (!a.base || !b.base) return 0;
             return zero_cc_types_compatible(*a.base, *b.base) && a.array_len == b.array_len;
         case TYPE_STRUCT:
         case TYPE_UNION:

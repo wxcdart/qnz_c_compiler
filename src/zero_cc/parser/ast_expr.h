@@ -487,7 +487,9 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             } else {
                 ZeroCCType assoc_ty = zero_cc_parse_type_name(c);
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
-                assoc_ty = zero_cc_type_strip_qualifiers(assoc_ty);
+                /* C11 6.5.1.1: Only the controlling expression undergoes lvalue
+                 * conversion (which strips qualifiers). Association types are
+                 * matched WITH their qualifiers intact. */
                 if (!matched && zero_cc_types_compatible(ctrl_ty, assoc_ty)) {
                     matched = true;
                     selected_expr = parse_assignment_ast(c, arena);
