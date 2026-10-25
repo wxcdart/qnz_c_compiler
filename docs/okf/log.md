@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-25T20:32:40Z
+timestamp: 2026-10-25T20:42:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -443,3 +443,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-25 — Updated `multi-tu.md`
 - Sprint 51: -E preprocess-only mode (gcc-parity dep defaults, -o single-input)
+
+## 2026-10-25 — Updated `multi-tu.md`
+- Sprint 52: build-system compat flags (-U/-include/-isystem + accept-and-ignore list, 37 driver cases)

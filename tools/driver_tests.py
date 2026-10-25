@@ -263,6 +263,46 @@ def main():
         ok = rc != 0
         check("e-o-multi-err", ok, f"rc={rc} err={err!r}")
 
+        # -- build-system compatibility (Sprint 52) ---------------------------
+        with open(os.path.join(dep_dir, "compat.c"), "w") as f:
+            f.write('#ifdef FOO\nint main(void) { return 1; }\n#else\nint main(void) { return 2; }\n#endif\n')
+
+        # 11. ubiquitous gcc flags are accepted (harmless no-ops for zerocc)
+        rc, out, err = run_zerocc(["-g", "-Wall", "-O2", "-fPIC", "-pthread", "-static",
+                                   "-std=gnu11", "-m64", "-pipe", "compat.c", "--run"], cwd=dep_dir)
+        ok = rc == 2
+        check("compat-flags-accepted", ok, f"rc={rc} err={err!r}")
+
+        # 12. -D/-U apply in command-line order (gcc semantics)
+        rc_a, _, _ = run_zerocc(["-DFOO=1", "-UFOO", "compat.c", "--run"], cwd=dep_dir)
+        rc_b, _, _ = run_zerocc(["-UFOO", "-DFOO=1", "compat.c", "--run"], cwd=dep_dir)
+        ok = rc_a == 2 and rc_b == 1
+        check("du-ordered", ok, f"rc_a={rc_a} rc_b={rc_b}")
+
+        # 13. -include force-includes a header before the main source
+        with open(os.path.join(dep_dir, "forced.h"), "w") as f:
+            f.write("#define FORCED 1\nint forced_val(void) { return 9; }\n")
+        with open(os.path.join(dep_dir, "inc_user.c"), "w") as f:
+            f.write('#ifdef FORCED\nint main(void) { return forced_val() - 8; }\n#else\nint main(void) { return 3; }\n#endif\n')
+        rc, out, err = run_zerocc(["-include", "forced.h", "inc_user.c", "--run"], cwd=dep_dir)
+        ok = rc == 1
+        check("include-force", ok, f"rc={rc} err={err!r}")
+
+        # 14. -include of a missing file is a hard error
+        rc, out, err = run_zerocc(["-include", "nope.h", "inc_user.c"], cwd=dep_dir)
+        ok = rc != 0 and "No such file" in err
+        check("include-missing-err", ok, f"rc={rc} err={err!r}")
+
+        # 15. -isystem works like -I
+        rc, out, err = run_zerocc(["-isystem", "include", "-c", "main.c", "-o", "isys.o"], cwd=dep_dir)
+        ok = rc == 0 and os.path.exists(os.path.join(dep_dir, "isys.o"))
+        check("isystem", ok, f"rc={rc} err={err!r}")
+
+        # 16. unknown flags still error
+        rc, out, err = run_zerocc(["-Ztotally-bogus", "main.c"], cwd=dep_dir)
+        ok = rc != 0
+        check("unknown-flag-err", ok, f"rc={rc} err={err!r}")
+
         # 6. Full combo: -MMD -MT target.o -MF combo.d -o my.o + make verification
         os.unlink(d_path)
         rc, out, err = run_zerocc(["-MMD", "-MT", "target.o", "-MF", "combo.d", "-Iinclude", "-c", "main.c", "-o", "my.o"], cwd=dep_dir)

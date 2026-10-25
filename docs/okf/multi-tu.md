@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-10-25T20:32:40Z
+timestamp: 2026-10-25T20:42:20Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -25,10 +25,17 @@ into one executable image before running `main`.
 | `zerocc -c a.c b.c` / `-S` | one `.o` / `.s` per input (derived next to the input file); `-o` with `-c/-S` + multiple inputs is an error |
 | `zerocc -E a.c` | preprocess-only: preprocessed source to stdout; `-o` for a single input; `-o` + multiple inputs is an error |
 
-Driver gate: `make test-driver` (`tools/driver_tests.py`, 31 cases in
+### Build-system compatibility (Sprint 52)
+
+Stock Makefile/CMake invocations work: the ubiquitous gcc flags are **accepted and ignored** (`-v` notes each one) — `-g*` (DWARF not implemented), `-W*` (warning controls), remaining `-f*` (after `-fomit-frame-pointer`/`-fno-omit-frame-pointer`), `-m*`, `-std=c89..gnu23`, `-pthread`, `-pipe`, `-static`, `-shared`, `-pie`, `-no-pie`, `-x c|assembly|none`. Optimization aliases: `-O`→1, `-Os`→2, `-Oz`/`-Ofast`→3.
+
+Newly **implemented** flags: `-U<macro>` (command-line undefine, applied in order with `-D` — `gcc -DFOO -UFOO` leaves FOO undefined), `-include <file>` (force-include, as if `#include "file"` on line 1; virtual headers resolve, missing file is a fatal error), `-isystem <dir>` (behaves like `-I`; no system-header diagnostic distinction yet). Unknown flags are still a hard error.
+
+Driver gate: `make test-driver` (`tools/driver_tests.py`, 37 cases in
 `test/driver/` — multi-TU JIT/AOT, cross-TU globals & doubles, 3-file call
 chains, per-input `-c`/`-S`, duplicate-definition & missing-`main` errors,
-plus `-MMD/-MF/-MT` dependency generation and `-E` preprocess-only).
+plus `-MMD/-MF/-MT` dependency generation, `-E` preprocess-only, and the
+Sprint 52 build-system compatibility flags).
 `test/driver/%` is excluded from the `make test` glob like `test/diag/%`.
 
 ## Dependency Generation (Toolchain T0: `-MMD`, `-MF`, `-MT`)

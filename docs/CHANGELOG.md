@@ -1,5 +1,23 @@
 # ZeroCC Changelog
 
+## [Sprint 52] - 2026-10-25 - Build-System Compatibility Flag Pass (`-U`, `-include`, `-isystem`, accept-and-ignore)
+
+Stock Makefile/CMake invocations (`-g -Wall -O2 -fPIC ...`) previously failed with "Unknown option". This sprint closes that gap: ubiquitous gcc flags are accepted, and the small, cheap-to-do ones are actually implemented.
+
+- **Accept-and-ignore** (`src/main.c`): `-g*` (DWARF not implemented), `-W*` (warning controls), remaining `-f*` (after the two `-fomit-frame-pointer` forms), `-m*`, `-std=c89..gnu23` (unknown values warn), `-pthread`, `-pipe`, `-static`, `-shared`, `-pie`, `-no-pie`, `-x c|assembly|none`. With `-v` each ignored flag is noted on stderr with the reason. Unknown flags are still a hard error.
+- **Optimization aliases**: `-O`→1, `-Os`→2, `-Oz`/`-Ofast`→3 (documented mapping; no separate `-Os` size schedule yet).
+- **`-U<macro>`** (`-U name` and `-Uname`): command-line undefine. `CompileOptions.define_macros` was replaced by an ordered `macro_opts[]`/`macro_opt_kind[]` ('D'/'U') pair so `-D`/`-U` interleave in command-line order, matching gcc (`-DFOO -UFOO` leaves FOO undefined; reversed, it is defined). New `zero_cc_cpp_undefine()` compacts the macro array and rebuilds the hash table (chains hold array indices). `ZeroCCDefines` gained a parallel `undef[128]` flag consumed by `zero_cc_preprocess_ext3`.
+- **`-include <file>`** (`-includefile` too): processed as if `#include "file"` appeared as the first line of the main source (gcc semantics). Resolves through the normal include machinery — virtual freestanding headers included, so `-include stdarg.h` works; a missing file is a hard error (`<command-line>: fatal error: ...`). The included text is emitted first in `-E` output and tracked for `-MMD`.
+- **`-isystem <dir>`**: behaves like `-I` (no system-header diagnostic distinction yet).
+- **Regression coverage** (`tools/driver_tests.py`, 6 new cases): ubiquitous-flag combo compiles & runs, `-D`/`-U` ordering both ways, `-include` success, `-include` missing-file error, `-isystem`, unknown-flag still errors.
+- **Verification**:
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `make test-driver`: **37/37 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 51] - 2026-10-25 - `-E` Preprocess-Only Mode (gcc-Parity Driver Front Door)
 
 Added the `-E` driver flag: preprocess each input (includes, macros, line markers) and emit the result to **stdout**, or to a file with `-o` — no compilation. `-E` takes priority over `-c`/`-S`/`--run`.

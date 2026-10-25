@@ -48,8 +48,11 @@ typedef struct {
     int omit_frame_pointer; /* -1 = default (omit at -O1+), 0 = keep, 1 = omit */
     char *include_dirs[32]; /* -I directories (Sprint 41: real search paths) */
     int include_count;
-    char *define_macros[64]; /* -D macro definitions (name or name=value) */
-    int define_count;
+    char *macro_opts[128];   /* -D/-U macro arguments, in command-line order */
+    char macro_opt_kind[128];/* 'D' or 'U' per macro_opts entry */
+    int macro_opt_count;
+    char *force_includes[8]; /* -include <file> */
+    int force_include_count;
     int dump_ir;          /* -dump-ir */
     int dump_cfg;         /* -dump-cfg */
     int profile_opts;     /* --profile-opts */
@@ -78,10 +81,14 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -O1             Basic optimization (default)\n");
     fprintf(stderr, "  -O2             Standard optimization\n");
     fprintf(stderr, "  -O3             Aggressive optimization\n");
+    fprintf(stderr, "  -O / -Os / -Oz / -Ofast  Aliases: 1 / 2 / 3 / 3\n");
     fprintf(stderr, "  -fomit-frame-pointer    Omit frame pointers for fixed-frame functions (default at -O1+)\n");
     fprintf(stderr, "  -fno-omit-frame-pointer Keep frame pointers (%%rbp/x29/s0) in every non-leaf function\n");
     fprintf(stderr, "  -I<dir>         Add include directory\n");
+    fprintf(stderr, "  -isystem <dir>  Add system include directory\n");
     fprintf(stderr, "  -D<macro>       Define macro\n");
+    fprintf(stderr, "  -U<macro>       Undefine macro\n");
+    fprintf(stderr, "  -include <file> Force-include a file before the main source\n");
     fprintf(stderr, "  -run, --run     Run in JIT mode (default)\n");
     fprintf(stderr, "  -dump-ir        Dump IR before optimization\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
@@ -92,11 +99,32 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -MMD            Generate dependency file\n");
     fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");
     fprintf(stderr, "  -MT <target>    Set target name in dependency file\n");
+    fprintf(stderr, "  (common gcc flags such as -g, -Wall, -fPIC, -pthread, -static,\n");
+    fprintf(stderr, "   -std=... are accepted and ignored - see verbose notes)\n");
 }
 
 static void print_version(void) {
     printf("ZeroCC C Compiler version %s\n", VERSION);
     printf("Multi-ISA JIT compiler with optimization pipeline\n");
+}
+
+static void add_macro_opt(CompileOptions *opts, char kind, const char *name) {
+    if (opts->macro_opt_count < 128) {
+        opts->macro_opts[opts->macro_opt_count] = strdup(name);
+        opts->macro_opt_kind[opts->macro_opt_count] = kind;
+        opts->macro_opt_count++;
+    } else {
+        fprintf(stderr, "zerocc: warning: more than 128 -D/-U options; ignoring '-%c%s'\n",
+                kind, name);
+    }
+}
+
+static void add_include_dir_opt(CompileOptions *opts, const char *dir) {
+    if (opts->include_count < 32) {
+        opts->include_dirs[opts->include_count++] = strdup(dir);
+    } else {
+        fprintf(stderr, "zerocc: warning: more than 32 -I options; ignoring '%s'\n", dir);
+    }
 }
 
 static int parse_args(int argc, char **argv, CompileOptions *opts) {
@@ -145,6 +173,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "-O3") == 0) {
             opts->opt_level = 3;
         }
+        else if (strcmp(arg, "-O") == 0) {
+            opts->opt_level = 1;
+        }
+        else if (strcmp(arg, "-Os") == 0) {
+            opts->opt_level = 2;
+        }
+        else if (strcmp(arg, "-Oz") == 0) {
+            opts->opt_level = 3;
+        }
+        else if (strcmp(arg, "-Ofast") == 0) {
+            opts->opt_level = 3;
+        }
         else if (strcmp(arg, "-fomit-frame-pointer") == 0) {
             opts->omit_frame_pointer = 1;
         }
@@ -173,42 +213,52 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->dep_target = arg + 3;
         }
         else if (strcmp(arg, "-I") == 0 && i + 1 < argc) {
-            if (opts->include_count < 32) {
-                opts->include_dirs[opts->include_count++] = strdup(argv[++i]);
-            } else {
-                fprintf(stderr, "zerocc: warning: more than 32 -I options; ignoring '%s'\n", argv[i + 1]);
-                i++;
-            }
+            add_include_dir_opt(opts, argv[++i]);
         }
         else if (strncmp(arg, "-I", 2) == 0 && arg[2]) {
-            if (opts->include_count < 32) {
-                opts->include_dirs[opts->include_count++] = strdup(arg + 2);
-            } else {
-                fprintf(stderr, "zerocc: warning: more than 32 -I options; ignoring '%s'\n", arg + 2);
-            }
+            add_include_dir_opt(opts, arg + 2);
         }
         else if (strcmp(arg, "-I") == 0) {
             fprintf(stderr, "zerocc: error: '-I' requires a directory argument\n");
             return 1;
         }
+        else if (strcmp(arg, "-isystem") == 0 && i + 1 < argc) {
+            /* zerocc does not yet distinguish system headers in diagnostics;
+             * -isystem behaves like -I. */
+            add_include_dir_opt(opts, argv[++i]);
+        }
+        else if (strncmp(arg, "-isystem", 8) == 0 && arg[8]) {
+            add_include_dir_opt(opts, arg + 8);
+        }
         else if (strcmp(arg, "-D") == 0 && i + 1 < argc) {
-            if (opts->define_count < 64) {
-                opts->define_macros[opts->define_count++] = strdup(argv[++i]);
-            } else {
-                fprintf(stderr, "zerocc: warning: more than 64 -D options; ignoring '%s'\n", argv[i + 1]);
-                i++;
-            }
+            add_macro_opt(opts, 'D', argv[++i]);
         }
         else if (strncmp(arg, "-D", 2) == 0 && arg[2]) {
-            if (opts->define_count < 64) {
-                opts->define_macros[opts->define_count++] = strdup(arg + 2);
-            } else {
-                fprintf(stderr, "zerocc: warning: more than 64 -D options; ignoring '%s'\n", arg + 2);
-            }
+            add_macro_opt(opts, 'D', arg + 2);
         }
         else if (strcmp(arg, "-D") == 0) {
             fprintf(stderr, "zerocc: error: '-D' requires a macro argument\n");
             return 1;
+        }
+        else if (strcmp(arg, "-U") == 0 && i + 1 < argc) {
+            add_macro_opt(opts, 'U', argv[++i]);
+        }
+        else if (strncmp(arg, "-U", 2) == 0 && arg[2]) {
+            add_macro_opt(opts, 'U', arg + 2);
+        }
+        else if (strcmp(arg, "-U") == 0) {
+            fprintf(stderr, "zerocc: error: '-U' requires a macro argument\n");
+            return 1;
+        }
+        else if (strcmp(arg, "-include") == 0 && i + 1 < argc) {
+            if (opts->force_include_count < 8) {
+                opts->force_includes[opts->force_include_count++] = strdup(argv[++i]);
+            }
+        }
+        else if (strncmp(arg, "-include", 8) == 0 && arg[8]) {
+            if (opts->force_include_count < 8) {
+                opts->force_includes[opts->force_include_count++] = strdup(arg + 8);
+            }
         }
         else if (strncmp(arg, "-l", 2) == 0) {
             if (opts->lib_count < 32) {
@@ -226,6 +276,40 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--profile-opts") == 0) {
             opts->profile_opts = 1;
+        }
+        else if (strcmp(arg, "-x") == 0 && i + 1 < argc) {
+            const char *lang = argv[++i];
+            if (strcmp(lang, "c") != 0 && strcmp(lang, "assembly") != 0 && strcmp(lang, "none") != 0) {
+                fprintf(stderr, "zerocc: warning: ignoring unsupported language '%s'\n", lang);
+            }
+        }
+        /* Build-system compatibility (Sprint 52): accept-and-ignore the
+         * ubiquitous gcc flags so stock Makefile/CMake invocations work.
+         * -v notes each ignored flag. */
+        else if (arg[1] == 'g') {
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (DWARF debug info not implemented yet)\n", arg);
+        }
+        else if (arg[1] == 'W' && arg[2]) {
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (warning controls not implemented yet)\n", arg);
+        }
+        else if (arg[1] == 'f' && arg[2]) {
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (flag not implemented yet)\n", arg);
+        }
+        else if (arg[1] == 'm' && arg[2]) {
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (machine tuning not implemented yet)\n", arg);
+        }
+        else if (strncmp(arg, "-std=", 5) == 0 || strncmp(arg, "--std=", 6) == 0) {
+            const char *v = strncmp(arg, "--std=", 6) == 0 ? arg + 6 : arg + 5;
+            if (strcmp(v, "c99") != 0 && strcmp(v, "gnu99") != 0 && strcmp(v, "c11") != 0 &&
+                strcmp(v, "gnu11") != 0 && strcmp(v, "c23") != 0 && strcmp(v, "gnu23") != 0 &&
+                strcmp(v, "c89") != 0 && strcmp(v, "gnu89") != 0) {
+                fprintf(stderr, "zerocc: warning: unknown standard '%s' (targeting C99/C11)\n", v);
+            }
+        }
+        else if (strcmp(arg, "-pthread") == 0 || strcmp(arg, "-pipe") == 0 ||
+                 strcmp(arg, "-static") == 0 || strcmp(arg, "-shared") == 0 ||
+                 strcmp(arg, "-pie") == 0 || strcmp(arg, "-no-pie") == 0) {
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (not applicable to zerocc's static output)\n", arg);
         }
         else if (arg[0] != '-') {
             if (opts->input_count < ZERO_CC_MAX_INPUTS) {
@@ -456,21 +540,22 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         }
     }
     memset(&defines, 0, sizeof(defines));
-    for (int d = 0; d < opts->define_count; d++) {
+    for (int d = 0; d < opts->macro_opt_count; d++) {
         if (defines.count >= 128) break;
         /* Copy the option string: the caller's CompileOptions must stay
          * intact for a potential second compile in the same process. */
-        char *name_copy = strdup(opts->define_macros[d]);
-        char *eq = strchr(name_copy, '=');
-        char *value_copy;
-        if (eq) {
-            *eq = '\0';
-            value_copy = strdup(eq + 1);
-        } else {
-            value_copy = NULL;
+        char *name_copy = strdup(opts->macro_opts[d]);
+        char *value_copy = NULL;
+        if (opts->macro_opt_kind[d] == 'D') {
+            char *eq = strchr(name_copy, '=');
+            if (eq) {
+                *eq = '\0';
+                value_copy = strdup(eq + 1);
+            }
         }
         defines.defs[defines.count].name = name_copy;
         defines.defs[defines.count].value = value_copy;
+        defines.undef[defines.count] = (opts->macro_opt_kind[d] == 'U');
         defines.count++;
     }
 
@@ -533,7 +618,9 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
     include_err[0] = '\0';
     char *out = zero_cc_preprocess_ext3(source, &inc_dirs, &defines,
                                         main_file, include_err, sizeof(include_err),
-                                        final_dep_target, final_dep_file, opts->gen_deps);
+                                        final_dep_target, final_dep_file, opts->gen_deps,
+                                        opts->force_include_count > 0 ? (const char **)opts->force_includes : NULL,
+                                        opts->force_include_count);
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }

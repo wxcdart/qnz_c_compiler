@@ -138,6 +138,32 @@ static inline void zero_cc_cpp_define_obj(ZeroCCPreprocessor *cpp, const char *n
     cpp->hash_buckets[b] = (int32_t)idx;
 }
 
+/* Remove a macro (command-line -U).  The hash chains hold indices into
+ * the macros array, so after compacting the array the whole table is
+ * rebuilt.  Only valid before text processing starts (an in-flight
+ * expansion may hold an index into the old layout). */
+static inline void zero_cc_cpp_undefine(ZeroCCPreprocessor *cpp, const char *name) {
+    if (!cpp || !name || !name[0]) return;
+    for (size_t i = 0; i < cpp->macro_count; i++) {
+        if (strcmp(cpp->macros[i].name, name) == 0) {
+            if (cpp->macros[i].replacement) free(cpp->macros[i].replacement);
+            for (int p = 0; p < cpp->macros[i].param_count; p++) {
+                if (cpp->macros[i].params[p]) free(cpp->macros[i].params[p]);
+            }
+            memmove(&cpp->macros[i], &cpp->macros[i + 1],
+                    (cpp->macro_count - i - 1) * sizeof(cpp->macros[0]));
+            cpp->macro_count--;
+            for (int bkt = 0; bkt < 4096; bkt++) cpp->hash_buckets[bkt] = -1;
+            for (size_t j = 0; j < cpp->macro_count; j++) {
+                uint32_t b = (uint32_t)(zero_cc_hash64(cpp->macros[j].name) & 4095);
+                cpp->hash_next[j] = cpp->hash_buckets[b];
+                cpp->hash_buckets[b] = (int32_t)j;
+            }
+            return;
+        }
+    }
+}
+
 static inline void zero_cc_cpp_define_func1(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *value) {
     if (!cpp || !name) return;
     if (cpp->macro_count >= cpp->macro_capacity) {
@@ -1698,15 +1724,19 @@ typedef struct {
 
 typedef struct {
     ZeroCCMacroDef defs[128];
+    int undef[128]; /* 1 = -U entry (name only, undefine), 0 = -D entry */
     size_t count;
 } ZeroCCDefines;
 
-/* Full-control entry point with dependency generation support (-MMD/-MF/-MT) */
+/* Full-control entry point with dependency generation support
+ * (-MMD/-MF/-MT) and -include force-includes. */
 static inline char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             ZeroCCDefines *defines, const char *main_file,
                                             char *err_out, size_t err_cap,
                                             const char *dep_target, const char *dep_file,
-                                            int gen_deps) {
+                                            int gen_deps,
+                                            const char **force_includes,
+                                            int force_include_count) {
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
@@ -1717,7 +1747,11 @@ static inline char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDir
     if (defines) {
         for (size_t i = 0; i < defines->count; i++) {
             if (defines->defs[i].name) {
-                zero_cc_cpp_define_obj(cpp, defines->defs[i].name, defines->defs[i].value ? defines->defs[i].value : "1");
+                if (defines->undef[i]) {
+                    zero_cc_cpp_undefine(cpp, defines->defs[i].name);
+                } else {
+                    zero_cc_cpp_define_obj(cpp, defines->defs[i].name, defines->defs[i].value ? defines->defs[i].value : "1");
+                }
             }
         }
     }
@@ -1736,6 +1770,30 @@ static inline char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDir
     }
     ZeroCCBuffer out;
     zero_cc_buf_init(&out, 4096);
+
+    /* -include file: processed as if '#include "file"' appeared as the
+     * first line of the main source file (gcc semantics).  Virtual
+     * freestanding headers resolve first, so '-include stdarg.h' works. */
+    for (int fi = 0; force_includes && fi < force_include_count; fi++) {
+        char resolved_path[PATH_MAX];
+        char *inc_content = zero_cc_cpp_resolve_include(cpp, force_includes[fi], false,
+                                                        resolved_path, sizeof(resolved_path));
+        if (inc_content) {
+            int saved_inc_depth = zero_cc_cpp_push_include_dir(cpp, resolved_path);
+            zero_cc_cpp_add_dependency(cpp, resolved_path);
+            char *saved_filename = cpp->filename;
+            cpp->filename = resolved_path[0] ? resolved_path : NULL;
+            zero_cc_cpp_process_text(cpp, inc_content, &out);
+            cpp->filename = saved_filename;
+            zero_cc_cpp_pop_include_dir(cpp, saved_inc_depth);
+            free(inc_content);
+        } else if (cpp->include_error[0] == '\0') {
+            snprintf(cpp->include_error, sizeof(cpp->include_error),
+                     "<command-line>: fatal error: %s: No such file or directory",
+                     force_includes[fi]);
+        }
+    }
+
     zero_cc_cpp_process_text(cpp, source, &out);
     int include_failed = cpp->include_error[0] != '\0';
     if (include_failed && err_out && err_cap) {
@@ -1764,7 +1822,8 @@ static inline char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDir
 static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             ZeroCCDefines *defines, const char *main_file,
                                             char *err_out, size_t err_cap) {
-    return zero_cc_preprocess_ext3(source, inc_dirs, defines, main_file, err_out, err_cap, NULL, NULL, 0);
+    return zero_cc_preprocess_ext3(source, inc_dirs, defines, main_file, err_out, err_cap,
+                                   NULL, NULL, 0, NULL, 0);
 }
 
 static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
