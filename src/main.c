@@ -95,7 +95,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
-    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64)\n");
+    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64, aarch64)\n");
     fprintf(stderr, "  -MMD            Generate dependency file\n");
     fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");
     fprintf(stderr, "  -MT <target>    Set target name in dependency file\n");
@@ -1483,13 +1483,13 @@ static int compile_and_link(CompileOptions *opts) {
 
     const char *output = opts->output_file ? opts->output_file : "a.out";
 
-    /* T2: ZeroCC's own linker (x86-64 only for now; zero_rt Phase 0 is its
+    /* T2: ZeroCC's own linker (x86-64 + AArch64; zero_rt Phase 0 is its
      * first customer). */
     if (opts->zerocc_link) {
-        if (target_isa != ISA_X86_64) {
+        if (target_isa != ISA_X86_64 && target_isa != ISA_AARCH64) {
             fprintf(stderr,
-                    "Error: --zerocc-link currently links x86-64 objects "
-                    "only\n");
+                    "Error: --zerocc-link currently links x86-64 and "
+                    "aarch64 objects only\n");
             for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
             return 1;
         }
@@ -1508,12 +1508,14 @@ static int compile_and_link(CompileOptions *opts) {
 
         /* zero_rt auto-link: with --zerocc-link, the default runtime is the
          * ZeroCC-owned zero_rt (build/lib/zero_rt.a next to this binary, or
-         * $ZERO_RT_A). Disable with --no-zerocc-rt. */
+         * $ZERO_RT_A). Disable with --no-zerocc-rt.  zero_rt.a is built for
+         * the host (x86-64) today, so it is only auto-linked for x86-64
+         * targets (cross zero_rt is Phase 1). */
         char rt_path[2048] = "";
         const char *rt_env = getenv("ZERO_RT_A");
-        if (rt_env && rt_env[0]) {
+        if (rt_env && rt_env[0] && target_isa == ISA_X86_64) {
             snprintf(rt_path, sizeof rt_path, "%s", rt_env);
-        } else {
+        } else if (target_isa == ISA_X86_64) {
             char self[512];
             ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
             if (n > 0) {

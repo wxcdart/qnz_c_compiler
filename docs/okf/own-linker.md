@@ -1,10 +1,10 @@
 ---
 type: Concept
-title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output
-description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at the conventional x86-64 base, the supported relocation set, and the generated _start stub. Gate: make test-linker (14/14).
+title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output (x86-64 + AArch64)
+description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at the conventional x86-64/AArch64 bases, the supported x86-64 and AArch64 relocation sets, and the per-ISA generated _start stub. Gate: make test-linker (18/18).
 resource: linker
-tags: [linker, elf, ar, aot, x86-64, relocations, zero-rt]
-timestamp: 2026-10-23T04:25:11Z
+tags: [linker, elf, ar, aot, x86-64, aarch64, relocations, zero-rt]
+timestamp: 2026-10-25T22:40:16Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -15,8 +15,15 @@ status: active
 `zerocc a.c b.c --zerocc-link -o app` links the per-TU objects with
 ZeroCC's own linker instead of the system linker. The result is a
 directly-executable **static ET_EXEC** (no libc, no crt files): two
-`PT_LOAD` segments (RX at `0x401000`, RW at the next page), a rebuilt
+`PT_LOAD` segments (RX, RW at the next page), a rebuilt
 `.symtab`/`.strtab`/`.shstrtab`, and a linker-generated `_start` stub.
+
+**Supported ISAs:** x86-64 and **AArch64** (`--target aarch64`). Inputs
+must share one `e_machine` (mixed-architecture link is an error). The
+per-ISA differences: text base (`0x401000` x86-64, `0x400000` AArch64 —
+gcc `-static` convention), the relocation set, and the `_start` stub
+bytes. zero_rt Phase 0 is the first customer (x86-64; a cross zero_rt is
+Phase 1, so `--zerocc-link` only auto-links `zero_rt.a` for x86-64).
 
 This is the next step on the zero_rt critical path (T1 driver → **T2 own
 linker** → T3 runtime): zero_rt Phase 0 is its first customer.
@@ -25,7 +32,7 @@ linker** → T3 runtime): zero_rt Phase 0 is its first customer.
 
 | File | Role |
 |---|---|
-| `elf_reader.{h,c}` | Minimal ELF64-LE **ET_REL** parser: section headers (name-resolved), `.symtab` + strtab, `SHT_RELA` sections bound to their target via `sh_info`. All copies are bounds-checked; little-endian loads are explicit. |
+| `elf_reader.{h,c}` | Minimal ELF64-LE **ET_REL** parser: section headers (name-resolved), `.symtab` + strtab, `SHT_RELA` sections bound to their target via `sh_info`. Accepts `e_machine` `EM_X86_64`/`EM_AARCH64` and records it; all copies are bounds-checked; little-endian loads are explicit. |
 | `ar_reader.{h,c}` | Classic `ar` archive reader (GNU/BSD/LLVM ar): 60-byte member headers, long-name (`#1/NNN`) members, index-member skipping (`//`, `__.SYMDEF`, `Sym64 Table`). Members are returned as views into the archive image. |
 | `linker.{h,c}` | `zero_cc_link_exec(out, objects, archives, err)`: the pipeline below. |
 
@@ -55,8 +62,18 @@ through), or `.a` (archive extraction).
    merged **by name family** (`.text*`/`.rodata*`/`.data*`/`.bss*` —
    gcc-style `.data.rel.ro`, `.rodata.str1.1` fold in; `.eh_frame` is
    dropped for a static exec).
-6. **Apply relocations**: `R_X86_64_{64, PC32, PLT32, 32, 32S, RELATIVE}`;
-   `PLT32` resolves as `PC32` (a fully static link has no PLT stubs).
+6. **Apply relocations** (per `e_machine`; all inputs must agree):
+   - **x86-64**: `R_X86_64_{64, PC32, PLT32, 32, 32S, RELATIVE}`;
+     `PLT32` resolves as `PC32` (a fully static link has no PLT stubs).
+   - **AArch64**: `R_AARCH64_{ABS64, ABS32, ADR_PREL_PG_HI21,
+     ADD_ABS_LO12_NC, CALL26}`. The PC-relative/absolute-field relocations
+     patch **instruction fields** in place (the emitter emits zeroed imm
+     fields): `ADR_PREL_PG_HI21` inverts `ADRP` (`imm21 = page(S+A) -
+     page(P)`, encoded `imm21[20:2]` in bits [23:5], `imm21[1]` in bit 30,
+     `imm21[0]` in bit 29 — a layout verified empirically against the
+     cross toolchain, not the naive `<<5` form), `ADD_ABS_LO12_NC` writes
+     imm12 to bits [21:10], `CALL26` writes `imm26 = (S+A-P)>>2` to bits
+     [25:0] (branch-aligned, ±128 MB).
    Unknown types are a hard error. Section symbols resolve to the final
    section VMA (+ value); UND symbols must be resolved or the link fails
    with `undefined symbol`.
@@ -68,16 +85,26 @@ through), or `.a` (archive extraction).
 ## Entry point
 
 If an input defines `_start` (a CRT object), it is the entry. Otherwise
-the linker **generates a 16-byte `_start` stub** at the front of `.text`:
+the linker **generates a 16-byte `_start` stub** at the front of `.text`
+(per ISA):
 
-```
-xor %rbp,%rbp ; call main ; mov %eax,%edi ; mov $60,%eax ; syscall
-```
+- **x86-64** (16 B):
+  ```
+  xor %rbp,%rbp ; call main ; mov %eax,%edi ; mov $60,%eax ; syscall
+  ```
+  with the `call` displacement patched once the target's final VMA is known.
+- **AArch64** (12 B + `nop` pad): x0 holds the return value across `bl`:
+  ```
+  mov x8, #94   ; exit_group
+  bl  <target>
+  svc #0
+  ```
+  `bl` (not `b`) is essential: it sets LR so the target's `ret` falls
+  through to the `svc`.
 
-with the `call` displacement patched once the target's final VMA is known.
 This is why a zeroc object whose `main` ends in `ret` can be an entry
 point: the stub supplies the return address. (ZeroCC programs use the
-no-argument `main`.) **Target routing:** the `call` goes to `main`, *except*
+no-argument `main`.) **Target routing:** the call goes to `main`, *except*
 when the linked set defines zero_rt's `zeroc_main_wrapper` (its archive
 member is force-extracted) — then the stub calls the wrapper, which runs
 `main` and then `exit()`, so the atexit list fires on a plain `return`.
@@ -85,14 +112,21 @@ See [Zero_RT](./zero-rt.md).
 
 ## What the differential gate covers
 
-`make test-linker` (`tools/linker_tests.py`, `test/linker/`): 8 functional
-cases (cross-TU call/int global/double, uninitialized globals, 3-file
-chain, `.rodata` string from TU2, a ~40-instruction fib program), each
-**differentially compared against a `gcc -no-pie` link of the same
-objects**; 2 archive cases (member extraction); 3 error cases
-(multiple definition, missing `main`, undefined symbol); 1
-non-x86-64 rejection. `test/linker/%` is excluded from the `make test`
-glob (multi-file inputs, not standalone programs).
+`make test-linker` (`tools/linker_tests.py`, `test/linker/`), 18 cases:
+- **x86-64 (15)**: 8 functional cases (cross-TU call/int global/double,
+  uninitialized globals, 3-file chain, `.rodata` string from TU2, a
+  ~40-instruction fib program), each **differentially compared against a
+  `gcc -no-pie` link of the same objects**; 2 archive cases (member
+  extraction); 3 error cases (multiple definition, missing `main`,
+  undefined symbol).
+- **unsupported-ISA rejection (1)**: `--target riscv64` still errors.
+- **AArch64 (3)**: cross-TU call, the `.data`-only globals+string case
+  (adrp/add pairs), and the archive case — each linked with
+  `--target aarch64 --zerocc-link`, run under `qemu-aarch64-static`, and
+  differentially compared against a `musl-gcc-aarch64 -static` reference
+  (the same discipline as `make test-isa-qemu`); skipped when the QEMU /
+  musl toolchain is absent. `test/linker/%` is excluded from the `make
+test` glob (multi-file inputs, not standalone programs).
 
 ## Latent emitter bug found by T2 (fixed)
 
@@ -109,8 +143,13 @@ index by name after the sections are added — never assume a position.**
 
 ## Known limitations (documented, not bugs)
 
-- **x86-64 objects only** for now (the aarch64/riscv relocation sets are
-  the next step; the QEMU gate already covers the per-ISA emitters).
+- **x86-64 + AArch64 objects** (the RISC-V relocation sets —
+  `R_RISCV_{64,32,PCREL32}` plus the HI20/LO12 pair application with
+  addend carry — are the next step; the QEMU gate already covers the
+  per-ISA emitters, and `reloc_pair_check.py` documents the pairing
+  invariants to mirror).
+- **zero_rt is x86-64 only** today, so `--zerocc-link` auto-links it only
+  for x86-64 targets (a cross zero_rt is Phase 1).
 - No dynamic symbols/PLT stubs, no `GOTPCRELX`/`GOT32` materialization,
   no interposition/weak-alias lattice — correct for a fully static link
   of zeroc objects (and zero_rt), which is the intended customer.

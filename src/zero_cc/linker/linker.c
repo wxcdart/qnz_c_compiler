@@ -1,20 +1,21 @@
-/* linker.c - ZeroCC's own static x86-64 linker (T2).
+/* linker.c - ZeroCC's own static linker (T2): x86-64 and AArch64.
  *
  * Pipeline (see linker.h):
- *   1. load input objects
+ *   1. load input objects (all must share one e_machine)
  *   2. resolve global symbols (builds the name table incl. UNDs)
  *   3. extract archive members that resolve UNDs (greedy to fixpoint)
  *   4. re-resolve (duplicate-definition check now covers archive members)
  *   5. lay out .text/.rodata/.data/.bss at the conventional static base
- *   6. apply relocations (R_X86_64_{64,PC32,PLT32,32,32S,RELATIVE})
+ *   6. apply relocations (per machine):
+ *        x86-64:  R_X86_64_{64,PC32,PLT32,32,32S,RELATIVE}
+ *        aarch64: R_AARCH64_{ABS64,ABS32,ADR_PREL_PG_HI21,
+ *                       ADD_ABS_LO12_NC,CALL26}
  *   7. emit ET_EXEC with 2 PT_LOAD segments (RX, RW)
  *
- * Layout (Linux x86-64 non-PIE convention):
- *   0x400000  ELF header + program headers
- *   0x401000  .text
- *   ...       .rodata (8-aligned)
- *   page      .data  (page-aligned: separate RW segment)
- *   ...       .bss   (page-aligned when .data is empty)
+ * Layout (Linux non-PIE convention):
+ *   x86-64:  0x400000 ELF header + phdrs; 0x401000 .text
+ *   aarch64: 0x000000 header; 0x400000 .text (gcc -static convention)
+ *   .rodata 8-aligned after .text; .data/.bss page-aligned (RW segment).
  */
 #include "zero_cc/linker/linker.h"
 
@@ -46,6 +47,7 @@
 
 #define ET_EXEC 2
 #define EM_X86_64 62
+#define EM_AARCH64 183
 #define PT_LOAD 1
 #define PF_X 1
 #define PF_W 2
@@ -97,6 +99,8 @@ typedef struct {
 
     ZcElfObj *objs[ZC_MAX_INPUTS];
     int obj_count;
+
+    uint16_t machine; /* e_machine of the inputs (all must agree) */
 
     ZcOutSec outsec[4]; /* .text .rodata .data .bss */
     ZcInsecMap *map;
@@ -161,6 +165,16 @@ static int add_object(ZcLink *L, const uint8_t *data, size_t size,
         return -1;
     }
     if (zc_elf_obj_load_mem(data, size, path, o, err, errsz) != 0) {
+        free(o);
+        return -1;
+    }
+    if (L->machine == 0) {
+        L->machine = o->machine;
+    } else if (L->machine != o->machine) {
+        snprintf(err, errsz, "%s: mixed input architectures "
+                 "(e_machine %u vs %u); link one ISA at a time",
+                 path, (unsigned)o->machine, (unsigned)L->machine);
+        zc_elf_obj_free(o);
         free(o);
         return -1;
     }
@@ -503,9 +517,10 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         }
     }
 
-    /* VMAs: .text at the base; .rodata packed 8-aligned after it; .data and
-     * .bss page-aligned (each may anchor the RW PT_LOAD segment). */
-    uint64_t v = ZC_TEXT_BASE;
+    /* VMAs: .text at the per-machine base; .rodata packed 8-aligned after
+     * it; .data and .bss page-aligned (each may anchor the RW PT_LOAD
+     * segment). */
+    uint64_t v = (L->machine == EM_AARCH64) ? 0x400000ULL : ZC_TEXT_BASE;
     for (int i = 0; i < 3; i++) {
         if (L->outsec[i].cursor == 0) continue;
         uint64_t al = (i == 0) ? 16 : ((i == 2) ? ZC_PAGE : 8);
@@ -674,6 +689,83 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     return -1;
                 }
                 uint8_t *site = os->content + (P - os->vma);
+                if (L->machine == EM_AARCH64) {
+                    /* AArch64 relocations patch instruction fields (the
+                     * instruction word is already emitted with zeroed
+                     * imm fields; only the fields are rewritten). */
+                    uint32_t w = (uint32_t)site[0] | ((uint32_t)site[1] << 8) |
+                                 ((uint32_t)site[2] << 16) |
+                                 ((uint32_t)site[3] << 24);
+                    uint32_t nw = w;
+                    switch (rel->type) {
+                    case 257: /* R_AARCH64_ABS64 */
+                        for (int b = 0; b < 8; b++)
+                            site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
+                        break;
+                    case 256: /* R_AARCH64_ABS32 */
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >>
+                                                (8 * b));
+                        break;
+                    case 275: /* R_AARCH64_ADR_PREL_PG_HI21 */
+                        /* ADRP computes (P & ~0xFFF) + (signext(imm21) << 12)
+                         * and must land on the page of (S + A); invert that
+                         * to get the 21-bit signed page offset.  Encoding
+                         * (verified against the cross toolchain): imm21[20:2]
+                         * in bits [23:5], imm21[1] in bit 30, imm21[0] in
+                         * bit 29. */
+                        int64_t r = (((S + A) & ~0xFFFULL) -
+                                     ((int64_t)P & ~0xFFFULL)) >> 12;
+                        if (r < -(1LL << 20) || r >= (1LL << 20)) {
+                            snprintf(err, errsz,
+                                     "ADR_PREL_PG_HI21 out of range for `%s' "
+                                     "at 0x%lx in %s",
+                                     sym->name, (unsigned long)P, o->path);
+                            return -1;
+                        }
+                        uint32_t imm21 = (uint32_t)r & 0x1FFFFF;
+                        uint32_t patch = ((imm21 & 0x1FFFFC) << 3) |
+                                         ((imm21 & 2) << 28) |
+                                         ((imm21 & 1) << 29);
+                        nw = (w & ~0x600FFFFEU) | patch;
+                        break;
+                    case 277: /* R_AARCH64_ADD_ABS_LO12_NC */
+                        int64_t lo = (S + A) & 0xFFF;
+                        if (lo > 0x7FF) {
+                            snprintf(err, errsz,
+                                     "ADD_ABS_LO12_NC addend out of range "
+                                     "for `%s' in %s", sym->name, o->path);
+                            return -1;
+                        }
+                        /* ADD imm: imm12 in bits [21:10], shift bit 22 = 0. */
+                        nw = (w & ~0x001FFC00U) | ((uint32_t)lo << 10);
+                        break;
+                    case 283: /* R_AARCH64_CALL26 */
+                    {
+                        int64_t d = S + A - (int64_t)P;
+                        if ((d & 3) != 0 || d < -(1LL << 27) ||
+                            d >= (1LL << 27)) {
+                            snprintf(err, errsz,
+                                     "CALL26 out of range for `%s' at 0x%lx "
+                                     "in %s", sym->name, (unsigned long)P,
+                                     o->path);
+                            return -1;
+                        }
+                        nw = (w & ~0x3FFFFFFU) | (uint32_t)((d >> 2) & 0x3FFFFFF);
+                        break;
+                    }
+                    default:
+                        snprintf(err, errsz,
+                                 "unsupported AArch64 relocation type %u in "
+                                 "%s (%s)", rel->type, rs->name, o->path);
+                        return -1;
+                    }
+                    site[0] = (uint8_t)nw;
+                    site[1] = (uint8_t)(nw >> 8);
+                    site[2] = (uint8_t)(nw >> 16);
+                    site[3] = (uint8_t)(nw >> 24);
+                    continue;
+                }
                 switch (rel->type) {
                 case 1:  /* R_X86_64_64 */
                     for (int b = 0; b < 8; b++)
@@ -851,7 +943,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     put8(&p, 0); /* SYSV */
     for (int i = 0; i < 8; i++) put8(&p, 0);
     put16(&p, ET_EXEC);
-    put16(&p, EM_X86_64);
+    put16(&p, L->machine);
     put32(&p, 1);          /* e_version */
     put64(&p, entry);      /* e_entry */
     put64(&p, 64);         /* e_phoff */
@@ -893,24 +985,47 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         memcpy(img + rodata->file_off, rodata->content, rodata->size);
     if (data->size) memcpy(img + data->file_off, data->content, data->size);
 
-    /* Patch the _start stub's call to main (stub at .text offset 0:
+    /* Patch the _start stub (reserved at .text offset 0).  x86-64 (16 B):
      *   +0: 31 f9          xor %rbp,%rbp
-     *   +2: e8 xx xx xx xx call main
+     *   +2: e8 xx xx xx xx call <target>
      *   +7: 89 c7          mov %eax,%edi
      *   +9: b8 3c 00 00 00 mov $60,%eax
-     *   +14: 0f 05         syscall */
+     *   +14: 0f 05         syscall
+     * AArch64 (12 B + nop pad): `bl` sets LR so main's `ret` falls through
+     * to the svc; x0 holds the return value:
+     *   +0: 0xD2800BC8     mov x8, #94   (exit_group)
+     *   +4: 0x94000000|imm bl <target>  (imm26 in bits [25:0])
+     *   +8: 0xD4000001     svc #0
+     *   +12: 0xD503201F    nop (pad to the 16-byte reservation) */
     if (L->stub_at_front) {
         uint8_t *st = img + text->file_off;
-        st[0] = 0x31; st[1] = 0xf9;
-        st[2] = 0xe8;
-        int32_t rel = (int32_t)(main_vma - (text->vma + 7));
-        st[3] = (uint8_t)(rel);
-        st[4] = (uint8_t)(rel >> 8);
-        st[5] = (uint8_t)(rel >> 16);
-        st[6] = (uint8_t)(rel >> 24);
-        st[7] = 0x89; st[8] = 0xc7;
-        st[9] = 0xb8; st[10] = 0x3c; st[11] = 0; st[12] = 0; st[13] = 0;
-        st[14] = 0x0f; st[15] = 0x05;
+        if (L->machine == EM_AARCH64) {
+            /* Words written little-endian (file order). */
+            /* mov x8, #94  (exit_group): word 0xD2800BC8, little-endian */
+            st[0] = 0xc8; st[1] = 0x0b; st[2] = 0x80; st[3] = 0xd2;
+            /* `bl <target>': 0x94000000 | imm26, imm26 = (target - pc) >> 2.
+             * main's `ret` returns to the svc below. */
+            int32_t rel = (int32_t)((main_vma - (text->vma + 4)) >> 2);
+            st[4] = (uint8_t)(rel & 0xFF);
+            st[5] = (uint8_t)((rel >> 8) & 0xFF);
+            st[6] = (uint8_t)((rel >> 16) & 0xFF);
+            st[7] = (uint8_t)(0x94 | ((rel >> 24) & 0x3));
+            /* svc #0: 0xD4000001 */
+            st[8] = 0x01; st[9] = 0x00; st[10] = 0x00; st[11] = 0xd4;
+            /* nop (pad to the 16-byte reservation): 0xD503201F */
+            st[12] = 0x1f; st[13] = 0x20; st[14] = 0x03; st[15] = 0xd5;
+        } else {
+            st[0] = 0x31; st[1] = 0xf9;
+            st[2] = 0xe8;
+            int32_t rel = (int32_t)(main_vma - (text->vma + 7));
+            st[3] = (uint8_t)(rel);
+            st[4] = (uint8_t)(rel >> 8);
+            st[5] = (uint8_t)(rel >> 16);
+            st[6] = (uint8_t)(rel >> 24);
+            st[7] = 0x89; st[8] = 0xc7;
+            st[9] = 0xb8; st[10] = 0x3c; st[11] = 0; st[12] = 0; st[13] = 0;
+            st[14] = 0x0f; st[15] = 0x05;
+        }
     }
 
     /* .symtab */

@@ -6,8 +6,10 @@ Links zerocc-emitted .o files (and .a archives) with ZeroCC's own linker
   - runs the result and checks exit code
   - differentially compares against the system-linker reference
     (same objects, gcc -no-pie link)
+  - for aarch64: links `--target aarch64` objects, runs under
+    qemu-aarch64-static, compares against musl-gcc-aarch64 -static
   - exercises the error paths: multiple definition, missing main,
-    undefined symbol, non-x86-64 target
+    undefined symbol, unsupported-ISA target
 
 Run:  python3 tools/linker_tests.py     (requires `make build/bin/zerocc`)
 """
@@ -155,6 +157,65 @@ def case_link_error(name, sources, want_substr, no_rt=False):
         check(name, True)
 
 
+def case_aarch64_run(name, sources, expect_rc=0, archives_of=()):
+    """Cross-link AArch64 objects with the own linker, run under
+    qemu-aarch64-static, and compare against a musl-gcc-aarch64 -static
+    reference (same differential discipline as the isa_qemu battery).
+    Skips (passing) when the QEMU/musl toolchain is unavailable."""
+    qemu = shutil.which("qemu-aarch64-static")
+    refcc = shutil.which("musl-gcc-aarch64")
+    if not qemu or not refcc:
+        check(name, True, "skipped: qemu-aarch64-static / musl-gcc-aarch64 absent")
+        return
+    with tempfile.TemporaryDirectory(prefix="zerocc_t2_a64_") as work:
+        objs = []
+        for n in sources:
+            o = os.path.join(work, n[:-2] + ".o")
+            rc, out, err = zc(["--target", "aarch64", "-c", src(n), "-o", o])
+            if rc != 0:
+                check(name, False, f"compile {n} failed: {err}")
+                return
+            objs.append(o)
+        direct, ar_members = [], []
+        for i, o in enumerate(objs):
+            (ar_members if i in archives_of else direct).append(o)
+        archives = []
+        if ar_members:
+            lib = os.path.join(work, "libmembers.a")
+            p = subprocess.run(["ar", "rcs", lib] + ar_members,
+                               capture_output=True, text=True)
+            if p.returncode != 0:
+                check(name, False, f"ar failed: {p.stderr}")
+                return
+            archives.append(lib)
+        exe = os.path.join(work, "app_own")
+        rc, out, err = zc(direct + archives + ["--target", "aarch64",
+                                               "--zerocc-link", "-o", exe])
+        if rc != 0:
+            check(name, False, f"link failed: {err.strip()}")
+            return
+        p = subprocess.run([qemu, exe], capture_output=True, text=True,
+                           timeout=30)
+        if p.returncode != expect_rc:
+            check(name, False,
+                  f"rc={p.returncode} out={p.stdout!r} (want rc={expect_rc})")
+            return
+        # Reference: same sources, musl static link.
+        rexe = os.path.join(work, "app_ref")
+        p = subprocess.run([refcc, "-static"] + [src(n) for n in sources]
+                           + ["-o", rexe], capture_output=True, text=True)
+        if p.returncode != 0:
+            check(name, False, f"reference build failed: {p.stderr.strip()}")
+            return
+        rp = subprocess.run([qemu, rexe], capture_output=True, text=True,
+                            timeout=30)
+        if (rp.returncode, rp.stdout) != (p.returncode, p.stdout):
+            check(name, False, f"ref rc={rp.returncode} out={rp.stdout!r} "
+                               f"vs own rc={p.returncode} out={p.stdout!r}")
+            return
+        check(name, True)
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -189,13 +250,18 @@ def main():
     case_link_error("nomain", ["nomain.c"], "main")
     case_link_error("undef", ["undef_main.c"], "undefined symbol", no_rt=True)
 
-    print("-- non-x86-64 rejection --")
+    print("-- unsupported-ISA rejection --")
     with tempfile.TemporaryDirectory(prefix="zerocc_t2_") as work:
         objs = compile_objs(work, ["uninit.c"])
-        rc, out, err = zc([objs[0], "--target", "aarch64", "--zerocc-link",
+        rc, out, err = zc([objs[0], "--target", "riscv64", "--zerocc-link",
                            "-o", os.path.join(work, "x")])
-        check("non_x86_rejected", rc != 0 and "x86-64" in err,
+        check("riscv_rejected", rc != 0 and ("x86-64" in err or "aarch64" in err),
               f"rc={rc} err={err!r}")
+
+    print("-- aarch64 (QEMU differential) --")
+    case_aarch64_run("a64_hi", ["hi_main.c", "hi_impl.c"])
+    case_aarch64_run("a64_data", ["a64_data.c"])
+    case_aarch64_run("a64_ar", ["hi_main.c", "hi_impl.c"], archives_of=(1,))
 
     passed = sum(1 for _, ok in RESULTS if ok)
     total = len(RESULTS)

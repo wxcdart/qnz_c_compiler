@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 53] - 2026-10-25 - Own Linker (T2) Gains AArch64: `--zerocc-link` for `--target aarch64`
+
+Extended ZeroCC's own static linker from x86-64-only to **x86-64 + AArch64**, closing the documented next step ("the aarch64/riscv relocation sets are the next step") and unblocking the zero_rt critical path on a second ISA.
+
+- **`e_machine` plumbing** (`elf_reader.{h,c}`): the reader now records `e_machine` and accepts `EM_X86_64` (62) / `EM_AARCH64` (183); `linker.c` requires all inputs to share one machine (mixed-architecture link is a clean error).
+- **AArch64 relocations** (`apply_relocations`, per-machine switch): `R_AARCH64_ABS64` (257), `R_AARCH64_ABS32` (256), `R_AARCH64_ADR_PREL_PG_HI21` (275), `R_AARCH64_ADD_ABS_LO12_NC` (277), `R_AARCH64_CALL26` (283) — the set zerocc's AArch64 emitter emits (verified by `readelf -r` on real objects).
+  - The PC-relative/absolute relocs patch **instruction fields in place** (the emitter emits zeroed imm fields). The `ADRP` imm21 field layout (`imm21[20:2]` in bits [23:5], `imm21[1]` in bit 30, `imm21[0]` in bit 29) was **derived empirically from the cross toolchain** (assembler+linker+disassembler, 7 data points incl. sign extension) after the naive `<<5` form mis-linked; `ADD imm12` writes bits [21:10]; `CALL26` writes `imm26=(S+A-P)>>2` into bits [25:0].
+  - Out-of-range `ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`/`CALL26` are hard errors.
+- **Per-ISA `_start` stub** (`emit_exec`): x86-64 keeps its 16-byte `xor/call/mov/mov/syscall`; AArch64 gets a 12-byte + `nop`-pad `mov x8,#94; bl <target>; svc #0`. **`bl` (not `b`) is essential** — it sets LR so the target's `ret` falls through to the `svc` (a plain `b` leaves LR unset and the target's epilogue `ret` segfaults). AArch64 text base is `0x400000` (gcc `-static` convention) vs x86-64's `0x401000`; `e_machine` in the emitted header follows the inputs.
+- **Driver** (`main.c`): `--zerocc-link` now accepts `ISA_AARCH64` (RISC-V still rejected with a clear error). zero_rt auto-link is gated to x86-64 (the runtime archive is host-ISA today; cross zero_rt is Phase 1).
+- **Differential gate** (`tools/linker_tests.py`, 14→18): the obsolete "non-x86-64 rejection" case became a RISC-V rejection; new AArch64 section runs `--target aarch64 --zerocc-link` output under `qemu-aarch64-static` and diffs against `musl-gcc-aarch64 -static` (cross-TU call, `.data`-only globals+string adrp/add case, archive member extraction). Skips cleanly when the QEMU/musl toolchain is absent.
+- **Verification**:
+  - `make test-linker`: **18/18 passed** (incl. 3 AArch64 QEMU differentials)
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `make test-isa-qemu`: **44/44 passed**
+  - `make test-driver`: **37/37 passed**
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 52] - 2026-10-25 - Build-System Compatibility Flag Pass (`-U`, `-include`, `-isystem`, accept-and-ignore)
 
 Stock Makefile/CMake invocations (`-g -Wall -O2 -fPIC ...`) previously failed with "Unknown option". This sprint closes that gap: ubiquitous gcc flags are accepted, and the small, cheap-to-do ones are actually implemented.

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-25T20:42:20Z
+timestamp: 2026-10-25T22:40:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -446,3 +446,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-25 — Updated `multi-tu.md`
 - Sprint 52: build-system compat flags (-U/-include/-isystem + accept-and-ignore list, 37 driver cases)
+
+## 2026-10-25 — Updated `own-linker.md`
+- Sprint 53: AArch64 support (e_machine plumbing, R_AARCH64 reloc set with empirically-derived ADRP imm21 layout, bl-based _start stub, 0x400000 base; 18/18 gate incl. QEMU differentials)
