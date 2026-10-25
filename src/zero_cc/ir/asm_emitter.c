@@ -223,13 +223,17 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_DIV:
             if (BE(c)->emit_div_asm) {
+                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
                 BE(c)->emit_div_asm(c, phys_dst, phys_src1, phys_src2, out);
+                c->lowering.div_is_unsigned = 0;
             }
             return;
 
         case OP_MOD:
             if (BE(c)->emit_mod_asm) {
+                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
                 BE(c)->emit_mod_asm(c, phys_dst, phys_src1, phys_src2, out);
+                c->lowering.div_is_unsigned = 0;
             }
             return;
 

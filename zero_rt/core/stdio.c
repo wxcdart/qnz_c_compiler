@@ -133,8 +133,8 @@ static int ryu_parse(const char *src, char *digits, int *ndig, int *exp_out) {
             i++;
         }
         if (neg) e = -e;
-        /* value = D.dddd x 10^e  =>  digits x 10^(e - (d-1)) */
-        *exp_out = e - (d - 1);
+        /* value = D.dddd x 10^e */
+        *exp_out = e;
     }
     *ndig = d;
     return 0;
@@ -150,7 +150,7 @@ static void fmt_g(RtSink *s, double x, int prec, int alt) {
     /* sign */
     if (x < 0) sink_put(s, '-');
 
-    d2exp_buffered(x < 0 ? -x : x, (uint32_t)sig, ryu_buf);
+    d2exp_buffered(x < 0 ? -x : x, (uint32_t)(sig - 1), ryu_buf);
     if (ryu_parse(ryu_buf, digits, &ndig, &E) != 0) {
         sink_puts(s, "?");
         return;
@@ -185,7 +185,8 @@ static void fmt_g(RtSink *s, double x, int prec, int alt) {
         {
             int fracmax = sig - 1 - E;
             int frac = fracmax < 0 ? 0 : fracmax;
-            while (frac > 0 && digits[frac] == '0' && !alt) frac--;
+            while (frac > 0 && (intdig + frac - 1 >= ndig || digits[intdig + frac - 1] == '0') && !alt)
+                frac--;
             if (frac > 0 || alt) {
                 sink_put(s, '.');
                 for (i = intdig; i < intdig + frac; i++)
@@ -336,7 +337,7 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 double d = va_arg(ap, double);
                 int p = prec >= 0 ? prec : 6;
                 if (d < 0) sink_put(&s, '-');
-                d2exp_buffered(d < 0 ? -d : d, (uint32_t)(p + 1), core);
+                d2exp_buffered(d < 0 ? -d : d, (uint32_t)p, core);
                 sink_emit(&s, core, strlen(core), width, left,
                           zpad && !left ? '0' : ' ');
                 break;

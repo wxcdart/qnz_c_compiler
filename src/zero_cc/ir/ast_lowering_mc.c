@@ -185,11 +185,15 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_DIV:
+                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
                 BE(c)->emit_div(c, phys_dst, phys_src1, phys_src2);
+                c->lowering.div_is_unsigned = 0;
                 break;
 
             case OP_MOD:
+                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
                 BE(c)->emit_mod(c, phys_dst, phys_src1, phys_src2);
+                c->lowering.div_is_unsigned = 0;
                 break;
 
             case OP_AND:
@@ -924,8 +928,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * formula. */
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
                 int n_stack;
-                int stack_meta_temp[16];  /* per stack slot: int arg temp, -1 for FP */
-                int stack_meta_fp[16];    /* per stack slot: FP stream index, -1 for int */
+                int stack_meta_temp[IR_CALL_MAX_ARGS];  /* per stack slot: int arg temp, -1 for FP */
+                int stack_meta_fp[IR_CALL_MAX_ARGS];    /* per stack slot: FP stream index, -1 for int */
                 if (full_args) {
                     n_stack = 0;
                     int fp_seen = 0;
@@ -933,7 +937,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (full_args->is_fp[i] == 1) {
                             int f = fp_seen++;
                             int pos = full_args->stack_pos[i];
-                            if (pos < 255 && pos < 16) {
+                            if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
                                 stack_meta_temp[pos] = -1;
                                 stack_meta_fp[pos] = f;
                                 if (pos + 1 > n_stack) n_stack = pos + 1;
@@ -942,7 +946,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         }
                         if (full_args->is_fp[i] == 2 || full_args->is_fp[i] == 3) continue;
                         int pos = full_args->stack_pos[i];
-                        if (pos < 255 && pos < 16) {
+                        if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
                             stack_meta_temp[pos] = full_args->temps[i];
                             stack_meta_fp[pos] = -1;
                             if (pos + 1 > n_stack) n_stack = pos + 1;

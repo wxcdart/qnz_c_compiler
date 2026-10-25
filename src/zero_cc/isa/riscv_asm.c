@@ -204,12 +204,13 @@ static void riscv_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, F
     fprintf(out, "\tmul\t%s, %s, %s\n", dst_name, src1_name, src2_name);
 }
 
-/* DIV: div dst, src1, src2 */
+/* DIV: div/divu dst, src1, src2 */
 static void riscv_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    fprintf(out, "\tdiv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    const char *op = c->lowering.div_is_unsigned ? "divu" : "div";
+    fprintf(out, "\t%s\t%s, %s, %s\n", op, dst_name, src1_name, src2_name);
 }
 
 /* AND: and dst, src1, src2 */
@@ -278,14 +279,16 @@ static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width
     }
 }
 
-/* CMP: sub t0, src1, src2 */
+/* CMP: sub t0, src1, src2; mv t1, src1; mv t2, src2 */
 static void riscv_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
     fprintf(out, "\tsub\tt0, %s, %s\n", src1_name, src2_name);
+    fprintf(out, "\tmv\tt1, %s\n", src1_name);
+    fprintf(out, "\tmv\tt2, %s\n", src2_name);
 }
 
-/* COND_SET: set dst to 1/0 based on t0 (src1 - src2) */
+/* COND_SET: set dst to 1/0 based on t0 (src1 - src2) or t1/t2 (unsigned) */
 static void riscv_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     switch (cond) {
@@ -305,6 +308,20 @@ static void riscv_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *
             break;
         case 4: /* CC_EQ: t0 == 0 */
             fprintf(out, "\tseqz\t%s, t0\n", dst_name);
+            break;
+        case 6: /* CC_ULT: t1 <u t2 */
+            fprintf(out, "\tsltu\t%s, t1, t2\n", dst_name);
+            break;
+        case 7: /* CC_ULE: !(t2 <u t1) */
+            fprintf(out, "\tsltu\t%s, t2, t1\n", dst_name);
+            fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
+            break;
+        case 8: /* CC_UGT: t2 <u t1 */
+            fprintf(out, "\tsltu\t%s, t2, t1\n", dst_name);
+            break;
+        case 9: /* CC_UGE: !(t1 <u t2) */
+            fprintf(out, "\tsltu\t%s, t1, t2\n", dst_name);
+            fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
             break;
         case 5: /* CC_NE: t0 != 0 */
         default:
@@ -434,10 +451,10 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
      * slot k at k(sp). FP slots use the 64-bit fsd store (float args read
      * back as their low 32 bits by the callee's flw). */
     int n_stack = 0;
-    int stack_pos_list[16];
-    for (int i = 0; i < arg_count && i < 16; i++) {
+    int stack_pos_list[IR_CALL_MAX_ARGS];
+    for (int i = 0; i < arg_count && i < IR_CALL_MAX_ARGS; i++) {
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_pos < 255 && arg_pos < 16) {
+        if (arg_pos < 255 && arg_pos < IR_CALL_MAX_ARGS) {
             stack_pos_list[arg_pos] = i;
             if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
         }

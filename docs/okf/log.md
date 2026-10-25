@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-24T23:19:32Z
+timestamp: 2026-10-25T04:47:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -431,3 +431,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-24 — Updated `frontend-and-types.md`
 - Dynamic arena-allocated slices for ZeroCCFunction parameters with C99/C11 127+ parameter limit (ZERO_CC_MAX_PARAMS=256)
+
+## 2026-10-25 — Updated `zero-rt.md`
+- Sprint 49: variadic va_list ABI, unsigned div/mod/compare codegen, and zero_rt printf closeout

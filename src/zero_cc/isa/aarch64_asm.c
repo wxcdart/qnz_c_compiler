@@ -226,15 +226,16 @@ static void aarch64_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
     fprintf(out, "\tmul\t%s, %s, %s\n", dst_name, src1_name, src2_name);
 }
 
-/* DIV: sdiv dst, src1, src2 */
+/* DIV: sdiv/udiv dst, src1, src2 */
 static void aarch64_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    fprintf(out, "\tsdiv\t%s, %s, %s\n", dst_name, src1_name, src2_name);
+    const char *op = c->lowering.div_is_unsigned ? "udiv" : "sdiv";
+    fprintf(out, "\t%s\t%s, %s, %s\n", op, dst_name, src1_name, src2_name);
 }
 
-/* MOD: dst = src1 % src2 (signed)
+/* MOD: dst = src1 % src2 (signed/unsigned)
  * tmp = src1 / src2 ;  dst = src1 - tmp * src2
  * Uses x16 (IP0), a caller-saved intra-procedural scratch register that the
  * register allocator does not assign to variables (mirrors aarch64.c emit_mod). */
@@ -242,7 +243,8 @@ static void aarch64_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    fprintf(out, "\tsdiv\tx16, %s, %s\n", src1_name, src2_name);
+    const char *op = c->lowering.div_is_unsigned ? "udiv" : "sdiv";
+    fprintf(out, "\t%s\tx16, %s, %s\n", op, src1_name, src2_name);
     fprintf(out, "\tmsub\t%s, x16, %s, %s\n", dst_name, src2_name, src1_name);
 }
 
@@ -324,7 +326,8 @@ static void aarch64_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *ou
 /* COND_SET: cset dst, cond */
 static void aarch64_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
-    const char *cc[] = {"lt", "le", "gt", "ge", "eq", "ne"};
+    const char *cc[] = {"lt", "le", "gt", "ge", "eq", "ne", "lo", "ls", "hi", "hs"};
+    if (cond < 0 || cond > 9) return;
     fprintf(out, "\tcset\t%s, %s\n", dst_name, cc[cond]);
 }
 
@@ -465,10 +468,10 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
      * area, slot k at [sp + k*8]. FP slots use the 64-bit d-precision store
      * (float args read back as their low 32 bits by the callee). */
     int n_stack = 0;
-    int stack_pos_list[16];
-    for (int i = 0; i < arg_count && i < 16; i++) {
+    int stack_pos_list[IR_CALL_MAX_ARGS];
+    for (int i = 0; i < arg_count && i < IR_CALL_MAX_ARGS; i++) {
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_pos < 255 && arg_pos < 16) {
+        if (arg_pos < 255 && arg_pos < IR_CALL_MAX_ARGS) {
             stack_pos_list[arg_pos] = i;
             if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
         }

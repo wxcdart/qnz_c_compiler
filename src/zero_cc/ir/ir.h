@@ -478,6 +478,11 @@ static inline void ir_mark_last_width(uint8_t w) {
     if (n > 0) ir_get(n - 1)->width = w;
 }
 
+static inline void ir_mark_last_unsigned(uint8_t u) {
+    size_t n = ir_get_count();
+    if (n > 0) ir_get(n - 1)->cond = u;
+}
+
 /* Insert instruction at specific index (shifts existing instructions) */
 void ir_insert_at(size_t idx, Instr instr);
 

@@ -267,11 +267,20 @@ static void x86_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
 
+    if (src2 == 0 || src2 == 2) {
+        fprintf(out, "\tmovq\t%%%s,%%r11\n", src2_name);
+        src2_name = "r11";
+    }
     if (src1 != 0) {  /* RAX */
         fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
     }
-    fprintf(out, "\tcqo\n");
-    fprintf(out, "\tidivq\t%%%s\n", src2_name);
+    if (c->lowering.div_is_unsigned) {
+        fprintf(out, "\txorl\t%%edx, %%edx\n");
+        fprintf(out, "\tdivq\t%%%s\n", src2_name);
+    } else {
+        fprintf(out, "\tcqo\n");
+        fprintf(out, "\tidivq\t%%%s\n", src2_name);
+    }
     if (dst != 0) {
         fprintf(out, "\tmovq\t%%rax,%%%s\n", dst_name);
     }
@@ -283,11 +292,20 @@ static void x86_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FIL
     const char *src1_name = BE(c)->get_hw_reg_name(src1);
     const char *src2_name = BE(c)->get_hw_reg_name(src2);
 
+    if (src2 == 0 || src2 == 2) {
+        fprintf(out, "\tmovq\t%%%s,%%r11\n", src2_name);
+        src2_name = "r11";
+    }
     if (src1 != 0) {  /* RAX */
         fprintf(out, "\tmovq\t%%%s,%%rax\n", src1_name);
     }
-    fprintf(out, "\tcqo\n");
-    fprintf(out, "\tidivq\t%%%s\n", src2_name);
+    if (c->lowering.div_is_unsigned) {
+        fprintf(out, "\txorl\t%%edx, %%edx\n");
+        fprintf(out, "\tdivq\t%%%s\n", src2_name);
+    } else {
+        fprintf(out, "\tcqo\n");
+        fprintf(out, "\tidivq\t%%%s\n", src2_name);
+    }
     if (dst != 2) {  /* RDX */
         fprintf(out, "\tmovq\t%%rdx,%%%s\n", dst_name);
     }
@@ -586,10 +604,10 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
      * Push in descending stack_pos order, 16-byte aligned. FP stack args
      * are pushed via movsd+subq (the value sits in the temp's XMM reg). */
     int n_stack = 0;
-    int stack_pos_list[16];   /* slot k holds the side-table index of arg k */
-    for (int i = 0; i < arg_count && i < 16; i++) {
+    int stack_pos_list[IR_CALL_MAX_ARGS];   /* slot k holds the side-table index of arg k */
+    for (int i = 0; i < arg_count && i < IR_CALL_MAX_ARGS; i++) {
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_pos < 255 && arg_pos < 16) {
+        if (arg_pos < 255 && arg_pos < IR_CALL_MAX_ARGS) {
             stack_pos_list[arg_pos] = i;
             if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
         }
@@ -657,29 +675,25 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Move first 6 integer args directly to ABI registers (RDI, RSI, RDX, RCX, R8, R9).
-     * Use R10 as a scratch register to safely handle cases where the source
-     * register is also a destination for another argument (parallel moves). */
-    for (int i = (n_int_args < 6 ? n_int_args : 6) - 1; i >= 0; i--) {
+    /* Push all src integer registers to stack (reloading spilled temps via %r10) */
+    for (int i = 0; i < n_int_args; i++) {
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
-        const char *dst_reg = int_arg_regs[i];
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%%s),%%%s\n",
+            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
                     (int)zero_cc_frame_disp_at(c, -off, extra_sp),
-                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)),
-                    dst_reg);
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+            fprintf(out, "\tpushq\t%%r10\n");
         } else {
             int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
-            const char *src_reg = BE(c)->get_hw_reg_name(phys_reg);
-            if (strcmp(src_reg, dst_reg) != 0) {
-                /* Use R10 as scratch to avoid clobbering other argument registers */
-                fprintf(out, "\tmovq\t%%%s,%%r10\n", src_reg);
-                fprintf(out, "\tmovq\t%%r10,%%%s\n", dst_reg);
-            }
+            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
         }
+        extra_sp += 8;
     }
-    /* Stack args (7+) were already pushed above in the stack_pos/legacy block */
+    /* Pop in reverse into destination ABI registers */
+    for (int i = n_int_args - 1; i >= 0; i--) {
+        fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
+    }
 
     if (indirect_reg_name) {
         fprintf(out, "\tcall\t*%%r11\n");

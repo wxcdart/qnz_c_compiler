@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 49] - 2026-10-25 - ABI-Correct Variadic `va_list`, Unsigned `DIV`/`MOD`/`CMP` Codegen, `zero_rt` `printf` Closeout & 256-Stack-Arg Call Fix
+
+- **ABI-Correct Variadic Argument Machinery (`va_list`)**:
+  - Replaced the single-pointer `va_list` with a 5-pointer dual-stream struct `{gp, gp_end, fp, fp_end, ovf}` (`src/zero_cc/core/preprocessor.h`), supporting `va_list` passing across multiple function calls (`printf` → `rt_stream_printf` → `vsnprintf_core`).
+  - Variadic register save area placed above named locals (`ast_lowering.c`), with GP + FP argument registers spilled in prologue across x86-64, AArch64, and RISC-V (`x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `riscv.c`). Variadic functions keep their frame pointer (`omit_frame_pointer = false`).
+  - `IRCallArgs.stack_pos` tracks combined stack position so overflow integer and floating-point arguments are pushed in original argument order; expanded `stack_meta_temp`/`stack_meta_fp` (`ast_lowering_mc.c`) and `stack_pos_list` (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`) from 16 to `IR_CALL_MAX_ARGS` (`256`) so functions with 32–128+ parameters pass all stack arguments without truncation (`test/jit/many_params.c`).
+- **Unsigned Integer Division, Modulo & Relational Comparisons (`OP_DIV`, `OP_MOD`, `OP_COND_SET`)**:
+  - Root cause of `zero_rt` `printf` `%llx`/`%llu` printing empty for values $\ge 2^{63}$ and `%f` misformatting doubles $\ge 10^{15}$: `OP_DIV`/`OP_MOD` previously always emitted signed `cqo; idivq` (`sdiv`/`div`), and integer `<`/`<=`/`>`/`>=` always emitted signed condition codes (`CC_LT..CC_GE` → `setl`/`setle`/`setg`/`setge`), treating `uint64_t` values with bit 63 set as negative in `u64_chars` (`zero_rt/core/stdio.c`) and vendored Ryū (`d2fixed.c`, `d2s.c`).
+  - Fix: Added `zero_cc_expr_int_info` and `zero_cc_binop_is_unsigned` in `src/zero_cc/ir/ast_lowering_expr.c` implementing C99 usual arithmetic conversions for `/`, `%`, `/=`, `%=`, `<`, `<=`, `>`, `>=`, plus integer literal suffix preservation (`u`/`l`/`ll` in `NODE_INT.flags`).
+  - Unsigned `OP_DIV`/`OP_MOD` (`ir_mark_last_unsigned(1)`) emits `xor %edx, %edx; divq` on x86-64 (`x86_64.c`, `x86_64_asm.c`), `udiv` on AArch64 (`aarch64.c`, `aarch64_asm.c`), and `divu`/`remu` on RISC-V (`riscv.c`, `riscv_asm.c`), and folds with `uint64_t` arithmetic in `opt_constant_fold.c`.
+  - Unsigned relational comparisons emit condition codes `6..9` (`setb`/`setbe`/`seta`/`setae` on x86-64, `lo`/`ls`/`hi`/`hs` on AArch64, `sltu` on RISC-V).
+- **`zero_rt` `printf` Phase 0 Closeout (`zero_rt/core/stdio.c`)**:
+  - Removed the duplicate `fmt++` after the conversion switch in `vsnprintf_core` that skipped the character immediately following every `%` conversion.
+  - Fixed `ryu_parse` scientific exponent extraction (`*exp_out = e`) and `d2exp_buffered` precision in `fmt_g` and `%e`.
+  - Verified `--zerocc-link` `printf` output matches host `gcc`/glibc across `%d`, `%lld`, `%u`, `%llu`, `%x`, `%llx`, `%X`, `%llX`, `%o`, `%llo`, `%s`, `%c`, `%p`, `%f`, `%e`, `%g` including `0xdeadbeefcafebabeULL`, `ULLONG_MAX`, `0x8000000000000000ULL`, `1e15`, and `1.25e20`.
+- **Verification**:
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3` in JIT and AOT, including `test/jit/many_params.c`)
+  - `make test-isa-qemu`: **44/44 passed** (`x86_64`, `aarch64`, `riscv64`, `riscv32`)
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**
+  - `python3 tools/diag_battery.py`: **16/16 passed**
+  - `python3 tools/style_check.py`: **0 errors**
+  - `python3 tools/okf.py lint`: **PASS**
+
 ## [Sprint 48] - 2026-10-24 - Dynamic Arena Slices for Function Parameters (C99/C11 127+ Limit) & Caller Dynamic-SP Spill-Offset Fix
 
 - **Dynamic Arena-Allocated Parameter Slices (C99/C11 127+ Limit & Memory Shrink)**:

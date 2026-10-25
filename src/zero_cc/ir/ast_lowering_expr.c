@@ -58,6 +58,133 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     }
 }
 
+static int zero_cc_ztype_int_info(const ZeroCCType *zt, int *is_unsigned) {
+    if (!zt) { *is_unsigned = 0; return 4; }
+    if (zt->tag == TYPE_UINT32) { *is_unsigned = 1; return 4; }
+    if (zt->tag == TYPE_UINT64 || zt->tag == TYPE_PTR || zt->tag == TYPE_ARRAY) {
+        *is_unsigned = 1;
+        return 8;
+    }
+    if (zt->tag == TYPE_INT64) { *is_unsigned = 0; return 8; }
+    *is_unsigned = 0;
+    return 4;
+}
+
+/* Determine promoted integer width (4 or 8) and signedness (*is_unsigned)
+ * of an expression for C99 usual arithmetic conversions on /, %, <, <=, >, >=. */
+static int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ASTRef ref, int *is_unsigned) {
+    *is_unsigned = 0;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return 4;
+    TypeInfo *ti = ast_node_get_typeinfo(c, n);
+    if (ti) {
+        if (type_is_pointer(ti) || ti->kind == TYPE_KIND_ARRAY) {
+            *is_unsigned = 1;
+            return 8;
+        }
+        if (type_is_integer(ti)) {
+            size_t sz = type_size(ti);
+            if (sz < 4) {
+                *is_unsigned = 0;
+                return 4;
+            }
+            *is_unsigned = type_is_unsigned(ti) ? 1 : 0;
+            return (int)sz;
+        }
+    }
+    switch (n->tag) {
+        case NODE_INT: {
+            int64_t v = n->int_val;
+            uint8_t suf = (uint8_t)(n->flags & 7u);
+            if (suf & 6u) {
+                *is_unsigned = (suf & 1u) ? 1 : 0;
+                return 8;
+            }
+            if (suf & 1u) {
+                *is_unsigned = 1;
+                return (v > INT64_C(0xFFFFFFFF) || v < 0) ? 8 : 4;
+            }
+            if (v >= INT32_MIN && v <= INT32_MAX) { *is_unsigned = 0; return 4; }
+            if (v > INT32_MAX && v <= INT64_C(0xFFFFFFFF)) { *is_unsigned = 1; return 4; }
+            *is_unsigned = 0;
+            return 8;
+        }
+        case NODE_IDENT: {
+            ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
+            const ZeroCCType *zt = sym ? &sym->type : NULL;
+            if (!zt) {
+                ZeroCCGlobalVar *gv = find_global_var(n->s.str);
+                if (gv) zt = &gv->type;
+            }
+            return zero_cc_ztype_int_info(zt, is_unsigned);
+        }
+        case NODE_CALL: {
+            ZeroCCASTNode *cal = zero_cc_ast_get(arena, n->left);
+            if (cal && cal->tag == NODE_IDENT) {
+                ZeroCCFunction *f = zero_cc_find_function(c, cal->s.str);
+                if (f) return zero_cc_ztype_int_info(&f->return_type, is_unsigned);
+            }
+            return 4;
+        }
+        case NODE_INDEX: {
+            ZeroCCASTNode *base = zero_cc_ast_get(arena, n->left);
+            if (base && base->tag == NODE_IDENT) {
+                ZeroCCSym *sym = zero_cc_find_local(c, base->s.str);
+                const ZeroCCType *zt = sym ? &sym->type : NULL;
+                if (!zt) {
+                    ZeroCCGlobalVar *gv = find_global_var(base->s.str);
+                    if (gv) zt = &gv->type;
+                }
+                if (zt && zt->base) return zero_cc_ztype_int_info(zt->base, is_unsigned);
+            }
+            return 4;
+        }
+        case NODE_UNOP:
+            if (n->aux.op == TK_BANG) { *is_unsigned = 0; return 4; }
+            return zero_cc_expr_int_info(c, arena, n->left, is_unsigned);
+        case NODE_TERNARY: {
+            int lu = 0, ru = 0;
+            int lw = zero_cc_expr_int_info(c, arena, n->right, &lu);
+            int rw = zero_cc_expr_int_info(c, arena, n->aux.alt, &ru);
+            if (lw > rw) { *is_unsigned = lu; return lw; }
+            if (rw > lw) { *is_unsigned = ru; return rw; }
+            *is_unsigned = (lu || ru) ? 1 : 0;
+            return lw;
+        }
+        case NODE_BINOP: {
+            switch (n->aux.op) {
+                case TK_EQ: case TK_NE: case TK_LT: case TK_LE:
+                case TK_GT: case TK_GE: case TK_LOGAND: case TK_LOGOR:
+                    *is_unsigned = 0;
+                    return 4;
+                case TK_SHL: case TK_SHR:
+                    return zero_cc_expr_int_info(c, arena, n->left, is_unsigned);
+                default: break;
+            }
+            int lu = 0, ru = 0;
+            int lw = zero_cc_expr_int_info(c, arena, n->left, &lu);
+            int rw = zero_cc_expr_int_info(c, arena, n->right, &ru);
+            if (lw > rw) { *is_unsigned = lu; return lw; }
+            if (rw > lw) { *is_unsigned = ru; return rw; }
+            *is_unsigned = (lu || ru) ? 1 : 0;
+            return lw;
+        }
+        default:
+            return 4;
+    }
+}
+
+static bool zero_cc_binop_is_unsigned(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                      ASTRef left_ref, ASTRef right_ref) {
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, left_ref, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, right_ref, &ru);
+    if (lw > rw) return lu != 0;
+    if (rw > lw) return ru != 0;
+    return (lu || ru);
+}
+
 /* Compute the address of the final member of a multi-segment member
  * chain (o.p->v, a.b.c, p->a->b, ...) - C5. The flat "sum all offsets"
  * model cannot dereference intermediate pointer members, so the segments
@@ -745,9 +872,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     break;
                 case TK_SLASH:
                     ir_emit_div(result_temp, left_temp, right_temp);
+                    if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
+                        ir_mark_last_unsigned(1);
+                    }
                     break;
                 case TK_PERCENT:
                     ir_emit_mod(result_temp, left_temp, right_temp);
+                    if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
+                        ir_mark_last_unsigned(1);
+                    }
                     break;
                 case TK_AMP:
                     ir_emit_and(result_temp, left_temp, right_temp);
@@ -788,6 +921,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         case TK_GT: cond = CC_GT; break;
                         case TK_GE: cond = CC_GE; break;
                         default: cond = CC_EQ; break;
+                    }
+                    if (cond >= CC_LT && cond <= CC_GE &&
+                        zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
+                        cond += 6;
                     }
                     ir_emit_cmp(left_temp, right_temp);
                     ir_emit_cond_set(result_temp, cond);
@@ -2131,8 +2268,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 case TK_ADD_ASSIGN: ir_emit_add(op_res, left_temp, right_temp); break;
                                 case TK_SUB_ASSIGN: ir_emit_sub(op_res, left_temp, right_temp); break;
                                 case TK_MUL_ASSIGN: ir_emit_mul(op_res, left_temp, right_temp); break;
-                                case TK_DIV_ASSIGN: ir_emit_div(op_res, left_temp, right_temp); break;
-                                case TK_MOD_ASSIGN: ir_emit_mod(op_res, left_temp, right_temp); break;
+                                case TK_DIV_ASSIGN:
+                                    ir_emit_div(op_res, left_temp, right_temp);
+                                    if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) ir_mark_last_unsigned(1);
+                                    break;
+                                case TK_MOD_ASSIGN:
+                                    ir_emit_mod(op_res, left_temp, right_temp);
+                                    if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) ir_mark_last_unsigned(1);
+                                    break;
                                 case TK_AND_ASSIGN: ir_emit_and(op_res, left_temp, right_temp); break;
                                 case TK_OR_ASSIGN:  ir_emit_or(op_res, left_temp, right_temp); break;
                                 case TK_XOR_ASSIGN: ir_emit_xor(op_res, left_temp, right_temp); break;
@@ -3274,7 +3417,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int32_t fp_spill_offsets[IR_CALL_MAX_ARGS];
                 uint8_t int_spill_stack_pos[IR_CALL_MAX_ARGS];
                 uint8_t fp_spill_stack_pos[IR_CALL_MAX_ARGS];
-                int int_arg_original_temps[IR_CALL_MAX_ARGS];
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
                 int param_idx = 0;  /* declaration-order index into callee param_types */
@@ -3399,10 +3541,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 while (arg != AST_NULL) {
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     int temp = lower_expr(c, arena, arg);
-                    /* Save original temp for register args (before spill) */
-                    if (!c->last_expr_is_float && int_arg_idx < IR_CALL_MAX_ARGS) {
-                        int_arg_original_temps[int_arg_idx] = temp;
-                    }
                     /* C99 int width semantics: narrow int args are extended
                      * to full 64-bit width before being passed (the callee
                      * must see a true 32-bit value, not 64-bit overflow
@@ -3510,13 +3648,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 /* Then reload user integer arguments */
                 uint8_t all_arg_stack_pos[IR_CALL_MAX_ARGS];
                 for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
-                    if (int_spill_stack_pos[a] == 255) {
-                        all_arg_temps[all_arg_count] = int_arg_original_temps[a];
-                    } else {
-                        int reload_temp = c->next_temp_id++;
-                        ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
-                        all_arg_temps[all_arg_count] = reload_temp;
-                    }
+                    int reload_temp = c->next_temp_id++;
+                    ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
+                    all_arg_temps[all_arg_count] = reload_temp;
                     all_arg_is_fp[all_arg_count] = 0;
                     all_arg_stack_pos[all_arg_count] = int_spill_stack_pos[a];
                     all_arg_count++;

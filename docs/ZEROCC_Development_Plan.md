@@ -11,6 +11,13 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 49: ABI-Correct Variadic `va_list`, Unsigned `DIV`/`MOD`/`CMP` Codegen, `zero_rt` `printf` Closeout & 256-Stack-Arg Call Fix ✅
+- **Achievement**:
+  - **Dual-stream `va_list` (`{gp, gp_end, fp, fp_end, ovf}`)**: replaced the single-pointer `va_list` with a 5-pointer struct across `<stdarg.h>`, prologue register-save area (x86-64, AArch64, RISC-V), and `NODE_VA_START`/`NODE_VA_ARG`, supporting `va_list` forwarding across multiple function calls (`printf` → `rt_stream_printf` → `vsnprintf_core`). Expanded `stack_meta_temp`/`stack_meta_fp`/`stack_pos_list` to `IR_CALL_MAX_ARGS` (`256`) so 32–128+ parameter functions (`test/jit/many_params.c`) pass all stack arguments cleanly across `-O0..-O3`.
+  - **Unsigned integer `/`, `%`, and `<`/`<=`/`>`/`>=` codegen**: `zero_cc_binop_is_unsigned` (`ast_lowering_expr.c`) marks unsigned `OP_DIV`/`OP_MOD` (`xor %edx,%edx; divq` on x86-64, `udiv` on AArch64, `divu`/`remu` on RISC-V) and emits unsigned condition codes (`6..9` → `setb`/`setbe`/`seta`/`setae` on x86-64, `lo`/`ls`/`hi`/`hs` on AArch64, `sltu` on RISC-V).
+  - **`zero_rt` `printf` Phase 0 closeout**: removed duplicate `fmt++` in `vsnprintf_core`, fixed `ryu_parse` scientific exponent extraction and `d2exp_buffered` precision for `%e`/`%g`. `--zerocc-link` `printf` now matches `gcc`/glibc on `%llx`/`%llu`/`%llo` for values $\ge 2^{63}$ and `%f`/`%e`/`%g` for doubles $\ge 10^{15}$.
+- **Gates**: `make test` **156/156**, `make test-opt` **117/117**, `make test-isa-qemu` **44/44**, sret **6/6**, diag **16/16**, style **0 errors**, okf lint clean.
+
 ### Sprint 48: Dynamic Arena Slices for Function Parameters (C99/C11 127+ Limit) & Caller Dynamic-SP Spill-Offset Fix ✅
 - **Achievement**: `ZeroCCFunction` parameters moved from fixed inline arrays to dynamically arena-allocated slices (dedicated `c->fn_arena`); `sizeof(ZeroCCFunction)` shrank ~8.3 KB → 400 bytes (~95% memory savings across `c->functions[]`). Parameter cap expanded to `ZERO_CC_MAX_PARAMS 256` / `IR_CALL_MAX_ARGS 256` — comfortably beyond the C99/C11 127-parameter translation limit (ISO/IEC 9899 §5.2.4.1) — with a clean diagnostic when exceeded. Multi-TU merge deep-copies param slices.
 - **Dynamic-SP Spill-Offset Fix**: with `omit_frame_pointer` active, callers that push stack arguments shift `%rsp`; spilled argument temps were reloaded at the *static* frame displacement, reading wrong stack locations on calls with 11+ params. New `zero_cc_frame_disp_at(c, off, extra_sp)` tracks the running SP shift during call/syscall argument marshaling in all four ISAs (JIT + asm paths).
@@ -337,8 +344,8 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ## Next Steps (Future Roadmap)
 
-### ⚡ Current Priorities (as of 2026-10-24, verified at HEAD)
-1. **Fix the zero_rt printf segfault** (Phase 0 closeout item #1 — see §5). Repro at HEAD: `zerocc --zerocc-link t.c -o app` where `t.c` calls `printf("hello\n")` → SIGSEGV (jump to a garbage address in the `vsnprintf_core`/static-buffer path of `rt_stream_printf`); direct `__zerocc_syscall(write, ...)` in the same binary works. Blocks any real-world use of the freestanding runtime.
+### ⚡ Current Priorities (as of 2026-10-25, verified at HEAD)
+1. ~~**Fix the zero_rt printf segfault / formatting issues**~~ — **DONE (Sprint 49)**: dual-stream `va_list`, duplicate `fmt++` removal, `ryu_parse` exponent fix, and unsigned `OP_DIV`/`OP_MOD`/`OP_COND_SET` codegen across all ISAs. `--zerocc-link` `printf` now matches `gcc`/glibc across `%llx`/`%llu` ($\ge 2^{63}$) and `%f`/`%e`/`%g` ($\ge 10^{15}$).
 2. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators are available on-demand on the CFG).
 3. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
 4. **T0 remainder**: `-MMD`-style `.d` dependency generation (the `-I` include search half is **done** — `main.c` parses `-I`/`-Idir` into `opts->include_dirs` and the preprocessor searches them; verified working; only `.d` depfiles remain).

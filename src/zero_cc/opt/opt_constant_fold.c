@@ -59,14 +59,18 @@ static void clear_constants(void) {
  * 64-bit machine ops: two's-complement ADD/SUB/MUL, idiv-class DIV/MOD,
  * logical SHR on the bit pattern, arithmetic SAR.
  */
-static int64_t fold_binop(int op, int64_t left, int64_t right) {
+static int64_t fold_binop(int op, int is_unsigned, int64_t left, int64_t right) {
     uint64_t ur = (uint64_t)right & 63;  /* x86 masks shift counts */
     switch (op) {
         case OP_ADD: return left + right;
         case OP_SUB: return left - right;
         case OP_MUL: return left * right;
-        case OP_DIV: return (right != 0) ? left / right : 0;
-        case OP_MOD: return (right != 0) ? left % right : 0;
+        case OP_DIV:
+            if (right == 0) return 0;
+            return is_unsigned ? (int64_t)((uint64_t)left / (uint64_t)right) : (left / right);
+        case OP_MOD:
+            if (right == 0) return 0;
+            return is_unsigned ? (int64_t)((uint64_t)left % (uint64_t)right) : (left % right);
         case OP_AND: return left & right;
         case OP_OR:  return left | right;
         case OP_XOR: return left ^ right;
@@ -128,7 +132,8 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 // Both operands are constants - fold them (64-bit)
                 int64_t left_val = ir_get_constant(instr->temp_src1);
                 int64_t right_val = ir_get_constant(instr->temp_src2);
-                int64_t result = fold_binop(instr->op, left_val, right_val);
+                int is_unsigned = (instr->cond != 0 || instr->width > 8);
+                int64_t result = fold_binop(instr->op, is_unsigned, left_val, right_val);
 
                 // Replace with MOV_IMM - preserve dest, set src to 0xFF
                 int dest = instr->temp_dest;

@@ -272,8 +272,9 @@ static void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void riscv64_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* div dst, src1, src2: opcode 0x33, funct3=4, funct7=1 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 4, 1));
+    /* div/divu dst, src1, src2: opcode 0x33, funct3=4 (div) or 5 (divu), funct7=1 */
+    int f3 = c->lowering.div_is_unsigned ? 5 : 4;
+    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), f3, 1));
 }
 
 static void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -630,8 +631,9 @@ static void riscv64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offse
 }
 
 static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* rem dst, src1, src2: opcode 0x33, funct3=6, funct7=1 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 6, 1));
+    /* rem/remu dst, src1, src2: opcode 0x33, funct3=6 (rem) or 7 (remu), funct7=1 */
+    int f3 = c->lowering.div_is_unsigned ? 7 : 6;
+    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), f3, 1));
 }
 
 /* Core emission functions */
@@ -781,6 +783,20 @@ static void riscv64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
             break;
         case 3: /* CC_GE: dst = !(src1 < src2) */
             riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 2, 0));  /* slt */
+            riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 4, 1, 0x13));           /* xori dst, dst, 1 */
+            break;
+        case 6: /* CC_ULT: dst = (uint)src1 < (uint)src2 */
+            riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 3, 0));  /* sltu */
+            break;
+        case 7: /* CC_ULE: dst = !((uint)src2 < (uint)src1) */
+            riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src2), RV_REG(src1), 3, 0));  /* sltu */
+            riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 4, 1, 0x13));           /* xori dst, dst, 1 */
+            break;
+        case 8: /* CC_UGT: dst = (uint)src2 < (uint)src1 */
+            riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src2), RV_REG(src1), 3, 0));  /* sltu */
+            break;
+        case 9: /* CC_UGE: dst = !((uint)src1 < (uint)src2) */
+            riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 3, 0));  /* sltu */
             riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 4, 1, 0x13));           /* xori dst, dst, 1 */
             break;
         case 4: /* CC_EQ: dst = (src1 - src2) == 0 (sub into dst, then seqz: sltiu dst, dst, 1) */

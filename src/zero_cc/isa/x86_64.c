@@ -589,8 +589,17 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
     if (save_rax) me_emit_u8(c, 0x50);  /* push rax */
 
     x86_mov_rr(c, X86_RAX, src1);
-    x86_emit_cqo(c);
-    x86_emit_idiv(c, divisor);
+    if (c->lowering.div_is_unsigned) {
+        /* xor %edx, %edx (31 D2) + div r/m64 (REX.W F7 /6) */
+        me_emit_u8(c, 0x31);
+        me_emit_u8(c, 0xD2);
+        x86_rex(c, 1, 0, 0, (divisor >> 3) & 1);
+        me_emit_u8(c, 0xF7);
+        x86_modrm(c, 3, 6, divisor);
+    } else {
+        x86_emit_cqo(c);
+        x86_emit_idiv(c, divisor);
+    }
 
     /* Result: quotient in rax (div) or remainder in rdx (mod).  Move it to
      * dst unless dst already IS the result register — dst==rdx for a DIV

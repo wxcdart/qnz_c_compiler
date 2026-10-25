@@ -387,9 +387,13 @@ static void aarch64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
         0x9A9FB7E0,  /* CC_GE: cset Xd, ge (CSINC Xd, XZR, XZR, lt) */
         0x9A9F17E0,  /* CC_EQ: cset Xd, eq (CSINC Xd, XZR, XZR, ne) */
         0x9A9F07E0,  /* CC_NE: cset Xd, ne (CSINC Xd, XZR, XZR, eq) */
+        0x9A9F27E0,  /* CC_FLT_LT/ULT: cset Xd, lo (CSINC Xd, XZR, XZR, hs) */
+        0x9A9F87E0,  /* CC_FLT_LE/ULE: cset Xd, ls (CSINC Xd, XZR, XZR, hi) */
+        0x9A9F97E0,  /* CC_FLT_GT/UGT: cset Xd, hi (CSINC Xd, XZR, XZR, ls) */
+        0x9A9F37E0,  /* CC_FLT_GE/UGE: cset Xd, hs (CSINC Xd, XZR, XZR, lo) */
     };
 
-    if (cond < 0 || cond > 5) {
+    if (cond < 0 || cond > 9) {
         fprintf(stderr, "Invalid condition code: %d\n", cond);
         abort();
     }

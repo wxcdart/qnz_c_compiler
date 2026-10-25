@@ -67,6 +67,7 @@ typedef struct {
     int cmp_src1;                      /* First operand of last CMP instruction */
     int cmp_src2;                      /* Second operand of last CMP instruction */
     int cmp_is_fp;                     /* Last CMP had FP-class operands */
+    int div_is_unsigned;               /* Current DIV/MOD uses unsigned division */
 
     /* Hybrid VLA enforcement state */
     VLAState vla;                      /* VLA tracking and enforcement */
