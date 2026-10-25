@@ -476,10 +476,26 @@ static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t
     arm64_emit_u32(c, 0xFC000000 | ((uint32_t)imm & 0x1FF) << 12 | ((uint32_t)base << 5) | (src_reg & 0x1F));
 }
 
-/* variadic_spill - spill variadic arguments */
+/* Forward decls (defined further below) for the variadic spill. */
+static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
+static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
+
+/* variadic_spill - spill ALL argument registers (x0..x7, then f0..f7 as
+ * 64-bit doubles) into the 16-slot save area. va_start points the streams
+ * just past the slots consumed by named parameters, so the spill is
+ * unconditional. (Was a no-op: variadic args were never accessible via
+ * va_arg on AArch64.) */
 static void aarch64_emit_variadic_spill(ZeroCCCompiler *c, int count, int32_t offset) {
-    /* No-op for AArch64 - variadic args already in register save area */
-    (void)c; (void)count; (void)offset;
+    (void)count;
+    int base = zero_cc_frame_base_reg(c);
+    int gp_regs = BE(c)->conv->int_arg_reg_count;
+    int fp_regs = BE(c)->conv->fp_arg_reg_count;
+    for (int i = 0; i < gp_regs; i++) {
+        aarch64_emit_store(c, i, base, -(offset + (int32_t)i * 8));
+    }
+    for (int i = 0; i < fp_regs; i++) {
+        aarch64_emit_store_fp(c, i, base, -(offset + (int32_t)(gp_regs + i) * 8));
+    }
 }
 
 /* variadic_al_setup - setup for variadic argument access */

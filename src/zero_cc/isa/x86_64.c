@@ -978,8 +978,14 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     }
     me_emit_u32(c, (uint32_t)rel);
 
-    /* Add relocation entry for linker to patch */
-    if (c->reloc_count < 512) {
+    /* Add relocation entry for linker to patch. The cap must be the full
+     * array size (ZERO_CC_MAX_RELOCS), matching every other reloc-emitting
+     * site: the shared c->relocs array also receives data relocations
+     * (OP_MOV_GLOBAL etc.), so a small hardcoded cap silently drops call
+     * relocations once a TU accumulates enough of them — leaving `call +0`
+     * instructions that skip the callee's body (Sprint 49: zero_rt printf
+     * segfault root cause). */
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
         ZeroCCReloc *r = &c->relocs[c->reloc_count++];
         r->text_patch_offset = patch_pos;
         snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
@@ -1734,10 +1740,23 @@ static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offse
 
 /* Variadic spill: spill remaining integer registers for va_start */
 static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
+    (void)param_count;
+    /* Save area (16 8-byte slots above the locals; see the variadic spill
+     * reservation in zero_cc_lower_ast): slots 0..5 = rdi rsi rdx rcx r8
+     * r9, slots 6..13 = lower 64 bits of xmm0..xmm7. All registers are
+     * spilled unconditionally - va_start points the streams just past the
+     * slots consumed by named parameters. The FP spill is what makes
+     * va_arg(ap, float/double) work: without it the xmm arg regs were never
+     * copied into the va area and va_arg read stale stack memory. */
     static const uint8_t arg_regs[6] = {7, 6, 2, 1, 8, 9}; /* rdi rsi rdx rcx r8 r9 */
-    for (size_t p = param_count; p < 6; p++) {
-        int32_t spill_offset = base_offset + (int32_t)(p - param_count) * 8;
-        x86_rm(c, 0x89, arg_regs[p], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_offset));
+    int base = zero_cc_frame_base_reg(c);
+    int gp_regs = BE(c)->conv->int_arg_reg_count;
+    int fp_regs = BE(c)->conv->fp_arg_reg_count;
+    for (int i = 0; i < gp_regs; i++) {
+        x86_rm(c, 0x89, arg_regs[i], base, zero_cc_frame_disp(c, -(base_offset + (int32_t)i * 8)));
+    }
+    for (int i = 0; i < fp_regs; i++) {
+        x86_emit_store_fp(c, i, base, zero_cc_frame_disp(c, -(base_offset + (int32_t)(gp_regs + i) * 8)));
     }
 }
 

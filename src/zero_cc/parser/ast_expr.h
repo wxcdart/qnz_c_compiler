@@ -287,6 +287,12 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->line = (uint32_t)tok->line;
             n->col = (uint32_t)tok->col;
             n->int_val = tok->num_val;
+            /* Save the literal's type suffix (bit0=u, bit1=l, bit2=ll):
+             * C11 6.4.4.1 - the suffix fixes the literal's type even when
+             * the value fits in a narrower type (1ULL is long long, not
+             * int). Consumers: zero_cc_operand_int_width (C99 width
+             * semantics) and literal-type inference. */
+            n->flags = (uint16_t)tok->int_suffix;
             return ref;
         }
 

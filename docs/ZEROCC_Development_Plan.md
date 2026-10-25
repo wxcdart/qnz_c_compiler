@@ -11,11 +11,40 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 48: Dynamic Arena Slices for Function Parameters (C99/C11 127+ Limit) & Caller Dynamic-SP Spill-Offset Fix ✅
+- **Achievement**: `ZeroCCFunction` parameters moved from fixed inline arrays to dynamically arena-allocated slices (dedicated `c->fn_arena`); `sizeof(ZeroCCFunction)` shrank ~8.3 KB → 400 bytes (~95% memory savings across `c->functions[]`). Parameter cap expanded to `ZERO_CC_MAX_PARAMS 256` / `IR_CALL_MAX_ARGS 256` — comfortably beyond the C99/C11 127-parameter translation limit (ISO/IEC 9899 §5.2.4.1) — with a clean diagnostic when exceeded. Multi-TU merge deep-copies param slices.
+- **Dynamic-SP Spill-Offset Fix**: with `omit_frame_pointer` active, callers that push stack arguments shift `%rsp`; spilled argument temps were reloaded at the *static* frame displacement, reading wrong stack locations on calls with 11+ params. New `zero_cc_frame_disp_at(c, off, extra_sp)` tracks the running SP shift during call/syscall argument marshaling in all four ISAs (JIT + asm paths).
+- **Verification**: n=1..130 parameter functions diffed against host GCC in JIT and AOT; `test/jit/many_params.c` (11/16/32/128 params); clean error at 257 params. Gates: `make test` **156/156**, `make test-opt` **117/117**, `make test-isa-qemu` **44/44**, sret 6/6, diag baseline OK, style 0 errors, okf lint clean.
+
+### Sprint 47: FP-Argument Load Ordering in `OP_CALL` (7+ Integer Args) ✅
+- **Achievement**: Fixed a pre-existing miscompile where any call with 7+ integer args corrupted every float argument: the integer setup pushes stack args (shifting `%rsp`) *before* the FP-arg loads read their spill slots, so the frame-relative offsets were stale and adjacent bytes landed in `%xmm0..7`. Fix: emit FP-arg loads before the stack-arg pushes in the raw-byte MC path (`ast_lowering_mc.c`), matching the `-S` path's order (the block is shared, so the invariant holds for all ISAs). Regression: `test/jit/varargs_float.c`.
+- **Gates**: test 155/155, test-opt 116/116, test-isa-qemu 44/44, diag baseline OK, style 0 errors, okf lint clean. Ordering invariant documented in `docs/okf/abi-sysv-x86_64.md` §1.
+
+### Sprint 46: Static TLS (`_Thread_local`) End-to-End + Function-Declarator/Void-Parameter Fixes ✅
+- **Achievement**: C11 `_Thread_local` for file-scope statics in **all four modes** (JIT `--run`, AOT `-c`/`-o` via zerocc's ELF writer, AOT `-S`, gcc-linked objects, dynamic + static) using the x86-64 initial-exec model: new `OP_TLS_LEA` IR op, `movq %fs:0` + `leaq $var@tpoff` with `R_X86_64_TPOFF32`, `.tdata`/`.tbss` packing (type-aligned, zero-padded) in `tls_backend.c`, per-variable TLS symbols + `SHF_TLS` sections in the ELF writer, proper `.tdata`/`.tbss` section emission on the `-S` path. Also: `_Generic` type-compatibility fix (C11 6.5.1.1), C11 `<stdatomic.h>` + bitwise RMW builtins (`__atomic_fetch_or/and/xor`), void-parameter/function-declarator parsing fixes (regression coverage `test/jit/vt1..vt10.c`), file-scope `[[attribute-list]]` skipping (C23).
+- **Docs**: new OKF page `docs/okf/tls-static.md`. Gates: test 154/154, test-opt 115/115, test-isa-qemu 44/44, diag baseline OK, style 0 errors, okf lint clean.
+
+### Sprint 45: Unified C99 6.7.8/6.7.9 Aggregate-Initializer Engine ✅
+- **Achievement**: Replaced the divergent per-path initializer walkers with one shared C99 6.7.8/6.7.9 engine (`parser/init_common.h`) used by both the AST parser and the file-scope `.data` writer: arbitrary interleaved designator chains (`.a[i].b`), initializer ranges (`.arr[2 ... 5] = { ... }`), elided braces (C99 6.7.9), C99 6.7.9p9 cursor advancement, transparent grouping, and char-array string-fill semantics (C11 6.7.9p13 — fills never exceed the array, NUL only when it fits). Excess aggregate elements warn instead of error (gcc parity). Fixed silent miscompiles: values landing in the wrong field, dropped global designator values, out-of-bounds string fills. `test/jit/designated_init_test.c` extended 7→16 snippet groups, all gcc-diffed.
+- **Gates**: test 154/154, test-opt 115/115, test-isa-qemu 44/44, prologue/epilogue + extension verifiers, diag baseline OK, style 0 errors, okf lint clean, C11 11/11.
+
+### Sprint 44: Frame Pointer Elimination on Fixed-Frame Functions (`-fomit-frame-pointer`) ✅
+- **Achievement**: Functions with fully static frames no longer set up/tear down the frame pointer. `-fomit-frame-pointer` / `-fno-omit-frame-pointer` flags (default mirrors GCC: omit at `-O1+`, keep at `-O0`). Frame slots are addressed from SP with a constant per-function displacement via shared `zero_cc_frame_base_reg(c)` / `zero_cc_frame_disp(c, off)` accessors across all frame-slot emission sites on all four ISAs; per-ISA FP-less prologues/epilogues (x86 `sub/add rsp`, AArch64 `str x30`/`ldr x30, [sp], #16`, RISC-V `addi sp`); RISC-V keeps FP when `aligned+16 > 2047` (addi immediate range). `tools/prologue_epilogue_verifier.py` extended with omit-FP shape checks + SP-based CSR symmetry.
+- **Scope note**: the FP register is only *not set up* — not yet handed to the allocator as a GP register (win is prologue/epilogue cost, not register pressure). Gates: test 153/153, test-opt 114/114, test-isa-qemu 44/44, verifiers green.
+
+### Sprint 43: zero_rt Phase 0, `__zerocc_syscall`, String-Init, Bug-Fix Cluster, GNU Extensions ✅ (multiple entries in CHANGELOG)
+- **`__zerocc_syscall` OS-boundary builtin** (`OP_SYSCALL`): SysV syscall register map (`eax`, `rdi/rsi/rdx/r10/r8/r9`), push/pop parallel-move argument setup, call-equivalent clobber/`spans_call` semantics plumbed through live-range/DCE/GVN/mem2reg/LICM; x86-64 only (clean error elsewhere). First OS-boundary primitive for zero_rt.
+- **zero_rt Phase 0 — ZeroCC-owned freestanding runtime (Linux x86-64)**: `zero_rt/` (brk-backed first-fit heap, string builtins, atexit/exit via `zeroc_main_wrapper`, unbuffered stdio with vendored Ryū float formatting) **compiled by zerocc itself** (`make all` → `build/lib/zero_rt.a`); `--zerocc-link` auto-links it (`--no-zerocc-rt` opts out); linker `_start` stub routes to `zeroc_main_wrapper`. New OKF page `docs/okf/zero-rt.md`. **Open closeout item**: `printf` output segfaults in some `--zerocc-link` runs (direct `__zerocc_syscall(write, ...)` works — suspected `vsnprintf_core`/static-buffer path in `rt_stream_printf`; see Next Steps §5).
+- **String-literal initialization of char arrays (C11 6.7.9p13)**: local/brace/file-scope char-array string init (byte copies, not rodata pointers), unsized-dimension inference, symbol-index invariant for shadowed locals.
+- **Pre-existing codegen/semantic bug-fix cluster**: scaled pointer arithmetic (`p++`, `p+n`, `p-q`), non-ident lvalue `++`/`--`, x86 `OP_DIV`/`OP_MOD` dest-aliasing (`8/4 == 0` bug), C block/`for` scope shadowing (latest-wins symbol table), narrow signed/unsigned load extension, auto-vectorizer unit-stride/value-chain hardening (fixed `-O3` miscompiles on `v[2*i]` and int div/mod loops), char-array truncation diagnostic (+ `va_list`-by-value UB fix in diag plumbing).
+- **High-ROI GNU/Clang extensions** (`tools/extension_verifier.py` 14/14): `__builtin_offsetof`, case ranges (`case low ... high:`), designated-initializer ranges, statement expressions `({ ... })`; `tools/literal_verifier.py` C-literal spec suite.
+- **Gates** (at close): test 149-153/149-153, test-opt 110-114/110-114, asan green, test-linker 15/15, test-driver 21/21, test-isa-qemu 44/44, diag 8/8, style 0 errors.
+
 ### Sprint 42: Diagnostics Quality — C99 Constraint Checking, "Did You Mean", & the Diagnostics Battery ✅
 - **C99 constraint violations diagnosed** (previously silent miscompiles, JIT + AOT): call argument count vs. prototype (6.7.5.3, incl. the `()`-vs-`(void)` prototype distinction via `TypeInfo.function.is_prototype` / `ZeroCCFunction.has_prototype`; variadic at-least rules), `goto` to undefined label (6.8.4.3, labels pre-collected per function so forward gotos validate), unknown struct/union member (6.5.2.1 — previously defaulted to `int` at offset 0), truncated block (6.8p10 — `expected '}' to end block`). `test/semantic/call_arity_fail.c` + `constraint_violations_fail.c`.
 - **"Did you mean" suggestions** for undeclared identifiers (scope-chain candidates) and unknown members (field-table candidates): `diag_levenshtein` (early-exit DP) + `diag_best_match` (distance ≤ 2 and ≤ max(1, len/2), unique-best only). `test/semantic/did_you_mean_test.c`. Side-by-side parity with gcc on the audit cases.
 - **Diagnostics battery** (`tools/diag_battery.py` + `test/diag/` corpus, 16 broken-program cases incl. multi-fault files): classifies diagnostics into error categories, differential vs gcc, ratcheting baseline (`test/diag/baseline.json`). Baseline state: category coverage 8/8; multiplicity is the gap (5-fault file diagnosed at 2 errors vs gcc's 5).
-- **In progress (multi-error recovery)**: some paths stop at the first error; a ~20-error budget with parser/semantic continuation is next, gated by the battery. Baseline also exposed a double-report (legacy `expr_handle_call` + visitor `NODE_CALL` both fire on arity) to dedupe.
+- **Multi-error recovery (done, same sprint)**: error budget in `DiagBuf` (default 20); the file-scope loop continues until the budget is spent so one pass reports all faults; `15_multi_error_5.c` reports all five gcc faults; the arity double-report was deduped. The recovery work also exposed and fixed a latent cross-TU ABI bug: `SemContext` was defined in three headers behind a first-include-wins guard (the stale 8-field copy overflowed the caller's stack) — now a single canonical definition in `visitor.h`. See §11 for the full record.
 - Also landed this sprint: preprocessor main-file-dir quoted-include resolution (C99 6.10.2p2) + missing-include diagnostics; 262 non-canonical `#include`s normalized to the include-root convention; `docs/coding_style.md` + `tools/style_check.py` (ruff-style C convention checker, 0 errors baseline).
 - AST-walker invariant documented: `aux.step`/`aux.alt` only exist on `NODE_FOR`/`NODE_IF`/`NODE_TERNARY` — on other tags they alias the payload union (a 4-char name reads as `aux.step == 4`). Walkers must be tag-aware.
 
@@ -182,53 +211,61 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 ## Current Status
 
 ### ✅ Completed Features
-- **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, arena-allocated AST (`ZeroCCASTArena`), and `TypeInfo` semantic checker.
-- **Compiler Diagnostics (Sprint 42)**: gcc-format caret diagnostics; C99 constraint checking (call arity vs. prototype 6.7.5.3, goto-label 6.8.4.3, struct member 6.5.2.1, block terminator 6.8p10); "did you mean" suggestions (Levenshtein ≤ 2, unique-best) for undeclared identifiers and unknown members; macro-expansion `note:` chains. Multi-error recovery in progress (§11); differential gate: `tools/diag_battery.py` (16-case corpus vs gcc, ratcheting baseline).
+- **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, main-file-dir quoted-include resolution (C99 6.10.2p2) + real `-I` include search, arena-allocated AST (`ZeroCCASTArena`), and `TypeInfo` semantic checker.
+- **Compiler Diagnostics (Sprint 42)**: gcc-format caret diagnostics; C99 constraint checking (call arity vs. prototype 6.7.5.3, goto-label 6.8.4.3, struct member 6.5.2.1, block terminator 6.8p10); "did you mean" suggestions (Levenshtein ≤ 2, unique-best) for undeclared identifiers and unknown members; macro-expansion `note:` chains; multi-error recovery with a 20-error budget (one pass reports all faults); differential gate: `tools/diag_battery.py` (16-case corpus vs gcc, ratcheting baseline, 8/8 category coverage).
 - **C99 Support**:
-  - 1D and multi-dimensional fixed arrays (`a[M][N][K]`) and matrix VLAs (`a[n][M]`) with scope-exit stack restoration
-  - Designated initializers (`.field = val`, `[idx] = val`) & compound literals
+  - 1D and multi-dimensional fixed arrays (`a[M][N][K]`) and matrix VLAs (`a[n][M]`, multiple VLAs per function) with scope-exit stack restoration
+  - Unified C99 6.7.8/6.7.9 aggregate-initializer engine: designated initializers (`.field`, `[idx]`, chains, ranges `[2 ... 5] = { ... }`), elided braces, string-fill semantics, char-array string init (C11 6.7.9p13) & compound literals
   - `inline`, `restrict` alias-group tracking, flexible array members, variadic functions (`<stdarg.h>`)
   - Scalar `float`/`double` pipeline: double-width FP value model, width-correct `VLOADSS/VSTORESS/VLOADSD/VSTORESD`, float arithmetic/negation/compound assignment (globals, struct members, and pointer-member chains), float function returns, float initializers
   - File-scope global variables: full aggregate/string/pointer/char-array initializers + JIT/AOT data relocations
-  - `switch` (arbitrary case count, O(n) dispatch) & `goto`/user labels; C11-conformant cast expressions
-  - 32-bit `int` wraparound & end-to-end signedness (`SEXT*/ZEXT*` width extension, signed `>>`), pointer-member chains (`o.p->v`, `(*pp)->w`) with width-safe deref stores
-  - 16-bit temp ids (up to 65534 per function); C89 implicit-`int` accepted with a diagnostic (robustness)
+  - `switch` (arbitrary case count, O(n) dispatch, GNU case ranges) & `goto`/user labels; C11-conformant cast expressions
+  - 32-bit `int` wraparound & end-to-end signedness (`SEXT*/ZEXT*` width extension, signed `>>`), pointer-member chains (`o.p->v`, `(*pp)->w`) with width-safe deref stores, scaled pointer arithmetic
+  - 16-bit temp ids (up to 65534 per function); C99/C11 127+ parameter limit (`ZERO_CC_MAX_PARAMS 256`, dynamic arena param slices); C89 implicit-`int` accepted with a diagnostic (robustness)
 - **C23 Support**:
   - `typeof` and `typeof_unqual` (plus `__typeof__`, `__typeof`, `__typeof_unqual__`, `__typeof_unqual`) across locals, parameters, return types, struct members, typedefs, casts (`(typeof(T))val`), and `sizeof(typeof(...))`
   - Early parameter scope registration enabling dependent parameter type deduction (`typeof(int) add(typeof(int) a, typeof(a) b)`)
   - Empty `{}` initializers (C23 6.7.10) for automatic locals, static locals, compound literals, and globals
+  - `[[attribute-list]]` skipping (e.g. `[[nodiscard]]`, `[[maybe_unused]]`)
   - Predefined object macro `__STDC_NO_COMPLEX__ 1` formally signaling complex number type non-support (C11/C23)
   - Predefined compiler identification macros `__zerocc__ 1` and `__ZEROCC__ 1`
 - **C11 Support**:
   - `_Alignas` & `_Alignof` on types, struct fields, and local variables
   - Anonymous `struct` and `union` field flattening
-  - `_Generic` type-based selection & `_Static_assert`
-  - `_Atomic` qualifiers, `__sync_*` / `__atomic_*` builtins, and hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`)
-  - `<threads.h>` (`thrd_t`, `mtx_t`) mapped to pthreads & `_Thread_local` (`__thread`) storage
+  - `_Generic` type-based selection (6.5.1.1 compatibility) & `_Static_assert`
+  - `_Atomic` qualifiers, `__sync_*` / `__atomic_*` builtins (incl. bitwise RMW `__atomic_fetch_or/and/xor`), C11 `<stdatomic.h>`, and hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`)
+  - `<threads.h>` (`thrd_t`, `mtx_t`) mapped to pthreads; `_Thread_local` (`__thread`) static TLS end-to-end on x86-64 (initial-exec, `.tdata`/`.tbss`, JIT + AOT + `-S`, OKF: `tls-static.md`)
+- **GNU/Clang Extensions (Sprint 43)**: `__builtin_offsetof`, case ranges, designated-initializer ranges, statement expressions `({ ... })`, verified differentially against GCC (`tools/extension_verifier.py` 14/14).
 - **IR & Optimization Pipeline (`opt_pass.c`)**:
-  - 51-opcode `Instr` IR with `IRCallArgsArena` side table
+  - 133-opcode `Instr` IR with `IRCallArgs` side table (opcode count grew 51 → 133 across Sprints 18-47: atomics, `OP_SYSCALL`, `OP_TLS_LEA`, `OP_PARAM_LOAD`, SIMD, etc.)
   - Optimization levels (`-O0`..`-O3`, **default `-O1`**; `src/main.c`). Registered passes (`g_opt_passes` in `opt_pass.c`, priority order, each tagged with `min_level`):
     - **`-O1`**: `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` (local + cross-block loop-carried promotion)
     - **`-O2`**: `cse`, `gvn`, `licm` (Two-Pass Rebuild, call-spanning guard, multi-def guard, stack-load hoisting); plus AST-level small-function inlining (`ast_lowering_expr.c`, checks `c->opt_level >= OPT_LEVEL_O2`)
-    - **`-O3`**: `strength_reduction`, `branch_simplify`, `auto_vectorize` (call and mid-body-conditional guards; counter-only increment rewrite)
+    - **`-O3`**: `branchless` (conditional select), `strength_reduction`, `branch_simplify`, `auto_vectorize` (call and mid-body-conditional guards, verified-constant-loop-bound prerequisite)
     - `-O0` is plain codegen (no passes, no inlining)
-  - IR shape: flat, non-SSA linear `Instr` array with implicit control flow (labels/jumps); no CFG, basic blocks or dominators (see Sprint 35 plan)
+  - IR shape: flat, non-SSA linear `Instr` array with implicit control flow (labels/jumps); **CFG layer** (`opt/cfg.{h,c}`) provides basic blocks, pred/succ, reachability, and natural loops — a lazy versioned cache over the Instr array, used by LICM/mem2reg/vectorizer (Sprint 35 Phase 2/3); `-dump-cfg` + `tools/cfg_verifier.py`
 - **Multi-ISA Codegen & ABI**:
   - **x86-64**, **AArch64**, **RISC-V 64 (RV64GC)**, and **RISC-V 32 (RV32GC)** backends
   - Full struct by-value parameter passing and struct returns (`<=8B`, `9-16B`, and `>16B` `sret` hidden pointer across direct and indirect function pointer calls)
+  - Codegen performance: selective callee-saved spilling + fallthrough jump elimination, x86-64 red zone, inline epilogues, frameless leaf functions with parameter promotion, `-fomit-frame-pointer` (Sprint 44) — all verified by `tools/prologue_epilogue_verifier.py` + `tools/extension_verifier.py`
   - Direct ELF64 and ELF32 relocatable object writer (`elf_writer.c`), freestanding `W^X` in-memory JIT (`execution.h`), and direct raw binary AOT compilation default (`-o`, `-c`) across all 4 target ISAs with `ZC_TEXT_AOT=1` escape hatch.
+  - **Toolchain**: T1 multi-file driver (multi-TU JIT merge, per-input `-c`/`-S`; `make test-driver` 21/21) and T2 own static linker (ELF64 + `ar` readers, ET_EXEC output, `--zerocc-link`; `make test-linker` 15/15) — OKF: `multi-tu.md`, `own-linker.md`.
+- **zero_rt (Phase 0, Linux x86-64)**: ZeroCC-owned freestanding runtime compiled by zerocc itself (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting); auto-linked by `--zerocc-link`. **Open**: printf path segfault (see Next Steps §5). OKF: `zero-rt.md`.
 
-### 📊 Test & Verification Coverage
-- **Main Regression Suite (`make test`)**: 147/147 passing in ~0.4s — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the sources are standalone programs zerocc can compile, so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels. (`test/diag/*.c` is excluded from this glob — it is the diagnostics-battery corpus of deliberately broken programs.)
-- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12 cases, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, and `tools/opt_sweep.py` / `make test-opt` (Sprint 35 Phase 0: sweeps the whole `test/{jit,aot,licm}` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **107/107 passing**).
+### 📊 Test & Verification Coverage (verified 2026-10-24 at HEAD)
+- **Main Regression Suite (`make test`)**: **156/156** passing — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the sources are standalone programs zerocc can compile, so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels. (`test/diag/*.c` is excluded from this glob — it is the diagnostics-battery corpus of deliberately broken programs.)
+- **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12/12, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py` (11/11), `tools/vla/test_vla.py` (11/11 — the `multiple_vla` case was updated on 2026-10-24 to assert two VLAs per function compile and run correctly, matching Sprint 40's removal of the old limit), `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, `tools/cfg_verifier.py` (CFG cross-check vs independent Python reconstruction), `tools/extension_verifier.py` (14/14 GNU extensions, optional `--diff-gcc`), `tools/literal_verifier.py` (C-literal spec suite), `tools/prologue_epilogue_verifier.py` (all 4 ISAs, incl. omit-FP shapes), and `tools/opt_sweep.py` / `make test-opt` (sweeps the whole `test/{jit,aot,licm}` + `inline_audit` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **117/117 passing**, 1 nondeterministic `profile_demo` flagged NONDET).
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11) differential-tested against static-musl reference binaries under QEMU.
+- **Multi-TU Driver Gate (`make test-driver`)**: **21/21** (`tools/driver_tests.py` — multi-file JIT merge, AOT link, per-input `-c`/`-S`).
+- **Own-Linker Gate (`make test-linker`)**: **15/15** (`tools/linker_tests.py` — gcc-differential, incl. non-x86-64 rejection).
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
-- **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **100% passing**
+- **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **11/11 passing (100%)** (JIT coverage 9/9; the `multiple_vla` case was corrected on 2026-10-24 to assert the legal two-VLA behavior instead of the old compile-failure limit)
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
 - **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
-- **Diagnostics Battery (`python3 tools/diag_battery.py`)**: differential-tests zerocc's compiler diagnostics against gcc on the 16-case broken-program corpus (`test/diag/*.c`), classifying each diagnostic into an error category and ratcheting `test/diag/baseline.json` (regression = lost category, dropped error count, or a previously-rejected file compiling silently). Baseline: **8/8 category coverage vs gcc**; the open gap is multi-error multiplicity (§11).
-- **C Style Checker (`python3 tools/style_check.py`)**: ruff-style convention checker codifying `docs/coding_style.md` (include rules, whitespace, EOF newline, header guards, `<module>_<action>` public-function prefix) — **0 errors** baseline.
-- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **12 files valid** (11 concept pages + `log.md`), links & graph reachability verified
+- **Diagnostics Battery (`python3 tools/diag_battery.py`)**: differential-tests zerocc's compiler diagnostics against gcc on the 16-case broken-program corpus (`test/diag/*.c`), classifying each diagnostic into an error category and ratcheting `test/diag/baseline.json` (regression = lost category, dropped error count, or a previously-rejected file compiling silently). Baseline: **8/8 category coverage vs gcc**, no regressions.
+- **C Style Checker (`python3 tools/style_check.py`)**: ruff-style convention checker codifying `docs/coding_style.md` (include rules, whitespace, EOF newline, header guards, `<module>_<action>` public-function prefix) — **0 errors** baseline (78 warnings).
+- **ASan/UBSan (`make asan`)**: tracked green gate (compiler internals under ASan+UBSan; 147/147 at Sprint 42, scales with the suite).
+- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **16 files valid** (15 concept pages + `log.md`), links & graph reachability verified (72 internal edges, 16/16 reachable)
 
 ### ✅ Former Open Regressions — FIXED (Sprint 35 Phase 0, 2026-10-20; verified by `make test-opt` 88/88)
 Introduced by Sprint 33 (`15588aa`); zerocc `--run`, same results in AOT where checked. All resolved; the table is retained for the record:
@@ -270,9 +307,9 @@ Arena AST Parser (src/zero_cc/parser/definitions.h, ast_stmt.h, ast_expr.h)
     ↓
 Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
-AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 51-opcode Instr)
+AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 133-opcode Instr)
     ↓
-Optimization Pipeline (src/zero_cc/opt/opt_*.c; -O0 none, default -O1: ConstantFold/FlagDCE/DCE/CopyProp/Mem2Reg, -O2: +CSE/GVN/LICM/inlining, -O3: +StrengthReduction/BranchSimplify/Vectorize)
+Optimization Pipeline (src/zero_cc/opt/opt_*.c + opt/cfg.{h,c} CFG view; -O0 none, default -O1: ConstantFold/FlagDCE/DCE/CopyProp/Mem2Reg, -O2: +CSE/GVN/LICM/inlining, -O3: +Branchless/StrengthReduction/BranchSimplify/Vectorize)
     ↓
 Live Range Analysis & Linear Scan RegAlloc (src/zero_cc/ir/live_range.h, regalloc.h)
     ↓
@@ -287,11 +324,25 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - [`docs/okf/optimization-passes.md`](./okf/optimization-passes.md)
 - [`docs/okf/abi-sysv-x86_64.md`](./okf/abi-sysv-x86_64.md)
 - [`docs/okf/isa-backends.md`](./okf/isa-backends.md)
-- [`docs/okf/build-and-verification.md`](./okf/build-and-verification.md)
+- [`docs/okf/multi-tu.md`](./okf/multi-tu.md) — multi-TU driver & JIT image merge
+- [`docs/okf/own-linker.md`](./okf/own-linker.md) — T2 own linker
+- [`docs/okf/zero-rt.md`](./okf/zero-rt.md) — Zero_RT freestanding runtime (Phase 0)
+- [`docs/okf/tls-static.md`](./okf/tls-static.md) — static `_Thread_local`
+- [`docs/okf/global-data-relocs.md`](./okf/global-data-relocs.md) — data section & pointer relocations
+- [`docs/okf/perf-measurements.md`](./okf/perf-measurements.md) — per-pass costs & the retracted 78× claim
+- [`docs/okf/scalar-float-x86.md`](./okf/scalar-float-x86.md) — scalar float pipeline & WSL2 RX-page limitation
+- [`docs/okf/build-and-verification.md`](./okf/build-and-verification.md) — build targets & verifiers
 
 ---
 
 ## Next Steps (Future Roadmap)
+
+### ⚡ Current Priorities (as of 2026-10-24, verified at HEAD)
+1. **Fix the zero_rt printf segfault** (Phase 0 closeout item #1 — see §5). Repro at HEAD: `zerocc --zerocc-link t.c -o app` where `t.c` calls `printf("hello\n")` → SIGSEGV (jump to a garbage address in the `vsnprintf_core`/static-buffer path of `rt_stream_printf`); direct `__zerocc_syscall(write, ...)` in the same binary works. Blocks any real-world use of the freestanding runtime.
+2. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators are available on-demand on the CFG).
+3. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
+4. **T0 remainder**: `-MMD`-style `.d` dependency generation (the `-I` include search half is **done** — `main.c` parses `-I`/`-Idir` into `opts->include_dirs` and the preprocessor searches them; verified working; only `.d` depfiles remain).
+5. **Housekeeping**: ~~update the stale `multiple_vla` expectation in `tools/vla/test_vla.py`~~ — **done (2026-10-24)**: the case now asserts two VLAs per function compile and run correctly (verified JIT/AOT vs gcc), matching the Sprint 40 decision to lift the limit. Remaining: sweep `TODO` markers in `types/emit_helpers.h` (dead AArch64 helper stubs).
 
 ### 1. Codebase Modularity & Build Structure Refactoring ✅
 - **Eliminate Unity `#include "*.c"` in `parser.c` ✅**: Converted `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` into standalone `.o` translation units in `Makefile`.
@@ -310,15 +361,19 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - 128-bit integer (`__int128`) and `long double` support
 - Full SSA-form φ-node construction for cross-block `mem2reg` and GVN — **deferred**; decision and prerequisites (CFG first) in §10
 - ~~Full `switch`/`case` lowering~~ — done (Sprint 20); the >128-case cap was removed in Sprint 24
+- **High-ROI GNU/Clang extensions (done, Sprint 43)**: `__builtin_offsetof`, case ranges (`case low ... high:`), designated-initializer ranges (`[low ... high] = val`), statement expressions `({ ... })` — verified differentially against GCC by `tools/extension_verifier.py` (14/14). C-literal spec suite: `tools/literal_verifier.py`.
 
 ### 5. zero_rt — Self-Contained Cross-Platform Runtime (T3)
 - **Plan**: [`docs/zero-rt-plan.md`](./zero-rt-plan.md) — minimal ZeroCC-owned runtime (heap, minimal stdio, string builtins, exit) with no musl dependency, targeting Linux/Windows/macOS via a portable core + per-OS backends (same shape as `ZeroCCISABackend`).
-- **Phases**: Phase 0 Linux (first customer of the T2 ELF linker) → Phase 1 Windows (PE/COFF writer + Win64 ABI vtable) → Phase 2 macOS (Mach-O writer; compiler ABI already compatible).
+- **Phase 0 — Linux x86-64: DONE (Sprint 43, 2026-10-23)**: `zero_rt/` (rt_os.h OS boundary, `linux/os.c` read/write/brk/exit_group, `core/heap.c` brk-backed first-fit malloc/free/calloc/realloc, `core/string.c`, `core/exit.c` with `zeroc_main_wrapper` atexit routing, `core/stdio.c` unbuffered printf family with vendored Ryū float formatting) compiled **by zerocc itself** (`make all` → `build/lib/zero_rt.a`); `--zerocc-link` auto-links it (`--no-zerocc-rt` opts out); linker `_start` stub routes to `zeroc_main_wrapper`. OKF: [`docs/okf/zero-rt.md`](./okf/zero-rt.md).
+  - **Open closeout item (verified still open at 2026-10-24)**: `printf` segfaults in `--zerocc-link` binaries (`printf("hello\n")` → SIGSEGV jumping to a garbage address; suspected `vsnprintf_core`/static-buffer path in `rt_stream_printf`); direct `__zerocc_syscall(write, ...)` emits correct bytes with correct exit codes. Must be fixed before Phase 1.
+- **Phase 1 — Windows (NEXT)**: PE/COFF writer + Win64 ABI vtable (PE object/executable sections, `IMAGE_COR20`/reloc layout, `ntdll` syscall stubs for `RtlUserThreadStart`-style entry, Win64 home-area calling convention).
+- **Phase 2 — macOS**: Mach-O writer (compiler ABI already compatible).
 - **Phase 0 prerequisite — done (Sprint 43)**: the `__zerocc_syscall` OS-boundary builtin (new `OP_SYSCALL` IR op; x86-64 SysV register map; call-equivalent clobber/`spans_call` semantics; push/pop parallel argument move; compile error on other targets; `test/jit/syscall_builtin_test.c` + `test/aot/syscall_test.c` in `make test`/`make test-opt`). With it, the zero_rt OS layer is pure C: `crt0` needs no assembler (the linker's generated `_start` stub is the entry; heap init is a lazy `brk` in C). See the `OP_SYSCALL` section of `docs/okf/ir-and-regalloc.md`.
-- musl remains vendored pristine as an optional full-stdio library on Linux; float formatting (`%f`/`%e`/`%g`) via vendored Ryū (MIT).
+- musl remains vendored pristine as an optional full-stdio library on Linux; float formatting (`%f`/`%e`/`%g`) via vendored Ryū (MIT/Apache-2.0 OR Boost-1.0, `third_party/vendor/ryu/`).
 
 ### 6. Toolchain Tiers (multi-TU → standalone linking)
-- **T0** — build-system hygiene: `-MMD`-style `.d` dependency generation + a real `-I` include search (the flag currently discards its path, placeholder in `main.c`)
+- **T0** — build-system hygiene: ~~a real `-I` include search~~ — **done** (Sprint 42+; `main.c` parses `-I`/`-Idir` into `opts->include_dirs[32]`, the preprocessor searches each dir after the main-file-dir; verified with a quoted include resolved only via `-I`). **Remaining**: `-MMD`-style `.d` dependency generation for build-system integration.
 - **T1** — multi-file driver: accept multiple `.c` inputs, per-TU compile, combined link — **done (Sprint 43)**: `zerocc a.c b.c -o out` (per-TU raw objects → system linker), `zerocc a.c b.c --run` (multi-TU JIT merge via `zero_cc_tu_merge`, `core/multi_tu.h`), `-c`/`-S` emit one object/asm per input. Driver gate: `make test-driver` (21/21, `tools/driver_tests.py`). Closed two latent conformance bugs found by the multi-file cases: unnamed prototype params (`int f(int);`) were silently dropped (0-param prototype), and stores to `extern`-only globals (cross-TU) were emitted nowhere (see `docs/okf/multi-tu.md`).
 - **T2** — own linker: `ar` archive reader, the static relocation set (`R_X86_64_{64,PC32,32,32S,RELATIVE}`, PLT32→PC32), multi-section `.rela`; zero_rt Phase 0 is its first customer — **done (Sprint 43)**: `src/zero_cc/linker/` (ELF64-LE object reader, classic `ar` reader, static linker emitting a directly-executable ET_EXEC with a generated `_start` stub); `zerocc a.c b.c --zerocc-link -o app` (x86-64; `.o`/`.a` inputs accepted). Gate: `make test-linker` (15/15, gcc-differential). Exposed and fixed a latent object-emitter bug (hardcoded section indices drifted when `.text` was absent — `elf_writer_section_index` now resolves indices by name). Cross-TU `int *p = &x;` initializers are also fixed (kind-2 by-name data reloc). See `docs/okf/own-linker.md`.
 - **T3** — zero_rt platform phases (see §5)
@@ -345,7 +400,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - **Function Inlining** — implemented (Sprint 34): AST-level, leaf-only; audit tracked in Sprint 35 Phase 1.
 - ~~**Vectorizer residuals** (mid-body conditionals, increment-rewrite breadth)~~ — **done** (`5766bee`).
 
-### 10. Sprint 35 (PLANNED): Correctness Recovery, Inline Audit, CFG Layer, Pass Migration
+### 10. Sprint 35 (DONE 2026-10-20): Correctness Recovery, Inline Audit, CFG Layer, Pass Migration
 
 **Motivation.** (1) Sprint 33 regressed correctness (see Open Regressions) and `make test` could not detect it, so the first job is to fix it and build a harness that can. (2) The IR is a flat, non-SSA, linear `Instr` array with implicit control flow. Passes each re-derive control-flow facts (`label_to_idx` in LICM, jump-target pre-scan in mem2reg, span pattern-matching in the vectorizer), which is the common root of the LICM multi-def bug and the Sprint 33 loop-promotion regressions. Sprint 34 inlining produces branchy multi-definition code and raises the exposure. Decision (2026-10-19): **add a CFG now; defer SSA** until CFG-based passes demonstrably hit a wall.
 
@@ -389,7 +444,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 **Deferred (revisit after Phase 4)**
 - Promotable-slot SSA (phis for non-address-taken stack slots only) replacing `opt_promote_loop_carried`; requires dominators and out-of-SSA with coalescing.
 - Full SSA over all temps (rewrite-scale; only if multi-def reasoning in GVN/CSE blocks further passes).
-- Branchless `select`/cmov lowering, loop unrolling, IR-level inlining — all become tractable on the CFG. (Sprint 39 picks ONE of these — cmov-select first as the smallest transform.)
+- ~~Branchless `select`/cmov lowering~~ — **done (Sprint 39)**: `opt/opt_branchless.{c,h}` at `-O3` (bitwise select `res = B ^ (mask & (A ^ B))`, CFG predecessor checks, -S-safe mask opcodes). **Loop unrolling** is the next CFG opt (see Current Priorities). IR-level inlining remains deferred.
 - IR cleanups: call args into the instruction stream (remove `instr_index`-keyed side table), move physical regs out of the temp namespace, add type tag. (The Sprint 37 epilogue hazard — allocator temps assignable to the return register after return materialization — is the concrete cost of "physical regs in the temp namespace"; the frame-slot `VREG_0` shield is the interim fix.)
 
 ### 11. Sprint 36 (DONE 2026-10-20): mem2reg Loop-Promotion Cost

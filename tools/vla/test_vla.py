@@ -106,19 +106,26 @@ int main(void) { return test(42); }
         vla_type="runtime"
     ),
     
-    # Multiple VLA (should fail in hybrid mode)
+    # Multiple VLAs in one function (C99 6.7.5.2p4 / 6.8.9 — legal).
+    # NOTE: an older version of zerocc rejected a second VLA per function
+    # ("Only one VLA allowed per function"); Sprint 40 intentionally lifted
+    # that limit, so this case now asserts the correct result instead of a
+    # compile failure.
     TestCase(
         name="multiple_vla",
         source="""
-void test(int n, int m) {
+int test(int n, int m) {
     int arr1[n];
-    int arr2[m];  // Second VLA - should error in hybrid mode
+    int arr2[m];  /* Second VLA in the same function — legal in C99 */
+    for (int i = 0; i < n; i++) arr1[i] = i * 2;
+    for (int i = 0; i < m; i++) arr2[i] = i * 10 + 1;
+    return arr1[n - 1] + arr2[m - 1];
 }
-int main(void) { return 0; }
+int main(void) { return test(4, 3) - (6 + 21); }
 """,
-        should_compile=False,
-        vla_type="hybrid",
-        expect_error="multiple VLA"
+        expected_result=0,
+        should_compile=True,
+        vla_type="hybrid"
     ),
     
     # Comptime VLA (should work)

@@ -398,7 +398,7 @@ static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32
 }
 
 /* CALL - Full AArch64 AAPCS64 compliance (including x8 sret and indirect blr calls) */
-static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
+static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, int *stack_pos, FILE *out) {
     static const char *int_arg_regs[] = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     static const char *fp_arg_regs[] = {"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7"};
 
@@ -422,8 +422,9 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
             indirect_temp = temp;
         } else if (arg_is_fp == 3) {
             sret_temp = temp;
-        } else if (arg_is_fp == 1 && fp_arg_idx < 8) {
-            /* FP args go in d0..d7 (the 64-bit view of v0..v7) per AAPCS64. */
+        } else if (arg_is_fp == 1 && (stack_pos ? stack_pos[i] : 255) >= 255 && fp_arg_idx < 8) {
+            /* FP args go in d0..d7 (the 64-bit view of v0..v7) per AAPCS64.
+             * FP args beyond d7 are stack args (handled below). */
             fprintf(out, "\tfmov\t%s, d%s\n", fp_arg_regs[fp_arg_idx], reg_name + 1);
             fp_arg_idx++;
         } else if (arg_is_fp == 0) {
@@ -459,20 +460,61 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         }
     }
 
-    /* Arguments beyond x0-x7 (8 args) go on the stack: 16-byte aligned */
-    int n_stack = (total_int_count > 8) ? total_int_count - 8 : 0;
-    int stack_alloc = ((n_stack * 8) + 15) & ~15;
-    if (n_stack > 0) {
-        fprintf(out, "\tsub\tsp, sp, #%d\n", stack_alloc);
-        for (int a = 8; a < total_int_count; a++) {
-            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
-            if (sp >= 0) {
-                int32_t off = spill_base_offset + (sp + 1) * 8;
-                BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, stack_alloc), out);
-                fprintf(out, "\tstr\tx9, [sp, #%d]\n", (a - 8) * 8);
-            } else {
-                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
-                fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(phys_reg), (a - 8) * 8);
+    /* Stack args (from stack_pos): integer args beyond x0..x7 AND FP args
+     * beyond d0..d7, in original argument order. Allocate a 16-byte aligned
+     * area, slot k at [sp + k*8]. FP slots use the 64-bit d-precision store
+     * (float args read back as their low 32 bits by the callee). */
+    int n_stack = 0;
+    int stack_pos_list[16];
+    for (int i = 0; i < arg_count && i < 16; i++) {
+        int arg_pos = stack_pos ? stack_pos[i] : 255;
+        if (arg_pos < 255 && arg_pos < 16) {
+            stack_pos_list[arg_pos] = i;
+            if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
+        }
+    }
+    int legacy_n_stack = (!stack_pos && total_int_count > 8) ? total_int_count - 8 : 0;
+    int stack_alloc = 0;
+    if (stack_pos) {
+        stack_alloc = ((n_stack * 8) + 15) & ~15;
+        if (n_stack > 0) {
+            fprintf(out, "\tsub\tsp, sp, #%d\n", stack_alloc);
+            for (int pos = 0; pos < n_stack; pos++) {
+                int i = stack_pos_list[pos];
+                int arg_is_fp = is_fp ? is_fp[i] : 0;
+                if (arg_is_fp == 1) {
+                    int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                    fprintf(out, "\tstr\td%d, [sp, #%d]\n",
+                            (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs) ? phys_reg : 0, pos * 8);
+                } else {
+                    int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[i]);
+                    if (sp >= 0) {
+                        int32_t off = spill_base_offset + (sp + 1) * 8;
+                        BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, stack_alloc), out);
+                        fprintf(out, "\tstr\tx9, [sp, #%d]\n", pos * 8);
+                    } else {
+                        int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                        fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(phys_reg), pos * 8);
+                    }
+                }
+            }
+        }
+    } else {
+        /* Legacy: int args beyond 8, in order (old behaviour) */
+        n_stack = legacy_n_stack;
+        stack_alloc = ((n_stack * 8) + 15) & ~15;
+        if (n_stack > 0) {
+            fprintf(out, "\tsub\tsp, sp, #%d\n", stack_alloc);
+            for (int a = 8; a < total_int_count; a++) {
+                int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
+                if (sp >= 0) {
+                    int32_t off = spill_base_offset + (sp + 1) * 8;
+                    BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, stack_alloc), out);
+                    fprintf(out, "\tstr\tx9, [sp, #%d]\n", (a - 8) * 8);
+                } else {
+                    int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+                    fprintf(out, "\tstr\t%s, [sp, #%d]\n", BE(c)->get_hw_reg_name(phys_reg), (a - 8) * 8);
+                }
             }
         }
     }

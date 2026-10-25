@@ -26,9 +26,23 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     switch (n->tag) {
         case NODE_INT: {
             int64_t v = n->int_val;
+            /* Suffix (saved in flags at parse time: bit0=u, bit1=l,
+             * bit2=ll) fixes the literal's type per C11 6.4.4.1, even
+             * when the value fits in a narrower type: 1ULL is long long
+             * (64-bit), 0xFFFFFFFF is unsigned int (not signed int). */
+            uint8_t suf = (uint8_t)(n->flags & 7u);
+            if (suf & 6u) {              /* l / ll: 64-bit on LP64 */
+                *sign = !(suf & 1u);
+                return 0;                /* no narrowing */
+            }
+            if (suf & 1u) {              /* u: unsigned int, or unsigned
+                                          * long (64-bit) if too large */
+                *sign = 0;
+                return (v > INT64_C(0xFFFFFFFF)) ? 0 : 4;
+            }
             if (v >= INT32_MIN && v <= INT32_MAX) { *sign = 1; return 4; }
             if (v > INT32_MAX && v <= INT64_C(0xFFFFFFFF)) { *sign = 0; return 4; }
-            return 0;  /* long / long long literal */
+            return 0;  /* 64-bit literal: no narrowing */
         }
         case NODE_BOOL:  *sign = 0; return 1;  /* _Bool is 1-byte, 0/1 */
         case NODE_NULLPTR: return 0;  /* 8-byte pointer value */
@@ -1290,31 +1304,74 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_VA_START: {
-            /* va_start(ap, last) - initialize va_list to point to variadic args */
-            /* The variadic args are in the spill area after the fixed params */
-            /* For System V AMD64: after saving rdi, rsi, rdx, rcx, r8, r9 */
-            /* The first variadic arg is at offset after the last fixed param */
-
-            /* Get the ap variable name - node->left is an ASTRef to the ap identifier */
+            /* va_start(ap, last) - initialize the ABI-correct va_list.
+             *
+             * The callee prologue spilled ALL argument registers into a
+             * 16-slot save area above the locals (see the variadic spill in
+             * zero_cc_lower_ast): slots 0..5 = integer arg regs in order,
+             * slots 6..13 = FP arg regs in order. Named parameters consume
+             * the streams in order, so the streams start just past the
+             * named count. Once a stream is exhausted (ptr == end) reads
+             * continue from ovf - the shared stack-overflow area (the
+             * caller's stack args, in argument order).
+             *
+             * va_list layout (5 x 8-byte pointers):
+             *   +0 gp, +8 gp_end, +16 fp, +24 fp_end, +32 ovf. */
             ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
             const char *ap_var = (ap_node && ap_node->tag == NODE_IDENT) ? ap_node->s.str : "";
             ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
 
-            if (ap_sym) {
-                /* Get the 'last' parameter to find where variadic args start */
-                ZeroCCASTNode *last_node = zero_cc_ast_get(arena, node->right);
-                const char *last_var = (last_node && last_node->tag == NODE_IDENT) ? last_node->s.str : "";
-                ZeroCCSym *last_sym = zero_cc_find_local(c, last_var);
+            if (ap_sym && c->function_count > 0) {
+                ZeroCCFunction *fn = &c->functions[c->function_count - 1];
 
-                if (last_sym) {
-                    /* variadic args start 8 bytes after the last fixed param in stack */
-                    int32_t va_start_offset = -(last_sym->stack_offset + 8);
-
-                    /* Store address into ap: ap = (char*)fp_reg + va_start_offset */
-                    int addr_temp = c->next_temp_id++;
-                    ir_emit_lea(addr_temp, TEMP_NONE, va_start_offset);
-                    ir_emit_store(addr_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
+                /* Save area base: above all named locals (mirrors the
+                 * prologue's base_spill_offset = locals-top + 8). */
+                int32_t top_local = (int32_t)BE(c)->callee_save_frame_reserve;
+                for (size_t i = 0; i < c->local_count; i++) {
+                    if (c->locals[i].stack_offset > top_local) top_local = c->locals[i].stack_offset;
                 }
+                int32_t save_base = top_local + 8;
+
+                /* Named params consume the GP/FP streams in order (mirror
+                 * the prologue's param-save loop, incl. the hidden sret
+                 * pointer and multi-chunk struct params). */
+                int gp_regs = BE(c)->conv->int_arg_reg_count;
+                int fp_regs = BE(c)->conv->fp_arg_reg_count;
+                int gp_idx = (fn->ret_struct_sz > 16 && c->isa != ISA_AARCH64) ? 1 : 0;
+                int fp_idx = 0;
+                int stack_named = 0;  /* stack-passed named params (ovf base) */
+                for (size_t p = 0; p < fn->param_count && p < c->local_count; p++) {
+                    ZeroCCSym *ps = &c->locals[p];
+                    if (!ps->is_param) continue;
+                    bool pfp = (ps->type.tag == TYPE_FLOAT || ps->type.tag == TYPE_DOUBLE);
+                    bool pmulti = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 8;
+                    if (pmulti) {
+                        int chunks = (int)((ps->type.size + 7) / 8);
+                        for (int ch = 0; ch < chunks; ch++) { if (gp_idx < gp_regs) gp_idx++; else stack_named++; }
+                    } else if (pfp) {
+                        if (fp_idx < fp_regs) fp_idx++; else stack_named++;
+                    } else {
+                        if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    }
+                }
+
+                int32_t ap_off = ap_sym->stack_offset;  /* slot TOP; member O is at [fp-(ap_off-O)] */
+                int t;
+                t = c->next_temp_id++;
+                ir_emit_lea(t, TEMP_NONE, -(save_base + gp_idx * 8));
+                ir_emit_store(t, BE(c)->fp_reg, -ap_off);             /* +0 gp */
+                t = c->next_temp_id++;
+                ir_emit_lea(t, TEMP_NONE, -(save_base + gp_regs * 8));
+                ir_emit_store(t, BE(c)->fp_reg, -(ap_off - 8));       /* +8 gp_end */
+                t = c->next_temp_id++;
+                ir_emit_lea(t, TEMP_NONE, -(save_base + (gp_regs + fp_idx) * 8));
+                ir_emit_store(t, BE(c)->fp_reg, -(ap_off - 16));      /* +16 fp */
+                t = c->next_temp_id++;
+                ir_emit_lea(t, TEMP_NONE, -(save_base + (gp_regs + fp_regs) * 8));
+                ir_emit_store(t, BE(c)->fp_reg, -(ap_off - 24));      /* +24 fp_end */
+                t = c->next_temp_id++;
+                ir_emit_lea(t, TEMP_NONE, 16 + 8 * stack_named);
+                ir_emit_store(t, BE(c)->fp_reg, -(ap_off - 32));      /* +32 ovf */
             }
 
             c->last_expr_is_float = 0;
@@ -1322,32 +1379,91 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_VA_ARG: {
-            /* va_arg(ap, type) - extract next variadic argument */
-            /* Simplified: bump pointer by 8 bytes and load */
-            /* Full implementation would check gp_offset for register args */
-
-            /* Get the va_list pointer */
-            int ap_temp = lower_expr(c, arena, node->left);
-
-            /* Load the value from [ap] */
-            int result_temp = c->next_temp_id++;
-            ir_emit_deref(result_temp, ap_temp);
-
-            /* Bump ap by 8 bytes downward: ap -= 8 */
-            int eight_temp = c->next_temp_id++;
-            ir_emit_mov_imm(eight_temp, -8);
-            int new_ap_temp = c->next_temp_id++;
-            ir_emit_add(new_ap_temp, ap_temp, eight_temp);
-
-            /* Store back to ap variable */
+            /* va_arg(ap, type) - extract the next variadic argument.
+             * Integer/pointer targets read the GP stream (va_list +0/+8),
+             * float/double targets the FP stream (+16/+24); when a stream
+             * is exhausted (ptr == end) both continue from the shared
+             * overflow pointer (+32). Values are read through the stream
+             * pointer (frame-independent dereference). */
             ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
-            const char *ap_var = ap_node ? ap_node->s.str : "";
+            const char *ap_var = (ap_node && ap_node->tag == NODE_IDENT) ? ap_node->s.str : "";
             ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
-            if (ap_sym) {
-                ir_emit_store(new_ap_temp, BE(c)->fp_reg, -ap_sym->stack_offset);
-            }
 
-            c->last_expr_is_float = 0;
+            TypeInfo *t_t = ast_node_get_typeinfo(c, node);
+            bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
+
+            int result_temp = c->next_temp_id++;
+            if (ap_sym) {
+                int32_t ap_off = ap_sym->stack_offset;  /* slot TOP; member O is at [fp-(ap_off-O)] */
+                int32_t ptr_field = is_fp ? 16 : 0;    /* va_list member offset of the stream ptr */
+                int32_t end_field = is_fp ? 24 : 8;   /* ...and of its end sentinel */
+                uint16_t ovf_label = c->ir_next_label++;
+                uint16_t end_label = c->ir_next_label++;
+
+                int t_ptr = c->next_temp_id++;
+                ir_emit_load(t_ptr, BE(c)->fp_reg, -(ap_off - ptr_field));
+                int t_end = c->next_temp_id++;
+                ir_emit_load(t_end, BE(c)->fp_reg, -(ap_off - end_field));
+                int t_diff = c->next_temp_id++;
+                ir_emit_sub(t_diff, t_ptr, t_end);
+                ir_emit_je((uint16_t)t_diff, ovf_label);
+
+                /* Save-area path. The save slots extend toward MORE
+                 * negative offsets (slot i at -(base + i*8)), so the
+                 * stream pointer DECREASES by 8 per argument; it is
+                 * exhausted when it reaches the end sentinel. */
+                if (is_fp) {
+                    if (t_t->kind == TYPE_KIND_FLOAT) ir_emit_vloadss((uint16_t)result_temp, (uint16_t)t_ptr);
+                    else ir_emit_vloadsd((uint16_t)result_temp, (uint16_t)t_ptr);
+                } else {
+                    ir_emit_deref(result_temp, t_ptr);
+                }
+                int t_neg8 = c->next_temp_id++;
+                ir_emit_mov_imm(t_neg8, -8);
+                int t_ptr2 = c->next_temp_id++;
+                ir_emit_add(t_ptr2, t_ptr, t_neg8);
+                ir_emit_store(t_ptr2, BE(c)->fp_reg, -(ap_off - ptr_field));
+                ir_emit_jmp(end_label);
+
+                /* Stack-overflow path: the caller's stack args sit at
+                 * fp+16, fp+24, ... - the pointer INCREASES by 8. */
+                ir_emit_label(ovf_label);
+                int t_ovf = c->next_temp_id++;
+                ir_emit_load(t_ovf, BE(c)->fp_reg, -(ap_off - 32));
+                if (is_fp) {
+                    if (t_t->kind == TYPE_KIND_FLOAT) ir_emit_vloadss((uint16_t)result_temp, (uint16_t)t_ovf);
+                    else ir_emit_vloadsd((uint16_t)result_temp, (uint16_t)t_ovf);
+                } else {
+                    ir_emit_deref(result_temp, t_ovf);
+                }
+                int t_pos8 = c->next_temp_id++;
+                ir_emit_mov_imm(t_pos8, 8);
+                int t_ovf2 = c->next_temp_id++;
+                ir_emit_add(t_ovf2, t_ovf, t_pos8);
+                ir_emit_store(t_ovf2, BE(c)->fp_reg, -(ap_off - 32));
+                ir_emit_label(end_label);
+
+                /* Narrow/widen integer targets to their true C width
+                 * (values arrived int-promoted / zero-extended). */
+                if (!is_fp && t_t) {
+                    size_t tsz = type_size(t_t);
+                    bool tu = (t_t->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                    if (tsz == 4) { if (tu) ir_emit_zext(result_temp, 4); else ir_emit_sext(result_temp, 4); }
+                    else if (tsz == 2) { if (tu) ir_emit_zext(result_temp, 2); else ir_emit_sext(result_temp, 2); }
+                    else if (tsz == 1) { if (tu) ir_emit_zext(result_temp, 1); else ir_emit_sext(result_temp, 1); }
+                }
+                c->last_expr_is_float = is_fp;
+            } else {
+                /* No identifiable va_list local - legacy single-pointer
+                 * behaviour (dereference and bump) as a fallback. */
+                int ap_temp = lower_expr(c, arena, node->left);
+                ir_emit_deref(result_temp, ap_temp);
+                int eight_temp = c->next_temp_id++;
+                ir_emit_mov_imm(eight_temp, 8);
+                int new_ap_temp = c->next_temp_id++;
+                ir_emit_add(new_ap_temp, ap_temp, eight_temp);
+                c->last_expr_is_float = is_fp;
+            }
             return result_temp;
         }
 
@@ -3155,7 +3271,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int all_arg_is_fp[IR_CALL_MAX_ARGS];
                 int all_arg_count = 0;
                 int32_t int_spill_offsets[IR_CALL_MAX_ARGS];
-                int32_t fp_spill_offsets[8];
+                int32_t fp_spill_offsets[IR_CALL_MAX_ARGS];
+                uint8_t int_spill_stack_pos[IR_CALL_MAX_ARGS];
+                uint8_t fp_spill_stack_pos[IR_CALL_MAX_ARGS];
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
                 int param_idx = 0;  /* declaration-order index into callee param_types */
@@ -3265,6 +3383,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_store(callee_ptr_temp, BE(c)->fp_reg, -indirect_callee_spill_off);
                 }
 
+                /* ABI stream positions: integer arg slots and FP arg slots are
+                 * each consumed in argument order; a hidden sret pointer takes
+                 * the first integer slot on x86-64/RISC-V (dedicated x8 on
+                 * AArch64). Args beyond the register slots go to the call
+                 * stack in argument order - stack_pos records that position
+                 * (255 = register arg). */
+                int gp_regs_avail = BE(c)->conv->int_arg_reg_count;
+                int fp_regs_avail = BE(c)->conv->fp_arg_reg_count;
+                int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;
+                bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
+                if (callee_uses_sret && c->isa != ISA_AARCH64) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
+
                 while (arg != AST_NULL) {
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     int temp = lower_expr(c, arena, arg);
@@ -3289,6 +3419,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (c->last_expr_is_float && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) && is_var_arg) {
                         /* In RISC-V psABI, variadic FP arguments are passed in integer registers.
                          * Spill the float temp into a stack slot, then pass that slot as an integer argument. */
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
                         c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                         c->current_stack_frame += 8;
                         int32_t slot = c->current_stack_frame;
@@ -3298,16 +3430,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int_arg_idx++;
                         }
                     } else if (c->last_expr_is_float) {
-                        /* Float argument: spill it to a stack slot via IR */
-                        if (fp_arg_idx < 8) {
-                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                            c->current_stack_frame += 8;
-                            fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
-                            ir_emit_fstore((uint16_t)temp, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
-                            fp_arg_idx++;
-                        }
+                        /* Float argument: spill it to a stack slot via IR. The first
+                         * fp_regs_avail go into FP registers (stream order); the rest
+                         * are stack-passed in argument order (stack_pos) - the call
+                         * site pushes them from this same spill slot. */
+                        fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        fp_stream++;
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                        ir_emit_fstore((uint16_t)temp, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                        fp_arg_idx++;
                     } else {
                         /* Integer or struct argument: spill to stack slot(s) */
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
                         if (int_arg_idx < IR_CALL_MAX_ARGS) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
@@ -3320,6 +3457,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             if (arg_sym && (arg_sym->type.tag == TYPE_STRUCT || arg_sym->type.tag == TYPE_UNION) && arg_sym->type.size > 8) {
                                 int num_chunks = (int)((arg_sym->type.size + 7) / 8);
                                 for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
+                                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    gp_stream++;
                                     int ch_temp = c->next_temp_id++;
                                     ir_emit_load(ch_temp, BE(c)->fp_reg, -(arg_sym->stack_offset - ch * 8));
                                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
@@ -3339,7 +3478,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int int_reload_idx = 0;
                 int fp_reload_idx = 0;
 
-                bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
+                /* callee_uses_sret was computed before the arg loop (it also
+                 * sets the initial gp_stream for the sret slot). */
                 int sret_buf_temp = 0;
                 int32_t buf_stack_off = 0;
 
@@ -3363,21 +3503,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 /* Then reload user integer arguments */
+                uint8_t all_arg_stack_pos[IR_CALL_MAX_ARGS];
                 for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
                     all_arg_temps[all_arg_count] = reload_temp;
                     all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_stack_pos[all_arg_count] = int_spill_stack_pos[a];
                     all_arg_count++;
                     int_reload_idx++;
                 }
 
-                /* Then reload FP arguments */
+                /* Then reload FP arguments (f >= fp_regs_avail are stack args;
+                 * the FLOAD reload is unused for those - the call site pushes
+                 * them from the same spill slot via a GPR). */
                 for (int f = 0; f < fp_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; f++) {
                     int reload_temp = c->next_temp_id++;
                     ir_emit_fload(reload_temp, TEMP_NONE, -fp_spill_offsets[f]);
                     all_arg_temps[all_arg_count] = reload_temp;
                     all_arg_is_fp[all_arg_count] = 1;
+                    all_arg_stack_pos[all_arg_count] = fp_spill_stack_pos[f];
                     all_arg_count++;
                     fp_reload_idx++;
                 }
@@ -3388,8 +3533,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_load(callee_reload_temp, BE(c)->fp_reg, -indirect_callee_spill_off);
                     all_arg_temps[all_arg_count] = callee_reload_temp;
                     all_arg_is_fp[all_arg_count] = 2; /* 2 marks indirect callee register */
+                    all_arg_stack_pos[all_arg_count] = 255;
                     all_arg_count++;
                 }
+                if (callee_uses_sret) all_arg_stack_pos[0] = 255;  /* sret entry is always a register arg */
 
                 /* Total integer arguments in standard arg registers (x0..x7 on AArch64 excludes x8 sret) */
                 int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
@@ -3412,16 +3559,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (total_int_args > 1) last_instr->temp_src2 = (uint16_t)all_arg_temps[1];
                     last_instr->imm = 0;  /* unused for OP_CALL since C2b */
                     /* Full argument list (needed for 5+ args or indirect calls) */
-                    ir_call_args_record(ir_get_count() - 1, all_arg_count, all_arg_temps, all_arg_is_fp);
-                    /* Store fp_arg_idx in label_idx for variadic handling */
-                    last_instr->label_idx = (uint16_t)fp_arg_idx;
+                    ir_call_args_record(ir_get_count() - 1, all_arg_count, all_arg_temps, all_arg_is_fp, all_arg_stack_pos);
+                    /* Store the number of FP REGISTER args (clamped: %al / the
+                     * callee spill only covers the register slots) in label_idx */
+                    last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
                 }
 
-                /* Record float spill offsets for this call */
+                /* Record float spill offsets for this call (INCLUDING the
+                 * stack-passed FP args, index >= fp_arg_reg_count - the call
+                 * site pushes them from these slots). */
                 if (c->lowering.ir_ctx.call_count < 64) {
                     int cidx = c->lowering.ir_ctx.call_count++;
                     c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_arg_idx;
-                    for (int f = 0; f < fp_arg_idx && f < BE(c)->conv->fp_arg_reg_count; f++) {
+                    for (int f = 0; f < fp_arg_idx && f < 16; f++) {
                         c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
                 }

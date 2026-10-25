@@ -28,6 +28,11 @@ typedef struct {
     int count;
     uint16_t temps[IR_CALL_MAX_ARGS];  /* 16-bit temp ids (C2b) */
     uint8_t is_fp[IR_CALL_MAX_ARGS];  /* 1 if FP argument, 0 if integer */
+    /* Position within the combined (argument-order) stack-arg list, or
+     * 255 when the arg goes into a register. Needed for FP args beyond
+     * the 8th FP register: they must land on the call stack interleaved
+     * with overflowed integer args in original argument order. */
+    uint8_t stack_pos[IR_CALL_MAX_ARGS];
 } IRCallArgs;
 
 /* Call args arena for tracking */
@@ -497,7 +502,8 @@ static inline void ir_insert_label(size_t idx, uint16_t label_idx) {
 }
 
 /* Call argument tracking - arena-based */
-void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp);
+void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp,
+                         const uint8_t *stack_pos);
 const IRCallArgs *ir_call_args_find(size_t instr_index);
 
 /* Helper functions for common patterns */
@@ -571,7 +577,7 @@ static inline void ir_emit_syscall(int arg_count, const int *arg_temps) {
                     .temp_src1 = (arg_count > 0) ? (uint16_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint16_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
-    ir_call_args_record(ir_get_count() - 1, arg_count, arg_temps, NULL);
+    ir_call_args_record(ir_get_count() - 1, arg_count, arg_temps, NULL, NULL);
 }
 
 /* Float to int conversion (cvttsd2si) */

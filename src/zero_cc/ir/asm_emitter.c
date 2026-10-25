@@ -540,16 +540,18 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
             if (BE(c)->emit_call_asm) {
                 if (call_args) {
-                    /* Unpack uint8_t temps array into int array for backend */
+                    /* Unpack uint8_t arrays into int arrays for backend */
                     int unpacked_temps[IR_CALL_MAX_ARGS];
                     int unpacked_is_fp[IR_CALL_MAX_ARGS];
+                    int unpacked_stack_pos[IR_CALL_MAX_ARGS];
                     for (int i = 0; i < call_args->count; i++) {
                         unpacked_temps[i] = (int)call_args->temps[i];
                         unpacked_is_fp[i] = (int)call_args->is_fp[i];
+                        unpacked_stack_pos[i] = (int)call_args->stack_pos[i];
                     }
-                    BE(c)->emit_call_asm(c, func_name, call_args->count, unpacked_temps, unpacked_is_fp, out);
+                    BE(c)->emit_call_asm(c, func_name, call_args->count, unpacked_temps, unpacked_is_fp, unpacked_stack_pos, out);
                 } else {
-                    BE(c)->emit_call_asm(c, func_name, 0, NULL, NULL, out);
+                    BE(c)->emit_call_asm(c, func_name, 0, NULL, NULL, NULL, out);
                 }
             }
             return;

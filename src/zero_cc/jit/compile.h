@@ -568,12 +568,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
         }
 
-        /* Variadic spill area: reserve stack frame for remaining integer registers */
-        if (is_variadic_fn) {
-            for (size_t p = param_count; p < 6; p++) {
-                c->current_stack_frame += 8;
-            }
-        }
+        /* (The old parse-time variadic spill-area reservation lived here;
+         * the save area is now placed above all locals at lowering time in
+         * zero_cc_lower_ast, which also extends the frame.) */
 
         // Parse function body into AST and lower to machine code
         ZeroCCASTArena arena;

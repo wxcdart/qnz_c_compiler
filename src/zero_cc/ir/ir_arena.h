@@ -252,7 +252,8 @@ static inline void ir_call_args_arena_reset(IRCallArgsArena *arena) {
  */
 static inline void ir_call_args_arena_record(IRCallArgsArena *arena,
                                               size_t instr_index, int count,
-                                              const int *temps, const int *is_fp) {
+                                              const int *temps, const int *is_fp,
+                                              const uint8_t *stack_pos) {
     if (!arena || !arena->table) return;
 
     /* Grow table if needed - dynamic growth like IRArena */
@@ -274,7 +275,9 @@ static inline void ir_call_args_arena_record(IRCallArgsArena *arena,
     for (int i = 0; i < e->count; i++) {
         e->temps[i] = (uint16_t)temps[i];
         e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
+        e->stack_pos[i] = stack_pos ? stack_pos[i] : 255;
     }
+    for (int i = e->count; i < IR_CALL_MAX_ARGS; i++) e->stack_pos[i] = 255;
 }
 
 /**

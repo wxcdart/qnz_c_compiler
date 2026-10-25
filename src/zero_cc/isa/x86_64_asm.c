@@ -518,7 +518,7 @@ static void x86_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
 }
 
 /* CALL - Full x86-64 ABI compliance */
-static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, FILE *out) {
+static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_count, int *arg_temps, int *is_fp, int *stack_pos, FILE *out) {
     /* x86-64 System V ABI argument registers */
     static const char *int_arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     static const char *fp_arg_regs[] = {"xmm0", "xmm1", "xmm2", "xmm3",
@@ -548,7 +548,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Handle FP args first */
+    /* Handle FP args first (register phase only: the first 8 FP args in
+     * stream order; FP args beyond that are stack args, pushed below) */
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
         int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
@@ -556,7 +557,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
                                    ? BE(c)->regs->fp_regs[phys_reg]
                                    : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
-        if (arg_is_fp == 1 && fp_arg_idx < 8) {
+        int arg_pos = stack_pos ? stack_pos[i] : 255;
+        if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < 8) {
             fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
             fp_arg_idx++;
         }
@@ -579,28 +581,79 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Arguments beyond 6 are passed on the stack: push in reverse order, maintain 16-byte alignment */
-    int n_stack = (total_int_count > 6) ? total_int_count - 6 : 0;
+    /* Stack args (from stack_pos): integer args beyond the GP registers
+     * AND FP args beyond the FP registers, in original argument order.
+     * Push in descending stack_pos order, 16-byte aligned. FP stack args
+     * are pushed via movsd+subq (the value sits in the temp's XMM reg). */
+    int n_stack = 0;
+    int stack_pos_list[16];   /* slot k holds the side-table index of arg k */
+    for (int i = 0; i < arg_count && i < 16; i++) {
+        int arg_pos = stack_pos ? stack_pos[i] : 255;
+        if (arg_pos < 255 && arg_pos < 16) {
+            stack_pos_list[arg_pos] = i;
+            if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
+        }
+    }
+    /* Legacy layout (no stack_pos info): int args beyond 6, in order. */
+    int legacy_n_stack = 0;
+    if (!stack_pos && total_int_count > 6) {
+        legacy_n_stack = total_int_count - 6;
+    }
     int stack_pad = (n_stack & 1) ? 8 : 0;
     int32_t extra_sp = 0;
-    if (n_stack > 0) {
+    if (stack_pos) {
         if (stack_pad) {
             fprintf(out, "\tsubq\t$8, %%rsp\n");
             extra_sp += 8;
         }
-        for (int a = total_int_count - 1; a >= 6; a--) {
-            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
-            if (sp >= 0) {
-                int32_t off = spill_base_offset + (sp + 1) * 8;
-                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
-                        (int)zero_cc_frame_disp_at(c, -off, extra_sp),
-                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
-                fprintf(out, "\tpushq\t%%r10\n");
+        for (int pos = n_stack - 1; pos >= 0; pos--) {
+            int i = stack_pos_list[pos];
+            int arg_is_fp = is_fp ? is_fp[i] : 0;
+            if (arg_is_fp == 1) {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
+                                           ? BE(c)->regs->fp_regs[phys_reg]
+                                           : BE(c)->get_vec_reg_name(phys_reg);
+                fprintf(out, "\tmovsd\t%%%s, -8(%%rsp)\n", reg_name);
+                fprintf(out, "\tsubq\t$8, %%rsp\n");
             } else {
-                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
-                fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+                int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[i]);
+                if (sp >= 0) {
+                    int32_t off = spill_base_offset + (sp + 1) * 8;
+                    fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                            (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                            BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                    fprintf(out, "\tpushq\t%%r10\n");
+                } else {
+                    int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                    fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+                }
             }
             extra_sp += 8;
+        }
+    } else {
+        /* Legacy: push int args 6..total in reverse (old behaviour) */
+        n_stack = legacy_n_stack;
+        stack_pad = (n_stack & 1) ? 8 : 0;
+        if (n_stack > 0) {
+            if (stack_pad) {
+                fprintf(out, "\tsubq\t$8, %%rsp\n");
+                extra_sp += 8;
+            }
+            for (int a = total_int_count - 1; a >= 6; a--) {
+                int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[a]);
+                if (sp >= 0) {
+                    int32_t off = spill_base_offset + (sp + 1) * 8;
+                    fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                            (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                            BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                    fprintf(out, "\tpushq\t%%r10\n");
+                } else {
+                    int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[a]);
+                    fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+                }
+                extra_sp += 8;
+            }
         }
     }
 
@@ -825,11 +878,24 @@ static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t o
 
 /* VARIADIC_SPILL: spill remaining integer registers for va_start */
 static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
+    (void)param_count;
+    /* Mirror x86_emit_variadic_spill (MC path): spill ALL arg registers into
+     * the 16-slot save area - integer regs first, then FP regs (lower 64
+     * bits via movsd). va_start points the streams just past the named
+     * params' slots, so the spill is unconditional. */
     static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
-    for (int i = 0; i < param_count && i < 6; i++) {
+    int base = zero_cc_frame_base_reg(c);
+    int gp_regs = BE(c)->conv->int_arg_reg_count;
+    int fp_regs = BE(c)->conv->fp_arg_reg_count;
+    for (int i = 0; i < gp_regs; i++) {
         fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", arg_regs[i],
-                (int)zero_cc_frame_disp(c, base_offset - i * 8), base_name);
+                (int)zero_cc_frame_disp(c, -(base_offset + (int32_t)i * 8)), base_name);
+    }
+    for (int i = 0; i < fp_regs; i++) {
+        if (BE(c)->emit_store_fp_asm) {
+            BE(c)->emit_store_fp_asm(c, i, base, zero_cc_frame_disp(c, -(base_offset + (int32_t)(gp_regs + i) * 8)), out);
+        }
     }
 }
 

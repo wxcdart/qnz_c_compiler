@@ -118,7 +118,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL)) {
+            /* Member access on a parameter (p->m / s.m) is rejected: the
+             * member base-load paths read the parameter from its frame slot
+             * (stack_offset, which is 0 when promoted) instead of the
+             * promoted vreg -- in a frameless function that slot is the
+             * caller's saved %rbp. See zero_cc_ast_member_on_param. */
             if (!zero_cc_ast_addr_of_param(arena, root, fn->param_names, (int)fn->param_count) &&
+                !zero_cc_ast_member_on_param(arena, root, fn->param_names, (int)fn->param_count) &&
                 !zero_cc_ast_assigns_to_param(arena, root, fn->param_names, (int)fn->param_count)) {
                 can_promote_params = true;
                 int chk_int = 0;
@@ -216,7 +222,16 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
 
         if (fn->is_variadic) {
-            int32_t base_spill_offset = (int32_t)fn->param_count > 0 ? c->locals[fn->param_count - 1].stack_offset + 8 : BE(c)->callee_save_frame_reserve + 8;
+            /* Save area: (int_arg_reg_count + fp_arg_reg_count) 8-byte slots
+             * above ALL named locals - the integer arg registers first, then
+             * the FP arg registers (16 slots on x86-64/AArch64/RV64).
+             * va_start/va_arg walk them as two streams (see the NODE_VA_START
+             * lowering below). Placed above the locals (not right after the
+             * last parameter, as before) so body stores to locals cannot
+             * clobber spilled variadic args. */
+            int va_slots = BE(c)->conv->int_arg_reg_count + BE(c)->conv->fp_arg_reg_count;
+            int32_t base_spill_offset = c->current_stack_frame + 8;
+            c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * 8) + 15) & ~(size_t)15);
             ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
         }
     }

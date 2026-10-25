@@ -898,6 +898,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * bytes (mispassing every float arg on 7+ int args). The
                  * -S path (x86_emit_call_asm & co) emits FP args first for
                  * the same reason. */
+                int cidx = call_idx;
                 if (call_idx < c->lowering.ir_ctx.call_count) {
                     int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
                     for (int f = 0; f < fp_count && f < 8; f++) {
@@ -912,10 +913,44 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     call_idx++;
                 }
 
-                /* Args beyond int_arg_count go on the stack:
-                 * so push them in reverse order, padding to keep stack 16-byte aligned. */
+                /* Stack args: everything the lowering marked stack_pos < 255
+                 * (integer args beyond the GP registers, FP args beyond the
+                 * FP registers). They occupy the call stack in original
+                 * argument order, so push in DESCENDING stack_pos order,
+                 * padding to keep the stack 16-byte aligned. FP stack args
+                 * are re-read as their 8-byte bit pattern from the same
+                 * spill slot the lowering stored (their XMM temp is unused).
+                 * (C2b fallback without the side table: the old int-only
+                 * formula. */
                 int int_arg_count = BE(c)->conv->int_arg_reg_count;
-                int n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
+                int n_stack;
+                int stack_meta_temp[16];  /* per stack slot: int arg temp, -1 for FP */
+                int stack_meta_fp[16];    /* per stack slot: FP stream index, -1 for int */
+                if (full_args) {
+                    n_stack = 0;
+                    int fp_seen = 0;
+                    for (int i = 0; i < full_args->count; i++) {
+                        if (full_args->is_fp[i] == 1) {
+                            int f = fp_seen++;
+                            int pos = full_args->stack_pos[i];
+                            if (pos < 255 && pos < 16) {
+                                stack_meta_temp[pos] = -1;
+                                stack_meta_fp[pos] = f;
+                                if (pos + 1 > n_stack) n_stack = pos + 1;
+                            }
+                            continue;
+                        }
+                        if (full_args->is_fp[i] == 2 || full_args->is_fp[i] == 3) continue;
+                        int pos = full_args->stack_pos[i];
+                        if (pos < 255 && pos < 16) {
+                            stack_meta_temp[pos] = full_args->temps[i];
+                            stack_meta_fp[pos] = -1;
+                            if (pos + 1 > n_stack) n_stack = pos + 1;
+                        }
+                    }
+                } else {
+                    n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
+                }
                 int stack_pad = (n_stack & 1) ? 8 : 0;
                 int32_t extra_sp = 0;
                 if (n_stack > 0) {
@@ -923,13 +958,33 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         BE(c)->emit_stack_adjust(c, -stack_pad);
                         extra_sp += stack_pad;
                     }
-                    for (int a = arg_count - 1; a >= int_arg_count; a--) {
-                        int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
-                        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
-                        if (sp >= 0) {
-                            int32_t off = spill_base_offset + (sp + 1) * 8;
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                    for (int pos = n_stack - 1; pos >= 0; pos--) {
+                        int r;
+                        if (full_args && stack_meta_fp[pos] >= 0) {
+                            /* FP stack arg: bits live in the lowering's spill slot */
+                            int f = stack_meta_fp[pos];
+                            int32_t fslot = c->lowering.ir_ctx.call_fp_spills[cidx][f];
+                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -fslot, extra_sp));
                             r = BE(c)->scratch_reg1;
+                        } else if (full_args) {
+                            int t = stack_meta_temp[pos];
+                            r = regalloc_get_reg_for_temp(&c->regalloc, t);
+                            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, t);
+                            if (sp >= 0) {
+                                int32_t off = spill_base_offset + (sp + 1) * 8;
+                                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                                r = BE(c)->scratch_reg1;
+                            }
+                        } else {
+                            /* C2b fallback: int args only, old layout */
+                            int a = int_arg_count + (n_stack - 1 - pos);
+                            r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+                            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
+                            if (sp >= 0) {
+                                int32_t off = spill_base_offset + (sp + 1) * 8;
+                                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                                r = BE(c)->scratch_reg1;
+                            }
                         }
                         BE(c)->emit_push_reg(c, r);
                         extra_sp += 8;

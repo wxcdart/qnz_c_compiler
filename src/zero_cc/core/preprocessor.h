@@ -432,11 +432,17 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "stdarg.h") == 0) {
         return strdup(
             "#ifndef _STDARG_H\n#define _STDARG_H 1\n"
-            "typedef struct { void *__ap; } va_list;\n"
+            /* ABI-correct va_list (Sprint 49): the callee prologue spills all
+             * argument registers into a 16-slot save area (6 integer regs,
+             * then 8 FP regs) above the locals. va_start points the two
+             * streams (gp/fp) just past the named parameters' slots; when a
+             * stream is exhausted (ptr == end) reads continue from ovf, the
+             * shared stack-overflow area (fp+16), in argument order. */
+            "typedef struct { unsigned long long *gp; unsigned long long *gp_end; unsigned long long *fp; unsigned long long *fp_end; unsigned long long *ovf; } va_list;\n"
             "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
-            "#define va_end(ap) __builtin_va_end(ap)\n"
             "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
-            "#define va_copy(dest, src) __builtin_va_copy(dest, src)\n"
+            "#define va_end(ap) __builtin_va_end(ap)\n"
+            "#define va_copy(dest, src) ((void)((dest) = (src)))\n"
             "#endif\n"
         );
     }
@@ -540,6 +546,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "stdio.h") == 0) {
         return strdup(
             "#ifndef _STDIO_H\n#define _STDIO_H 1\n"
+            "#include <stdarg.h>\n"
             "typedef unsigned long size_t;\n"
             "typedef struct FILE FILE;\n"
             "extern FILE *stdin, *stdout, *stderr;\n"
@@ -675,17 +682,6 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef unsigned long nfds_t;\n"
             "#define POLLIN 0x0001\n#define POLLOUT 0x0004\n#define POLLERR 0x0008\n#define POLLHUP 0x0010\n"
             "int poll(struct pollfd *fds, nfds_t nfds, int timeout);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "stdarg.h") == 0) {
-        return strdup(
-            "#ifndef _STDARG_H\n#define _STDARG_H 1\n"
-            "typedef void *va_list;\n"
-            "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
-            "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
-            "#define va_end(ap) __builtin_va_end(ap)\n"
-            "#define va_copy(dest, src) ((dest) = (src))\n"
             "#endif\n"
         );
     }

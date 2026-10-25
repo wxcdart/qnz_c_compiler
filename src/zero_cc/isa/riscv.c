@@ -891,10 +891,23 @@ static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot)
     riscv_emit_u32(c, rv64_S(zero_cc_frame_base_reg(c), reg, f3, (int16_t)zero_cc_frame_disp(c, -slot), 0x27));
 }
 
-/* variadic_spill - spill variadic arguments */
+/* variadic_spill - spill ALL argument registers (a0..a7, then fa0..fa7) into
+ * the 16-slot save area. va_start points the streams just past the slots
+ * consumed by named parameters, so the spill is unconditional. (Was a
+ * no-op: variadic args were never accessible via va_arg. RV32 keeps the
+ * no-op: the 8-byte slot model assumes LP64 pointers/args.) */
 static void riscv64_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
-    (void)c; (void)param_count; (void)base_offset;
-    /* Save a0-a7, fa0-fa7 to variadic spill area */
+    (void)param_count;
+    if (c->isa == ISA_RISCV32) return;
+    int base = zero_cc_frame_base_reg(c);
+    int gp_regs = BE(c)->conv->int_arg_reg_count;
+    int fp_regs = BE(c)->conv->fp_arg_reg_count;
+    for (int i = 0; i < gp_regs; i++) {
+        riscv64_emit_store(c, i, base, -(base_offset + (int32_t)i * 8));
+    }
+    for (int i = 0; i < fp_regs; i++) {
+        riscv64_emit_store_fp(c, i, base, -(base_offset + (int32_t)(gp_regs + i) * 8));
+    }
 }
 
 /* variadic_al_setup - setup for variadic arguments */

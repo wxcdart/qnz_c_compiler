@@ -138,6 +138,8 @@ bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root);
 bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root);
 bool zero_cc_ast_addr_of_param(ZeroCCASTArena *arena, ASTRef root,
                                const char *param_names[], int param_count);
+bool zero_cc_ast_member_on_param(ZeroCCASTArena *arena, ASTRef root,
+                                 const char *param_names[], int param_count);
 bool zero_cc_ast_assigns_to_param(ZeroCCASTArena *arena, ASTRef root,
                                   const char *param_names[], int param_count);
 static inline ZeroCCASTNode *zero_cc_ast_get(ZeroCCASTArena *arena, ASTRef ref) {

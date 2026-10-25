@@ -28,8 +28,9 @@ typedef struct {
     size_t temp_var_count;
     int next_temp_id;
 
-    /* Float argument spill offsets per call index */
-    int32_t call_fp_spills[64][8];
+    /* Float argument spill offsets per call index (indices beyond the FP
+     * register count are the stack-passed FP args, pushed by the call site) */
+    int32_t call_fp_spills[64][16];
     int call_fp_spill_counts[64];
     int call_count;
 } IREmitterContext;

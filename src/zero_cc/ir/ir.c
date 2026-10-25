@@ -103,12 +103,13 @@ void ir_insert_at(size_t idx, Instr instr) {
 }
 
 /* Record call arguments for an instruction */
-void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp) {
+void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp,
+                         const uint8_t *stack_pos) {
     IRCallArgsArena *call_arena = ir_call_arena();
     if (!call_arena || !call_arena->table) return;
 
     /* Dynamic growth handles capacity automatically */
-    ir_call_args_arena_record(call_arena, instr_index, count, temps, is_fp);
+    ir_call_args_arena_record(call_arena, instr_index, count, temps, is_fp, stack_pos);
 }
 
 /* Find call arguments for an instruction */

@@ -361,7 +361,9 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 sink_put(&s, *fmt);
                 break;
             }
-            fmt++;
+            /* fmt points at the specifier; the loop's fmt++ advances past
+             * it. (A second fmt++ here used to drop the character after
+             * every conversion: "int: %d str: %s\n" printed "int: 42str: hello".) */
         }
     }
     if (out) out[s.len < outcap ? s.len : outcap - 1] = 0;
