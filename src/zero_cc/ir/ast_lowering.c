@@ -425,7 +425,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     {
         bool omit_wanted = c->omit_frame_pointer == 1 ||
                            (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1);
-        if (omit_wanted && !c->lowering.is_frameless) {
+        /* Disable frame pointer omission for variadic functions:
+         * va_start offset computation assumes a stable frame pointer. */
+        bool is_variadic_fn = (c->function_count > 0) && c->functions[c->function_count - 1].is_variadic;
+        if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn) {
             bool has_vla = false;
             for (size_t i = 0; i < ir_count; i++) {
                 if (ir_buf[i].op == OP_VLA_ALLOC) { has_vla = true; break; }

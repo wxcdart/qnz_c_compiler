@@ -657,25 +657,29 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Push all src integer registers to stack (reloading spilled temps via %r10) */
-    for (int i = 0; i < n_int_args; i++) {
+    /* Move first 6 integer args directly to ABI registers (RDI, RSI, RDX, RCX, R8, R9).
+     * Use R10 as a scratch register to safely handle cases where the source
+     * register is also a destination for another argument (parallel moves). */
+    for (int i = (n_int_args < 6 ? n_int_args : 6) - 1; i >= 0; i--) {
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
+        const char *dst_reg = int_arg_regs[i];
         if (sp >= 0) {
             int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+            fprintf(out, "\tmovq\t%d(%%%s),%%%s\n",
                     (int)zero_cc_frame_disp_at(c, -off, extra_sp),
-                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
-            fprintf(out, "\tpushq\t%%r10\n");
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)),
+                    dst_reg);
         } else {
             int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
-            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+            const char *src_reg = BE(c)->get_hw_reg_name(phys_reg);
+            if (strcmp(src_reg, dst_reg) != 0) {
+                /* Use R10 as scratch to avoid clobbering other argument registers */
+                fprintf(out, "\tmovq\t%%%s,%%r10\n", src_reg);
+                fprintf(out, "\tmovq\t%%r10,%%%s\n", dst_reg);
+            }
         }
-        extra_sp += 8;
     }
-    /* Pop in reverse into destination ABI registers */
-    for (int i = n_int_args - 1; i >= 0; i--) {
-        fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
-    }
+    /* Stack args (7+) were already pushed above in the stack_pos/legacy block */
 
     if (indirect_reg_name) {
         fprintf(out, "\tcall\t*%%r11\n");

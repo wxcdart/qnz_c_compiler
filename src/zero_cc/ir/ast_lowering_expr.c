@@ -3274,6 +3274,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int32_t fp_spill_offsets[IR_CALL_MAX_ARGS];
                 uint8_t int_spill_stack_pos[IR_CALL_MAX_ARGS];
                 uint8_t fp_spill_stack_pos[IR_CALL_MAX_ARGS];
+                int int_arg_original_temps[IR_CALL_MAX_ARGS];
                 int int_arg_idx = 0;
                 int fp_arg_idx = 0;
                 int param_idx = 0;  /* declaration-order index into callee param_types */
@@ -3398,6 +3399,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 while (arg != AST_NULL) {
                     ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
                     int temp = lower_expr(c, arena, arg);
+                    /* Save original temp for register args (before spill) */
+                    if (!c->last_expr_is_float && int_arg_idx < IR_CALL_MAX_ARGS) {
+                        int_arg_original_temps[int_arg_idx] = temp;
+                    }
                     /* C99 int width semantics: narrow int args are extended
                      * to full 64-bit width before being passed (the callee
                      * must see a true 32-bit value, not 64-bit overflow
@@ -3505,9 +3510,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 /* Then reload user integer arguments */
                 uint8_t all_arg_stack_pos[IR_CALL_MAX_ARGS];
                 for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
-                    int reload_temp = c->next_temp_id++;
-                    ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
-                    all_arg_temps[all_arg_count] = reload_temp;
+                    if (int_spill_stack_pos[a] == 255) {
+                        all_arg_temps[all_arg_count] = int_arg_original_temps[a];
+                    } else {
+                        int reload_temp = c->next_temp_id++;
+                        ir_emit_load(reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);
+                        all_arg_temps[all_arg_count] = reload_temp;
+                    }
                     all_arg_is_fp[all_arg_count] = 0;
                     all_arg_stack_pos[all_arg_count] = int_spill_stack_pos[a];
                     all_arg_count++;
