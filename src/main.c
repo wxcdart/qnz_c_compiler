@@ -41,6 +41,7 @@ typedef struct {
     const char *output_file;
     int emit_object;      /* -c */
     int emit_asm;         /* -S */
+    int emit_preproc;     /* -E */
     int run_mode;         /* --run */
     int verbose;          /* -v */
     int opt_level;        /* 0-3 for -O0 to -O3 */
@@ -72,6 +73,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -o <file>       Output file (executable or object with -c)\n");
     fprintf(stderr, "  -c              Compile to object file (.o) only\n");
     fprintf(stderr, "  -S              Emit assembly\n");
+    fprintf(stderr, "  -E              Preprocess only, to stdout (or -o file)\n");
     fprintf(stderr, "  -O0             No optimization\n");
     fprintf(stderr, "  -O1             Basic optimization (default)\n");
     fprintf(stderr, "  -O2             Standard optimization\n");
@@ -113,6 +115,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-S") == 0) {
             opts->emit_asm = 1;
+        }
+        else if (strcmp(arg, "-E") == 0) {
+            opts->emit_preproc = 1;
         }
         else if (strcmp(arg, "-run") == 0 || strcmp(arg, "--run") == 0) {
             opts->run_mode = 1;
@@ -720,6 +725,46 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
         ir_arena_free(&comp->ir_arena);
         return;
     }
+}
+
+static int compile_preprocess(CompileOptions *opts) {
+    if (opts->output_file && opts->input_count > 1) {
+        fprintf(stderr, "zerocc: error: cannot specify -o with -E and multiple input files\n");
+        return 1;
+    }
+    int rc = 0;
+    for (int i = 0; i < opts->input_count; i++) {
+        const char *input = opts->input_files[i];
+        char *source = read_file(input);
+        if (!source) {
+            perror(input);
+            return 1;
+        }
+        /* gcc parity: for -E the default -MMD target/dep file are derived
+         * from the input name (a.c -> a.d, target a.o), not from -o, so
+         * clear output_file from the dependency defaults. */
+        CompileOptions eopts = *opts;
+        eopts.output_file = NULL;
+        char *prep = preprocess_with_options(source, &eopts, input, NULL);
+        free(source);
+        if (!prep) {  /* include error already diagnosed by preprocess_with_options */
+            return 1;
+        }
+        if (opts->output_file && i == 0) {
+            FILE *f = fopen(opts->output_file, "w");
+            if (!f) {
+                perror(opts->output_file);
+                free(prep);
+                return 1;
+            }
+            fputs(prep, f);
+            fclose(f);
+        } else {
+            fputs(prep, stdout);
+        }
+        free(prep);
+    }
+    return rc;
 }
 
 static int compile_object(CompileOptions *opts) {
@@ -1547,8 +1592,11 @@ int main(int argc, char **argv) {
         return ret == 0 ? 0 : 1;
     }
 
-    /* Determine mode: -c -> object file, -S -> assembly, -o without -c -> executable, else JIT */
-    if (opts.emit_object || opts.emit_asm) {
+    /* Determine mode: -E -> preprocess only, -c -> object file,
+     * -S -> assembly, -o without -c -> executable, else JIT */
+    if (opts.emit_preproc) {
+        return compile_preprocess(&opts);
+    } else if (opts.emit_object || opts.emit_asm) {
         /* When ZC_TEXT_AOT=1 is set for cross targets, route -c through the text
          * assembler escape hatch. Default is direct raw binary object generation. */
         if (opts.emit_object && getenv("ZC_TEXT_AOT") && parse_target_arch(opts.target_arch) != ISA_X86_64) {

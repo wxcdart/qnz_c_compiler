@@ -229,6 +229,40 @@ def main():
             ok = "main.s:" in d_content and "main.c" in d_content
         check("dep-mmd-asm", ok, f"rc={rc} err={err!r} d={d_content!r}")
 
+        # -- -E preprocess-only ------------------------------------------------
+        # 7. -E to stdout: includes expanded, no #include lines remain
+        rc, out, err = run_zerocc(["-E", "-Iinclude", "main.c"], cwd=dep_dir)
+        ok = rc == 0 and "int answer = 42;" in out and "int main(void)" in out
+        ok = ok and "#include" not in out
+        check("e-stdout", ok, f"rc={rc} err={err!r} out[:120]={out[:120]!r}")
+
+        # 8. -E -o: writes the preprocessed output to a file, nothing on stdout
+        rc, out, err = run_zerocc(["-E", "-Iinclude", "main.c", "-o", "main.i"], cwd=dep_dir)
+        i_path = os.path.join(dep_dir, "main.i")
+        ok = rc == 0 and os.path.exists(i_path) and out == ""
+        if ok:
+            with open(i_path) as f:
+                i_content = f.read()
+            ok = "int answer = 42;" in i_content and "int main(void)" in i_content
+        check("e-output-file", ok, f"rc={rc} err={err!r}")
+
+        # 9. -E -MMD: dep file derived from the input name, target <base>.o
+        os.unlink(d_path) if os.path.exists(d_path) else None
+        rc, out, err = run_zerocc(["-E", "-MMD", "-Iinclude", "main.c"], cwd=dep_dir)
+        d_path = os.path.join(dep_dir, "main.d")
+        ok = rc == 0 and os.path.exists(d_path)
+        d_content = ""
+        if ok:
+            with open(d_path) as f:
+                d_content = f.read()
+            ok = "main.o:" in d_content and "main.c" in d_content and "include/dep_hdr.h" in d_content
+        check("e-mmd", ok, f"rc={rc} err={err!r} d={d_content!r}")
+
+        # 10. -E -o with multiple inputs is an error (like gcc)
+        rc, out, err = run_zerocc(["-E", "-Iinclude", "-o", "both.i", "main.c", "main.c"], cwd=dep_dir)
+        ok = rc != 0
+        check("e-o-multi-err", ok, f"rc={rc} err={err!r}")
+
         # 6. Full combo: -MMD -MT target.o -MF combo.d -o my.o + make verification
         os.unlink(d_path)
         rc, out, err = run_zerocc(["-MMD", "-MT", "target.o", "-MF", "combo.d", "-Iinclude", "-c", "main.c", "-o", "my.o"], cwd=dep_dir)

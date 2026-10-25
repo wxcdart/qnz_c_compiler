@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-10-25T20:27:38Z
+timestamp: 2026-10-25T20:32:40Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -23,11 +23,12 @@ into one executable image before running `main`.
 | `zerocc a.c b.c -o out` | per-TU raw object (`/tmp/zerocc_PID_i.o`) → system linker (`gcc`/cross-gcc) combines them |
 | `zerocc a.c b.c --run` | each TU compiles into its own `ZeroCCCompiler`; `zero_cc_tu_merge` folds them into the first; one `zero_cc_execute_jit` on the merged image |
 | `zerocc -c a.c b.c` / `-S` | one `.o` / `.s` per input (derived next to the input file); `-o` with `-c/-S` + multiple inputs is an error |
+| `zerocc -E a.c` | preprocess-only: preprocessed source to stdout; `-o` for a single input; `-o` + multiple inputs is an error |
 
-Driver gate: `make test-driver` (`tools/driver_tests.py`, 27 cases in
+Driver gate: `make test-driver` (`tools/driver_tests.py`, 31 cases in
 `test/driver/` — multi-TU JIT/AOT, cross-TU globals & doubles, 3-file call
 chains, per-input `-c`/`-S`, duplicate-definition & missing-`main` errors,
-plus `-MMD/-MF/-MT` dependency generation).
+plus `-MMD/-MF/-MT` dependency generation and `-E` preprocess-only).
 `test/driver/%` is excluded from the `make test` glob like `test/diag/%`.
 
 ## Dependency Generation (Toolchain T0: `-MMD`, `-MF`, `-MT`)
@@ -36,6 +37,7 @@ ZeroCC supports Makefile-compatible dependency generation:
 - `-MMD`: Emits dependency rule `<target>: <main_file> <inc1> <inc2> ...` tracking non-virtual included files.
 - `-MF <file>`: Specifies destination `.d` dependency file path (defaults to output file with `.d` extension, e.g. `main.d` from `main.o`).
 - `-MT <target>`: Specifies target name in the dependency rule (defaults to output file basename, e.g. `main.o` from `main.c`, or `main.s` under `-S`).
+- `-E`: Preprocess-only mode — writes the preprocessed source to stdout (or to the `-o` file; `-o` with multiple inputs is an error, as in gcc). Under `-E` the default dep target/file are derived from the **input** name (`main.c` → `main.d`, target `main.o`), matching gcc — not from `-o`.
 - Included files are automatically deduplicated.
 - Verified in `make test-driver` (`tools/driver_tests.py`), confirming valid GNU Make parsing.
 

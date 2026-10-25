@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 51] - 2026-10-25 - `-E` Preprocess-Only Mode (gcc-Parity Driver Front Door)
+
+Added the `-E` driver flag: preprocess each input (includes, macros, line markers) and emit the result to **stdout**, or to a file with `-o` — no compilation. `-E` takes priority over `-c`/`-S`/`--run`.
+
+- **Driver** (`src/main.c`): new `compile_preprocess()` — per-input `read_file` + `preprocess_with_options`, output to stdout (multiple inputs) or the `-o` file (single input; `-o` + multiple inputs is a clean error, as in gcc).
+- **gcc-parity dep defaults under `-E`**: the default `-MMD` target/dep file are derived from the **input** name (`main.c` → `main.d`, target `main.o`), not from `-o` — implemented by clearing `output_file` from the dependency defaults before calling `preprocess_with_options` (explicit `-MF`/`-MT` still win).
+- **Regression coverage** (`tools/driver_tests.py`, 4 new cases): `-E` stdout expansion (no residual `#include`), `-E -o file`, `-E -MMD` input-derived `main.d`/`main.o` target, and the `-E -o` multi-input error.
+- **Verification**:
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `make test-driver`: **31/31 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 50] - 2026-10-25 - Toolchain T0: Makefile Dependency Generation (`-MMD` / `-MF` / `-MT`)
 
 Added GNU-Make-compatible dependency generation to the zerocc driver, letting `make`-based build systems track header changes for zerocc-compiled sources.
