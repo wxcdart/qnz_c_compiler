@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-10-23T01:03:56Z
+timestamp: 2026-10-25T20:27:38Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -24,10 +24,20 @@ into one executable image before running `main`.
 | `zerocc a.c b.c --run` | each TU compiles into its own `ZeroCCCompiler`; `zero_cc_tu_merge` folds them into the first; one `zero_cc_execute_jit` on the merged image |
 | `zerocc -c a.c b.c` / `-S` | one `.o` / `.s` per input (derived next to the input file); `-o` with `-c/-S` + multiple inputs is an error |
 
-Driver gate: `make test-driver` (`tools/driver_tests.py`, 19 cases in
+Driver gate: `make test-driver` (`tools/driver_tests.py`, 27 cases in
 `test/driver/` — multi-TU JIT/AOT, cross-TU globals & doubles, 3-file call
-chains, per-input `-c`/`-S`, duplicate-definition & missing-`main` errors).
+chains, per-input `-c`/`-S`, duplicate-definition & missing-`main` errors,
+plus `-MMD/-MF/-MT` dependency generation).
 `test/driver/%` is excluded from the `make test` glob like `test/diag/%`.
+
+## Dependency Generation (Toolchain T0: `-MMD`, `-MF`, `-MT`)
+
+ZeroCC supports Makefile-compatible dependency generation:
+- `-MMD`: Emits dependency rule `<target>: <main_file> <inc1> <inc2> ...` tracking non-virtual included files.
+- `-MF <file>`: Specifies destination `.d` dependency file path (defaults to output file with `.d` extension, e.g. `main.d` from `main.o`).
+- `-MT <target>`: Specifies target name in the dependency rule (defaults to output file basename, e.g. `main.o` from `main.c`, or `main.s` under `-S`).
+- Included files are automatically deduplicated.
+- Verified in `make test-driver` (`tools/driver_tests.py`), confirming valid GNU Make parsing.
 
 ## The merge (`src/zero_cc/core/multi_tu.h`)
 

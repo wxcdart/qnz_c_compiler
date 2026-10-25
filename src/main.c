@@ -58,6 +58,9 @@ typedef struct {
     const char *libs[32]; /* -l<lib> */
     int lib_count;
     const char *target_arch; /* --target */
+    int gen_deps;           /* -MMD: generate dependency file */
+    const char *dep_file;   /* -MF: dependency output file */
+    const char *dep_target; /* -MT: target name in dependency file */
 } CompileOptions;
 
 static int compile_object_single(CompileOptions *opts, const char *input, const char *output);
@@ -84,6 +87,9 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
     fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64)\n");
+    fprintf(stderr, "  -MMD            Generate dependency file\n");
+    fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");
+    fprintf(stderr, "  -MT <target>    Set target name in dependency file\n");
 }
 
 static void print_version(void) {
@@ -145,6 +151,21 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--zerocc-link") == 0) {
             opts->zerocc_link = 1;
+        }
+        else if (strcmp(arg, "-MMD") == 0) {
+            opts->gen_deps = 1;
+        }
+        else if (strcmp(arg, "-MF") == 0 && i + 1 < argc) {
+            opts->dep_file = argv[++i];
+        }
+        else if (strncmp(arg, "-MF", 3) == 0) {
+            opts->dep_file = arg + 3;
+        }
+        else if (strcmp(arg, "-MT") == 0 && i + 1 < argc) {
+            opts->dep_target = argv[++i];
+        }
+        else if (strncmp(arg, "-MT", 3) == 0) {
+            opts->dep_target = arg + 3;
         }
         else if (strcmp(arg, "-I") == 0 && i + 1 < argc) {
             if (opts->include_count < 32) {
@@ -417,9 +438,10 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
 
 /* Run the preprocessor with the CLI-provided -I include dirs and -D
  * defines (Sprint 41).  Both are optional; with neither present this
- * is exactly the old `zero_cc_preprocess(source, NULL)` behavior. */
+ * is exactly the old `zero_cc_preprocess(source, NULL)` behavior.
+ * Also handles dependency generation for -MMD/-MF/-MT (Toolchain T0). */
 static char *preprocess_with_options(const char *source, const CompileOptions *opts,
-                                     const char *main_file) {
+                                     const char *main_file, const char *dep_target) {
     ZeroCCIncludeDirs inc_dirs;
     ZeroCCDefines defines;
     memset(&inc_dirs, 0, sizeof(inc_dirs));
@@ -446,14 +468,67 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         defines.defs[defines.count].value = value_copy;
         defines.count++;
     }
+
+    const char *final_dep_target = dep_target;
+    if (!final_dep_target || !final_dep_target[0]) {
+        final_dep_target = opts->dep_target;
+    }
+    char default_target_buf[512];
+    if (!final_dep_target || !final_dep_target[0]) {
+        const char *ref = opts->output_file;
+        if (ref) {
+            const char *slash = strrchr(ref, '/');
+            final_dep_target = slash ? slash + 1 : ref;
+        } else if (main_file) {
+            const char *slash = strrchr(main_file, '/');
+            const char *base = slash ? slash + 1 : main_file;
+            const char *dot = strrchr(base, '.');
+            if (dot) {
+                size_t len = dot - base;
+                snprintf(default_target_buf, sizeof(default_target_buf), "%.*s.o", (int)len, base);
+            } else {
+                snprintf(default_target_buf, sizeof(default_target_buf), "%s.o", base);
+            }
+            final_dep_target = default_target_buf;
+        }
+    }
+
+    const char *final_dep_file = opts->dep_file;
+    char default_dep_file_buf[512];
+    if ((!final_dep_file || !final_dep_file[0]) && opts->gen_deps) {
+        const char *ref = opts->output_file;
+        if (ref) {
+            const char *dot = strrchr(ref, '.');
+            if (dot) {
+                size_t len = dot - ref;
+                snprintf(default_dep_file_buf, sizeof(default_dep_file_buf), "%.*s.d", (int)len, ref);
+            } else {
+                snprintf(default_dep_file_buf, sizeof(default_dep_file_buf), "%s.d", ref);
+            }
+            final_dep_file = default_dep_file_buf;
+        } else if (main_file) {
+            const char *slash = strrchr(main_file, '/');
+            const char *base = slash ? slash + 1 : main_file;
+            const char *dot = strrchr(base, '.');
+            if (dot) {
+                size_t len = dot - base;
+                snprintf(default_dep_file_buf, sizeof(default_dep_file_buf), "%.*s.d", (int)len, base);
+            } else {
+                snprintf(default_dep_file_buf, sizeof(default_dep_file_buf), "%s.d", base);
+            }
+            final_dep_file = default_dep_file_buf;
+        }
+    }
+
     /* Sprint 42: pass the main file path so (a) quoted includes in the
      * main file resolve relative to its own directory (C99 6.10.2p2,
      * not the process CWD), and (b) a missing include file becomes a
      * hard error with a diagnostic instead of a silent skip. */
     char include_err[PATH_MAX + 96];
     include_err[0] = '\0';
-    char *out = zero_cc_preprocess_ext2(source, &inc_dirs, &defines,
-                                        main_file, include_err, sizeof(include_err));
+    char *out = zero_cc_preprocess_ext3(source, &inc_dirs, &defines,
+                                        main_file, include_err, sizeof(include_err),
+                                        final_dep_target, final_dep_file, opts->gen_deps);
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }
@@ -492,7 +567,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
 
-    char *prep = preprocess_with_options(source, opts, input);
+    char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
     free(source);
     if (getenv("ZERO_CC_DUMP_CPP") && prep) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
@@ -663,6 +738,23 @@ static int compile_object(CompileOptions *opts) {
     return rc;
 }
 
+/* Derive a default output name from an input path: replace the extension
+ * with `ext` (append if the input has no extension).  Returns `output`
+ * unchanged when non-NULL; otherwise writes the derived name into `buf`. */
+static const char *derive_default_output(const char *input, const char *output,
+                                         const char *ext, char *buf, size_t cap) {
+    if (output) return output;
+    const char *base = input;
+    const char *dot = strrchr(base, '.');
+    const char *slash = strrchr(base, '/');
+    if (slash && (!dot || slash > dot)) base = slash + 1;
+    size_t len = dot ? (size_t)(dot - base) : strlen(base);
+    if (len > cap - 4) len = cap - 4;
+    memcpy(buf, base, len);
+    strcpy(buf + len, ext);
+    return buf;
+}
+
 static int compile_object_single(CompileOptions *opts, const char *input,
                                  const char *output) {
     /* Read source file */
@@ -671,9 +763,27 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         return 1;
     }
 
+    /* Determine output filename */
+    static char output_buf[512];
+    const char *output_path = derive_default_output(input, output, ".o",
+                                                    output_buf, sizeof(output_buf));
+
     if (opts->verbose) {
         printf("Compiling %s to object file (target: %s)\n", input,
                opts->target_arch ? opts->target_arch : "x86-64");
+    }
+
+    /* Determine dep_target for -MMD/-MF/-MT: defaults to the output
+     * basename, ".s" under -S (matching gcc's default target). */
+    const char *dep_target = opts->dep_target;
+    if (!dep_target) {
+        static char dep_target_buf[512];
+        const char *ref = derive_default_output(input, output,
+                                                opts->emit_asm ? ".s" : ".o",
+                                                dep_target_buf,
+                                                sizeof(dep_target_buf));
+        const char *slash = strrchr(ref, '/');
+        dep_target = slash ? slash + 1 : ref;
     }
 
     /* Create compiler */
@@ -692,8 +802,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
 
-    /* Preprocess (with -I include dirs and -D defines from the CLI) */
-    char *prep = preprocess_with_options(source, opts, input);
+    /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
+    char *prep = preprocess_with_options(source, opts, input, dep_target);
     free(source);
     if (getenv("ZERO_CC_DUMP_CPP") && prep) {
         FILE *df = fopen(getenv("ZERO_CC_DUMP_CPP"), "w");
@@ -728,29 +838,10 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Enable assembly emission if requested */
     if (opts->emit_asm) {
         comp->emit_asm = 1;
-        /* Open output file for assembly */
-        const char *out_path = output;
-        if (!out_path) {
-            /* Generate output name from input: source.c -> source.s */
-            static char out_buf[512];
-            const char *base = input;
-            const char *dot = strrchr(base, '.');
-            const char *slash = strrchr(base, '/');
-            if (slash && (!dot || slash > dot)) {
-                base = slash + 1;
-            }
-            if (dot) {
-                size_t len = dot - base;
-                if (len > sizeof(out_buf) - 4) len = sizeof(out_buf) - 4;
-                strncpy(out_buf, base, len);
-                out_buf[len] = '\0';
-                strcat(out_buf, ".s");
-            } else {
-                strncpy(out_buf, base, sizeof(out_buf) - 3);
-                strcat(out_buf, ".s");
-            }
-            out_path = out_buf;
-        }
+        /* Open output file for assembly (source.c -> source.s) */
+        static char out_buf[512];
+        const char *out_path = derive_default_output(input, output, ".s",
+                                                     out_buf, sizeof(out_buf));
         comp->asm_out = fopen(out_path, "w");
         if (!comp->asm_out) {
             perror("fopen");
@@ -773,30 +864,6 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Dump optimization profile if requested */
     if (opts->profile_opts) {
         opt_profile_dump(stderr);
-    }
-
-    /* Determine output filename */
-    const char *output_path = output;
-    if (!output_path) {
-        /* Generate output name from input: source.c -> source.o */
-        static char output_buf[512];
-        const char *base = input;
-        const char *dot = strrchr(base, '.');
-        const char *slash = strrchr(base, '/');
-        if (slash && (!dot || slash > dot)) {
-            base = slash + 1;
-        }
-        if (dot) {
-            size_t len = dot - base;
-            if (len > sizeof(output_buf) - 4) len = sizeof(output_buf) - 4;
-            strncpy(output_buf, base, len);
-            output_buf[len] = '\0';
-            strcat(output_buf, ".o");
-        } else {
-            strncpy(output_buf, base, sizeof(output_buf) - 3);
-            strcat(output_buf, ".o");
-        }
-        output_path = output_buf;
     }
 
     if (opts->verbose) {
@@ -1218,6 +1285,24 @@ static int compile_and_link(CompileOptions *opts) {
     obj_opts.emit_asm = use_text;
     obj_opts.output_file = NULL;  /* explicit per-TU path passed below */
     obj_opts.verbose = 0;  /* Suppress verbose during object generation */
+
+    char default_link_dep_file[512];
+    if (opts->gen_deps) {
+        if (!obj_opts.dep_target && opts->output_file) {
+            obj_opts.dep_target = opts->output_file;
+        }
+        if (!obj_opts.dep_file) {
+            const char *ref = opts->output_file ? opts->output_file : "a.out";
+            const char *dot = strrchr(ref, '.');
+            if (dot) {
+                size_t len = dot - ref;
+                snprintf(default_link_dep_file, sizeof(default_link_dep_file), "%.*s.d", (int)len, ref);
+            } else {
+                snprintf(default_link_dep_file, sizeof(default_link_dep_file), "%s.d", ref);
+            }
+            obj_opts.dep_file = default_link_dep_file;
+        }
+    }
 
     for (int i = 0; i < opts->input_count; i++) {
         const char *in = opts->input_files[i];

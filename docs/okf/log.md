@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-25T04:47:42Z
+timestamp: 2026-10-25T20:27:38Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -434,3 +434,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-25 — Updated `zero-rt.md`
 - Sprint 49: variadic va_list ABI, unsigned div/mod/compare codegen, and zero_rt printf closeout
+
+## 2026-10-25 — Updated `multi-tu.md`
+- Document completed Toolchain T0 dependency generation (-MMD/-MF/-MT)
+
+## 2026-10-25 — Updated `multi-tu.md`
+- Sprint 50: 27 driver cases; -S default dep target uses .s basename; derive_default_output() refactor

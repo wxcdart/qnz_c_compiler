@@ -1,5 +1,28 @@
 # ZeroCC Changelog
 
+## [Sprint 50] - 2026-10-25 - Toolchain T0: Makefile Dependency Generation (`-MMD` / `-MF` / `-MT`)
+
+Added GNU-Make-compatible dependency generation to the zerocc driver, letting `make`-based build systems track header changes for zerocc-compiled sources.
+
+- **Preprocessor dependency tracking** (`src/zero_cc/core/preprocessor.h`, `compiler_state.h`):
+  - `ZeroCCPreprocessor` gained a `dep_files` growable array, `dep_file_count`/`dep_file_capacity`, and a `dep_target` string.
+  - Every successful `#include` records its resolved path via `zero_cc_cpp_add_dependency()` (exact-string dedup); the main file is recorded as the first dependency.
+  - `zero_cc_cpp_write_dep_file()` emits a Makefile rule `<target>: <files...>` with 78-column line wrapping (` \\` continuations).
+  - New entry point `zero_cc_preprocess_ext3()` threads `dep_target`/`dep_file`/`gen_deps` through; the existing `zero_cc_preprocess_ext2`/`ext` signatures are preserved as thin wrappers (`gen_deps=0`), so no other caller changes.
+- **Driver flags** (`src/main.c`):
+  - `-MMD`, `-MF <file>` / `-MF<file>`, `-MT <target>` / `-MT<target>` in `parse_args`, plumbed through both the `-c`/`-S` path (`compile_object_single`) and the link path (`compile_and_link`, where each per-TU object gets a shared dep file and the final executable name as target).
+  - Defaults match gcc: dep file = output name with `.d` extension (`main.o` → `main.d`, `a.out` when linking without `-o`); target = output basename (`main.o`, or `main.s` under `-S`), overridable by `-o`/`-MT`.
+  - Refactored the triple-duplicated output-name derivation into `derive_default_output(input, output, ext, buf, cap)` (removes the `strncpy`/`strcat` pair, −3 style warnings).
+  - The dep file is written only on a successful preprocessing pass (missing include → no `.d` file, diagnostic on stderr).
+- **Regression coverage** (`tools/driver_tests.py`, 6 new cases): default `-MMD`, `-MMD -o`, `-MF`, `-MT`, `-MMD -S` (target `main.s`), and a full `-MMD -MT -MF -o` combo verified by actually including the `.d` rule in a GNU Make `Makefile`.
+- **Verification**:
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `make test-driver`: **27/27 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors (75 warnings, −3 vs. pre-change)
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 49] - 2026-10-25 - ABI-Correct Variadic `va_list`, Unsigned `DIV`/`MOD`/`CMP` Codegen, `zero_rt` `printf` Closeout & 256-Stack-Arg Call Fix
 
 - **ABI-Correct Variadic Argument Machinery (`va_list`)**:

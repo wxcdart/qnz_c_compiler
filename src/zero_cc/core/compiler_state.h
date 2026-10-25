@@ -88,6 +88,12 @@ typedef struct {
         char *disabled_warnings_stack[16][64];
         int disabled_warning_count_stack[16];
     } diagnostic_state;
+
+    /* Dependency tracking for -MMD/-MF/-MT (Toolchain T0) */
+    char **dep_files;         /* Array of included file paths */
+    size_t dep_file_count;    /* Number of included files */
+    size_t dep_file_capacity; /* Capacity of dep_files array */
+    char *dep_target;         /* Target name for .d file (from -MT) */
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

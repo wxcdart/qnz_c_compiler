@@ -82,6 +82,11 @@ static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
             if (cpp->diagnostic_state.disabled_warnings_stack[d][i]) free(cpp->diagnostic_state.disabled_warnings_stack[d][i]);
         }
     }
+    for (size_t i = 0; i < cpp->dep_file_count; i++) {
+        if (cpp->dep_files[i]) free(cpp->dep_files[i]);
+    }
+    if (cpp->dep_files) free(cpp->dep_files);
+    if (cpp->dep_target) free(cpp->dep_target);
 }
 
 static inline void zero_cc_cpp_add_include_dir(ZeroCCPreprocessor *cpp, const char *path) {
@@ -808,6 +813,48 @@ static inline void zero_cc_cpp_pop_include_dir(ZeroCCPreprocessor *cpp, int save
     cpp->include_dir_depth = saved_depth;
 }
 
+/* Record an included file for dependency generation (-MMD/-MF/-MT) */
+static inline void zero_cc_cpp_add_dependency(ZeroCCPreprocessor *cpp, const char *path) {
+    if (!path || !path[0]) return;
+    for (size_t i = 0; i < cpp->dep_file_count; i++) {
+        if (strcmp(cpp->dep_files[i], path) == 0) return;
+    }
+    if (cpp->dep_file_count >= cpp->dep_file_capacity) {
+        size_t new_cap = cpp->dep_file_capacity ? cpp->dep_file_capacity * 2 : 16;
+        char **new_files = (char **)realloc(cpp->dep_files, new_cap * sizeof(char *));
+        if (!new_files) return;
+        cpp->dep_files = new_files;
+        cpp->dep_file_capacity = new_cap;
+    }
+    cpp->dep_files[cpp->dep_file_count] = strdup(path);
+    cpp->dep_file_count++;
+}
+
+/* Write Makefile-style dependency rule (-MMD/-MF/-MT) */
+static inline bool zero_cc_cpp_write_dep_file(ZeroCCPreprocessor *cpp, const char *dep_file) {
+    if (!cpp || !dep_file || !dep_file[0]) return false;
+    const char *target = (cpp->dep_target && cpp->dep_target[0]) ? cpp->dep_target : "a.o";
+    FILE *f = fopen(dep_file, "w");
+    if (!f) {
+        perror(dep_file);
+        return false;
+    }
+    fprintf(f, "%s:", target);
+    size_t col = strlen(target) + 1;
+    for (size_t i = 0; i < cpp->dep_file_count; i++) {
+        size_t len = strlen(cpp->dep_files[i]);
+        if (col + len + 1 > 78) {
+            fprintf(f, " \\\n ");
+            col = 1;
+        }
+        fprintf(f, " %s", cpp->dep_files[i]);
+        col += len + 1;
+    }
+    fprintf(f, "\n");
+    fclose(f);
+    return true;
+}
+
 static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out);
 
 /* ---- Pragma handling (message / GCC diagnostic / push_options) ---- */
@@ -1144,6 +1191,8 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     char *inc_content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys, resolved_path, sizeof(resolved_path));
                     if (inc_content) {
                         saved_inc_depth = zero_cc_cpp_push_include_dir(cpp, resolved_path);
+                        /* Track dependency for -MMD/-MF/-MT */
+                        zero_cc_cpp_add_dependency(cpp, resolved_path);
                         /* Track the file being processed (Sprint 41):
                          * #pragma once dedup and __FILE__ expansion both
                          * key off cpp->filename.  resolved_path is valid
@@ -1652,20 +1701,19 @@ typedef struct {
     size_t count;
 } ZeroCCDefines;
 
-/* Full-control entry point (Sprint 42): `main_file` names the command-line
- * source file.  Per C99 6.10.2p2 a quoted include in the main file is
- * searched first in the main file's own directory, and `__FILE__` in the
- * main file expands to this path.  If any include file cannot be found,
- * the return is NULL and `err_out` (when provided) receives the diagnostic.
- * main_file=NULL / err_out=NULL reproduces the legacy zero_cc_preprocess_ext
- * behavior exactly (missing includes are skipped, no error channel). */
-static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
+/* Full-control entry point with dependency generation support (-MMD/-MF/-MT) */
+static inline char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             ZeroCCDefines *defines, const char *main_file,
-                                            char *err_out, size_t err_cap) {
+                                            char *err_out, size_t err_cap,
+                                            const char *dep_target, const char *dep_file,
+                                            int gen_deps) {
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
     zero_cc_cpp_define_builtin_macros(cpp);
+    if (dep_target && dep_target[0]) {
+        cpp->dep_target = strdup(dep_target);
+    }
     if (defines) {
         for (size_t i = 0; i < defines->count; i++) {
             if (defines->defs[i].name) {
@@ -1683,6 +1731,8 @@ static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDir
          * as the first search location for quoted includes (C99 6.10.2p2). */
         cpp->filename = (char *)main_file;
         zero_cc_cpp_push_include_dir(cpp, main_file);
+        /* Track main file as a dependency */
+        zero_cc_cpp_add_dependency(cpp, main_file);
     }
     ZeroCCBuffer out;
     zero_cc_buf_init(&out, 4096);
@@ -1690,6 +1740,9 @@ static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDir
     int include_failed = cpp->include_error[0] != '\0';
     if (include_failed && err_out && err_cap) {
         snprintf(err_out, err_cap, "%s", cpp->include_error);
+    }
+    if (!include_failed && gen_deps && dep_file && dep_file[0]) {
+        zero_cc_cpp_write_dep_file(cpp, dep_file);
     }
     zero_cc_cpp_publish_diag_state(cpp);
     zero_cc_cpp_destroy(cpp);
@@ -1699,6 +1752,19 @@ static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDir
         return NULL;
     }
     return out.data;
+}
+
+/* Full-control entry point (Sprint 42): `main_file` names the command-line
+ * source file.  Per C99 6.10.2p2 a quoted include in the main file is
+ * searched first in the main file's own directory, and `__FILE__` in the
+ * main file expands to this path.  If any include file cannot be found,
+ * the return is NULL and `err_out` (when provided) receives the diagnostic.
+ * main_file=NULL / err_out=NULL reproduces the legacy zero_cc_preprocess_ext
+ * behavior exactly (missing includes are skipped, no error channel). */
+static inline char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
+                                            ZeroCCDefines *defines, const char *main_file,
+                                            char *err_out, size_t err_cap) {
+    return zero_cc_preprocess_ext3(source, inc_dirs, defines, main_file, err_out, err_cap, NULL, NULL, 0);
 }
 
 static inline char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
