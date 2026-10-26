@@ -19,6 +19,7 @@
 #define ET_REL 1
 #define EM_X86_64 62
 #define EM_AARCH64 183
+#define EM_RISCV 243
 
 #define EI_NIDENT 16
 
@@ -102,9 +103,10 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
         return -1;
     }
     uint16_t e_machine = le16(buf + 18);
-    if (e_machine != EM_X86_64 && e_machine != EM_AARCH64) {
+    if (e_machine != EM_X86_64 && e_machine != EM_AARCH64 &&
+        e_machine != EM_RISCV) {
         snprintf(err, errsz, "%s: unsupported ELF machine %u (the own linker "
-                 "supports x86-64 and aarch64 objects)", path,
+                 "supports x86-64, aarch64, and riscv64 objects)", path,
                  (unsigned)e_machine);
         return -1;
     }

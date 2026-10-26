@@ -95,7 +95,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
-    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64, aarch64)\n");
+    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64, aarch64, riscv64)\n");
     fprintf(stderr, "  -MMD            Generate dependency file\n");
     fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");
     fprintf(stderr, "  -MT <target>    Set target name in dependency file\n");
@@ -1486,10 +1486,11 @@ static int compile_and_link(CompileOptions *opts) {
     /* T2: ZeroCC's own linker (x86-64 + AArch64; zero_rt Phase 0 is its
      * first customer). */
     if (opts->zerocc_link) {
-        if (target_isa != ISA_X86_64 && target_isa != ISA_AARCH64) {
+        if (target_isa != ISA_X86_64 && target_isa != ISA_AARCH64 &&
+            target_isa != ISA_RISCV64) {
             fprintf(stderr,
-                    "Error: --zerocc-link currently links x86-64 and "
-                    "aarch64 objects only\n");
+                    "Error: --zerocc-link currently links x86-64, aarch64, "
+                    "and riscv64 objects only\n");
             for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
             return 1;
         }

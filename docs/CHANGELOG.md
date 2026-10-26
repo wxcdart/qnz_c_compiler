@@ -1,5 +1,34 @@
 # ZeroCC Changelog
 
+## [Sprint 54] - 2026-10-25 - Own Linker (T2) Gains RISC-V64: `--zerocc-link` for `--target riscv64`
+
+Extended ZeroCC's own static linker to support **RISC-V64** (`--target riscv64`), closing the last 64-bit target gap in the own linker.
+
+- **`e_machine` plumbing** (`elf_reader.{h,c}`): accepted `EM_RISCV` (243) alongside `EM_X86_64` and `EM_AARCH64`.
+- **RISC-V64 relocations** (`apply_relocations`):
+  - Supported `R_RISCV_64` (2) and `R_RISCV_32` (1) absolute data relocations.
+  - Supported `R_RISCV_JAL` (17) 20-bit PC-relative J-type immediate (`(S + A - P) >> 1`).
+  - Supported `R_RISCV_CALL` (18) and `R_RISCV_CALL_PLT` (19) 8-byte macro pair (`auipc` + `jalr`).
+  - Supported `R_RISCV_PCREL_HI20` (23), `R_RISCV_PCREL_LO12_I` (24), and `R_RISCV_PCREL_LO12_S` (25).
+  - *PCREL Pairing Invariant*: A two-pass approach collects all `HI20` deltas $\Delta = (S_{target} + A_{hi}) - P_{auipc}$ in pass 1, allowing pass 2 to resolve `LO12` relocations referencing the local marker symbol at the `auipc`.
+  - Accepted `R_RISCV_NONE` (0), `R_RISCV_ALIGN` (43), and `R_RISCV_RELAX` (51) as safe no-ops.
+- **Per-ISA `_start` stub** (`emit_exec`): RISC-V64 gets a 20-byte stub: `auipc t1, %pcrel_hi(main); addi t1, t1, %pcrel_lo(main); jalr ra, t1, 0; li a7, 93; ecall`. Note that `jalr ra` is critical so that `main` returns into the `ecall` exit sequence.
+- **Section base and header**: Base set to standard static Linux text base `0x10000`; ELF header flags set to `EF_RISCV_FLOAT_ABI_DOUBLE` (4).
+- **Driver** (`src/main.c`): `--zerocc-link` accepts `ISA_RISCV64`; rejected unsupported targets with an updated error message.
+- **Differential gate** (`tools/linker_tests.py`, 18→21):
+  - Added `case_riscv64_run` executing under `qemu-riscv64-static` and diffing against `musl-gcc-riscv64 -static`.
+  - Added `rv64_hi` (cross-TU call), `rv64_data` (global data and pointer relocations), and `rv64_ar` (archive member extraction).
+  - Unsupported ISA rejection now tests `--target riscv32`.
+- **Verification**:
+  - `make test-linker`: **21/21 passed** (incl. 3 RISC-V64 QEMU differentials)
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `make test-isa-qemu`: **44/44 passed**
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 53] - 2026-10-25 - Own Linker (T2) Gains AArch64: `--zerocc-link` for `--target aarch64`
 
 Extended ZeroCC's own static linker from x86-64-only to **x86-64 + AArch64**, closing the documented next step ("the aarch64/riscv relocation sets are the next step") and unblocking the zero_rt critical path on a second ISA.
