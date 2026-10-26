@@ -21,6 +21,7 @@
 #include "ryu/ryu.h"
 
 /* The first definition of FILE wins; the stdio.h emu declares it opaque. */
+typedef struct FILE FILE;
 struct FILE {
     int fd;
 };
