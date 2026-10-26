@@ -11,6 +11,53 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 55: `zero_rt` Freestanding Runtime Cross-Platform Parity: x86-64, AArch64, RISC-V64 ✅
+- **Achievement**: Brought ZeroCC's freestanding runtime `zero_rt` to 100% feature and behavioral parity across x86-64, AArch64, and RISC-V 64-bit, enabling seamless self-hosted linking (`--zerocc-link`) with no host libc dependencies.
+  - **Cross-Platform Auto-Linking & Build Targets**: Added `build/lib/zero_rt_aarch64.a` and `build/lib/zero_rt_riscv64.a` to default `all:` build, compiling `zero_rt/` and vendored Ryū with zerocc itself (`--target aarch64`, `--target riscv64`). Auto-links runtime archive matching `--target` or sniffing `e_machine` from input object files; supports override via `$ZERO_RT_A` / `$ZERO_RT_AARCH64_A` / `$ZERO_RT_RISCV64_A`. Predefined target macros (`__aarch64__`, `__riscv`, `__LP64__`).
+  - **AArch64 Codegen & Linker Fixes**: Fixed `R_AARCH64_ABS64`/`ABS32` data relocations falling through into instruction-word rewrites that cleared the lower 32-bits of data pointers (`stdout`, `stderr`, `stdin`). Corrected `R_AARCH64_ADR_PREL_PG_HI21` instruction mask (`0x60FFFFE0`). Delegated `param_save_int` and `param_save_fp` stack offset handling directly to store emitters, eliminating invalid `add x9, xzr, x16` sequences.
+  - **RISC-V 64-bit Codegen & psABI Fixes**: Added 64-bit immediate materialization in `riscv64_emit_mov_imm` (`slli 32` + low 32-bit `slli/srli` zero-extend + OR). Inverted branch skip (+8) over 20-bit JAL trampolines for branches exceeding 4KB in large functions (`vsnprintf_core`). Handled out-of-range offsets outside `[-2048, 2047]`. Mapped variadic float arguments to GP registers per psABI in `NODE_VA_ARG`.
+  - **Stack & Frame Safety**: `OP_SYSCALL` marks functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from exposing local variables to stack overwrite during raw syscall push/pop instruction sequences.
+  - **Runtime Core & Syscall Layer**: Set `RT_SYS_BRK 214` and `RT_HAS_BRK 1` for AArch64 and RISC-V64 (Linux asm-generic syscall numbers). Fixed `(h->size & RT_FREE_BIT) != 0` truncation bug in `heap.c`. Fixed missing `i++` increments in copy loops of `strcpy`, `strcat`, `strncat`.
+- **Gates**: multi-ISA test battery passes identically with `RC=0` across x86-64, AArch64, and RISC-V64 under QEMU; `make test` **156/156**, `make test-opt` **117/117**, `make test-isa-qemu` **44/44**, `make test-linker` **21/21**, `sret` **6/6**, diag baseline OK, style **0 errors**, okf lint PASS.
+
+### Sprint 54: Own Linker (T2) Gains RISC-V64: `--zerocc-link` for `--target riscv64` ✅
+- **Achievement**: Extended ZeroCC's own static linker to support **RISC-V64** (`--target riscv64`), closing the last 64-bit target gap in the own linker.
+  - **`e_machine` plumbing**: accepted `EM_RISCV` (243) in `elf_reader.{h,c}`.
+  - **RISC-V64 relocations**: supported `R_RISCV_64` (2), `R_RISCV_32` (1), `R_RISCV_JAL` (17), `R_RISCV_CALL` (18), `R_RISCV_CALL_PLT` (19), `R_RISCV_PCREL_HI20` (23), `R_RISCV_PCREL_LO12_I` (24), and `R_RISCV_PCREL_LO12_S` (25). Two-pass pairing collects all `HI20` deltas in pass 1, resolving `LO12` relocations referencing local marker symbols at `auipc` offsets in pass 2. Accepted `R_RISCV_NONE`, `R_RISCV_ALIGN`, `R_RISCV_RELAX` as safe no-ops.
+  - **Per-ISA `_start` stub**: 20-byte stub `auipc t1, %pcrel_hi(main); addi t1, t1, %pcrel_lo(main); jalr ra, t1, 0; li a7, 93; ecall`. Standard static Linux text base `0x10000`; ELF header flags set to `EF_RISCV_FLOAT_ABI_DOUBLE` (4).
+  - **Differential gate**: `tools/linker_tests.py` extended to 21/21, running `--target riscv64 --zerocc-link` binaries under `qemu-riscv64-static` and diffing against `musl-gcc-riscv64 -static` (calls, data relocations, archive member extraction).
+- **Gates**: `make test-linker` **21/21**, `make test` **156/156**, `make test-opt` **117/117**, `make test-isa-qemu` **44/44**, `sret` 6/6, diag baseline OK, style 0 errors, okf lint PASS.
+
+### Sprint 53: Own Linker (T2) Gains AArch64: `--zerocc-link` for `--target aarch64` ✅
+- **Achievement**: Extended ZeroCC's own static linker from x86-64-only to **x86-64 + AArch64**, closing the documented next step and unblocking the zero_rt critical path on a second ISA.
+  - **`e_machine` plumbing**: `elf_reader.{h,c}` records `e_machine` and accepts `EM_X86_64` (62) / `EM_AARCH64` (183); requires homogeneous machine architecture across all inputs.
+  - **AArch64 relocations**: supported `R_AARCH64_ABS64` (257), `R_AARCH64_ABS32` (256), `R_AARCH64_ADR_PREL_PG_HI21` (275), `R_AARCH64_ADD_ABS_LO12_NC` (277), `R_AARCH64_CALL26` (283) with instruction field patching in place. Derived empirically verified `ADRP` imm21 bitfield layout.
+  - **Per-ISA `_start` stub**: 12-byte + nop stub `mov x8,#94; bl <target>; svc #0` (`bl` ensures LR is set). Standard static text base `0x400000`.
+  - **Differential gate**: `tools/linker_tests.py` extended to 18/18, running `--target aarch64 --zerocc-link` under `qemu-aarch64-static` vs `musl-gcc-aarch64 -static`.
+- **Gates**: `make test-linker` **18/18**, `make test` **156/156**, `make test-opt` **117/117**, `make test-isa-qemu` **44/44**, `make test-driver` **37/37**, `sret` 6/6, diag baseline OK, style 0 errors, okf lint PASS.
+
+### Sprint 52: Build-System Compatibility Flag Pass (`-U`, `-include`, `-isystem`, accept-and-ignore) ✅
+- **Achievement**: Stock Makefile/CMake invocations (`-g -Wall -O2 -fPIC ...`) accepted with standard GCC semantics.
+  - **Accept-and-ignore**: `-g*` (DWARF), `-W*` (warning controls), `-f*`, `-m*`, `-std=c89..gnu23`, `-pthread`, `-pipe`, `-static`, `-shared`, `-pie`, `-no-pie`, `-x c|assembly|none`. Flagged with reasons on stderr under `-v`.
+  - **Optimization aliases**: `-O`→1, `-Os`→2, `-Oz`/`-Ofast`→3.
+  - **`-U<macro>`**: command-line undefine, interleaved in command-line order with `-D`.
+  - **`-include <file>`**: processed as if `#include "file"` appeared as first line of source, resolving through normal and virtual include machinery.
+  - **`-isystem <dir>`**: include search directory flag.
+- **Gates**: `make test` **156/156**, `make test-opt` **117/117**, `make test-driver` **37/37**, diag baseline OK, style 0 errors, okf lint PASS.
+
+### Sprint 51: `-E` Preprocess-Only Mode (gcc-Parity Driver Front Door) ✅
+- **Achievement**: Added `-E` driver flag to preprocess each input (includes, macros, line markers) to stdout or `-o` file without compilation.
+  - Precedence over `-c`/`-S`/`--run`. Multiple inputs with `-o` cleanly diagnosed as error.
+  - gcc-parity dependency defaults under `-E`: default `-MMD` target/dep file derived from input name (`main.c` → `main.d`, target `main.o`), not output file.
+- **Gates**: `make test` **156/156**, `make test-opt` **117/117**, `make test-driver` **31/31**, diag baseline OK, style 0 errors, okf lint PASS.
+
+### Sprint 50: Toolchain T0: Makefile Dependency Generation (`-MMD` / `-MF` / `-MT`) ✅
+- **Achievement**: GNU-Make-compatible dependency generation in the zerocc driver, allowing `make`-based build systems to track header changes.
+  - Preprocessor dependency tracking via `zero_cc_cpp_add_dependency()` and `zero_cc_cpp_write_dep_file()`, formatting rules with 78-column line wrapping.
+  - Driver flags `-MMD`, `-MF <file>`, `-MT <target>` wired through single-file (`-c`/`-S`) and combined link paths.
+  - Clean error handling (missing includes suppress `.d` generation and emit diagnostics).
+- **Gates**: `make test` **156/156**, `make test-opt` **117/117**, `make test-driver` **27/27**, diag baseline OK, style 0 errors, okf lint PASS.
+
 ### Sprint 49: ABI-Correct Variadic `va_list`, Unsigned `DIV`/`MOD`/`CMP` Codegen, `zero_rt` `printf` Closeout & 256-Stack-Arg Call Fix ✅
 - **Achievement**:
   - **Dual-stream `va_list` (`{gp, gp_end, fp, fp_end, ovf}`)**: replaced the single-pointer `va_list` with a 5-pointer struct across `<stdarg.h>`, prologue register-save area (x86-64, AArch64, RISC-V), and `NODE_VA_START`/`NODE_VA_ARG`, supporting `va_list` forwarding across multiple function calls (`printf` → `rt_stream_printf` → `vsnprintf_core`). Expanded `stack_meta_temp`/`stack_meta_fp`/`stack_pos_list` to `IR_CALL_MAX_ARGS` (`256`) so 32–128+ parameter functions (`test/jit/many_params.c`) pass all stack arguments cleanly across `-O0..-O3`.
@@ -218,7 +265,7 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 ## Current Status
 
 ### ✅ Completed Features
-- **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, main-file-dir quoted-include resolution (C99 6.10.2p2) + real `-I` include search, arena-allocated AST (`ZeroCCASTArena`), and `TypeInfo` semantic checker.
+- **Frontend & Preprocessor**: Lexer, `#include` / `#define` / `#ifdef`, `#pragma pack(push/pop)`, diagnostic pragmas, main-file-dir quoted-include resolution (C99 6.10.2p2) + real `-I`/`-isystem` include search, arena-allocated AST (`ZeroCCASTArena`), `TypeInfo` semantic checker, Makefile dependency generation (`-MMD`, `-MF`, `-MT`, Sprint 50), `-E` preprocess-only mode (Sprint 51), `-U` command-line undefine, `-include` forced include, and GCC flag compatibility (Sprint 52).
 - **Compiler Diagnostics (Sprint 42)**: gcc-format caret diagnostics; C99 constraint checking (call arity vs. prototype 6.7.5.3, goto-label 6.8.4.3, struct member 6.5.2.1, block terminator 6.8p10); "did you mean" suggestions (Levenshtein ≤ 2, unique-best) for undeclared identifiers and unknown members; macro-expansion `note:` chains; multi-error recovery with a 20-error budget (one pass reports all faults); differential gate: `tools/diag_battery.py` (16-case corpus vs gcc, ratcheting baseline, 8/8 category coverage).
 - **C99 Support**:
   - 1D and multi-dimensional fixed arrays (`a[M][N][K]`) and matrix VLAs (`a[n][M]`, multiple VLAs per function) with scope-exit stack restoration
@@ -256,15 +303,15 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
   - Full struct by-value parameter passing and struct returns (`<=8B`, `9-16B`, and `>16B` `sret` hidden pointer across direct and indirect function pointer calls)
   - Codegen performance: selective callee-saved spilling + fallthrough jump elimination, x86-64 red zone, inline epilogues, frameless leaf functions with parameter promotion, `-fomit-frame-pointer` (Sprint 44) — all verified by `tools/prologue_epilogue_verifier.py` + `tools/extension_verifier.py`
   - Direct ELF64 and ELF32 relocatable object writer (`elf_writer.c`), freestanding `W^X` in-memory JIT (`execution.h`), and direct raw binary AOT compilation default (`-o`, `-c`) across all 4 target ISAs with `ZC_TEXT_AOT=1` escape hatch.
-  - **Toolchain**: T1 multi-file driver (multi-TU JIT merge, per-input `-c`/`-S`; `make test-driver` 21/21) and T2 own static linker (ELF64 + `ar` readers, ET_EXEC output, `--zerocc-link`; `make test-linker` 15/15) — OKF: `multi-tu.md`, `own-linker.md`.
-- **zero_rt (Phase 0, Linux x86-64)**: ZeroCC-owned freestanding runtime compiled by zerocc itself (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting); auto-linked by `--zerocc-link`. **Open**: printf path segfault (see Next Steps §5). OKF: `zero-rt.md`.
+  - **Toolchain**: T0 Makefile depfiles (`-MMD`/`-MF`/`-MT`), T1 multi-file driver (multi-TU JIT merge, per-input `-c`/`-S`, `-E` mode, compatibility flags; `make test-driver` **37/37**) and T2 own static linker (ELF64 + `ar` readers, ET_EXEC output, `--zerocc-link` across **x86-64, AArch64, and RISC-V64**; `make test-linker` **21/21**) — OKF: `multi-tu.md`, `own-linker.md`.
+- **zero_rt (Phase 0 & Phase 1, Linux x86-64, AArch64, RISC-V64)**: ZeroCC-owned freestanding runtime compiled by zerocc itself across all three 64-bit architectures (`build/lib/zero_rt.a`, `build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`) with 100% test battery parity (brk heap, strings, atexit/exit with `zeroc_main_wrapper`, unbuffered stdio with vendored Ryū float formatting); auto-linked by `--zerocc-link`. OKF: `zero-rt.md`.
 
-### 📊 Test & Verification Coverage (verified 2026-10-24 at HEAD)
+### 📊 Test & Verification Coverage (verified 2026-10-26 at HEAD)
 - **Main Regression Suite (`make test`)**: **156/156** passing — **but note what it validates**: the default (`--mode jit`) runs binaries in `build/test/*` that `make all` compiles with the **host `gcc`** (these tests exercise the compiler's internals via `zero_cc.h`, e.g. lexer/parser/IR APIs, not zerocc's generated code). It therefore does **not** detect miscompiles by zerocc's optimizer or codegen. `--mode aot` compiles with zerocc, but only a minority of the sources are standalone programs zerocc can compile, so it is not a usable baseline either. Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels. (`test/diag/*.c` is excluded from this glob — it is the diagnostics-battery corpus of deliberately broken programs.)
 - **Direct-zerocc verifiers (actually exercise generated code)**: `tools/mem2reg_verifier.py --verify-all` (12/12, JIT `-O0`/`-O1`, AOT `-O1` vs GCC), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py` (11/11), `tools/vla/test_vla.py` (11/11 — the `multiple_vla` case was updated on 2026-10-24 to assert two VLAs per function compile and run correctly, matching Sprint 40's removal of the old limit), `tools/fragility_probe.py`, `tools/licm_verifier.py`, `tools/licm_test_suite.py`, `tools/cfg_verifier.py` (CFG cross-check vs independent Python reconstruction), `tools/extension_verifier.py` (14/14 GNU extensions, optional `--diff-gcc`), `tools/literal_verifier.py` (C-literal spec suite), `tools/prologue_epilogue_verifier.py` (all 4 ISAs, incl. omit-FP shapes), and `tools/opt_sweep.py` / `make test-opt` (sweeps the whole `test/{jit,aot,licm}` + `inline_audit` corpus across `-O0..-O3` in JIT + AOT with zerocc itself — the definitive optimizer gate; **117/117 passing**, 1 nondeterministic `profile_demo` flagged NONDET).
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs (`x86_64`: 11/11, `aarch64`: 11/11, `riscv64`: 11/11, `riscv32`: 11/11) differential-tested against static-musl reference binaries under QEMU.
-- **Multi-TU Driver Gate (`make test-driver`)**: **21/21** (`tools/driver_tests.py` — multi-file JIT merge, AOT link, per-input `-c`/`-S`).
-- **Own-Linker Gate (`make test-linker`)**: **15/15** (`tools/linker_tests.py` — gcc-differential, incl. non-x86-64 rejection).
+- **Multi-TU Driver Gate (`make test-driver`)**: **37/37** (`tools/driver_tests.py` — multi-file JIT merge, AOT link, per-input `-c`/`-S`, `-E` mode, `-MMD`/`-MF`/`-MT`, `-D`/`-U`, `-include`, `-isystem`).
+- **Own-Linker Gate (`make test-linker`)**: **21/21** (`tools/linker_tests.py` — gcc-differential, x86-64, AArch64, and RISC-V64 under QEMU).
 - **C11 Verification Suite (`python3 tools/c11/test_c11.py`)**: **11/11 passing (100%)**
 - **VLA & Multi-Dim Array Suite (`python3 tools/vla/test_vla.py`)**: **11/11 passing (100%)** (JIT coverage 9/9; the `multiple_vla` case was corrected on 2026-10-24 to assert the legal two-VLA behavior instead of the old compile-failure limit)
 - **System V & Multi-ISA `sret` Verifier (`python3 tools/sret_verifier.py --verify-all`)**: **6/6 passing (100%)** (+ `--target-all` QEMU AArch64/RISC-V)
@@ -344,12 +391,13 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ## Next Steps (Future Roadmap)
 
-### ⚡ Current Priorities (as of 2026-10-25, verified at HEAD)
-1. ~~**Fix the zero_rt printf segfault / formatting issues**~~ — **DONE (Sprint 49)**: dual-stream `va_list`, duplicate `fmt++` removal, `ryu_parse` exponent fix, and unsigned `OP_DIV`/`OP_MOD`/`OP_COND_SET` codegen across all ISAs. `--zerocc-link` `printf` now matches `gcc`/glibc across `%llx`/`%llu` ($\ge 2^{63}$) and `%f`/`%e`/`%g` ($\ge 10^{15}$).
-2. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators are available on-demand on the CFG).
-3. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
-4. **T0 remainder**: `-MMD`-style `.d` dependency generation (the `-I` include search half is **done** — `main.c` parses `-I`/`-Idir` into `opts->include_dirs` and the preprocessor searches them; verified working; only `.d` depfiles remain).
-5. **Housekeeping**: ~~update the stale `multiple_vla` expectation in `tools/vla/test_vla.py`~~ — **done (2026-10-24)**: the case now asserts two VLAs per function compile and run correctly (verified JIT/AOT vs gcc), matching the Sprint 40 decision to lift the limit. Remaining: sweep `TODO` markers in `types/emit_helpers.h` (dead AArch64 helper stubs).
+### ⚡ Current Priorities (as of 2026-10-26, verified at HEAD)
+1. **zero_rt & Linker Phase 2: Windows PE/COFF + Win64 ABI (`T3-Win`)** — PE/COFF object/executable writer in T2, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone, rbx/rbp allocatable), kernel32 OS boundary wrappers.
+2. **zero_rt & Linker Phase 3: macOS Mach-O (`T4-Mac`)** — Mach-O object/executable writer, Mach syscall numbers.
+3. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators and natural loops are available on-demand on the CFG).
+4. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
+5. **RISC-V 32-bit (`rv32`) own linker & zero_rt runtime** — ELF32 static executable output and RV32 freestanding runtime.
+6. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info.
 
 ### 1. Codebase Modularity & Build Structure Refactoring ✅
 - **Eliminate Unity `#include "*.c"` in `parser.c` ✅**: Converted `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` into standalone `.o` translation units in `Makefile`.
@@ -372,18 +420,18 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ### 5. zero_rt — Self-Contained Cross-Platform Runtime (T3)
 - **Plan**: [`docs/zero-rt-plan.md`](./zero-rt-plan.md) — minimal ZeroCC-owned runtime (heap, minimal stdio, string builtins, exit) with no musl dependency, targeting Linux/Windows/macOS via a portable core + per-OS backends (same shape as `ZeroCCISABackend`).
-- **Phase 0 — Linux x86-64: DONE (Sprint 43, 2026-10-23)**: `zero_rt/` (rt_os.h OS boundary, `linux/os.c` read/write/brk/exit_group, `core/heap.c` brk-backed first-fit malloc/free/calloc/realloc, `core/string.c`, `core/exit.c` with `zeroc_main_wrapper` atexit routing, `core/stdio.c` unbuffered printf family with vendored Ryū float formatting) compiled **by zerocc itself** (`make all` → `build/lib/zero_rt.a`); `--zerocc-link` auto-links it (`--no-zerocc-rt` opts out); linker `_start` stub routes to `zeroc_main_wrapper`. OKF: [`docs/okf/zero-rt.md`](./okf/zero-rt.md).
-  - **Open closeout item (verified still open at 2026-10-24)**: `printf` segfaults in `--zerocc-link` binaries (`printf("hello\n")` → SIGSEGV jumping to a garbage address; suspected `vsnprintf_core`/static-buffer path in `rt_stream_printf`); direct `__zerocc_syscall(write, ...)` emits correct bytes with correct exit codes. Must be fixed before Phase 1.
-- **Phase 1 — Windows (NEXT)**: PE/COFF writer + Win64 ABI vtable (PE object/executable sections, `IMAGE_COR20`/reloc layout, `ntdll` syscall stubs for `RtlUserThreadStart`-style entry, Win64 home-area calling convention).
-- **Phase 2 — macOS**: Mach-O writer (compiler ABI already compatible).
-- **Phase 0 prerequisite — done (Sprint 43)**: the `__zerocc_syscall` OS-boundary builtin (new `OP_SYSCALL` IR op; x86-64 SysV register map; call-equivalent clobber/`spans_call` semantics; push/pop parallel argument move; compile error on other targets; `test/jit/syscall_builtin_test.c` + `test/aot/syscall_test.c` in `make test`/`make test-opt`). With it, the zero_rt OS layer is pure C: `crt0` needs no assembler (the linker's generated `_start` stub is the entry; heap init is a lazy `brk` in C). See the `OP_SYSCALL` section of `docs/okf/ir-and-regalloc.md`.
+- **Phase 0 — Linux x86-64: DONE (Sprints 43 & 49)**: `zero_rt/` (rt_os.h OS boundary, `linux/os.c` read/write/brk/exit_group, `core/heap.c` brk-backed first-fit malloc/free/calloc/realloc, `core/string.c`, `core/exit.c` with `zeroc_main_wrapper` atexit routing, `core/stdio.c` unbuffered printf family with vendored Ryū float formatting) compiled **by zerocc itself** (`make all` → `build/lib/zero_rt.a`); `--zerocc-link` auto-links it (`--no-zerocc-rt` opts out); linker `_start` stub routes to `zeroc_main_wrapper`. OKF: [`docs/okf/zero-rt.md`](./okf/zero-rt.md). Printf closeout landed in Sprint 49 with dual-stream `va_list` and unsigned division/modulo codegen.
+- **Phase 1 — Linux Cross: AArch64 & RISC-V64: DONE (Sprint 55)**: `build/lib/zero_rt_aarch64.a` and `build/lib/zero_rt_riscv64.a` built directly with zerocc self-compilation (`--target aarch64`, `--target riscv64`) and auto-linked under `--zerocc-link` matching `--target` or input `e_machine`. Full multi-ISA printf, heap, and string parity verified across x86-64, AArch64, and RISC-V 64-bit under QEMU.
+- **Phase 2 — Windows (NEXT)**: PE/COFF writer + Win64 ABI vtable (PE object/executable sections, `IMAGE_COR20`/reloc layout, `ntdll` syscall stubs for `RtlUserThreadStart`-style entry, Win64 home-area calling convention).
+- **Phase 3 — macOS**: Mach-O writer (compiler ABI already compatible).
+- **Phase 0 prerequisite — done (Sprint 43)**: the `__zerocc_syscall` OS-boundary builtin (new `OP_SYSCALL` IR op; SysV/Linux register maps; call-equivalent clobber/`spans_call` semantics; push/pop parallel argument move; marks functions as non-leaf to prevent red-zone stack corruption; `test/jit/syscall_builtin_test.c` + `test/aot/syscall_test.c` in `make test`/`make test-opt`). Pure C OS layer: linker's generated `_start` stub is the entry; heap init is a lazy `brk` in C.
 - musl remains vendored pristine as an optional full-stdio library on Linux; float formatting (`%f`/`%e`/`%g`) via vendored Ryū (MIT/Apache-2.0 OR Boost-1.0, `third_party/vendor/ryu/`).
 
 ### 6. Toolchain Tiers (multi-TU → standalone linking)
-- **T0** — build-system hygiene: ~~a real `-I` include search~~ — **done** (Sprint 42+; `main.c` parses `-I`/`-Idir` into `opts->include_dirs[32]`, the preprocessor searches each dir after the main-file-dir; verified with a quoted include resolved only via `-I`). **Remaining**: `-MMD`-style `.d` dependency generation for build-system integration.
-- **T1** — multi-file driver: accept multiple `.c` inputs, per-TU compile, combined link — **done (Sprint 43)**: `zerocc a.c b.c -o out` (per-TU raw objects → system linker), `zerocc a.c b.c --run` (multi-TU JIT merge via `zero_cc_tu_merge`, `core/multi_tu.h`), `-c`/`-S` emit one object/asm per input. Driver gate: `make test-driver` (21/21, `tools/driver_tests.py`). Closed two latent conformance bugs found by the multi-file cases: unnamed prototype params (`int f(int);`) were silently dropped (0-param prototype), and stores to `extern`-only globals (cross-TU) were emitted nowhere (see `docs/okf/multi-tu.md`).
-- **T2** — own linker: `ar` archive reader, the static relocation set (`R_X86_64_{64,PC32,32,32S,RELATIVE}`, PLT32→PC32), multi-section `.rela`; zero_rt Phase 0 is its first customer — **done (Sprint 43)**: `src/zero_cc/linker/` (ELF64-LE object reader, classic `ar` reader, static linker emitting a directly-executable ET_EXEC with a generated `_start` stub); `zerocc a.c b.c --zerocc-link -o app` (x86-64; `.o`/`.a` inputs accepted). Gate: `make test-linker` (15/15, gcc-differential). Exposed and fixed a latent object-emitter bug (hardcoded section indices drifted when `.text` was absent — `elf_writer_section_index` now resolves indices by name). Cross-TU `int *p = &x;` initializers are also fixed (kind-2 by-name data reloc). See `docs/okf/own-linker.md`.
-- **T3** — zero_rt platform phases (see §5)
+- **T0** — build-system hygiene: real `-I`/`-isystem` include search (Sprint 42+), GNU-Make-compatible dependency generation (`-MMD`, `-MF`, `-MT`, Sprint 50), `-E` preprocess-only mode (Sprint 51), `-U`/`-include`/`-isystem` flags and accept-and-ignore of standard GCC compatibility flags (Sprint 52) — **DONE**.
+- **T1** — multi-file driver: accept multiple `.c` inputs, per-TU compile, combined link (`zerocc a.c b.c -o out`), multi-TU JIT merge via `zero_cc_tu_merge` (`--run`), per-input `-c`/`-S`, `-E` stdout/`-o` handling — **DONE** (`make test-driver` 37/37).
+- **T2** — own linker: static ELF executable linker (`--zerocc-link`, ET_EXEC, generated `_start` stub) supporting **x86-64 (Sprint 43), AArch64 (Sprint 53), and RISC-V64 (Sprint 54)** — **DONE** (`make test-linker` 21/21). Rebuilt `.symtab`/`.strtab`/`.shstrtab`, greedy `ar` archive member extraction, and per-ISA relocation sets (`R_X86_64_*`, `R_AARCH64_*`, `R_RISCV_*`).
+- **T3** — zero_rt platform phases (see §5).
 
 ### 7. AOT `-S` Path Completeness
 - ~~`.data` section emission for globals~~ — **done (`b0975fc`)**; objects with globals now link from `-S` output

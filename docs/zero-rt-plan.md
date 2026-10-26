@@ -1,7 +1,7 @@
 # zero_rt — ZeroCC's Self-Contained Cross-Platform Runtime (T3 Plan)
 
-**Status**: PLAN (drafted Sprint 25+, post C5/C6 closure)
-**Related**: `docs/fragility-analysis.md` (T2/T3 tiers), `docs/okf/isa-backends.md` (backend vtable pattern), `docs/okf/abi-sysv-x86_64.md`
+**Status**: PHASE 0 & PHASE 1 COMPLETE (x86-64, AArch64, RISC-V64 verified; Windows/macOS next)
+**Related**: `docs/fragility-analysis.md` (T2/T3 tiers), `docs/okf/isa-backends.md` (backend vtable pattern), `docs/okf/abi-sysv-x86_64.md`, `docs/okf/zero-rt.md`
 
 ---
 
@@ -83,30 +83,36 @@ Acceptance criterion for "self-contained": a C99 program using `printf`/`malloc`
 
 ## 7. Phasing
 
-### Phase 0 — Linux (rides on T2)
+### Phase 0 — Linux x86-64 (rides on T2) ✅ DONE (Sprint 43 & 49)
 
-zero_rt-Linux is the **first real customer of the T2 ELF linker**: it validates crt0 + heap + printf + archive/member resolution end-to-end on the platform we develop on, with no new binary formats.
+zero_rt-Linux on x86-64 was the **first real customer of the T2 ELF linker**: validated crt0 stub + heap + printf + archive/member resolution end-to-end on Linux x86-64.
+- Deliverables: `crt0` entry (ZeroCC has no assembler — the linker's generated `_start` stub routes to `zeroc_main_wrapper`, pure C over the `__zerocc_syscall` builtin, Sprint 43), `core/*`, `linux/os.c`; T2 links `app.o + zero_rt.a` into a standalone ELF.
+- Closeout (Sprint 49): dual-stream variadic `va_list`, unsigned division/modulo codegen, Ryū precision fixes. Standalone `--zerocc-link` printf matches host gcc.
 
-- Deliverables: `crt0` entry (ZeroCC has no assembler — the linker's generated `_start` stub is extended into the entry, and the OS boundary is pure C over the `__zerocc_syscall` builtin, Sprint 43), `core/*`, `posix/linux` table; T2 links `app.o + zero_rt` into a standalone ELF.
-- **Acceptance**: `zerocc -o app app.c` (zero_rt linked) runs; `ldd app` → not dynamic (or zero_rt objects only); round-trip battery vs gcc (int + float printf, malloc/free stress, strings).
+### Phase 1 — Linux Cross: AArch64 & RISC-V64 ✅ DONE (Sprint 55)
 
-### Phase 1 — Windows (T3-Win)
+Extended `zero_rt` to 100% feature and behavioral parity across **AArch64** and **RISC-V 64-bit**.
+- Deliverables: cross-platform runtime archives `build/lib/zero_rt_aarch64.a` and `build/lib/zero_rt_riscv64.a` self-compiled with zerocc (`--target aarch64`, `--target riscv64`) and auto-linked under `--zerocc-link`.
+- Relocation fixes in linker (`R_AARCH64_ABS64`/`ABS32` data relocations, `R_AARCH64_ADR_PREL_PG_HI21` mask), 64-bit immediate materialization and branch trampolines on RISC-V64, Linux generic syscall numbers (`RT_SYS_BRK 214`, `RT_HAS_BRK 1`), heap 64-bit free bit fix.
+- Verified: identical RC=0 and output parity under QEMU across x86-64, AArch64, and RISC-V64.
 
-- Deliverables: PE/COFF writer in T2 (import tables, `PROCESS_PARAMETERS` entry), **Win64 ABI vtable in the compiler** (arg regs, no red zone, `rbx`/`rbp` allocatable), `crt0/pe_x86_64.s`, `windows/*` kernel32 wrappers.
+### Phase 2 — Windows (T3-Win) (NEXT)
+
+- Deliverables: PE/COFF writer in T2 (import tables, `PROCESS_PARAMETERS` entry), **Win64 ABI vtable in the compiler** (arg regs, no red zone, `rbx`/`rbp` allocatable), `windows/*` kernel32 wrappers.
 - **Acceptance**: a `.exe` runs on Windows (or WSL-imported); ABI conformance battery (arg passing, sret >16B, shadow space, leaf-function stack discipline without red zone).
 - Escape hatch (later, cheap): `-lucrtbase` — the import-table machinery is per-DLL-identical, so "full C99 stdlib" becomes a link flag, not an architecture change.
 
-### Phase 2 — macOS
+### Phase 3 — macOS
 
 - Deliverables: Mach-O writer in T2, Mach syscall table, `crt0/macho_x86_64.s`; compiler side nearly free.
-- **Risk (validate first)**: a raw-syscall Mach-O that imports **no dylibs at all** (no libSystem) is legal but unorthodox. The minimal smoke test (empty `main` → `exit(0)` via Mach syscall) is the first Phase-2 task, before any further investment.
+- **Risk (validate first)**: a raw-syscall Mach-O that imports **no dylibs at all** (no libSystem) is legal but unorthodox. The minimal smoke test (empty `main` → `exit(0)` via Mach syscall) is the first Phase-3 task, before any further investment.
 - Secondary risk: arm64 minimum page/segment alignment is 16KB vs 4KB on x86-64 — linker alignment knobs.
 
 ## 8. Verification (all phases)
 
 - Round-trip battery per phase: ZeroCC-compile → zero_rt-link → run → compare exit codes/outputs against host gcc.
-- Existing suite stays green: `make test` (140/140), `python3 tools/sret_verifier.py --verify-all` (6/6), `python3 tools/okf.py lint && python3 tools/okf.py index`.
-- New OKF page `docs/okf/zero-rt.md` lands when Phase 0 ships (concept: OS-boundary vtable, phase status, vendored dtoa).
+- Existing suite stays green: `make test` (156/156), `make test-opt` (117/117), `make test-isa-qemu` (44/44), `make test-linker` (21/21), `python3 tools/sret_verifier.py --verify-all` (6/6), `python3 tools/okf.py lint && python3 tools/okf.py index`.
+- OKF page [`docs/okf/zero-rt.md`](./okf/zero-rt.md) documents the OS-boundary, self-compilation, linker integration, and cross-platform parity.
 
 ## 9. Related known gaps found during C5/C6 verification (Sprint 25+)
 
@@ -118,6 +124,6 @@ zero_rt-Linux is the **first real customer of the T2 ELF linker**: it validates 
 
 ## 10. Open questions
 
-- Ryū vendoring (recommended) vs a minimal fixed-precision dtoa — decision at Phase 0.
+- ~~Ryū vendoring (recommended) vs a minimal fixed-precision dtoa~~ — **RESOLVED**: Ryū vendored at `third_party/vendor/ryu/` under Apache-2.0 / Boost-1.0.
 - macOS: confirm Apple x86-64 red-zone status and whether a dylib-free Mach-O loads under both x86-64 and arm64 (SIP/Gatekeeper are irrelevant for locally built binaries; loader behavior is the question).
-- Windows: exact kernel32 import set for the Phase-1 minimum (write/exit/heap) — confirm no implicit ucrt dependency from crt0.
+- Windows: exact kernel32 import set for the Phase-2 minimum (write/exit/heap) — confirm no implicit ucrt dependency from crt0.
