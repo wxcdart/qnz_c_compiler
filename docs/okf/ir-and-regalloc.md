@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-24T02:59:02Z
+timestamp: 2026-10-26T14:15:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -51,6 +51,14 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
   - `1`: Floating-point argument (assigned sequentially to ABI FP registers).
   - `2`: **Indirect callee function pointer** (used when `OP_CALL` has `fn_name == NULL`; passed to the backend so the target address is saved into scratch register `%r11` before argument registers are overwritten).
 - **Important Invariant**: Any optimization pass that inserts, removes, or rebuilds `c->ir_arena` (such as `opt_loop.c`) **must** remap `instr_index` entries in `c->ir_call_args` so call sites stay synchronized with their `IRCallArgs` entry.
+
+### General-Expression Indirect Calls (Sprint 56)
+
+`NODE_CALL` lowering (`ast_lowering_expr.c`) no longer requires an identifier callee. A callee that is any other expression — `a[i]()`, `p->cb()`, `(*fp)()` — lowers to the same indirect-call machinery used for named function pointers: `is_indirect_call` is true, the callee expression is lowered (`lower_expr(node->left)`) to obtain the pointer value, spilled, reloaded as the final `is_fp = 2` argument, and emitted as `OP_CALL` with `fn_name == NULL`. The call's return type (driving sret / 9–16-byte struct-return / float-result handling) comes from the semantic phase's `TypeInfo` attached to the `NODE_CALL` node (`expr_handle_call` types the callee expression, dereferences pointer-to-function, and stores the function return type). Identifier-only intercepts (`__zerocc_syscall`, `__atomic_*` builtins) still require a literal name. Related: dereferencing a pointer to function (`*fp`) yields a function lvalue whose value **is the pointer** — the `TK_STAR` lowering returns the operand temp without a memory load (the target address holds machine code, not data), which is what makes `(*fp)(args)` callable.
+
+### Canonical Secondary Value Register (VREG_2)
+
+All 9–16 byte value passing (struct returns, compound literal evaluation, by-value struct arguments) uses the **canonical virtual register `VREG_2`** for the second 8-byte chunk. The register allocator maps `VREG_2` to the target ISA's ABI secondary return/argument register: `rdx` (physical 2) on x86-64, `x1` (physical 1) on AArch64, `a1` (physical 11) on RISC-V64/32. This single virtual ID eliminates per-ISA conditionals in lowering and ensures the DCE liveness root set (which marks `VREG_0` and `VREG_2` live at function exit) protects the second chunk.
 
 ## OS Syscall Intrinsic (`OP_SYSCALL`, Sprint 43)
 

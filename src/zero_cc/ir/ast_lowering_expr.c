@@ -1321,6 +1321,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             switch (node->aux.op) {
                 case TK_STAR: { /* Dereference */
+                    /* Dereferencing a pointer to function yields a function
+                     * lvalue (C99 6.5.3.2): its value is the pointer itself,
+                     * and [fp] holds the function's machine code, not data.
+                     * So `*fp` (and e.g. `(*fp)(args)`) evaluates to the
+                     * pointer value with no load. */
+                    TypeInfo *op_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
+                    if (op_ti && op_ti->kind == TYPE_KIND_POINTER && op_ti->details.pointer.base &&
+                        type_is_function(op_ti->details.pointer.base)) {
+                        c->last_expr_is_float = 0;
+                        return operand_temp;
+                    }
                     size_t p_size = 0;
                     TypeInfo *ti = ast_node_get_typeinfo(c, node);
                     if (ti) p_size = type_size(ti);
@@ -2769,7 +2780,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else if (sym->type.size <= 16) {
                     int val_temp = c->next_temp_id++;
                     ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
-                    ir_emit_load(2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                    /* Second chunk in the ABI secondary value register
+                     * (VREG_2: rdx on x86-64, x1 on AArch64, a1 on RISC-V)
+                     * — same convention as 9-16 byte struct returns and
+                     * by-value argument marshaling. */
+                    ir_emit_load(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
                     c->last_expr_is_float = 0;
                     return val_temp;
                 } else {
@@ -3184,11 +3199,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_CALL: {
-            /* Function call - handle float args directly in machine code, int args via IR */
+            /* Function call - handle float args directly in machine code, int args via IR.
+             * The callee may be an identifier (direct call, or indirect through a
+             * named function pointer) or a general expression (a[i](), p->cb(),
+             * (t.fn)(), ...): any non-identifier callee lowers to an indirect
+             * call through the evaluated pointer value. */
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
-            if (callee && callee->tag == NODE_IDENT) {
-                const char *name = callee->s.str;
+            bool callee_is_ident = (callee && callee->tag == NODE_IDENT);
+            const char *name = callee_is_ident ? callee->s.str : NULL;
 
+            if (callee_is_ident) {
                 /* Intercept __zerocc_syscall (zero_rt OS boundary):
                  * __zerocc_syscall(number, a, b, c, d, e, f) - 1..7 integer
                  * arguments, returns the kernel result. Lowers to OP_SYSCALL;
@@ -3408,8 +3428,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 0;
                     return res_temp;
                 }
+            }
 
-                /* Collect argument temps for both integer and FP args */
+            /* Collect argument temps for both integer and FP args */
                 ASTRef arg = node->right;
                 int all_arg_temps[IR_CALL_MAX_ARGS];
                 int all_arg_is_fp[IR_CALL_MAX_ARGS];
@@ -3422,13 +3443,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int fp_arg_idx = 0;
                 int param_idx = 0;  /* declaration-order index into callee param_types */
 
-                ZeroCCFunction *callee_fn = zero_cc_find_function(c, name);
-                ZeroCCSym *callee_sym = (!callee_fn) ? zero_cc_find_local(c, name) : NULL;
-                /* Global function pointer: `int (*fp)(void); ... fp();`
-                 * The callee is the pointer VALUE stored in the global, so
-                 * the call must be indirect. */
-                ZeroCCGlobalVar *callee_gv = (!callee_fn && !callee_sym) ? find_global_var(name) : NULL;
-                bool is_indirect_call = (callee_fn == NULL &&
+                ZeroCCFunction *callee_fn = callee_is_ident ? zero_cc_find_function(c, name) : NULL;
+                ZeroCCSym *callee_sym = (callee_is_ident && !callee_fn) ? zero_cc_find_local(c, name) : NULL;
+                /* Indirect call cases: (a) the callee is a local/global
+                 * function-pointer variable, so the callee is the pointer
+                 * VALUE stored there; (b) the callee is a general expression
+                 * (a[i](), p->cb(), ...) - its lowered value IS the function
+                 * pointer to call through. */
+                ZeroCCGlobalVar *callee_gv = (callee_is_ident && !callee_fn && !callee_sym) ? find_global_var(name) : NULL;
+                bool is_indirect_call = !callee_is_ident || (callee_fn == NULL &&
                     (callee_sym != NULL || (callee_gv != NULL && callee_gv->type.is_func_ptr)));
 
                 /* Small Function Inlining: Expand candidate body directly at call site */
@@ -3596,21 +3619,54 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_store(temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
                             int_arg_idx++;
                         }
+                        /* By-value struct/union argument larger than one 8-byte
+                         * unit: the remaining 8-byte units travel in the
+                         * following GP registers (SysV/psABI: every 8-byte
+                         * unit of a MEMORY class type is one INT unit in
+                         * argument order). Chunk source by expression shape:
+                         *  - struct/union local (NODE_IDENT): lower_expr
+                         *    loaded only chunk 0 into `temp`, so the other
+                         *    chunks are read from the local's stack slot;
+                         *  - any other 9-16 byte value (compound literal,
+                         *    struct-returning call): chunk 1 sits in the ABI
+                         *    secondary value register (rdx / a1 / x1);
+                         *  - >16 byte values: `temp` already holds the
+                         *    address of the value (ABI: passed by pointer),
+                         *    so no extra chunks are passed. */
+                        size_t arg_struct_sz = 0;
+                        ZeroCCSym *arg_struct_sym = NULL;
                         if (arg_node && arg_node->tag == NODE_IDENT) {
-                            ZeroCCSym *arg_sym = zero_cc_find_local(c, arg_node->s.str);
-                            if (arg_sym && (arg_sym->type.tag == TYPE_STRUCT || arg_sym->type.tag == TYPE_UNION) && arg_sym->type.size > 8) {
-                                int num_chunks = (int)((arg_sym->type.size + 7) / 8);
-                                for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
-                                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                                    gp_stream++;
-                                    int ch_temp = c->next_temp_id++;
-                                    ir_emit_load(ch_temp, BE(c)->fp_reg, -(arg_sym->stack_offset - ch * 8));
-                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                                    c->current_stack_frame += 8;
-                                    int_spill_offsets[int_arg_idx] = c->current_stack_frame;
-                                    ir_emit_store(ch_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
-                                    int_arg_idx++;
+                            arg_struct_sym = zero_cc_find_local(c, arg_node->s.str);
+                            if (arg_struct_sym && (arg_struct_sym->type.tag == TYPE_STRUCT ||
+                                                   arg_struct_sym->type.tag == TYPE_UNION)) {
+                                arg_struct_sz = arg_struct_sym->type.size;
+                            }
+                        } else if (arg_node) {
+                            TypeInfo *arg_ti = ast_node_get_typeinfo(c, arg_node);
+                            if (arg_ti && (arg_ti->kind == TYPE_KIND_STRUCT || arg_ti->kind == TYPE_KIND_UNION)) {
+                                arg_struct_sz = type_size(arg_ti);
+                            }
+                        }
+                        if (arg_struct_sz > 8 && arg_struct_sz <= 16) {
+                            int num_chunks = (int)((arg_struct_sz + 7) / 8);
+                            /* Secondary chunk comes from VREG_2 (canonical secondary
+                             * value register: rdx on x86-64, x1 on AArch64, a1 on
+                             * RISC-V) — same as 9-16B struct returns and compound
+                             * literals. */
+                            for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
+                                int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                gp_stream++;
+                                int ch_temp = c->next_temp_id++;
+                                if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                                    ir_emit_load(ch_temp, BE(c)->fp_reg, -(arg_struct_sym->stack_offset - ch * 8));
+                                } else {
+                                    ir_emit_mov_reg(ch_temp, VREG_2);
                                 }
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(ch_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
                             }
                         }
                     }
@@ -3763,9 +3819,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int call_res_temp = c->next_temp_id++;
                 ir_emit_mov_reg(call_res_temp, VREG_0);
                 return call_res_temp;
-            }
-            c->last_expr_is_float = 0;
-            return VREG_0;
         }
 
         default:

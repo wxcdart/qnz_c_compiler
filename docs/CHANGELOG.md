@@ -1,5 +1,32 @@
 # ZeroCC Changelog
 
+## [Sprint 56] - 2026-10-26 - General Expression Indirect Calls, Non-Ident Struct-by-Value Marshaling & Virtual C11 Headers
+
+Completed the remaining C11 calling-convention and standard-header gaps: function-pointer calls through general expressions, by-value struct arguments larger than one register from non-identifier expressions, and the three C11 standard headers that were missing from the virtual-header set.
+
+- **General Expression Indirect Calls** (`src/zero_cc/ir/ast_lowering_expr.c`):
+  - `NODE_CALL` lowering no longer requires an identifier callee. Any callee expression — `a[i]()`, `p->cb()`, `(*fp)()` — lowers to the same indirect-call machinery as named function pointers: the callee expression is evaluated, spilled, reloaded as the `is_fp = 2` argument, and emitted as `OP_CALL` with `fn_name == NULL`. Identifier-only intercepts (`__zerocc_syscall`, `__atomic_*`) are preserved.
+  - The call's return type (sret / 9–16-byte struct return / float result decisions) is taken from the semantic phase's `TypeInfo` on the call node, so expression callees get correct struct/sret marshaling.
+  - `TK_STAR` on a pointer-to-function now returns the pointer value without a memory load (C99 6.5.3.2: `*fp` is a function lvalue; `[fp]` holds machine code, not data) — this is what makes `(*fp)(args)` callable.
+- **Non-Identifier By-Value Struct Arguments (`> 8` bytes)** (`src/zero_cc/ir/ast_lowering_expr.c`):
+  - The `NODE_CALL` argument loop now passes every 8-byte chunk of a by-value struct/union argument in consecutive GP registers, not just the first chunk. Chunk source by expression shape: struct locals are read from the local's stack slot (previous behavior, now generalized), while compound literals and struct-returning calls contribute chunk 1 from the ABI secondary value register (`%rdx`/`VREG_2` on x86-64; `%x1`/`a1` = `VREG_1` on AArch64/RISC-V64) — the same convention the 9–16-byte struct return path uses. `> 16` byte by-value arguments pass the pointer to the value (ABI: by pointer).
+  - 9–16-byte compound literals now load their second chunk into the per-ISA secondary value register (was hardcoded to `VREG_2`), matching the return/assignment convention on all three ISAs.
+- **Virtual C11 Standard Headers** (`src/zero_cc/core/preprocessor.h`):
+  - `<stdatomic.h>`: `atomic_*` types as `_Atomic T` typedefs, `ATOMIC_VAR_INIT`, and the full `atomic_*` macro surface mapped onto zerocc's `__atomic_*` builtin family (mirrors `include/stdatomic.h`).
+  - `<stdnoreturn.h>`: maps the standard `noreturn` keyword onto zerocc's native `_Noreturn` (new reference copy `include/stdnoreturn.h`).
+  - `<threads.h>`: `thrd_t`/`mtx_t` aliases over the pthread surface plus the `thrd_*`/`mtx_*` macros (mirrors `include/threads.h`).
+- **Dead Code Sweep** (`src/zero_cc/types/emit_helpers.h`):
+  - Removed six unused helper stubs superseded by the IR/machine-emitter pipeline: `zero_cc_emit_prologue`, `zero_cc_emit_epilogue`, `zero_cc_emit_mov_imm64`, `zero_cc_emit_movss_rodata`, `zero_cc_emit_movsd_rodata`, `zero_cc_emit_lea_rax_rodata`. The generic `zero_cc_emit_u8/u16/u32/u64` primitives remain (used by the ISA backends).
+- **Verification** (x86-64 host, JIT + AOT):
+  - `test/jit/declarator_stack.c`, `test/jit/struct_byval_test.c`, `test/jit/atomic.c`, `test/jit/noreturn.c`: all pass cleanly under `zerocc --run` and `zerocc -o`.
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (JIT + AOT, -O0..-O3)
+  - `make test-isa-qemu`: **44/44 passed** (x86-64, aarch64, riscv64, riscv32)
+  - `make test-linker`: **21/21 passed**; driver tests **37/37 passed**
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions)
+  - `python3 tools/style_check.py`: 0 errors; `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 55] - 2026-10-26 - zero_rt Freestanding Runtime Cross-Platform Parity: x86-64, AArch64, RISC-V64
 
 Brought ZeroCC's freestanding runtime `zero_rt` to 100% feature and behavioral parity across x86-64, AArch64, and RISC-V 64-bit, enabling seamless self-hosted linking (`--zerocc-link`) with no host libc dependencies.

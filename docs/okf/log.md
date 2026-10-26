@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-26T05:08:25Z
+timestamp: 2026-10-26T14:15:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -455,3 +455,18 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-26 — Updated `zero-rt.md`
 - Sprint 55: zero_rt freestanding runtime cross-platform parity across x86-64, AArch64, and RISC-V64
+
+## 2026-10-26 — Updated `frontend-and-types.md`
+- Sprint 56: virtual <stdatomic.h>/<stdnoreturn.h>/<threads.h> added to the preprocessor virtual-header set (mirroring include/ reference copies)
+
+## 2026-10-26 — Updated `abi-sysv-x86_64.md`
+- Sprint 56: non-identifier by-value struct arg (9-16B) chunk-source convention: locals from stack slot, compound literals/call results from secondary value register (rdx / x1 / a1); >16B by-value args pass by pointer
+
+## 2026-10-26 — Updated `ir-and-regalloc.md`
+- Sprint 56: NODE_CALL general-expression indirect calls (a[i](), p->cb(), (*fp)()) share the is_fp=2 indirect machinery; return type from semantic TypeInfo; pointer-to-function deref is identity
+
+## 2026-10-26 — Updated `abi-sysv-x86_64.md`
+- Sprint 56 fix: canonical secondary value register is VREG_2 on all ISAs (regalloc maps to rdx/x1/a1); compound literals and call args now use VREG_2 uniformly
+
+## 2026-10-26 — Updated `ir-and-regalloc.md`
+- Sprint 56: documented canonical VREG_2 convention for 9-16B value passing; DCE root set marks VREG_0 and VREG_2 live at exit

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-24T23:19:32Z
+timestamp: 2026-10-26T13:59:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -149,8 +149,9 @@ ZeroCC supports C11 core language features and standard concurrency primitives v
 - **Generic Selection (`_Generic`) & Static Assertions (`_Static_assert`)**:
   - `_Generic(controlling-expr, type: expr, default: expr)` resolves the matching association branch at compile time based on the controlling expression's static type (`src/zero_cc/parser/ast_expr.h`).
   - `_Static_assert(const-expr, "msg")` validates compile-time constant invariants at both file and block scope.
-- **C11 Atomics & `<threads.h>`**:
+- **C11 Atomics, `<stdatomic.h>`, `<stdnoreturn.h>` & `<threads.h>`**:
   - `_Atomic` qualifiers and `__sync_*` / `__atomic_*` builtins lower to hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`).
+  - The C11 standard headers are **virtual headers** served by `zero_cc_cpp_get_virtual_header` (`src/zero_cc/core/preprocessor.h`) before any filesystem search, so `#include <stdatomic.h>` / `<stdnoreturn.h>` / `<threads.h>` resolve in freestanding mode: `<stdatomic.h>` typedefs `atomic_*` as `_Atomic T` and maps the `atomic_*` macros onto the `__atomic_*` builtin family (the `__ATOMIC_*` order constants are preprocessor defines); `<stdnoreturn.h>` maps the standard `noreturn` keyword onto zerocc's native `_Noreturn` (TK_NORETURN); `<threads.h>` aliases `thrd_t`/`mtx_t` over the pthread surface. The embedded texts mirror the reference copies `include/stdatomic.h` / `include/threads.h` / `include/stdnoreturn.h` (kept in sync manually).
   - `include/threads.h` maps C11 thread (`thrd_t`, `thrd_create`, `thrd_join`) and mutex (`mtx_t`, `mtx_init`, `mtx_lock`, `mtx_unlock`, `mtx_destroy`) primitives to POSIX threads (`-lpthread`).
   - Global variables (`src/zero_cc/types/global_vars.h`, instantiated in `src/zero_cc/ir/ir.c`) emit `ELF_STT_OBJECT` symbols in `.data` and support address-of (`&g`), scalar value loads, assignments, and increments (`g++`).
 

@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-24T22:47:01Z
+timestamp: 2026-10-26T14:15:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -20,10 +20,11 @@ ZeroCC implements the System V AMD64 ABI for x86-64 across both JIT and AOT mode
 - **Floating-Point Arguments (up to 8)**: `%xmm0` .. `%xmm7` (indices `0..7`).
 - **FP-arg load ordering invariant (OP_CALL)**: the FP-arg loads (frame-slot → `%xmm0..7`, recorded per call in `LoweringState.call_fp_spills[]`) must be emitted **before** the 7th+ integer arguments are pushed onto the caller stack: those pushes (and the 8-byte odd-count pad) shift the stack pointer, so a frame-relative slot load after them would read the wrong bytes and silently mispass every float argument (symptom: printf prints a stale value while in-program float comparisons are still correct; repro: any call with ≥7 integer args plus a float arg, e.g. `test/jit/varargs_float.c`). Both the machine-code path (`OP_CALL` in `ast_lowering_mc.c`) and the `-S` path (`x86_emit_call_asm` in `x86_64_asm.c`, "Handle FP args first") follow this order.
 - **Stack Arguments**: Arguments exceeding the 6 GPR or 8 XMM registers are pushed right-to-left on the caller stack (`16(%rbp)`, `24(%rbp)`, ... in the callee).
-- **Struct Arguments Passed by Value (`ast_lowering.c`, `ast_lowering_expr.c`)**:
+- **Struct Arguments Passed by Value (`ast_lowering_expr.c`)**:
   - `<= 8` bytes: Passed in 1 integer register (or stack if no GPR remains).
   - `9 .. 16` bytes: Passed across 2 consecutive integer argument registers (`num_chunks = (size + 7) / 8`) in both caller argument setup (`NODE_CALL`) and callee prologue parameter saving (`OP_PARAM_SAVE_INT`).
   - Multi-eightbyte structs passed by value iterate over all `num_chunks` 8-byte chunks at `-(stack_offset - c * 8)`.
+  - **Chunk source for non-identifier arguments (Sprint 56)**: the `NODE_CALL` arg loop derives each extra chunk from the argument expression's value representation — a struct/union **local** (`NODE_IDENT`) is read from the local's stack slot (`-(stack_offset - ch*8)`), while any other 9–16 byte value (compound literal, struct-returning call) picks up chunk 1 from the ABI **secondary value register** (`VREG_2` — `rdx` on x86-64, `x1` on AArch64, `a1` on RISC-V64), the same register a 9–16 byte struct return / compound-literal lowering leaves it in. `> 16` byte by-value arguments are passed by pointer (the expression value is already the address of the buffer). Argument size comes from the local's `ZeroCCType` or the semantic `TypeInfo` of the argument node.
 - **Struct Return Values (`<= 16` bytes)**:
   - `<= 8` bytes: Returned in `%rax` (`VREG_0`).
   - `9 .. 16` bytes: Lower 8 bytes in `%rax` (`VREG_0`), upper 8 bytes in `%rdx` (`VREG_2`).
