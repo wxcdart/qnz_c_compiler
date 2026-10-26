@@ -630,23 +630,18 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                         if (!ls || (ls->obj == -1 && !ls->is_section)) continue;
                         S = (int64_t)ls->vma;
                     } else if (sym->type == ZC_STT_SECTION) {
-                        ZcLinkSym *ls = sym_find(L, sym->name);
-                        if (!ls || !ls->is_section || ls->vma == 0) {
-                            if (sym->shndx >= o->shnum) continue;
-                            const char *secname = o->secs[sym->shndx].name;
-                            int sout = outsec_for_name(secname);
-                            if (sout < 0) continue;
-                            uint64_t s_off = 0;
-                            for (size_t m = 0; m < L->map_count; m++) {
-                                if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
-                                    s_off = L->map[m].out_off;
-                                    break;
-                                }
+                        if (sym->shndx >= o->shnum) continue;
+                        const char *secname = o->secs[sym->shndx].name;
+                        int sout = outsec_for_name(secname);
+                        if (sout < 0) continue;
+                        uint64_t s_off = 0;
+                        for (size_t m = 0; m < L->map_count; m++) {
+                            if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
+                                s_off = L->map[m].out_off;
+                                break;
                             }
-                            S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
-                        } else {
-                            S = (int64_t)ls->vma;
                         }
+                        S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
                     } else {
                         if (sym->shndx >= o->shnum) continue;
                         const char *secname = o->secs[sym->shndx].name;
@@ -718,34 +713,27 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     }
                     S = (int64_t)ls->vma;
                 } else if (sym->type == ZC_STT_SECTION) {
-                    ZcLinkSym *ls = sym_find(L, sym->name);
-                    if (!ls || !ls->is_section || ls->vma == 0) {
-                        /* Section of an object with no matching output
-                         * section: resolve against its own object. */
-                        if (sym->shndx >= o->shnum) {
-                            snprintf(err, errsz, "bad section symbol %s",
-                                     sym->name);
-                            return -1;
-                        }
-                        const char *secname = o->secs[sym->shndx].name;
-                        int sout = outsec_for_name(secname);
-                        if (sout < 0) {
-                            snprintf(err, errsz,
-                                     "no output section for `%s'", secname);
-                            return -1;
-                        }
-                        uint64_t s_off = 0;
-                        for (size_t m = 0; m < L->map_count; m++) {
-                            if (L->map[m].obj == o &&
-                                L->map[m].insec == sym->shndx) {
-                                s_off = L->map[m].out_off;
-                                break;
-                            }
-                        }
-                        S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
-                    } else {
-                        S = (int64_t)ls->vma;
+                    if (sym->shndx >= o->shnum) {
+                        snprintf(err, errsz, "bad section symbol %s",
+                                 sym->name);
+                        return -1;
                     }
+                    const char *secname = o->secs[sym->shndx].name;
+                    int sout = outsec_for_name(secname);
+                    if (sout < 0) {
+                        snprintf(err, errsz,
+                                 "no output section for `%s'", secname);
+                        return -1;
+                    }
+                    uint64_t s_off = 0;
+                    for (size_t m = 0; m < L->map_count; m++) {
+                        if (L->map[m].obj == o &&
+                            L->map[m].insec == sym->shndx) {
+                            s_off = L->map[m].out_off;
+                            break;
+                        }
+                    }
+                    S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
                 } else {
                     if (sym->shndx >= o->shnum) {
                         snprintf(err, errsz,
@@ -790,19 +778,17 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     case 257: /* R_AARCH64_ABS64 */
                         for (int b = 0; b < 8; b++)
                             site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
-                        break;
+                        continue;
                     case 256: /* R_AARCH64_ABS32 */
                         for (int b = 0; b < 4; b++)
                             site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >>
                                                 (8 * b));
-                        break;
+                        continue;
                     case 275: /* R_AARCH64_ADR_PREL_PG_HI21 */
                         /* ADRP computes (P & ~0xFFF) + (signext(imm21) << 12)
                          * and must land on the page of (S + A); invert that
-                         * to get the 21-bit signed page offset.  Encoding
-                         * (verified against the cross toolchain): imm21[20:2]
-                         * in bits [23:5], imm21[1] in bit 30, imm21[0] in
-                         * bit 29. */
+                         * to get the 21-bit signed page offset. Encoding:
+                         * imm21[20:2] in bits [23:5], imm21[1:0] in bits [30:29]. */
                         int64_t r = (((S + A) & ~0xFFFULL) -
                                      ((int64_t)P & ~0xFFFULL)) >> 12;
                         if (r < -(1LL << 20) || r >= (1LL << 20)) {
@@ -814,21 +800,16 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                         }
                         uint32_t imm21 = (uint32_t)r & 0x1FFFFF;
                         uint32_t patch = ((imm21 & 0x1FFFFC) << 3) |
-                                         ((imm21 & 2) << 28) |
-                                         ((imm21 & 1) << 29);
-                        nw = (w & ~0x600FFFFEU) | patch;
+                                         ((imm21 & 3) << 29);
+                        nw = (w & ~0x60FFFFE0U) | patch;
                         break;
                     case 277: /* R_AARCH64_ADD_ABS_LO12_NC */
-                        int64_t lo = (S + A) & 0xFFF;
-                        if (lo > 0x7FF) {
-                            snprintf(err, errsz,
-                                     "ADD_ABS_LO12_NC addend out of range "
-                                     "for `%s' in %s", sym->name, o->path);
-                            return -1;
-                        }
+                    {
+                        uint32_t lo = (uint32_t)((S + A) & 0xFFF);
                         /* ADD imm: imm12 in bits [21:10], shift bit 22 = 0. */
-                        nw = (w & ~0x001FFC00U) | ((uint32_t)lo << 10);
+                        nw = (w & ~0x003FFC00U) | (lo << 10);
                         break;
+                    }
                     case 283: /* R_AARCH64_CALL26 */
                     {
                         int64_t d = S + A - (int64_t)P;

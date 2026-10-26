@@ -209,12 +209,13 @@ static void fmt_g(RtSink *s, double x, int prec, int alt) {
 /* Core formatter                                                      */
 /* ------------------------------------------------------------------ */
 
+static char rt_scratch[RT_SINK_CAP];
+
 static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap) {
     RtSink s;
-    static char scratch[RT_SINK_CAP];
     char core[80];
 
-    sink_init(&s, out ? out : scratch, out ? outcap : RT_SINK_CAP);
+    sink_init(&s, out ? out : rt_scratch, out ? outcap : RT_SINK_CAP);
     /* When writing into `out`, reserve room for the NUL. */
     if (out && outcap > 0) s.cap = outcap - 1;
 

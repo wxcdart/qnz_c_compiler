@@ -544,6 +544,66 @@ static void riscv_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
     fprintf(out, "\tret\n");
 }
 
+/* OS syscall (GAS text form). Same ABI and clobber logic as
+ * riscv_emit_syscall in riscv.c: number in a7, args 1-6 in a0-a5, result
+ * in a0 (= VREG_0). ecall clobbers the caller-saved set, so the
+ * allocatable clobbered registers that may hold live values (t2, a1-a7,
+ * t3-t6) are saved in a 16-byte-aligned stack region before `ecall` and
+ * restored after. Store/load width follows the target (sd/ld vs sw/lw).
+ * Spill reloads use t1 (scratch_reg2), the same idiom as call_asm. */
+static void riscv_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const int linux_syscall_regs[7] = {17, 10, 11, 12, 13, 14, 15}; /* a7, a0-a5 */
+    static const int clobbered_live_regs[] = {7, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
+    static const int n_save = 12;
+    int slot = (BE(c)->isa == ISA_RISCV32) ? 4 : 8;
+    const char *st = (BE(c)->isa == ISA_RISCV32) ? "sw" : "sd";
+    const char *ld = (BE(c)->isa == ISA_RISCV32) ? "lw" : "ld";
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 7) ? arg_count : 7;
+
+    /* Save the live values the kernel would clobber. */
+    fprintf(out, "\taddi\tsp, sp, -%d\n", n_save * slot);
+    for (int r = 0; r < n_save; r++) {
+        fprintf(out, "\t%s\t%s, %d(sp)\n", st,
+                BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * slot);
+    }
+    int32_t extra_sp = n_save * slot;
+
+    /* Parallel move of the syscall arguments. */
+    if (n > 0) {
+        int alloc_bytes = ((n * slot) + 15) & ~15;
+        fprintf(out, "\taddi\tsp, sp, -%d\n", alloc_bytes);
+        for (int a = 0; a < n; a++) {
+            int temp = arg_temps[a];
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 6 /* t1 */, zero_cc_frame_base_reg(c),
+                                     zero_cc_frame_disp_at(c, -off, extra_sp + alloc_bytes), out);
+                fprintf(out, "\t%s\tt1, %d(sp)\n", st, a * slot);
+            } else {
+                fprintf(out, "\t%s\t%s, %d(sp)\n", st,
+                        BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp)), a * slot);
+            }
+        }
+        for (int a = n - 1; a >= 0; a--) {
+            /* Read back into the syscall register (LIFO). */
+            fprintf(out, "\t%s\t%s, %d(sp)\n", ld,
+                    BE(c)->get_hw_reg_name(linux_syscall_regs[a]), a * slot);
+        }
+        fprintf(out, "\taddi\tsp, sp, %d\n", alloc_bytes);
+    }
+
+    fprintf(out, "\tecall\n");
+
+    /* Restore the saved registers (reverse order) and free the region. */
+    for (int r = n_save - 1; r >= 0; r--) {
+        fprintf(out, "\t%s\t%s, %d(sp)\n", ld,
+                BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * slot);
+    }
+    fprintf(out, "\taddi\tsp, sp, %d\n", n_save * slot);
+}
+
 /* LABEL: label: */
 static void riscv_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
@@ -969,6 +1029,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_deref_asm = riscv_emit_deref_asm;
     be->emit_call_asm = riscv_emit_call_asm;
     be->emit_ret_asm = riscv_emit_ret_asm;
+    be->emit_syscall_asm = riscv_emit_syscall_asm;
     be->emit_label_asm = riscv_emit_label_asm;
     be->emit_jmp_asm = riscv_emit_jmp_asm;
     be->emit_jeq_asm = riscv_emit_jeq_asm;

@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Phase 0: Linux x86-64)
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-10-25T04:47:42Z
+timestamp: 2026-10-26T05:08:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -39,12 +39,14 @@ In `compile_and_link` (`src/main.c`), when `--zerocc-link` is used the driver ap
 - **Per-round re-resolve**: `extract_archives` re-runs `resolve_symbols` after any round that extracted new members, so a newly extracted member's undefined references (e.g. `zeroc_main_wrapper` → `main`, `stdio` → `os.write`) are visible to *subsequent* archive scans. Pre-fix the greedy extraction stopped one member short on exactly this pattern.
 - **`elf_reader.c`**: `shoff` is parsed as a full 64-bit `Elf64_Shdr` offset (the old 16-bit mask broke section-header bounds checks for objects whose section table sits above 64 KiB).
 
-## Phase 0 Closeout (Sprint 49 — Resolved)
+## Phase 0 & Phase 1 Closeout (Sprint 49 & Sprint 55 — Resolved)
 
-All Phase 0 `zero_rt` `printf` / `snprintf` / `sprintf` / `fprintf` formatting issues in `--zerocc-link` binaries are resolved:
-- **ABI-correct `va_list`**: `va_list` is now a 5-pointer struct `{gp, gp_end, fp, fp_end, ovf}` across `<stdarg.h>` (`core/preprocessor.h`), prologue register-save area (`x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `riscv.c`), and `NODE_VA_START`/`NODE_VA_ARG` lowering (`ast_lowering_expr.c`), supporting variadic `va_list` passing across multiple function calls (`printf` → `rt_stream_printf` → `vsnprintf_core`). Variadic functions keep their frame pointer (`omit_frame_pointer = false` in `ast_lowering.c`).
-- **Format loop & Ryū `%e`/`%g` exponents (`zero_rt/core/stdio.c`)**: Removed the duplicate `fmt++` at the end of `vsnprintf_core` that skipped the character after every conversion specifier; fixed `ryu_parse` and `fmt_g`/`%e` precision passed to `d2exp_buffered`.
-- **Unsigned integer division, modulo, and comparisons (`OP_DIV`/`OP_MOD`/`OP_COND_SET`)**: C99 usual arithmetic conversions (`zero_cc_binop_is_unsigned` in `ast_lowering_expr.c`) mark unsigned `/` and `%` (`ir_mark_last_unsigned(1)` → `xor %edx,%edx; divq` on x86-64, `udiv` on AArch64, `divu`/`remu` on RISC-V) and emit unsigned condition codes (`6..9` → `setb`/`setbe`/`seta`/`setae` on x86-64, `lo`/`ls`/`hi`/`hs` on AArch64, `sltu` on RISC-V) for `<`, `<=`, `>`, `>=`. This fixes `%llx`/`%llu`/`%llo` for values $\ge 2^{63}$ in `u64_chars` and `%f`/`%e`/`%g` for doubles $\ge 10^{15}$ in vendored Ryū (`d2fixed.c`, `d2s.c`).
+All `zero_rt` `printf` / `snprintf` / `sprintf` / `fprintf` / heap / string capabilities are 100% verified across host (x86-64) and cross-architectures (AArch64 and RISC-V 64-bit):
+- **Cross Runtime Archives (`build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`)**: Built directly with zerocc self-compilation (`--target aarch64`, `--target riscv64`) and auto-linked under `--zerocc-link` matching `--target` or sniffing input object `e_machine`.
+- **AArch64 Relocations & Stores**: Fixed `R_AARCH64_ABS64`/`ABS32` relocation stomping lower 32 bits of pointer targets in `linker.c`, corrected `R_AARCH64_ADR_PREL_PG_HI21` instruction mask (`0x60FFFFE0`), and eliminated broken `param_save` offset calculations in `aarch64.c`.
+- **RISC-V 64-bit Immediates & Branches**: Added full 64-bit immediate materialization in `riscv.c` (`slli 32` + low 32 bits ORed), inverted B-type branch skip (+8) over 20-bit JAL trampolines for >4KB jumps, and mapped variadic float args to GP register streams per psABI.
+- **Syscall Non-Leaf Frame Safety**: `OP_SYSCALL` marks lowering functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from corrupting stack variables during syscall register push/pop sequences.
+- **Linux Generic Syscalls**: Corrected `RT_SYS_BRK` to 214 and enabled `RT_HAS_BRK` for both AArch64 and RISC-V64. Fixed 64-bit heap allocation free-bit mask in `heap.c` and copy loops in `string.c`.
 
 ## Related Concepts
 

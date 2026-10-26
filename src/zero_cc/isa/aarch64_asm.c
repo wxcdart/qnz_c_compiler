@@ -559,6 +559,62 @@ static void aarch64_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
     fprintf(out, "\tret\n");
 }
 
+/* OS syscall (GAS text form). Same ABI and clobber logic as
+ * aarch64_emit_syscall in aarch64.c: number in x8, args 1-6 in x0-x5,
+ * result in x0 (= VREG_0). The kernel clobbers x0-x17 (x18 preserved), so
+ * the clobbered registers that may hold caller values (x1-x8, x11-x15;
+ * x8 carries the stub's exit_group number across main) are saved in a
+ * 16-byte-aligned stack region before `svc #0` and restored after. The
+ * region keeps SP 16-byte aligned as the kernel requires. Spill reloads
+ * use x9 (scratch_reg1), the same idiom as aarch64_emit_call_asm. */
+static void aarch64_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const char *linux_syscall_reg_names[7] = {"x8", "x0", "x1", "x2", "x3", "x4", "x5"};
+    static const int clobbered_live_regs[] = {1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15};
+    static const int n_save = 13;
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 7) ? arg_count : 7;
+
+    /* Save the live values the kernel would clobber. */
+    fprintf(out, "\tsub\tsp, sp, #%d\n", n_save * 8);
+    for (int r = 0; r < n_save; r++) {
+        fprintf(out, "\tstr\t%s, [sp, #%d]\n",
+                BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * 8);
+    }
+    int32_t extra_sp = n_save * 8;
+
+    /* Parallel move of the syscall arguments (same idiom as call_asm). */
+    if (n > 0) {
+        int alloc_bytes = ((n * 8) + 15) & ~15;
+        fprintf(out, "\tsub\tsp, sp, #%d\n", alloc_bytes);
+        for (int a = 0; a < n; a++) {
+            int temp = arg_temps[a];
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c),
+                                     zero_cc_frame_disp_at(c, -off, extra_sp + alloc_bytes), out);
+                fprintf(out, "\tstr\tx9, [sp, #%d]\n", a * 8);
+            } else {
+                fprintf(out, "\tstr\t%s, [sp, #%d]\n",
+                        BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp)), a * 8);
+            }
+        }
+        for (int a = 0; a < n; a++) {
+            fprintf(out, "\tldr\t%s, [sp, #%d]\n", linux_syscall_reg_names[a], a * 8);
+        }
+        fprintf(out, "\tadd\tsp, sp, #%d\n", alloc_bytes);
+    }
+
+    fprintf(out, "\tsvc\t#0\n");
+
+    /* Restore the saved registers (reverse order) and free the region. */
+    for (int r = n_save - 1; r >= 0; r--) {
+        fprintf(out, "\tldr\t%s, [sp, #%d]\n",
+                BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * 8);
+    }
+    fprintf(out, "\tadd\tsp, sp, #%d\n", n_save * 8);
+}
+
 /* LABEL: label: */
 static void aarch64_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
@@ -1000,6 +1056,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_lea_asm = aarch64_emit_lea_asm;
     be->emit_deref_asm = aarch64_emit_deref_asm;
     be->emit_call_asm = aarch64_emit_call_asm;
+    be->emit_syscall_asm = aarch64_emit_syscall_asm;
     be->emit_ret_asm = aarch64_emit_ret_asm;
     be->emit_label_asm = aarch64_emit_label_asm;
     be->emit_jmp_asm = aarch64_emit_jmp_asm;

@@ -285,17 +285,19 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         /* Build-system compatibility (Sprint 52): accept-and-ignore the
          * ubiquitous gcc flags so stock Makefile/CMake invocations work.
-         * -v notes each ignored flag. */
-        else if (arg[1] == 'g') {
+         * -v notes each ignored flag. NOTE: every branch below is guarded
+         * by arg[0] == '-' - otherwise an input file whose second letter
+         * is g/W/f/m (e.g. "hm.c") would be swallowed as a flag. */
+        else if (arg[0] == '-' && arg[1] == 'g') {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (DWARF debug info not implemented yet)\n", arg);
         }
-        else if (arg[1] == 'W' && arg[2]) {
+        else if (arg[0] == '-' && arg[1] == 'W' && arg[2]) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (warning controls not implemented yet)\n", arg);
         }
-        else if (arg[1] == 'f' && arg[2]) {
+        else if (arg[0] == '-' && arg[1] == 'f' && arg[2]) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (flag not implemented yet)\n", arg);
         }
-        else if (arg[1] == 'm' && arg[2]) {
+        else if (arg[0] == '-' && arg[1] == 'm' && arg[2]) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (machine tuning not implemented yet)\n", arg);
         }
         else if (strncmp(arg, "-std=", 5) == 0 || strncmp(arg, "--std=", 6) == 0) {
@@ -540,6 +542,58 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         }
     }
     memset(&defines, 0, sizeof(defines));
+
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    if (target_isa == ISA_AARCH64) {
+        defines.defs[defines.count].name = strdup("__x86_64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__aarch64__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__LP64__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    } else if (target_isa == ISA_RISCV64) {
+        defines.defs[defines.count].name = strdup("__x86_64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__riscv");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__riscv_xlen");
+        defines.defs[defines.count].value = strdup("64");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__LP64__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    } else if (target_isa == ISA_RISCV32) {
+        defines.defs[defines.count].name = strdup("__x86_64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__LP64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__riscv");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__riscv_xlen");
+        defines.defs[defines.count].value = strdup("32");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__ILP32__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    }
+
     for (int d = 0; d < opts->macro_opt_count; d++) {
         if (defines.count >= 128) break;
         /* Copy the option string: the caller's CompileOptions must stay
@@ -1507,16 +1561,43 @@ static int compile_and_link(CompileOptions *opts) {
         const char *objs_ref[ZERO_CC_MAX_INPUTS];
         for (int i = 0; i < obj_count; i++) objs_ref[i] = obj_paths[i];
 
+        /* If target_arch wasn't explicitly set and we have input objects,
+         * inspect the first ELF object to determine target_isa for linking. */
+        if (!opts->target_arch && obj_count > 0) {
+            FILE *f = fopen(obj_paths[0], "rb");
+            if (f) {
+                uint8_t hdr[20];
+                if (fread(hdr, 1, 20, f) == 20 && hdr[0] == 0x7f && hdr[1] == 'E' &&
+                    hdr[2] == 'L' && hdr[3] == 'F') {
+                    uint16_t mach = (uint16_t)hdr[18] | ((uint16_t)hdr[19] << 8);
+                    if (mach == 183) target_isa = ISA_AARCH64;
+                    else if (mach == 243) target_isa = (hdr[4] == 1) ? ISA_RISCV32 : ISA_RISCV64;
+                    else if (mach == 62) target_isa = ISA_X86_64;
+                }
+                fclose(f);
+            }
+        }
+
         /* zero_rt auto-link: with --zerocc-link, the default runtime is the
-         * ZeroCC-owned zero_rt (build/lib/zero_rt.a next to this binary, or
-         * $ZERO_RT_A). Disable with --no-zerocc-rt.  zero_rt.a is built for
-         * the host (x86-64) today, so it is only auto-linked for x86-64
-         * targets (cross zero_rt is Phase 1). */
+         * ZeroCC-owned zero_rt (build/lib/zero_rt.a, zero_rt_aarch64.a, or
+         * zero_rt_riscv64.a next to this binary, or $ZERO_RT_A / $ZERO_RT_AARCH64_A /
+         * $ZERO_RT_RISCV64_A). Disable with --no-zerocc-rt. */
+        const char *rt_filename = "zero_rt.a";
+        const char *env_var = "ZERO_RT_A";
+        if (target_isa == ISA_AARCH64) {
+            rt_filename = "zero_rt_aarch64.a";
+            env_var = "ZERO_RT_AARCH64_A";
+        } else if (target_isa == ISA_RISCV64) {
+            rt_filename = "zero_rt_riscv64.a";
+            env_var = "ZERO_RT_RISCV64_A";
+        }
+
         char rt_path[2048] = "";
-        const char *rt_env = getenv("ZERO_RT_A");
-        if (rt_env && rt_env[0] && target_isa == ISA_X86_64) {
+        const char *rt_env = getenv(env_var);
+        if (rt_env && rt_env[0]) {
             snprintf(rt_path, sizeof rt_path, "%s", rt_env);
-        } else if (target_isa == ISA_X86_64) {
+        } else if (target_isa == ISA_X86_64 || target_isa == ISA_AARCH64 ||
+                   target_isa == ISA_RISCV64) {
             char self[512];
             ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
             if (n > 0) {
@@ -1524,8 +1605,8 @@ static int compile_and_link(CompileOptions *opts) {
                 char *slash = strrchr(self, '/');
                 if (slash) {
                     *slash = '\0';
-                    snprintf(rt_path, sizeof rt_path, "%s/../lib/zero_rt.a",
-                             self);
+                    snprintf(rt_path, sizeof rt_path, "%s/../lib/%s",
+                             self, rt_filename);
                 }
             }
         }

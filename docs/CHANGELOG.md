@@ -1,5 +1,39 @@
 # ZeroCC Changelog
 
+## [Sprint 55] - 2026-10-26 - zero_rt Freestanding Runtime Cross-Platform Parity: x86-64, AArch64, RISC-V64
+
+Brought ZeroCC's freestanding runtime `zero_rt` to 100% feature and behavioral parity across x86-64, AArch64, and RISC-V 64-bit, enabling seamless self-hosted linking (`--zerocc-link`) with no host libc dependencies.
+
+- **Cross-Platform Auto-Linking & Build Targets**:
+  - `Makefile`: Added `build/lib/zero_rt_aarch64.a` and `build/lib/zero_rt_riscv64.a` to default `all:` build, compiling `zero_rt/` and vendored Ryū with zerocc itself (`--target aarch64`, `--target riscv64`).
+  - `src/main.c`: Auto-links appropriate target runtime archive (`zero_rt.a`, `zero_rt_aarch64.a`, or `zero_rt_riscv64.a`) matching `--target` or sniffing `e_machine` from input object files; supports override via `$ZERO_RT_A` / `$ZERO_RT_AARCH64_A` / `$ZERO_RT_RISCV64_A`. Predefined target macros (`__aarch64__`, `__riscv`, `__LP64__`).
+- **AArch64 Codegen & Linker Fixes**:
+  - `linker.c`: Fixed `R_AARCH64_ABS64` (257) and `R_AARCH64_ABS32` (256) data relocations falling through into instruction-word rewrites that cleared the lower 32-bits of data pointers (`stdout`, `stderr`, `stdin`).
+  - `linker.c`: Corrected `R_AARCH64_ADR_PREL_PG_HI21` instruction mask (`0x60FFFFE0`, was typo'd as `0x600FFFFE`, which cleared register destination bits `Rd`).
+  - `aarch64.c`: Corrected `param_save_int` and `param_save_fp` stack offset handling to delegate directly to `aarch64_emit_store` and `aarch64_emit_store_fp`, eliminating invalid `add x9, xzr, x16` sequences.
+- **RISC-V 64-bit Codegen & psABI Fixes**:
+  - `riscv.c`: Added 64-bit immediate materialization in `riscv64_emit_mov_imm` (high 32-bit load + `slli 32` + low 32-bit `slli/srli` zero-extend + OR), fixing constant masks in float conversion algorithms.
+  - `riscv.c`: Replaced 13-bit conditional branches (`rv64_B`, +/-4KB) with inverted branch skip (+8) over 20-bit JAL trampolines (+/-1MB) for branches exceeding 4KB in large functions (`vsnprintf_core`).
+  - `riscv.c`: Handled out-of-range offsets (outside `[-2048, 2047]`) across loads, stores, fp loads/stores, lea, and param save.
+  - `ast_lowering_expr.c`: On RISC-V psABI, variadic arguments are passed in GP registers; updated `NODE_VA_ARG` to use the GP stream rather than FP stream for floating-point values.
+- **Stack & Frame Safety**:
+  - `ast_lowering.c`: `OP_SYSCALL` marks functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from exposing local variables to stack overwrite during raw syscall push/pop instruction sequences.
+- **Runtime Core & Syscall Layer**:
+  - `zero_rt/rt_os.h`: Set `RT_SYS_BRK 214` and `RT_HAS_BRK 1` for AArch64 and RISC-V64 (Linux asm-generic syscall numbers).
+  - `zero_rt/core/heap.c`: Fixed `(h->size & RT_FREE_BIT) != 0` truncation bug that caused allocator to never detect free blocks.
+  - `zero_rt/core/string.c`: Added missing `i++` increments in copy loops of `strcpy`, `strcat`, `strncat`.
+  - Removed obsolete reference header `zero_rt/stdarg.h` that shadowed compiler's virtual `<stdarg.h>`.
+- **Verification**:
+  - End-to-end multi-ISA test battery (`printf` int, string, hex, float, exp; `malloc`/`free`; `strcpy`/`puts`) passes identically with `RC=0` across x86-64, AArch64, and RISC-V64 under QEMU.
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok**
+  - `make test-isa-qemu`: **44/44 passed**
+  - `make test-linker`: **21/21 passed**
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 54] - 2026-10-25 - Own Linker (T2) Gains RISC-V64: `--zerocc-link` for `--target riscv64`
 
 Extended ZeroCC's own static linker to support **RISC-V64** (`--target riscv64`), closing the last 64-bit target gap in the own linker.

@@ -53,7 +53,10 @@ size_t strlen(const char *s) {
 
 char *strcpy(char *dest, const char *src) {
     size_t i = 0;
-    while (src[i]) dest[i] = src[i];
+    while (src[i]) {
+        dest[i] = src[i];
+        i++;
+    }
     dest[i] = 0;
     return dest;
 }
@@ -68,7 +71,10 @@ char *strncpy(char *dest, const char *src, size_t n) {
 char *strcat(char *dest, const char *src) {
     size_t dl = strlen(dest);
     size_t i = 0;
-    while (src[i]) dest[dl + i] = src[i];
+    while (src[i]) {
+        dest[dl + i] = src[i];
+        i++;
+    }
     dest[dl + i] = 0;
     return dest;
 }
@@ -76,7 +82,10 @@ char *strcat(char *dest, const char *src) {
 char *strncat(char *dest, const char *src, size_t n) {
     size_t dl = strlen(dest);
     size_t i = 0;
-    while (i < n && src[i]) dest[dl + i] = src[i];
+    while (i < n && src[i]) {
+        dest[dl + i] = src[i];
+        i++;
+    }
     dest[dl + i] = 0;
     return dest;
 }

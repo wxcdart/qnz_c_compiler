@@ -1528,12 +1528,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             TypeInfo *t_t = ast_node_get_typeinfo(c, node);
             bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
+            bool use_fp_stream = is_fp && !(c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32);
 
             int result_temp = c->next_temp_id++;
             if (ap_sym) {
                 int32_t ap_off = ap_sym->stack_offset;  /* slot TOP; member O is at [fp-(ap_off-O)] */
-                int32_t ptr_field = is_fp ? 16 : 0;    /* va_list member offset of the stream ptr */
-                int32_t end_field = is_fp ? 24 : 8;   /* ...and of its end sentinel */
+                int32_t ptr_field = use_fp_stream ? 16 : 0;    /* va_list member offset of the stream ptr */
+                int32_t end_field = use_fp_stream ? 24 : 8;   /* ...and of its end sentinel */
                 uint16_t ovf_label = c->ir_next_label++;
                 uint16_t end_label = c->ir_next_label++;
 

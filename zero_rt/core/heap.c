@@ -35,7 +35,7 @@ static uint8_t  *g_lo = 0;   /* arena start */
 static uint64_t  g_hi = 0;   /* arena end (one past) */
 static int       g_ready = 0;
 
-static int rt_free_flag(const RtHdr *h) { return (int)(h->size & RT_FREE_BIT); }
+static int rt_free_flag(const RtHdr *h) { return (h->size & RT_FREE_BIT) != 0; }
 static uint64_t rt_size(const RtHdr *h) { return h->size & ~RT_FREE_BIT; }
 
 static int rt_arena_init(void) {
