@@ -80,6 +80,7 @@ typedef struct {
         int active_depth;              /* Current inlining recursion depth */
         int return_target_temp;        /* Destination temp for inlined returns */
         uint16_t return_target_label;  /* Exit label for inlined returns (0 = none) */
+        ZeroCCType return_type;        /* Declared return type of inlined callee */
         int param_count;               /* Number of inlined parameters */
         const char *param_names[8];    /* Parameter names */
         int param_temps[8];            /* Evaluated argument temps */

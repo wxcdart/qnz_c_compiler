@@ -273,6 +273,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (c->lowering.inlining.active_depth > 0) {
         if (node && node->left != AST_NULL) {
             int res = lower_expr(c, arena, node->left);
+            if (!c->last_expr_is_float && c->lowering.inlining.return_type.size > 0) {
+                zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
+            }
             if (c->lowering.inlining.return_target_temp >= 0 && res != c->lowering.inlining.return_target_temp) {
                 ir_emit_mov_reg(c->lowering.inlining.return_target_temp, res);
             }

@@ -16,14 +16,16 @@
 static int64_t g_const_values[CONST_MAP_SIZE];
 static bool g_is_const[CONST_MAP_SIZE];
 
+static uint8_t g_def_count[CONST_MAP_SIZE];
+
 /**
- * Check if a temp holds a constant value
+ * Check if a temp holds a single-definition constant value
  */
 int ir_is_constant(int temp) {
     if (temp < 0 || temp >= CONST_MAP_SIZE) {
         return 0;
     }
-    return g_is_const[temp] ? 1 : 0;
+    return (g_is_const[temp] && g_def_count[temp] == 1) ? 1 : 0;
 }
 
 /**
@@ -52,6 +54,7 @@ static void mark_constant(int temp, int64_t value) {
 static void clear_constants(void) {
     memset(g_is_const, 0, sizeof(g_is_const));
     memset(g_const_values, 0, sizeof(g_const_values));
+    memset(g_def_count, 0, sizeof(g_def_count));
 }
 
 /**
@@ -103,7 +106,9 @@ void opt_fold_constants(ZeroCCCompiler *c) {
         if (!instr) continue;
 
         int dest = instr->temp_dest;
-        if (dest == 0xFF || dest == 0) continue;
+        if (dest == TEMP_NONE || dest == 0 || dest >= CONST_MAP_SIZE) continue;
+
+        if (g_def_count[dest] < 255) g_def_count[dest]++;
 
         // Track constants from OP_MOV_IMM
         if (instr->op == OP_MOV_IMM) {
@@ -145,8 +150,10 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 instr->temp_src2= TEMP_NONE;
                 instr->label_idx = 0;
 
-                // Mark the result as constant for future folding
-                mark_constant(dest, result);
+                // Mark the result as constant for future folding only if uniquely defined
+                if (dest >= 0 && dest < CONST_MAP_SIZE && g_def_count[dest] == 1) {
+                    mark_constant(dest, result);
+                }
             }
         }
     }

@@ -223,10 +223,13 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                     size_t off = tgt.abs_off;
                     size_t sz = tgt.scalar_sz;
                     size_t adv = tgt.advance;
+                    bool is_bf = tgt.is_bitfield;
+                    uint8_t boff = tgt.bit_offset;
+                    uint8_t bw = tgt.bit_width;
                     if (!tgt.is_scalar) {
                         size_t loff = 0, lsz = 0;
-                        zc_object_resolve_scalar_leaf(&tgt.val_type, tgt.local_leaf,
-                                                      &loff, &lsz);
+                        zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf,
+                                                         &loff, &lsz, &is_bf, &boff, &bw);
                         off += loff;
                         sz = lsz ? lsz : 4;
                         adv = 1;
@@ -239,7 +242,9 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                         if (en) {
                             en->next = AST_NULL;
                             en->flags = (has_desig ? NODE_FLAG_DESIGNATED : 0u);
-                            en->desig_idx = ZC_INIT_ABS_STAMP(off + (size_t)k * step, sz);
+                            size_t e_off = off + (size_t)k * step;
+                            en->desig_idx = is_bf ? ZC_INIT_BF_STAMP(e_off, sz, boff, bw)
+                                                  : ZC_INIT_ABS_STAMP(e_off, sz);
                         }
                         if (head_expr == AST_NULL) head_expr = node_ref;
                         else if (last_expr != AST_NULL) {
@@ -264,6 +269,21 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
 
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
             c->token_pos++;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
+            /* Safety: if an element was not followed by ',' or '}' (e.g. GNU
+             * `field: val` syntax or stray token), report an error and skip to
+             * the closing brace instead of looping forever. */
+            diag_report_error_at_token(c, "unexpected token in brace initializer");
+            int depth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                    if (depth == 0) break;
+                    depth--;
+                }
+                c->token_pos++;
+            }
+            break;
         }
     }
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {

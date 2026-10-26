@@ -163,13 +163,6 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
 
     switch (instr->op) {
         case OP_MOV_IMM:
-            return true;
-        case OP_MOV:
-            /* Stack load: invariant if the stack slot is never modified in the loop and never address-taken */
-            if (instr->temp_src1 == TEMP_NONE) {
-                return stack_slot_is_invariant_in_loop((int)instr->imm64, loop_body, body_count);
-            }
-            return false;
         case OP_MOV_REG:
         case OP_ADD_IMM:
         case OP_SUB_IMM:
@@ -193,6 +186,15 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
         case OP_CVTTSD2SI:
         case OP_CVTSI2SD:
             break;
+        case OP_MOV:
+            /* Stack load: invariant if the stack slot is never modified in the loop and never address-taken,
+             * and the destination temp is only defined once in the loop. */
+            if (instr->temp_src1 == TEMP_NONE) {
+                if (!stack_slot_is_invariant_in_loop((int)instr->imm64, loop_body, body_count))
+                    return false;
+                break;
+            }
+            return false;
         default:
             return false;
     }

@@ -708,29 +708,46 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_BINOP: {
-            /* Logical AND (&&) / OR (||): compute (left != 0) and (right != 0)
-             * as 0/1 integers, then combine with bitwise & / |. Straight-line
-             * (no embedded branches) so it stays safe under the -O2/-O3 optimizer
-             * passes. Result is a 0/1 integer, matching C. (Sprint 41) Previously
-             * these fell through to the default arm, which returned only the LEFT
-             * operand -- e.g. `a && b > 5` was parsed as `(a && b) > 5` and lowered
-             * to just `a`, dropping the `b > 5` (and the `while(s[n] && n<7)` bound).
-             * Known limitation: no short-circuit, so the right operand is always
-             * evaluated (`p && *p` with p==NULL still derefs p). */
+            /* Logical AND (&&) / OR (||): C99 6.5.13/6.5.14 short-circuit
+             * evaluation. The right operand is evaluated ONLY if the left
+             * operand does not determine the result (`p && *p` must not
+             * dereference a null `p`). */
             if (node->aux.op == TK_LOGAND || node->aux.op == TK_LOGOR) {
                 int result_temp = c->next_temp_id++;
-                int lt = c->next_temp_id++;
-                int rt = c->next_temp_id++;
+                uint16_t rhs_label = c->ir_next_label++;
+                uint16_t end_label = c->ir_next_label++;
                 int lc = lower_expr(c, arena, node->left);
-                ir_emit_cmp_zero(lc);
-                ir_emit_cond_set(lt, CC_NE);                 /* lt = (a != 0) */
+                if (c->last_expr_is_float) {
+                    int zero_f = c->next_temp_id++;
+                    ir_emit_fmov_imm((uint16_t)zero_f, 0.0);
+                    int cmp_i = c->next_temp_id++;
+                    ir_emit_cmp(lc, zero_f);
+                    ir_emit_cond_set(cmp_i, CC_NE);
+                    lc = cmp_i;
+                    c->last_expr_is_float = 0;
+                }
+                if (node->aux.op == TK_LOGAND) {
+                    ir_emit_mov_imm(result_temp, 0);
+                    ir_emit_je((uint16_t)lc, end_label);
+                } else {
+                    ir_emit_mov_imm(result_temp, 1);
+                    ir_emit_jne((uint16_t)lc, end_label);
+                }
+                ir_emit_label(rhs_label);
                 int rc = lower_expr(c, arena, node->right);
-                ir_emit_cmp_zero(rc);
-                ir_emit_cond_set(rt, CC_NE);                 /* rt = (b != 0) */
-                if (node->aux.op == TK_LOGAND)
-                    ir_emit_and(result_temp, lt, rt);        /* a && b = (a!=0) & (b!=0) */
-                else
-                    ir_emit_or(result_temp, lt, rt);         /* a || b = (a!=0) | (b!=0) */
+                int rt = c->next_temp_id++;
+                if (c->last_expr_is_float) {
+                    int zero_f = c->next_temp_id++;
+                    ir_emit_fmov_imm((uint16_t)zero_f, 0.0);
+                    ir_emit_cmp(rc, zero_f);
+                    ir_emit_cond_set(rt, CC_NE);
+                    c->last_expr_is_float = 0;
+                } else {
+                    ir_emit_cmp_zero(rc);
+                    ir_emit_cond_set(rt, CC_NE);
+                }
+                ir_emit_mov_reg(result_temp, rt);
+                ir_emit_label(end_label);
                 c->last_expr_is_float = 0;
                 return result_temp;
             }
@@ -2625,6 +2642,44 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     size_t abs_off = ZC_INIT_ABS_OFF(elem_node->desig_idx);
                     size_t abs_sz = ZC_INIT_ABS_SIZE(elem_node->desig_idx);
                     int32_t abs_store_off = -(sym->stack_offset - (int32_t)abs_off);
+                    if (ZC_INIT_IS_BF(elem_node->desig_idx)) {
+                        uint8_t boff = ZC_INIT_BF_BOFF(elem_node->desig_idx);
+                        uint8_t bw = ZC_INIT_BF_BW(elem_node->desig_idx);
+                        uint64_t vmask = (bw >= 64) ? ~0ULL : ((1ULL << bw) - 1);
+                        uint64_t fmask = (bw >= 64) ? ~0ULL : (vmask << boff);
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
+                        int cur_temp = c->next_temp_id++;
+                        if (abs_sz == 1) ir_emit_load_byte(cur_temp, addr_temp);
+                        else if (abs_sz == 2) ir_emit_load_16(cur_temp, addr_temp);
+                        else if (abs_sz == 4) ir_emit_load_32(cur_temp, addr_temp);
+                        else ir_emit_deref(cur_temp, addr_temp);
+                        int cmask_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(cmask_temp, (int64_t)(~fmask));
+                        int cleared_temp = c->next_temp_id++;
+                        ir_emit_and(cleared_temp, cur_temp, cmask_temp);
+                        int vmask_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(vmask_temp, (int64_t)vmask);
+                        int mval_temp = c->next_temp_id++;
+                        ir_emit_and(mval_temp, val_temp, vmask_temp);
+                        if (boff > 0) {
+                            int sh_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(sh_temp, (int32_t)boff);
+                            int shval_temp = c->next_temp_id++;
+                            ir_emit_shl(shval_temp, mval_temp, sh_temp);
+                            mval_temp = shval_temp;
+                        }
+                        int new_temp = c->next_temp_id++;
+                        ir_emit_or(new_temp, cleared_temp, mval_temp);
+                        int saddr_temp = c->next_temp_id++;
+                        ir_emit_lea(saddr_temp, TEMP_NONE, abs_store_off);
+                        if (abs_sz == 1) ir_emit_store_byte(new_temp, saddr_temp);
+                        else if (abs_sz == 2) ir_emit_store_16(new_temp, saddr_temp);
+                        else if (abs_sz == 4) ir_emit_store_32(new_temp, saddr_temp);
+                        else ir_emit_store(new_temp, BE(c)->fp_reg, abs_store_off);
+                        cur_ref = elem_node->next;
+                        continue;
+                    }
                     if (abs_sz == 1) {
                         int addr_temp = c->next_temp_id++;
                         ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
@@ -3485,6 +3540,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int prev_depth = c->lowering.inlining.active_depth;
                             int prev_ret_temp = c->lowering.inlining.return_target_temp;
                             uint16_t prev_ret_label = c->lowering.inlining.return_target_label;
+                            ZeroCCType prev_ret_type = c->lowering.inlining.return_type;
                             int prev_param_count = c->lowering.inlining.param_count;
                             const char *prev_param_names[8];
                             int prev_param_temps[8];
@@ -3497,6 +3553,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             c->lowering.inlining.active_depth = prev_depth + 1;
                             c->lowering.inlining.return_target_temp = inline_res_temp;
                             c->lowering.inlining.return_target_label = inline_exit_label;
+                            c->lowering.inlining.return_type = callee_fn->return_type;
                             c->lowering.inlining.param_count = (int)callee_fn->param_count;
                             for (int p = 0; p < (int)callee_fn->param_count && p < 8; p++) {
                                 c->lowering.inlining.param_names[p] = callee_fn->param_names[p];
@@ -3511,6 +3568,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             c->lowering.inlining.active_depth = prev_depth;
                             c->lowering.inlining.return_target_temp = prev_ret_temp;
                             c->lowering.inlining.return_target_label = prev_ret_label;
+                            c->lowering.inlining.return_type = prev_ret_type;
                             c->lowering.inlining.param_count = prev_param_count;
                             for (int p = 0; p < 8; p++) {
                                 c->lowering.inlining.param_names[p] = prev_param_names[p];

@@ -11,6 +11,17 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 
 ## Completed Sprints
 
+### Sprint 57: GCC `c-torture` Conformance Gate & High-Leverage Correctness Fixes ✅
+- **Achievement**: Established a ratcheting differential conformance gate against the vendored GCC `gcc.c-torture` corpus (`third_party/vendor/c-torture/`, 3,940 tests from `gcc-mirror` commit `442eb35f`) ahead of the Windows PE/COFF + Win64 ABI vtable rework, and fixed five high-leverage compiler bugs uncovered by the initial sweep.
+  - **Differential Harness (`tools/torture_run.py`, `make test-torture`)**: Sweeps `execute/` tests across 8 configurations (`-O0..-O3` × `{JIT, AOT}`) against a cached `gcc -O1 -w -lm` reference binary, and `compile/` tests at `-O0`/`-O2`. Pre-skips DejaGnu target/GNU-extension directives (`untyped_assembly`, `label_values`, `indirect_jumps`, `trampolines`, `int128`, `return_address`, `dg-bogus`, `-ffast-math`/`-mfpmath=`, `%p` stdout). Avoids C11 pre-filtering; instead, triages only `REJECT`s with `gcc -std=c11/-c99 -pedantic-errors -fsyntax-only` to separate C89/GNU extensions (`SKIP-C89`) from real C99/C11 gaps (`REJECT`). Ratchets `test/torture/baseline.json` (`PASS: 1714`, `REJECT: 954`, `SKIP-C89: 699`, `MISCOMPILE: 218`, `NO-REF: 190`, `SKIP-TARGET:*: 144`, `TIMEOUT: 10`).
+  - **Bug Fixes Uncovered by the Sweep (`execute/` `MISCOMPILE` 252 → 218)**:
+    1. **Struct/Union `enum` Bitfields & Progress Guards** (`definitions.h`, `ast_expr.h`, `compile_unit.h`): Parsed `: const_expr` bitfield widths on `struct`/`union`/`enum` member declarations (`enum Lisp_Type type: 3L;` in `compile/20000224-1.c`), generalized bitfield widths to `zero_cc_eval_const_expr(c)`, and added progress/delimiter recovery in struct bodies and brace-initializer loops.
+    2. **C99 §5.1.2.2.3 Implicit `return 0;` in `main`** (`ast_lowering.c`): Emitted `ir_emit_mov_imm(VREG_0, 0)` before `epilogue_label` in `main`, fixing ~20 execute tests that fell off the end of `main`.
+    3. **Inlined Function Return Integer Width Extension** (`lowering_state.h`, `ast_lowering_expr.c`, `ast_lowering_stmt.c`): Recorded `inlining.return_type` and applied `zero_cc_emit_int_extend` on inlined `return` statements (`execute/pr108064.c`, `execute/pr44828.c`).
+    4. **Bitfield Brace-Initializer Packing (Local AST + Global `.data`)** (`type_funcs.h`, `init_common.h`, `ast_expr.h`, `compile_unit.h`, `ast_lowering_expr.c`): Added `ZC_INIT_BF_STAMP(off, sz, boff, bw)` and `zc_object_resolve_scalar_leaf_bf` so bitfields in local compound literals/brace initializers and file-scope `.data` initializers mask and shift into their storage unit (`execute/pr71700.c`).
+    5. **C99 Short-Circuit `&&` / `||` Lowering + Optimizer Multi-Def Guards** (`ast_lowering_expr.c`, `opt_loop.c`, `opt_constant_fold.c`): Replaced eager `&&`/`||` evaluation with branching short-circuit evaluation (`execute/20000314-1.c`), and hardened `instr_is_invariant` (`opt_loop.c`) and `opt_fold_constants` (`opt_constant_fold.c`) to require single-definition destination temps (`def_dest_count == 1` / `g_def_count[temp] == 1`).
+- **Gates**: `make test-torture` baseline recorded (`PASS: 1714`, `MISCOMPILE: 218`, `REJECT: 954`, `TIMEOUT: 10`), `make test` **156/156**, `make test-opt` **117/117**, `sret` **6/6**, diag baseline OK, style **0 errors**, okf lint PASS. OKF: `docs/okf/c-torture-gate.md`.
+
 ### Sprint 56: General Expression Indirect Calls, Non-Ident Struct-by-Value Marshaling & Virtual C11 Headers ✅
 - **Achievement**: Closed the remaining C11 calling-convention and standard-header gaps — function-pointer calls through general expressions, by-value struct arguments larger than one register from non-identifier expressions, and the three C11 standard headers missing from the virtual-header set.
   - **General Expression Indirect Calls** (`ast_lowering_expr.c`): `NODE_CALL` lowering no longer requires an identifier callee; `a[i]()`, `p->cb()`, `(*fp)()` lower to the same indirect-call machinery as named function pointers (callee expression evaluated, spilled, reloaded as the `is_fp = 2` argument, `OP_CALL` with `fn_name == NULL`). Return type (sret / 9–16-byte struct return / float result) comes from the semantic `TypeInfo` on the call node. `TK_STAR` on a pointer-to-function returns the pointer value without a memory load (C99 6.5.3.2 function lvalue), making `(*fp)(args)` callable.
@@ -326,8 +337,9 @@ ZeroCC is a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V wit
 - **Fragility Battery (`python3 tools/fragility_probe.py`)**: parameterized C/H/M probes with JIT+AOT classification, `--bisect` boundary search; `c1-wrap` 29-assertion signedness/wraparound battery; verified boundaries — nested calls 190 OK, switch cases 1500 OK, locals 1000 OK / ~3000 clean error, expr depth 150 OK / 151 clean error, globals 3000 OK (JIT+AOT)
 - **Diagnostics Battery (`python3 tools/diag_battery.py`)**: differential-tests zerocc's compiler diagnostics against gcc on the 16-case broken-program corpus (`test/diag/*.c`), classifying each diagnostic into an error category and ratcheting `test/diag/baseline.json` (regression = lost category, dropped error count, or a previously-rejected file compiling silently). Baseline: **8/8 category coverage vs gcc**, no regressions.
 - **C Style Checker (`python3 tools/style_check.py`)**: ruff-style convention checker codifying `docs/coding_style.md` (include rules, whitespace, EOF newline, header guards, `<module>_<action>` public-function prefix) — **0 errors** baseline (78 warnings).
+- **GCC `c-torture` Conformance Gate (`make test-torture` / `python3 tools/torture_run.py`)**: differential-tests ZeroCC against `gcc -O1` across the 3,940-file `third_party/vendor/c-torture` corpus (`execute/` at `-O0..-O3` × `{JIT, AOT}`, `compile/` at `-O0/-O2`), ratcheting `test/torture/baseline.json` (`PASS: 1714`, `REJECT: 954`, `SKIP-C89: 699`, `MISCOMPILE: 218`, `NO-REF: 190`, `SKIP-TARGET:*: 144`, `TIMEOUT: 10`).
 - **ASan/UBSan (`make asan`)**: tracked green gate (compiler internals under ASan+UBSan; 147/147 at Sprint 42, scales with the suite).
-- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **16 files valid** (15 concept pages + `log.md`), links & graph reachability verified (72 internal edges, 16/16 reachable)
+- **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **17 files valid** (16 concept pages + `log.md`), links & graph reachability verified (17/17 reachable)
 
 ### ✅ Former Open Regressions — FIXED (Sprint 35 Phase 0, 2026-10-20; verified by `make test-opt` 88/88)
 Introduced by Sprint 33 (`15588aa`); zerocc `--run`, same results in AOT where checked. All resolved; the table is retained for the record:
@@ -394,18 +406,20 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - [`docs/okf/perf-measurements.md`](./okf/perf-measurements.md) — per-pass costs & the retracted 78× claim
 - [`docs/okf/scalar-float-x86.md`](./okf/scalar-float-x86.md) — scalar float pipeline & WSL2 RX-page limitation
 - [`docs/okf/build-and-verification.md`](./okf/build-and-verification.md) — build targets & verifiers
+- [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md) — GCC `c-torture` conformance gate & ratcheting baseline
 
 ---
 
 ## Next Steps (Future Roadmap)
 
 ### ⚡ Current Priorities (as of 2026-10-26, verified at HEAD)
-1. **zero_rt & Linker Phase 2: Windows PE/COFF + Win64 ABI (`T3-Win`)** — PE/COFF object/executable writer in T2, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone, rbx/rbp allocatable), kernel32 OS boundary wrappers.
-2. **zero_rt & Linker Phase 3: macOS Mach-O (`T4-Mac`)** — Mach-O object/executable writer, Mach syscall numbers.
-3. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators and natural loops are available on-demand on the CFG).
-4. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
-5. **RISC-V 32-bit (`rv32`) own linker & zero_rt runtime** — ELF32 static executable output and RV32 freestanding runtime.
-6. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info.
+1. **GCC `c-torture` Conformance Gate & Bug Burn-Down (`make test-torture`)** — **Baseline established in Sprint 57** (`PASS: 1714`, `MISCOMPILE: 218`, `REJECT: 954`, `TIMEOUT: 10` in `test/torture/baseline.json`); provides a ratcheting safety net before and during the ABI-vtable rework, with iterative burn-down of remaining `MISCOMPILE` and `REJECT` buckets.
+2. **zero_rt & Linker Phase 2: Windows PE/COFF + Win64 ABI (`T3-Win`)** — PE/COFF object/executable writer in T2, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone, rbx/rbp allocatable), kernel32 OS boundary wrappers.
+3. **zero_rt & Linker Phase 3: macOS Mach-O (`T4-Mac`)** — Mach-O object/executable writer, Mach syscall numbers.
+4. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators and natural loops are available on-demand on the CFG).
+5. **Runtime sanitizers sprint** (Phases 1–3, zero-dependency) — see §12.
+6. **RISC-V 32-bit (`rv32`) own linker & zero_rt runtime** — ELF32 static executable output and RV32 freestanding runtime.
+7. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info.
 
 ### 1. Codebase Modularity & Build Structure Refactoring ✅
 - **Eliminate Unity `#include "*.c"` in `parser.c` ✅**: Converted `ast_lowering.c`, `ast_lowering_stmt.c`, `ast_lowering_expr.c`, `ast_lowering_mc.c`, `asm_emitter.c`, and `opt_pass.c` into standalone `.o` translation units in `Makefile`.

@@ -1,5 +1,29 @@
 # ZeroCC Changelog
 
+## [Sprint 57] - 2026-10-26 - GCC `c-torture` Conformance Gate & High-Leverage Correctness Fixes
+
+Established a ratcheting differential conformance gate against the vendored GCC `gcc.c-torture` test suite (`third_party/vendor/c-torture/`, 3,940 `.c` files from `gcc-mirror` commit `442eb35f`) ahead of the Windows (PE/COFF + Win64 ABI) phase, and fixed five compiler bugs exposed by the initial sweep.
+
+- **Differential Conformance Harness** (`tools/torture_run.py`, `Makefile` `test-torture`, `test/torture/baseline.json`):
+  - Sweeps `execute/` tests across all 8 configurations (`-O0..-O3` × `{JIT (--run), AOT (-o)}`) and diffs `(exit_code, stdout)` against a cached `gcc -O1 -w -lm` reference binary; sweeps `compile/` tests with `-c` at `-O0` and `-O2`.
+  - Pre-skips DejaGnu target/extension directives outside ZeroCC's target contract (`untyped_assembly`, `label_values`, `indirect_jumps`, `trampolines`, `int128`, `return_address`, `named_sections`, `nonlocal_goto`, `unwrapped`, `arm`, `dg-bogus`, `-mfpmath=`/`-ffast-math`, and `%p` pointer-printing tests).
+  - Triages `REJECT` files on demand with `gcc -std=c11/-c99 -pedantic-errors -fsyntax-only` to separate legacy C89/GNU-extension rejections (`SKIP-C89`) and `dg-error` negative tests (`EXPECTED-REJECT`) from true C99/C11 conformance gaps (`REJECT`).
+  - Uses per-test SHA-1 temporary file paths for clean `--parallel 16` execution and guards `baseline.json` against partial runs (`--only`, `--limit`, `--quick`).
+  - Recorded baseline across 3,940 tests: **`PASS: 1,714`**, **`REJECT: 954`**, **`SKIP-C89: 699`**, **`MISCOMPILE: 218`**, **`NO-REF: 190`**, **`SKIP-TARGET:*: 144`**, **`TIMEOUT: 10`**, **`SKIP-REFSEM: 5`**, **`EXPECTED-REJECT: 4`**, **`SKIP-BOGUS: 1`**, **`SKIP-PTR: 1`**.
+- **Compiler Fixes (`execute/` `MISCOMPILE` reduced 252 → 218)**:
+  - **Struct/Union `enum` Bitfields & Parser Progress Guards** (`src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/ast_expr.h`, `src/zero_cc/jit/compile_unit.h`): Added `: const_expr` bitfield parsing to the `struct`/`union`/`enum` member branch in `zero_cc_parse_struct_body` (`enum Lisp_Type type: 3L;` in `compile/20000224-1.c`), generalized bitfield width parsing from `TK_NUM` to `zero_cc_eval_const_expr(c)`, and added progress/delimiter recovery guards in struct body and brace-initializer loops.
+  - **C99 §5.1.2.2.3 Implicit `return 0;` in `main`** (`src/zero_cc/ir/ast_lowering.c`): Emitted `ir_emit_mov_imm(VREG_0, 0)` before `epilogue_label` when lowering `main`, fixing ~20 execute tests that fell off the end of `main` without an explicit `return 0;`.
+  - **Inlined Function Return Integer Width Extension** (`src/zero_cc/ir/lowering_state.h`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/ast_lowering_stmt.c`): Recorded `callee_fn->return_type` in `c->lowering.inlining.return_type` and emitted `zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type)` on inlined `return` statements (`execute/pr108064.c`, `execute/pr44828.c`).
+  - **Bitfield Brace-Initializer Packing (AST + `.data`)** (`src/zero_cc/types/type_funcs.h`, `src/zero_cc/parser/init_common.h`, `src/zero_cc/parser/ast_expr.h`, `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/ir/ast_lowering_expr.c`): Added `ZC_INIT_BF_STAMP(off, sz, boff, bw)` and `zc_object_resolve_scalar_leaf_bf` so both local compound-literal/brace initializers (`OP_SHL` + `OP_OR` RMW) and global `.data` initializers mask and shift bitfields into their shared storage unit instead of overwriting offset `0` (`execute/pr71700.c`).
+  - **C99 Short-Circuit `&&` / `||` Lowering + Optimizer Multi-Def Guards** (`src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/opt/opt_loop.c`, `src/zero_cc/opt/opt_constant_fold.c`): Replaced eager `&&`/`||` evaluation with branching short-circuit evaluation (`execute/20000314-1.c`), and hardened `instr_is_invariant` (`opt_loop.c`, where `OP_MOV_IMM` previously returned `true` before checking `def_dest_count > 1`) and `opt_fold_constants` (`opt_constant_fold.c`, which now tracks `g_def_count[temp]` and requires a single definition) so multi-definition short-circuit temps are never mis-hoisted or constant-folded.
+- **Verification**:
+  - `make test-torture`: **1,714 PASS**, baseline OK
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok** (`-O0..-O3`, JIT + AOT)
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors; `python3 tools/okf.py lint`: PASS
+
 ## [Sprint 56] - 2026-10-26 - General Expression Indirect Calls, Non-Ident Struct-by-Value Marshaling & Virtual C11 Headers
 
 Completed the remaining C11 calling-convention and standard-header gaps: function-pointer calls through general expressions, by-value struct arguments larger than one register from non-identifier expressions, and the three C11 standard headers that were missing from the virtual-header set.

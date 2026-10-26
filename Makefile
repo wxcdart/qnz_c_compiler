@@ -174,6 +174,12 @@ test-driver: build/bin/zerocc
 test-linker: build/bin/zerocc
 	@python3 tools/linker_tests.py
 
+# GCC c-torture conformance gate (Sprint 57): runs the vendored gcc.c-torture
+# corpus (third_party/vendor/c-torture) against a gcc -O1 reference and checks
+# against the ratcheting baseline in test/torture/baseline.json.
+test-torture: build/bin/zerocc
+	@python3 tools/torture_run.py
+
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`
 # (the own linker reads classic archives; writing them is a follow-up).

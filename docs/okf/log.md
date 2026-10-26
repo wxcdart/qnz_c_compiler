@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-26T14:15:39Z
+timestamp: 2026-10-26T21:52:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -470,3 +470,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-26 — Updated `ir-and-regalloc.md`
 - Sprint 56: documented canonical VREG_2 convention for 9-16B value passing; DCE root set marks VREG_0 and VREG_2 live at exit
+
+## 2026-10-26 — Updated `c-torture-gate.md`
+- Sprint 57: GCC c-torture conformance gate (tools/torture_run.py, test/torture/baseline.json, 3940 tests: 1714 PASS, 218 MISCOMPILE, 954 REJECT, 699 SKIP-C89, 10 TIMEOUT) and initial MISCOMPILE/TIMEOUT bug fixes

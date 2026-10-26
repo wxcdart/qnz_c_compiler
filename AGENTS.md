@@ -16,6 +16,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   - [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) — System V AMD64 ABI, by-value structs, `sret` (`>16B` struct returns)
   - [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) — `ZeroCCISABackend` vtable, JIT vs AOT emission, relocations
   - [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) — Build targets, direct compiler testing, and ABI verifiers
+  - [`docs/okf/c-torture-gate.md`](docs/okf/c-torture-gate.md) — GCC `c-torture` differential conformance gate (`tools/torture_run.py`, `test/torture/baseline.json`)
 
 ## 2. Build & Verification Rules
 
@@ -31,6 +32,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   ```bash
   make test
   make test-opt            # optimizer sweep: -O0..-O3, JIT + AOT, via zerocc itself
+  make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json)
   python3 tools/sret_verifier.py --verify-all
   python3 tools/style_check.py   # C style/convention checker (docs/coding_style.md rules)
   python3 tools/okf.py lint

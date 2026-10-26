@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-24T02:59:02Z
+timestamp: 2026-10-26T21:52:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -194,11 +194,17 @@ python3 tools/vtable_check.py --diff riscv64 riscv32
 # Validate the docs/okf/ Open Knowledge Format bundle (YAML frontmatter & graph links)
 python3 tools/okf.py lint
 python3 tools/okf.py index
+
+# GCC c-torture conformance gate (3,940 vendored tests vs gcc reference,
+# ratcheting test/torture/baseline.json; see c-torture-gate.md)
+make test-torture
+python3 tools/torture_run.py --quick
 ```
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [Bundle Log](./log.md)
+- See [GCC c-torture Conformance Gate](./c-torture-gate.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)
 

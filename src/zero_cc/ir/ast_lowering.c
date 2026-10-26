@@ -262,6 +262,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
+    /* C99 5.1.2.2.3p1: reaching the '}' that terminates main returns 0. */
+    if (c->function_count > 0 && strcmp(c->functions[c->function_count - 1].name, "main") == 0) {
+        ir_emit_mov_imm(VREG_0, 0);
+    }
     ir_emit_label(c->lowering.epilogue_label);
 
     /* Sprint 37: static locals - stack slot -> data section. Every return

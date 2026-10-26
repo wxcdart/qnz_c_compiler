@@ -220,9 +220,13 @@ static void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_typ
              * first leaf of that aggregate (C99 6.7.9p14). */
             size_t off = tgt.abs_off;
             size_t w = tgt.is_scalar ? tgt.scalar_sz : 0;
+            bool is_bf = tgt.is_bitfield;
+            uint8_t boff = tgt.bit_offset;
+            uint8_t bw = tgt.bit_width;
             if (!tgt.is_scalar) {
                 size_t loff = 0, lsz = 0;
-                zc_object_resolve_scalar_leaf(&tgt.val_type, tgt.local_leaf, &loff, &lsz);
+                zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf, &loff, &lsz,
+                                                 &is_bf, &boff, &bw);
                 off += loff;
                 w = lsz ? lsz : 4;
                 if (cursor) {
@@ -266,14 +270,41 @@ static void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_typ
                 int64_t iv = zero_cc_eval_const_expr(c);
                 for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
                     size_t eo = off + (size_t)k * step;
-                    for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                        buf[eo + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                    if (is_bf) {
+                        uint64_t cur = 0;
+                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                            cur |= ((uint64_t)buf[eo + i]) << (8 * i);
+                        }
+                        uint64_t vmask = (bw >= 64) ? ~0ULL : ((1ULL << bw) - 1);
+                        uint64_t fmask = (bw >= 64) ? ~0ULL : (vmask << boff);
+                        cur = (cur & ~fmask) | ((((uint64_t)iv) & vmask) << boff);
+                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                            buf[eo + i] = (uint8_t)(cur >> (8 * i));
+                        }
+                    } else {
+                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                            buf[eo + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                        }
                     }
                 }
             }
         }
-        if (c->token_pos == iter_start) break; /* safety: no progress */
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+            c->token_pos++;
+        } else if (c->token_pos == iter_start ||
+                   (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE)) {
+            diag_report_error_at_token(c, "unexpected token in brace initializer");
+            int depth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                    if (depth == 0) break;
+                    depth--;
+                }
+                c->token_pos++;
+            }
+            break;
+        }
     }
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
 }

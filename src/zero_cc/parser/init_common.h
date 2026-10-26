@@ -66,6 +66,9 @@ typedef struct {
     ZeroCCType val_type; /* type of the value target (aggregate or scalar) */
     bool is_scalar;      /* value target is a scalar leaf (grouping braces transparent) */
     size_t scalar_sz;    /* store width for a scalar value (1/2/4/8) */
+    bool is_bitfield;    /* value target is a bitfield member */
+    uint8_t bit_offset;  /* bit offset within the storage unit */
+    uint8_t bit_width;   /* bit width of the bitfield */
     size_t local_leaf;   /* leaf index within an aggregate target (elided braces) */
     size_t leaf_idx;     /* leaf index (in the level) of the target start */
     bool in_member;      /* target is inside a struct/union member */
@@ -154,6 +157,9 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
                     out->val_type.base = m->base;
                     out->is_scalar = true;
                     out->scalar_sz = (m->size > 8) ? 8 : (m->size ? m->size : 4);
+                    out->is_bitfield = m->is_bitfield;
+                    out->bit_offset = m->bit_offset;
+                    out->bit_width = m->bit_width;
                     out->advance = 1;
                 }
                 return true;
@@ -301,6 +307,9 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                                           m->tag != TYPE_ARRAY);
                         tgt->scalar_sz = tgt->is_scalar ?
                             ((m->size > 8) ? 8 : (m->size ? m->size : 4)) : 0;
+                        tgt->is_bitfield = tgt->is_scalar && m->is_bitfield;
+                        tgt->bit_offset = tgt->is_bitfield ? m->bit_offset : 0;
+                        tgt->bit_width = tgt->is_bitfield ? m->bit_width : 0;
                         if (m->tag == TYPE_ARRAY && m->base &&
                             (m->base->tag == TYPE_INT8 || m->base->tag == TYPE_UINT8)) {
                             tgt->arr_ctx_off = base_off + (tgt->abs_off - m->offset);
@@ -365,6 +374,9 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                     tgt->is_scalar = (per <= 1);
                     tgt->scalar_sz = (per <= 1) ?
                         ((el->size > 8) ? 8 : (el->size ? el->size : 4)) : 0;
+                    tgt->is_bitfield = false;
+                    tgt->bit_offset = 0;
+                    tgt->bit_width = 0;
                     tgt->advance = (per > 1) ? per : 1;
                     if (d_range) {
                         *step = el->size;
@@ -402,6 +414,9 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                                           m->tag != TYPE_ARRAY);
                         tgt->scalar_sz = tgt->is_scalar ?
                             ((m->size > 8) ? 8 : (m->size ? m->size : 4)) : 0;
+                        tgt->is_bitfield = tgt->is_scalar && m->is_bitfield;
+                        tgt->bit_offset = tgt->is_bitfield ? m->bit_offset : 0;
+                        tgt->bit_width = tgt->is_bitfield ? m->bit_width : 0;
                         *lo = 0; *hi = 0; *is_range = false; *step = 0;
                     }
                 }
