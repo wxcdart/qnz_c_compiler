@@ -3647,7 +3647,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 arg_struct_sz = type_size(arg_ti);
                             }
                         }
-                        if (arg_struct_sz > 8 && arg_struct_sz <= 16) {
+                        if (arg_struct_sz > 8 && (arg_struct_sz <= 16 || (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym))) {
                             int num_chunks = (int)((arg_struct_sz + 7) / 8);
                             /* Secondary chunk comes from VREG_2 (canonical secondary
                              * value register: rdx on x86-64, x1 on AArch64, a1 on
