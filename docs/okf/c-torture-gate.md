@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-26T21:52:49Z
+timestamp: 2026-10-27T11:35:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -100,6 +100,31 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
 5. **C99 Short-Circuit `&&` / `||` Lowering + Optimizer Multi-Def Guards** (`src/zero_cc/ir/ast_lowering_expr.c`, `opt/opt_loop.c`, `opt/opt_constant_fold.c`):
    - Replaced eager both-sides evaluation of `&&` and `||` with branching short-circuit evaluation (`execute/20000314-1.c` and null-guard tests).
    - Fixed the two optimizer passes that previously broke on multi-definition short-circuit destination temps: `instr_is_invariant` in `opt_loop.c` (where `OP_MOV_IMM` returned `true` before checking `def_dest_count > 1`) and `opt_fold_constants` in `opt_constant_fold.c` (which now tracks `g_def_count[temp]` and only folds constants with a single definition).
+
+---
+
+## 5. Chunked Burn-Down Plan (Remaining 1,182 Actionable Tests)
+
+Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`218 MISCOMPILE` + `10 TIMEOUT` + `954 REJECT`) by failing configuration and diagnostic message breaks the remaining work into 8 bounded sprint chunks, ordered **correctness before syntax**:
+
+### Tier 1: `TIMEOUT` & `MISCOMPILE` Burn-Down (228 tests → 3 Chunks)
+
+| Chunk | Scope & Count | Failure Signature & Root-Cause Cluster |
+| :--- | :--- | :--- |
+| **Chunk M1** | **10 `TIMEOUT`s**<br>(`4 compile`, `6 execute`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): parser/constant-evaluator loops on pathological input or large enum chains.<br>• **2 optimizer-only runtime hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): pass `-O0/-O1`, hang at `-O2/-O3` (LICM/GVN/inlining loop transformation).<br>• **4 all-level runtime hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): loop termination / unsigned wraparound at `-O0`. |
+| **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s**<br>(Already pass in ≥1 ZeroCC config) | • **57 pass `O0-jit` (`rc=0`) but crash (`SIGSEGV`) in `O0-aot` and `O1..O3-jit`** (e.g. `execute/20000703-1.c`, `execute/20001111-1.c`, `execute/20010915-1.c`): shared root cause in struct/array member decay (`p->b`) or statement expressions `({ ... })` interacting with stack frame layout / `mem2reg`.<br>• **17 AOT-only failures** (pass `O0..O3` in JIT, fail AOT): ELF relocation / `.data` / symbol emission differences between `execution.h` and `elf_writer.c` (incl. 4 `Linking failed` cases).<br>• **3 JIT-only failures** (pass `O0..O3` in AOT, fail JIT): JIT symbol resolution / data-page patching.<br>• **1 `-O2/-O3`-only failure** (`execute/20020720-1.c`). |
+| **Chunk M3** | **140 All-Config `MISCOMPILE`s**<br>(Fail across all 8 `O0..O3 × JIT/AOT` configs) | • **Part A — Bitfields & Struct Layout**: bitfield signedness (`int x : 3` sign-extension on load), multi-word bitfield straddling, and nested struct/union assignment (`struct-cpy`, `bf-*`, `bitfld-*`).<br>• **Part B — Integer Promotions, Casts & Pointer Arithmetic**: sub-`int` (`char`/`short`) usual arithmetic conversions, compound assignments (`*=`, `/=`, `%=`) on narrow/unsigned types, and multidimensional array/pointer indexing. |
+
+### Tier 2: `REJECT` Burn-Down (954 tests → 4 Chunks)
+
+85% of all 954 `REJECT` cases (`419` in `compile/`, `535` in `execute/`) originate from 5 diagnostic sites:
+
+| Chunk | Scope & Count | Diagnostic Signature & Feature Gap |
+| :--- | :--- | :--- |
+| **Chunk R1** | **~194 tests** | `use of undeclared identifier '<id>'` — GCC `__builtin_*` functions used in `execute/` and `execute/builtins/` (`__builtin_expect`, `__builtin_unreachable`, `__builtin_clz/ctz/ffs/popcount`, `__builtin_abs/labs`, `__builtin_alloca`, `__builtin_isnan/isinf`). |
+| **Chunk R2** | **~210 tests** | `expected identifier in (extern) declaration` (**129**) + `unexpected token '<id>' in statement` (**80**) — Arbitrary declaration-specifier ordering (`int unsigned const`, `register`, `auto`, `__extension__`, `__inline__`) and parenthesized declarators (`int (x)`, `int (*p)[4]`). |
+| **Chunk R3** | **~60 tests** | `unexpected token in struct/union definition` (**27**) + `incompatible types in assignment/initializer` (**30**) — Unnamed bitfields (`int : 0;`, `int : 4;`), mixed struct declarator lists (`int a, *b, c[2];`), and function/array decay edge cases. |
+| **Chunk R4** | **~320+ tests** | `unexpected token at file scope` (**321**) + `expected expression in argument list` (**58**) — File-scope declarators returning function/array pointers, type-generic builtins (`__builtin_types_compatible_p`, `__builtin_choose_expr`), and K&R-compatible definitions accepted by `gcc -std=c11`. |
 
 ---
 

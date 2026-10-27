@@ -412,8 +412,12 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ## Next Steps (Future Roadmap)
 
-### ⚡ Current Priorities (as of 2026-10-26, verified at HEAD)
-1. **GCC `c-torture` Conformance Gate & Bug Burn-Down (`make test-torture`)** — **Baseline established in Sprint 57** (`PASS: 1714`, `MISCOMPILE: 218`, `REJECT: 954`, `TIMEOUT: 10` in `test/torture/baseline.json`); provides a ratcheting safety net before and during the ABI-vtable rework, with iterative burn-down of remaining `MISCOMPILE` and `REJECT` buckets.
+### ⚡ Current Priorities (as of 2026-10-27, verified at HEAD)
+1. **GCC `c-torture` Conformance Gate & Chunked Bug Burn-Down (`make test-torture`)** — **Baseline established in Sprint 57** (`PASS: 1714`, `MISCOMPILE: 218`, `REJECT: 954`, `TIMEOUT: 10` in `test/torture/baseline.json`); provides a ratcheting safety net before and during the ABI-vtable rework. The remaining 1,182 actionable tests are partitioned into 7 bounded sprint chunks (see **§13** below and [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md) §5):
+   - **Chunk M1 (`10 TIMEOUT`s)**: 4 compile-time hangs + 2 `-O2/-O3` optimizer loop hangs + 4 `-O0` runtime loop hangs.
+   - **Chunk M2 (`78 Partial-Mode MISCOMPILE`s)**: 57 tests that pass `O0-jit` (`rc=0`) but crash (`SIGSEGV`) in `O0-aot` and `O1..O3-jit`, 17 AOT-only failures, 3 JIT-only failures, and 1 `-O2/-O3` failure.
+   - **Chunk M3 (`140 All-Config MISCOMPILE`s)**: Part A (bitfield signedness/straddling & nested struct copy) and Part B (narrow integer promotions, unsigned compound ops, pointer indexing).
+   - **Chunks R1–R4 (`954 REJECT`s)**: R1 (`~194` GCC `__builtin_*` functions), R2 (`~210` declaration-specifier ordering & parenthesized declarators), R3 (`~60` unnamed bitfields `int : 0;` & struct declarator lists), R4 (`~320+` file-scope complex declarators & type-generic builtins).
 2. **zero_rt & Linker Phase 2: Windows PE/COFF + Win64 ABI (`T3-Win`)** — PE/COFF object/executable writer in T2, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone, rbx/rbp allocatable), kernel32 OS boundary wrappers.
 3. **zero_rt & Linker Phase 3: macOS Mach-O (`T4-Mac`)** — Mach-O object/executable writer, Mach syscall numbers.
 4. **Loop unrolling** — the next CFG-enabled optimization (branchless select landed in Sprint 39; dominators and natural loops are available on-demand on the CFG).
@@ -644,4 +648,34 @@ Closed the raw-binary emission gap across all target ISAs under QEMU differentia
 #### Deferred (Post-`zero_rt`): Full AddressSanitizer (`-fsanitize=address`) (Phase 4)
 - **Prerequisite**: Mature `zero_rt` ([`docs/zero-rt-plan.md`](./zero-rt-plan.md)) with ZeroCC-owned memory allocators (`malloc`/`free`).
 - **Scope**: 16 TB virtual shadow memory mapping (`0x00007fff8000`–`0x10007fff8000`), allocator poisoning, global and stack frame redzones, and 3–5 instruction shadow-byte checks instrumented on every load and store.
+
+---
+
+### 13. GCC `c-torture` Conformance Burn-Down Plan (Sprint 57+ Roadmap)
+
+**Current Baseline** ([`test/torture/baseline.json`](../test/torture/baseline.json), 3,940 tests): **`PASS: 1,714`**, **`MISCOMPILE: 218`**, **`REJECT: 954`**, **`SKIP-C89: 699`**, **`NO-REF: 190`**, **`SKIP-TARGET:*: 144`**, **`TIMEOUT: 10`**. Full concept documentation: [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md).
+
+#### Tier 1: Correctness First (`TIMEOUT` + `MISCOMPILE` — 228 tests → 3 Chunks)
+- **Chunk M1 — Clear All 10 `TIMEOUT`s (`4 compile` + `6 execute`)**:
+  - 4 compile-time hangs (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`).
+  - 2 `-O2/-O3` optimizer loop hangs (`execute/20011126-2.c`, `execute/pr43269.c`).
+  - 4 `-O0` runtime loop hangs (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`).
+- **Chunk M2 — Partial-Mode `MISCOMPILE`s (`78 tests` that already pass in ≥1 ZeroCC mode)**:
+  - **57 pass `O0-jit` (`rc=0`) but crash (`SIGSEGV`) in `O0-aot` and `O1..O3-jit`** (e.g. `execute/20000703-1.c`, `execute/20001111-1.c`, `execute/20010915-1.c`): shared root cause in struct/array member decay (`p->b`) or statement expressions `({ ... })` interacting with stack frame layout / `mem2reg`.
+  - **17 AOT-only failures** (pass `O0..O3` in JIT, fail AOT): ELF relocation / `.data` / symbol emission differences between `execution.h` and `elf_writer.c` (incl. 4 `Linking failed` cases).
+  - **3 JIT-only failures** (pass `O0..O3` in AOT, fail JIT) and **1 `-O2/-O3`-only failure** (`execute/20020720-1.c`).
+- **Chunk M3 — All-Config `-O0` Lowering `MISCOMPILE`s (`140 tests`)**:
+  - **Part A (Bitfields & Struct Layout)**: bitfield signedness (`int x : 3` sign-extension on load), multi-word bitfield straddling, and nested struct/union assignment (`struct-cpy`, `bf-*`, `bitfld-*`).
+  - **Part B (Integer Promotions, Casts & Pointer Arithmetic)**: sub-`int` (`char`/`short`) usual arithmetic conversions, compound assignments (`*=`, `/=`, `%=`) on narrow/unsigned types, and multidimensional array/pointer indexing.
+
+#### Tier 2: Frontend & Builtin Coverage (`REJECT` — 954 tests → 4 Chunks)
+- **Chunk R1 — GCC `__builtin_*` Lowering (`~194 tests`, `use of undeclared identifier`)**:
+  - Lower standard bit/math/control builtins (`__builtin_expect`, `__builtin_unreachable`, `__builtin_clz/ctz/ffs/popcount`, `__builtin_abs/labs`, `__builtin_alloca`, `__builtin_isnan/isinf`).
+- **Chunk R2 — Declaration-Specifier Ordering & Parenthesized Declarators (`~210 tests`)**:
+  - Arbitrary specifier ordering (`int unsigned const`, `register`, `auto`, `__extension__`, `__inline__`) and parenthesized declarators (`int (x)`, `int (*p)[4]`).
+- **Chunk R3 — Unnamed Bitfields & Struct Declarator Lists (`~60 tests`)**:
+  - Unnamed bitfields (`int : 0;`, `int : 4;`) and mixed pointer/array declarator lists inside `zero_cc_parse_struct_body`.
+- **Chunk R4 — File-Scope Complex Declarators & Type-Generic Builtins (`~320+ tests`)**:
+  - Function-pointer-returning declarators, `__builtin_types_compatible_p` / `__builtin_choose_expr`, and K&R-compatible parameter lists accepted by `gcc -std=c11`.
+
 
