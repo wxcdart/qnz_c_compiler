@@ -467,9 +467,25 @@ void emit_return_jumps(ZeroCCCompiler *c) {
     (void)c;
 }
 
+static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef expr_ref) {
+    int cond_temp = lower_expr(c, arena, expr_ref);
+    if (c->last_expr_is_float) {
+        int zero_i = c->next_temp_id++;
+        ir_emit_mov_imm(zero_i, 0);
+        int zero_f = c->next_temp_id++;
+        ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+        int cmp_i = c->next_temp_id++;
+        ir_emit_cmp(cond_temp, zero_f);
+        ir_emit_cond_set(cmp_i, CC_NE);
+        cond_temp = cmp_i;
+        c->last_expr_is_float = 0;
+    }
+    return cond_temp;
+}
+
 void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
-    int cond_temp = lower_expr(c, arena, node->left);
+    int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
     ir_emit_je((uint16_t)cond_temp, else_label);
@@ -491,7 +507,7 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     uint16_t loop_exit = c->ir_next_label++;
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_start);
     ir_emit_label(loop_start);
-    int cond_temp = lower_expr(c, arena, node->left);
+    int cond_temp = lower_condition_as_int(c, arena, node->left);
     ir_emit_je((uint16_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
     ir_emit_jmp(loop_start);
@@ -513,7 +529,7 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     ir_emit_label(loop_start);
     lower_node(c, arena, node->right);
     ir_emit_label(loop_cond);
-    int cond_temp = lower_expr(c, arena, node->left);
+    int cond_temp = lower_condition_as_int(c, arena, node->left);
     ir_emit_jne((uint16_t)cond_temp, loop_start);
     ir_emit_label(loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
@@ -541,7 +557,7 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_step);
     ir_emit_label(loop_start);
     if (node->right != AST_NULL) {
-        int cond_temp = lower_expr(c, arena, node->right);
+        int cond_temp = lower_condition_as_int(c, arena, node->right);
         ir_emit_je((uint16_t)cond_temp, loop_exit);
     }
     if (node->aux.alt != AST_NULL) {

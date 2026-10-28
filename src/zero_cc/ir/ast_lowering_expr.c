@@ -1498,8 +1498,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_neg(result_temp, operand_temp);
                     break;
                 case TK_BANG:  /* Logical NOT: !operand */
-                    ir_emit_cmp_zero(operand_temp);
-                    ir_emit_cond_set(result_temp, CC_EQ);
+                    if (c->last_expr_is_float) {
+                        int zero_i = c->next_temp_id++;
+                        ir_emit_mov_imm(zero_i, 0);
+                        int zero_f = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+                        ir_emit_cmp(operand_temp, zero_f);
+                        ir_emit_cond_set(result_temp, CC_EQ);
+                        c->last_expr_is_float = 0;
+                    } else {
+                        ir_emit_cmp_zero(operand_temp);
+                        ir_emit_cond_set(result_temp, CC_EQ);
+                    }
                     break;
                 case TK_TILDE:  /* Bitwise NOT */
                     ir_emit_not(result_temp, operand_temp);
@@ -2761,6 +2771,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
              * the else arm's floatness is predicted with ast_expr_is_fp
              * (conservative: unknown shapes stay on the old int path). */
             int cond_temp = lower_expr(c, arena, node->left);
+            if (c->last_expr_is_float) {
+                int zero_i = c->next_temp_id++;
+                ir_emit_mov_imm(zero_i, 0);
+                int zero_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+                int cmp_i = c->next_temp_id++;
+                ir_emit_cmp(cond_temp, zero_f);
+                ir_emit_cond_set(cmp_i, CC_NE);
+                cond_temp = cmp_i;
+                c->last_expr_is_float = 0;
+            }
             int res_temp = c->next_temp_id++;
             uint16_t else_label = c->ir_next_label++;
             uint16_t end_label = c->ir_next_label++;
@@ -3805,26 +3826,77 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return temp;
             }
 
-            /* __builtin_mul_overflow(a, b, &r) - store a*b to *r, return
-             * 1 if overflow, 0 otherwise. Conservative: always returns 0
-             * (no overflow) but correctly stores the product. */
+            /* GCC Integer Overflow Builtins:
+             * 1. Value predicates: __builtin_{add,sub,mul}_overflow_p(a, b, (type)0)
+             *    Evaluates arguments and returns 0 (conservative: no overflow).
+             * 2. Store variants: __builtin_{add,sub,mul}_overflow(a, b, &r)
+             *    Computes a OP b, stores result to *r according to target width,
+             *    and returns 0 in a fresh temp register (conservative: no overflow). */
             if (callee_is_ident && callee->s.str &&
-                strcmp(callee->s.str, "__builtin_mul_overflow") == 0) {
+                (strstr(callee->s.str, "overflow_p") != NULL ||
+                 strstr(callee->s.str, "add_overflow") != NULL ||
+                 strstr(callee->s.str, "sub_overflow") != NULL ||
+                 strstr(callee->s.str, "mul_overflow") != NULL)) {
+                if (strstr(callee->s.str, "overflow_p") != NULL) {
+                    ASTRef mo_arg = node->right;
+                    while (mo_arg != AST_NULL) {
+                        lower_expr(c, arena, mo_arg);
+                        ZeroCCASTNode *an = zero_cc_ast_get(arena, mo_arg);
+                        mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                    }
+                    int t_ovf = c->next_temp_id++;
+                    ir_emit_mov_imm(t_ovf, 0);
+                    c->last_expr_is_float = 0;
+                    return t_ovf;
+                }
+
+                int is_add = (strstr(callee->s.str, "add_overflow") != NULL);
+                int is_sub = (strstr(callee->s.str, "sub_overflow") != NULL);
                 ASTRef mo_arg = node->right;
                 int t_a = lower_expr(c, arena, mo_arg);
-                ZeroCCASTNode *an = zero_cc_ast_get(arena, mo_arg);
-                mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                ZeroCCASTNode *an0 = zero_cc_ast_get(arena, mo_arg);
+                mo_arg = (an0 && an0->next != AST_NULL) ? an0->next : AST_NULL;
                 int t_b = lower_expr(c, arena, mo_arg);
-                an = zero_cc_ast_get(arena, mo_arg);
-                mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                ZeroCCASTNode *an1 = zero_cc_ast_get(arena, mo_arg);
+                mo_arg = (an1 && an1->next != AST_NULL) ? an1->next : AST_NULL;
                 int t_ptr = lower_expr(c, arena, mo_arg);
+                ZeroCCASTNode *an2 = zero_cc_ast_get(arena, mo_arg);
+                int width = an2 ? zc_atomic_access_width(c, an2) : 4;
+                if (an2 && an2->tag == NODE_UNOP && an2->aux.op == TK_AMP) {
+                    ZeroCCASTNode *target = zero_cc_ast_get(arena, an2->left);
+                    if (target && target->tag == NODE_IDENT) {
+                        ZeroCCSym *sym = zero_cc_find_local(c, target->s.str);
+                        if (sym && (sym->type.size == 1 || sym->type.size == 2 ||
+                                    sym->type.size == 4 || sym->type.size == 8)) {
+                            width = (int)sym->type.size;
+                        } else {
+                            ZeroCCGlobalVar *gv = find_global_var(target->s.str);
+                            if (gv && (gv->type.size == 1 || gv->type.size == 2 ||
+                                        gv->type.size == 4 || gv->type.size == 8)) {
+                                width = (int)gv->type.size;
+                            }
+                        }
+                    }
+                }
                 int t_res = c->next_temp_id++;
-                ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_res,
-                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
-                ir_emit((Instr){.op=OP_STORE_32,.temp_dest=TEMP_NONE,
-                    .temp_src1=(uint16_t)t_res,.temp_src2=(uint16_t)t_ptr});
+                if (is_add) {
+                    ir_emit((Instr){.op=OP_ADD,.temp_dest=(uint16_t)t_res,
+                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                } else if (is_sub) {
+                    ir_emit((Instr){.op=OP_SUB,.temp_dest=(uint16_t)t_res,
+                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                } else {
+                    ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_res,
+                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                }
+                if (width == 1) ir_emit_store_byte(t_res, t_ptr);
+                else if (width == 2) ir_emit_store_16(t_res, t_ptr);
+                else if (width == 8) ir_emit_store_64(t_res, t_ptr);
+                else ir_emit_store_32(t_res, t_ptr);
+                int t_ovf = c->next_temp_id++;
+                ir_emit_mov_imm(t_ovf, 0);
                 c->last_expr_is_float = 0;
-                return 0;
+                return t_ovf;
             }
 
             if (callee_is_ident) {

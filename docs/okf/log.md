@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-28T16:37:28Z
+timestamp: 2026-10-28T16:57:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -500,3 +500,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-28 — Updated `c-torture-gate.md`
 - Support comma-separated --only patterns and --chunk (m1/m2/m3) in torture harness
+
+## 2026-10-28 — Updated `c-torture-gate.md`
+- Resolve 6 Chunk M2 tests (overflow builtins & float branches); ratchet baseline PASS 1964->1970, MISCOMPILE 207->201

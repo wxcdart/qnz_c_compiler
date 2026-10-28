@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-28T15:50:30Z",
+ "generated": "2026-10-28T16:56:39Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -25306,18 +25306,18 @@
    "note": ""
   },
   "execute/980604-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
+    "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "MISCOMPILE",
+    "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "MISCOMPILE",
+    "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": ""
   },
   "execute/980605-1.c": {
    "class": "PASS",
@@ -30453,18 +30453,18 @@
    "note": "compilation terminated."
   },
   "execute/pr105984.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr106032.c": {
    "class": "PASS",
@@ -36743,18 +36743,18 @@
    "note": ""
   },
   "execute/pr68381.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
+    "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "MISCOMPILE",
+    "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "MISCOMPILE",
+    "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": ""
   },
   "execute/pr68390.c": {
    "class": "REJECT",
@@ -37159,18 +37159,18 @@
    "note": ""
   },
   "execute/pr71554.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
+    "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "MISCOMPILE",
+    "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "MISCOMPILE",
+    "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": ""
   },
   "execute/pr71626-1.c": {
    "class": "REJECT",
@@ -38401,18 +38401,18 @@
    "note": "                       ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr90311.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr90348.c": {
    "class": "MISCOMPILE",
@@ -38616,18 +38616,18 @@
    "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr93494.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr93582.c": {
    "class": "PASS",
@@ -40738,9 +40738,9 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 207,
+  "MISCOMPILE": 201,
   "NO-REF": 188,
-  "PASS": 1964,
+  "PASS": 1970,
   "REJECT": 749,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 677,
