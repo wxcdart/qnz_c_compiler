@@ -32,6 +32,8 @@ Usage:
   python3 tools/torture_run.py               # gate against baseline (or record first)
   python3 tools/torture_run.py --update-baseline
   python3 tools/torture_run.py --only "execute/pr" --limit 50   # dev iteration
+  python3 tools/torture_run.py --only "pr109386,mzero4,fp-cmp-7" # comma-separated patterns
+  python3 tools/torture_run.py --chunk m2    # batch-run partial-mode MISCOMPILEs (16 tests)
   python3 tools/torture_run.py --quick       # -O1/-O2, JIT only
 
 M1 (TIMEOUT hang) burn-down tools:
@@ -503,7 +505,14 @@ def hang_debug(test_arg, cfgs_override, hang_all):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--update-baseline", action="store_true")
-    ap.add_argument("--only", help="substring filter on test path")
+    ap.add_argument("--only",
+                    help="substring filter on test path (comma-separated for "
+                         "multiple patterns, e.g. pr109386,mzero4,fp-cmp-7)")
+    ap.add_argument("--chunk", type=str.lower, choices=["m1", "m2", "m3"],
+                    help="filter tests by burn-down chunk: "
+                         "m1 = TIMEOUTs, "
+                         "m2 = partial MISCOMPILEs (pass in >=1 config), "
+                         "m3 = all-config MISCOMPILEs")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--quick", action="store_true",
                     help="-O1/-O2, JIT only (dev iteration)")
@@ -548,20 +557,47 @@ def main():
         hang_debug(args.hang_debug, args.hang_config or [], args.hang_all)
         return
 
+    is_partial = bool(args.only or args.limit or args.quick or args.only_class or args.chunk)
+    if args.update_baseline and is_partial:
+        sys.exit("--update-baseline requires a full run (no --only/--limit/--quick/--only-class/--chunk)")
+
     tests = sorted(
         str(p.relative_to(CORPUS))
         for p in list((CORPUS / "execute").rglob("*.c"))
         + list((CORPUS / "compile").glob("*.c")))
     if args.only:
-        tests = [t for t in tests if args.only in t]
-    if args.limit:
-        tests = tests[: args.limit]
+        patterns = [p.strip() for p in args.only.split(",") if p.strip()]
+        tests = [t for t in tests if any(p in t for p in patterns)]
     if args.only_class:
         if not BASELINE_PATH.exists():
             sys.exit("--only-class requires an existing baseline")
         cls = args.only_class.upper()
         base = json.loads(BASELINE_PATH.read_text())["tests"]
         tests = [t for t in tests if base.get(t, {}).get("class") == cls]
+    if args.chunk:
+        if not BASELINE_PATH.exists():
+            sys.exit("--chunk requires an existing baseline")
+        base = json.loads(BASELINE_PATH.read_text())["tests"]
+        if args.chunk == "m1":
+            tests = [t for t in tests if base.get(t, {}).get("class") == "TIMEOUT"]
+        elif args.chunk == "m2":
+            def is_m2(t):
+                b = base.get(t, {})
+                if b.get("class") != "MISCOMPILE":
+                    return False
+                cfgs = b.get("configs", {})
+                return any(r == "OK" for r in cfgs.values()) and any(r != "OK" for r in cfgs.values())
+            tests = [t for t in tests if is_m2(t)]
+        elif args.chunk == "m3":
+            def is_m3(t):
+                b = base.get(t, {})
+                if b.get("class") != "MISCOMPILE":
+                    return False
+                cfgs = b.get("configs", {})
+                return len(cfgs) > 0 and all(r != "OK" for r in cfgs.values())
+            tests = [t for t in tests if is_m3(t)]
+    if args.limit:
+        tests = tests[: args.limit]
 
     t0 = time.time()
     results = {}
@@ -605,10 +641,10 @@ def main():
         for p, r in results.items()
     }
 
-    is_partial = bool(args.only or args.limit or args.quick or args.only_class)
+    is_partial = bool(args.only or args.limit or args.quick or args.only_class or args.chunk)
     if args.update_baseline or (not BASELINE_PATH.exists() and not is_partial):
         if is_partial:
-            sys.exit("--update-baseline requires a full run (no --only/--limit/--quick)")
+            sys.exit("--update-baseline requires a full run (no --only/--limit/--quick/--only-class/--chunk)")
         BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",

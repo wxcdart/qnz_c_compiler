@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-28T16:16:07Z
+timestamp: 2026-10-28T16:37:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -75,10 +75,11 @@ make test-torture
 # Quick dev sweep (-O1 AOT only on execute/, -O0 on compile/)
 python3 tools/torture_run.py --quick
 
-# Filter by substring, limit count, or baseline class (never overwrites baseline.json)
+# Filter by substring, limit count, baseline class, or burn-down chunk (never overwrites baseline.json)
 python3 tools/torture_run.py --only execute/pr --limit 100
-python3 tools/torture_run.py --only execute/2000
-python3 tools/torture_run.py --only-class TIMEOUT    # re-run exactly the 10 M1 hangs
+python3 tools/torture_run.py --only pr109386,mzero4,fp-cmp-7  # comma-separated pattern list
+python3 tools/torture_run.py --chunk m2                       # batch-verify the 16 partial MISCOMPILE tests
+python3 tools/torture_run.py --only-class TIMEOUT             # re-run by baseline class (e.g. TIMEOUT)
 
 # M1 hang triage (TIMEOUT burn-down): exact repro commands per failing config,
 # artifact retention, timeout override, and automated hang capture
