@@ -16640,18 +16640,18 @@
    "note": "                       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "MISCOMPILE",
+    "O0-jit": "OK",
     "O1-aot": "OK",
-    "O1-jit": "MISCOMPILE",
+    "O1-jit": "OK",
     "O2-aot": "OK",
-    "O2-jit": "MISCOMPILE",
+    "O2-jit": "OK",
     "O3-aot": "OK",
-    "O3-jit": "MISCOMPILE"
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
+   "note": ""
   },
   "execute/20001009-1.c": {
    "class": "PASS",

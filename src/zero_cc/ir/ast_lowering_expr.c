@@ -1718,9 +1718,143 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_ASSIGN: {
             /* Check if this is a compound assignment (+=, -=, etc.) */
             bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
+            ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
+
+            /* Dereference assignment (*ptr = expr): evaluate LHS target address
+             * BEFORE RHS value expression so that RHS calling-convention return
+             * registers (VREG_0 / VREG_2 / VREG_F0) are not clobbered by any
+             * function calls or statement expressions inside the LHS address
+             * computation (e.g. GCC c-torture execute/20000917-1.c:
+             * `*({ ({ one(); &a; }); }) = zero();`). Also supports full by-value
+             * struct copies for 9-16B (register pair) and >16B (memory buffer). */
+            if (left_node && left_node->tag == NODE_UNOP && (left_node->aux.op == '*' || left_node->aux.op == TK_STAR)) {
+                ZeroCCASTNode *inner = zero_cc_ast_get(arena, left_node->left);
+                if (inner && inner->tag == NODE_IDENT) {
+                    ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                    if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->is_const) {
+                        diag_report_error_at_token(c, "cannot assign to const-qualified pointer target '%s'", inner->s.str);
+                        return TEMP_NONE;
+                    }
+                }
+                int ptr_temp = lower_expr(c, arena, left_node->left);
+                int right_temp = lower_expr(c, arena, node->right);
+
+                /* Pointer compound assignment scaling (p += n / p -= n) */
+                if (is_compound && (node->aux.op == TK_ADD_ASSIGN || node->aux.op == TK_SUB_ASSIGN)) {
+                    TypeInfo *lvti = ast_node_get_typeinfo(c, left_node);
+                    if (lvti && (type_is_pointer(lvti) || lvti->kind == TYPE_KIND_ARRAY)) {
+                        size_t psz = type_size(lvti->kind == TYPE_KIND_ARRAY ?
+                            lvti->details.array.base : lvti->details.pointer.base);
+                        if (psz > 1) {
+                            int si = c->next_temp_id++;
+                            ir_emit_mov_imm(si, (int32_t)psz);
+                            int s = c->next_temp_id++;
+                            ir_emit_mul(s, right_temp, si);
+                            right_temp = s;
+                        }
+                    }
+                }
+
+                int final_val = right_temp;
+                if (is_compound) {
+                    int curr_val = c->next_temp_id++;
+                    ir_emit_deref(curr_val, ptr_temp);
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
+                        case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
+                        case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, right_temp); break;
+                        case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
+                        case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
+                        case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
+                        case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
+                        case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
+                        default: op_res = right_temp; break;
+                    }
+                    final_val = op_res;
+                }
+                size_t p_size = 4;
+                TypeInfo *target_ti = ast_node_get_typeinfo(c, left_node);
+                if (target_ti) {
+                    p_size = type_size(target_ti);
+                } else {
+                    if (inner && inner->tag == NODE_IDENT) {
+                        ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                        if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
+                            p_size = ptr_sym->type.base->size;
+                        }
+                    }
+                    if (p_size == 4) {
+                        TypeInfo *rhs_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->right));
+                        if (rhs_ti && type_size(rhs_ti) > 0) p_size = type_size(rhs_ti);
+                    }
+                }
+                if (c->last_expr_is_float) {
+                    if (p_size == 4) ir_emit_vstoress((uint16_t)ptr_temp, (uint16_t)final_val);
+                    else ir_emit_vstoresd((uint16_t)ptr_temp, (uint16_t)final_val);
+                    c->last_expr_is_float = 1;
+                } else if (p_size <= 8) {
+                    if (p_size == 1) ir_emit_store_byte(final_val, ptr_temp);
+                    else if (p_size == 2) ir_emit_store_16(final_val, ptr_temp);
+                    else if (p_size == 4) ir_emit_store_32(final_val, ptr_temp);
+                    else ir_emit_store_64(final_val, ptr_temp);
+                    c->last_expr_is_float = 0;
+                } else if (p_size <= 16) {
+                    ir_emit_store_64(final_val, ptr_temp);
+                    int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+                    int off8 = c->next_temp_id++;
+                    ir_emit_mov_imm(off8, 8);
+                    int addr8 = c->next_temp_id++;
+                    ir_emit_add(addr8, ptr_temp, off8);
+                    size_t rem = p_size - 8;
+                    if (rem >= 8) {
+                        ir_emit_store_64(reg2, addr8);
+                    } else if (rem >= 4) {
+                        ir_emit_store_32(reg2, addr8);
+                    } else if (rem >= 2) {
+                        ir_emit_store_16(reg2, addr8);
+                    } else {
+                        ir_emit_store_byte(reg2, addr8);
+                    }
+                    c->last_expr_is_float = 0;
+                } else {
+                    /* >16 byte struct: by-value struct copy from right_temp buffer */
+                    int num_chunks = (int)((p_size + 7) / 8);
+                    for (int i = 0; i < num_chunks; i++) {
+                        size_t rem = p_size - (size_t)(i * 8);
+                        int chunk_temp = c->next_temp_id++;
+                        int src_addr = right_temp;
+                        int dst_addr = ptr_temp;
+                        if (i > 0) {
+                            int off_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(off_temp, i * 8);
+                            src_addr = c->next_temp_id++;
+                            ir_emit_add(src_addr, right_temp, off_temp);
+                            dst_addr = c->next_temp_id++;
+                            ir_emit_add(dst_addr, ptr_temp, off_temp);
+                        }
+                        if (rem >= 8) {
+                            ir_emit_deref(chunk_temp, src_addr);
+                            ir_emit_store_64(chunk_temp, dst_addr);
+                        } else if (rem >= 4) {
+                            ir_emit_load_32(chunk_temp, src_addr);
+                            ir_emit_store_32(chunk_temp, dst_addr);
+                        } else if (rem >= 2) {
+                            ir_emit_load_16(chunk_temp, src_addr);
+                            ir_emit_store_16(chunk_temp, dst_addr);
+                        } else {
+                            ir_emit_load_byte(chunk_temp, src_addr);
+                            ir_emit_store_byte(chunk_temp, dst_addr);
+                        }
+                    }
+                    c->last_expr_is_float = 0;
+                }
+                return final_val;
+            }
 
             int right_temp = lower_expr(c, arena, node->right);
-            ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
 
             /* C11 6.5.16: pointer compound assignment (p += n / p -= n)
              * scales by sizeof(pointee), like pointer +/- arithmetic.  The
@@ -2223,62 +2357,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return right_temp;
             }
 
-            if (left_node && left_node->tag == NODE_UNOP && (left_node->aux.op == '*' || left_node->aux.op == TK_STAR)) {
-                ZeroCCASTNode *inner = zero_cc_ast_get(arena, left_node->left);
-                if (inner && inner->tag == NODE_IDENT) {
-                    ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
-                    if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->is_const) {
-                        diag_report_error_at_token(c, "cannot assign to const-qualified pointer target '%s'", inner->s.str);
-                        return TEMP_NONE;
-                    }
-                }
-                int ptr_temp = lower_expr(c, arena, left_node->left);
-                int final_val = right_temp;
-                if (is_compound) {
-                    int curr_val = c->next_temp_id++;
-                    ir_emit_deref(curr_val, ptr_temp);
-                    int op_res = c->next_temp_id++;
-                    switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(op_res, curr_val, right_temp); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(op_res, curr_val, right_temp); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(op_res, curr_val, right_temp); break;
-                        case TK_DIV_ASSIGN: ir_emit_div(op_res, curr_val, right_temp); break;
-                        case TK_MOD_ASSIGN: ir_emit_mod(op_res, curr_val, right_temp); break;
-                        case TK_AND_ASSIGN: ir_emit_and(op_res, curr_val, right_temp); break;
-                        case TK_OR_ASSIGN:  ir_emit_or(op_res, curr_val, right_temp); break;
-                        case TK_XOR_ASSIGN: ir_emit_xor(op_res, curr_val, right_temp); break;
-                        case TK_SHL_ASSIGN: ir_emit_shl(op_res, curr_val, right_temp); break;
-                        case TK_SHR_ASSIGN: ir_emit_shr(op_res, curr_val, right_temp); break;
-                        default: op_res = right_temp; break;
-                    }
-                    final_val = op_res;
-                }
-                size_t p_size = 4;
-                TypeInfo *target_ti = ast_node_get_typeinfo(c, left_node);
-                if (target_ti) p_size = type_size(target_ti);
-                else {
-                    ZeroCCASTNode *inner = zero_cc_ast_get(arena, left_node->left);
-                    if (inner && inner->tag == NODE_IDENT) {
-                        ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
-                        if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
-                            p_size = ptr_sym->type.base->size;
-                        }
-                    }
-                }
-                if (c->last_expr_is_float) {
-                    if (p_size == 4) ir_emit_vstoress((uint16_t)ptr_temp, (uint16_t)final_val);
-                    else ir_emit_vstoresd((uint16_t)ptr_temp, (uint16_t)final_val);
-                    c->last_expr_is_float = 1;
-                } else {
-                    if (p_size == 1) ir_emit_store_byte(final_val, ptr_temp);
-                    else if (p_size == 2) ir_emit_store_16(final_val, ptr_temp);
-                    else if (p_size == 4) ir_emit_store_32(final_val, ptr_temp);
-                    else ir_emit_store_64(final_val, ptr_temp);
-                    c->last_expr_is_float = 0;
-                }
-                return final_val;
-            }
-
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
             if (sym) {
@@ -2448,7 +2526,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
                             } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
                                 int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
-                                ir_emit_store(reg2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                size_t rem = sym->type.size - 8;
+                                int32_t tail_off = -(sym->stack_offset - 8);
+                                if (rem >= 8) {
+                                    ir_emit_store(reg2, BE(c)->fp_reg, tail_off);
+                                } else {
+                                    int dst_addr = c->next_temp_id++;
+                                    ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
+                                    if (rem >= 4) ir_emit_store_32(reg2, dst_addr);
+                                    else if (rem >= 2) ir_emit_store_16(reg2, dst_addr);
+                                    else ir_emit_store_byte(reg2, dst_addr);
+                                }
                             }
                         }
                         c->last_expr_is_float = 0;
