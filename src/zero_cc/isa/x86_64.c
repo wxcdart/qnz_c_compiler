@@ -1620,6 +1620,17 @@ static void x86_emit_mfence(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xF0);
 }
 
+static void x86_emit_trap(ZeroCCCompiler *c) {
+    /* ud2: 0F 0B (__builtin_trap / __builtin_unreachable) */
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x0B);
+}
+
+static void x86_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
+    (void)c;
+    fprintf(out, "\tud2\n");
+}
+
 /* OS syscall (SysV AMD64): eax = number, rdi/rsi/rdx/r10/r8/r9 = args 1-6.
  * The result is left in rax (VREG_0). Argument temps are resolved first
  * (a spilled argument is reloaded into scratch_reg2 = r11, a non-syscall
@@ -1938,6 +1949,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_atomic_cmpxchg_bool = x86_emit_atomic_cmpxchg_bool,
     .emit_atomic_xchg = x86_emit_atomic_xchg,
     .emit_mfence = x86_emit_mfence,
+    .emit_trap = x86_emit_trap,
+    .emit_trap_asm = x86_emit_trap_asm,
     .emit_syscall = x86_emit_syscall,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,

@@ -50,6 +50,13 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
 static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx,
                                       int phys_dst, int phys_src1, int phys_src2, FILE *out) {
     switch (instr->op) {
+        /* Trap (__builtin_trap / __builtin_unreachable) */
+        case OP_TRAP:
+            if (BE(c)->emit_trap_asm) {
+                BE(c)->emit_trap_asm(c, out);
+            }
+            return;
+
         /* Data Movement */
         case OP_MOV_IMM:
             if (BE(c)->emit_mov_imm_asm) {

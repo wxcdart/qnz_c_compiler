@@ -165,6 +165,12 @@ typedef struct {
                                             * type list (incl. explicit (void)); empty-paren
                                             * () declarations are not prototypes (C99 6.7.5). */
     bool is_external;                     /* True for extern declarations */
+    bool is_object;                       /* Extern OBJECT (variable) declaration
+                                           * registered in the function table
+                                           * (`extern int j;`): return_type holds
+                                           * the variable type, and the global
+                                           * scope must see it as a variable, not
+                                           * a function. */
     bool is_inline;                       /* True for inline declarations (C99) */
     bool is_static;                       /* True for static functions (internal linkage) */
     bool can_inline;                      /* Eligible for small function inlining */

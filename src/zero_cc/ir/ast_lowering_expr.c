@@ -628,12 +628,40 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
                     c->last_expr_is_float = 0;
                     return temp;
+                } else if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                    /* By-value struct rvalue.  <=16B follows the ABI
+                     * secondary-register convention used by struct returns
+                     * and by-value argument marshaling: <=8B value in a
+                     * temp; 9-16B value in a temp + second chunk in VREG_2
+                     * (the 9-16B dereference-assignment store reads the
+                     * second half from VREG_2).  >16B: first 8 bytes as a
+                     * value - the by-value argument marshaling path takes
+                     * the first chunk from this value and the remaining
+                     * chunks directly from the local's stack slot, so the
+                     * value must NOT be an address here (va-arg-4.c). */
+                    if (sym->type.size <= 8) {
+                        int temp = c->next_temp_id++;
+                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                        c->last_expr_is_float = 0;
+                        return temp;
+                    } else if (sym->type.size <= 16) {
+                        int temp = c->next_temp_id++;
+                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                        ir_emit_load(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                        c->last_expr_is_float = 0;
+                        return temp;
+                    } else {
+                        int temp = c->next_temp_id++;
+                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                        c->last_expr_is_float = 0;
+                        return temp;
+                    }
                 } else {
                     int temp = c->next_temp_id++;
                     ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
                     /* 32-bit int semantics: extend narrow int locals to full
                      * 64-bit width (sign/zero per type) so overflowed values
-                     * compare and store correctly. No-op for ptr/struct/8-byte. */
+                     * compare and store correctly. No-op for ptr/8-byte. */
                     zero_cc_emit_int_extend(c, temp, &sym->type);
                     if (sym->is_restrict && sym->type.tag == TYPE_PTR && temp < 256) {
                         /* Each restrict pointer gets its own alias group (locals index + 1) */
@@ -1737,7 +1765,46 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
                 int ptr_temp = lower_expr(c, arena, left_node->left);
-                int right_temp = lower_expr(c, arena, node->right);
+
+                /* Target size up front (it decides the RHS lowering form).
+                 * The rhs-type fallback below is filled in after the RHS is
+                 * lowered. */
+                size_t p_size = 4;
+                TypeInfo *target_ti = ast_node_get_typeinfo(c, left_node);
+                if (target_ti) {
+                    p_size = type_size(target_ti);
+                } else if (inner && inner->tag == NODE_IDENT) {
+                    ZeroCCSym *ps = zero_cc_find_local(c, inner->s.str);
+                    if (ps && ps->type.base && ps->type.base->size > 0) {
+                        p_size = ps->type.base->size;
+                    }
+                }
+
+                ZeroCCASTNode *rhs_node = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                int right_temp;
+                if (p_size > 16 && rhs_node && rhs_node->tag == NODE_IDENT) {
+                    ZeroCCSym *rhs_sym = zero_cc_find_local(c, rhs_node->s.str);
+                    if (rhs_sym && (rhs_sym->type.tag == TYPE_STRUCT || rhs_sym->type.tag == TYPE_UNION) &&
+                        rhs_sym->type.size > 16) {
+                        /* >16B by-value struct RHS must be a buffer address
+                         * for the chunked copy below. A local struct ident
+                         * normally lowers to an 8-byte value load (the form
+                         * by-value argument marshaling needs), so take its
+                         * address instead (c-torture pr35472.c: `*p = a;`
+                         * with a 64-byte local struct). */
+                        right_temp = c->next_temp_id++;
+                        ir_emit_lea(right_temp, BE(c)->fp_reg, -rhs_sym->stack_offset);
+                        c->last_expr_is_float = 0;
+                    } else {
+                        right_temp = lower_expr(c, arena, node->right);
+                    }
+                } else {
+                    right_temp = lower_expr(c, arena, node->right);
+                }
+                if (p_size == 4 && !target_ti) {
+                    TypeInfo *rhs_ti = (rhs_node) ? ast_node_get_typeinfo(c, rhs_node) : NULL;
+                    if (rhs_ti && type_size(rhs_ti) > 0) p_size = type_size(rhs_ti);
+                }
 
                 /* Pointer compound assignment scaling (p += n / p -= n) */
                 if (is_compound && (node->aux.op == TK_ADD_ASSIGN || node->aux.op == TK_SUB_ASSIGN)) {
@@ -1774,22 +1841,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         default: op_res = right_temp; break;
                     }
                     final_val = op_res;
-                }
-                size_t p_size = 4;
-                TypeInfo *target_ti = ast_node_get_typeinfo(c, left_node);
-                if (target_ti) {
-                    p_size = type_size(target_ti);
-                } else {
-                    if (inner && inner->tag == NODE_IDENT) {
-                        ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
-                        if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
-                            p_size = ptr_sym->type.base->size;
-                        }
-                    }
-                    if (p_size == 4) {
-                        TypeInfo *rhs_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->right));
-                        if (rhs_ti && type_size(rhs_ti) > 0) p_size = type_size(rhs_ti);
-                    }
                 }
                 if (c->last_expr_is_float) {
                     if (p_size == 4) ir_emit_vstoress((uint16_t)ptr_temp, (uint16_t)final_val);
@@ -3450,46 +3501,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
             }
 
-            /* Register __builtin_* routines (memcpy, memset, abort, ...)
-             * as external functions so AOT codegen emits a symbol-table
-             * entry and a PLT relocation for them. Without this, e.g.
-             * __builtin_memcpy() lowers to a `call` relocation whose target
-             * symbol is missing from the ELF symbol table, so the system
-             * linker leaves `call +0` and the binary segfaults at runtime
-             * (Chunk M2 root cause: external-call relocations silently
-             * dropped because the symbol was never registered).
-             * __zerocc_* intrinsics are excluded: the semantic analyzer
-             * already treats them as implicitly declared functions. */
-            if (name && c->function_count < ZERO_CC_MAX_FUNCTIONS &&
-                !zero_cc_find_function(c, name) &&
-                strncmp(name, "__zerocc_", 9) != 0) {
-                ZeroCCFunction *fn = &c->functions[c->function_count++];
-                memset(fn, 0, sizeof(*fn));
-                snprintf(fn->name, sizeof(fn->name), "%s", name);
-                fn->text_offset = 0;
-                /* return type is unused for external prototypes without an
-                 * inline body; zero-initialized to TYPE_VOID by memset above. */
-                fn->returns_struct = false;
-                fn->ret_struct_sz = 0;
-                fn->is_prototype = true;
-                fn->has_prototype = true;
-                fn->is_external = true;
-                fn->is_variadic = (strcmp(name, "printf") == 0 ||
-                                   strcmp(name, "fprintf") == 0 ||
-                                   strcmp(name, "sprintf") == 0 ||
-                                   strcmp(name, "snprintf") == 0);
-                fn->noreturn = (strcmp(name, "abort") == 0 ||
-                                strcmp(name, "exit") == 0);
-                fn->is_inline = false;
-                fn->is_static = false;
-                fn->can_inline = false;
-                fn->inline_body = AST_NULL;
-                fn->ast_arena = NULL;
-                fn->param_count = 0;
-                fn->param_names = NULL;
-                fn->param_types = NULL;
-                fn->sret_stack_offset = 0;
-            }
+            /* Directly-lowered __builtin_* intrinsics (expect, prefetch,
+             * constant_p, bswap32, ffs, inf, trap, ...) return before the
+             * generic call path, so no external symbol is registered for
+             * them.  Extern registration for genuinely-called externs
+             * (__builtin_memcpy -> memcpy, implicit-declaration calls, ...)
+             * happens below, after the callee is classified: registering
+             * here would also capture function-pointer variables (e.g.
+             * `fp(...)` where fp is a global fptr), turning indirect calls
+             * into direct calls to an undefined symbol (c-torture
+             * func-ptr-1.c, 991112-1.c). */
 
             /* __builtin_expect(cond, val) is a branch-hint builtin: it
              * evaluates to `cond` (the hint is ignored by ZeroCC's codegen).
@@ -3516,6 +3537,131 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 c->last_expr_is_float = 0;
                 return VREG_0;
+            }
+
+            /* __builtin_unreachable() / __builtin_trap() - no value, no libc
+             * symbol: emit the target's trap instruction (x86-64 ud2,
+             * AArch64 brk #0, RISC-V unimp). Reaching __builtin_unreachable
+             * is UB; __builtin_trap guarantees a fault either way. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_unreachable") == 0 ||
+                 strcmp(callee->s.str, "__builtin_trap") == 0)) {
+                ir_emit_trap();
+                c->last_expr_is_float = 0;
+                return VREG_0;
+            }
+
+            /* __builtin_ctz(x) - index of the least significant set bit
+             * (0..31). Bit-scan, same shape as __builtin_ffs: result = b
+             * when bit b is the first set bit scanning upward. 32-bit
+             * scan for all width variants (conservative for _l/_ll). */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_ctz") == 0 ||
+                 strcmp(callee->s.str, "__builtin_ctzl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_ctzll") == 0)) {
+                ASTRef ct_arg = node->right;
+                int t_x = lower_expr(c, arena, ct_arg);
+                int t_zero = c->next_temp_id++; ir_emit_mov_imm(t_zero, 0);
+                int t_result = c->next_temp_id++; ir_emit_mov_imm(t_result, 0);
+                for (int b = 0; b < 32; b++) {
+                    int t_bit = c->next_temp_id++;
+                    ir_emit_mov_imm(t_bit, 1);
+                    int t_bimm = c->next_temp_id++; ir_emit_mov_imm(t_bimm, b);
+                    ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
+                        .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
+                    int t_masked = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
+                        .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
+                    int t_nonzero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
+                        .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_NE});
+                    int t_res_zero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_EQ});
+                    int t_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
+                        .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
+                    int t_val = c->next_temp_id++; ir_emit_mov_imm(t_val, b);
+                    int t_val_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
+                        .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
+                    ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
+                }
+                c->last_expr_is_float = 0;
+                return t_result;
+            }
+
+            /* __builtin_clz(x) - index of the most significant set bit
+             * distance from the top (31..0). Scans downward: result = 31-b
+             * for the first set bit from bit 31. 32-bit scan for all
+             * width variants (conservative for _l/_ll). */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_clz") == 0 ||
+                 strcmp(callee->s.str, "__builtin_clzl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_clzll") == 0)) {
+                ASTRef cl_arg = node->right;
+                int t_x = lower_expr(c, arena, cl_arg);
+                int t_zero = c->next_temp_id++; ir_emit_mov_imm(t_zero, 0);
+                int t_result = c->next_temp_id++; ir_emit_mov_imm(t_result, 0);
+                for (int b = 31; b >= 0; b--) {
+                    int t_bit = c->next_temp_id++;
+                    ir_emit_mov_imm(t_bit, 1);
+                    int t_bimm = c->next_temp_id++; ir_emit_mov_imm(t_bimm, b);
+                    ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
+                        .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
+                    int t_masked = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
+                        .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
+                    int t_nonzero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
+                        .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_NE});
+                    int t_res_zero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_EQ});
+                    int t_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
+                        .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
+                    int t_val = c->next_temp_id++; ir_emit_mov_imm(t_val, 31 - b);
+                    int t_val_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
+                        .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
+                    ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
+                }
+                c->last_expr_is_float = 0;
+                return t_result;
+            }
+
+            /* __builtin_popcount(x) - number of set bits (0..32). Bit-scan
+             * accumulation: result += (x >> b) & 1 for b in 0..31. 32-bit
+             * scan for all width variants (conservative for _l/_ll). */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_popcount") == 0 ||
+                 strcmp(callee->s.str, "__builtin_popcountl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_popcountll") == 0)) {
+                ASTRef pc_arg = node->right;
+                int t_x = lower_expr(c, arena, pc_arg);
+                int t_one = c->next_temp_id++; ir_emit_mov_imm(t_one, 1);
+                int t_result = c->next_temp_id++; ir_emit_mov_imm(t_result, 0);
+                for (int b = 0; b < 32; b++) {
+                    int t_bit = c->next_temp_id++;
+                    ir_emit_mov_imm(t_bit, 1);
+                    int t_bimm = c->next_temp_id++; ir_emit_mov_imm(t_bimm, b);
+                    ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
+                        .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
+                    int t_masked = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
+                        .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
+                    ir_emit((Instr){.op=OP_ADD,.temp_dest=(uint16_t)t_result,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_masked});
+                }
+                c->last_expr_is_float = 0;
+                return t_result;
             }
 
             /* __builtin_constant_p(expr) returns 1 if expr is a compile-time
@@ -3926,6 +4072,55 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCGlobalVar *callee_gv = (callee_is_ident && !callee_fn && !callee_sym) ? find_global_var(name) : NULL;
                 bool is_indirect_call = !callee_is_ident || (callee_fn == NULL &&
                     (callee_sym != NULL || (callee_gv != NULL && callee_gv->type.is_func_ptr)));
+
+                /* Register genuinely-called externs (mapped __builtin_*
+                 * routines like memcpy/memset/abort/exit, implicit-declaration
+                 * calls) as external functions so AOT codegen emits a
+                 * symbol-table entry and a PLT relocation for them. Without
+                 * this, e.g. __builtin_memcpy() lowers to a `call`
+                 * relocation whose target symbol is missing from the ELF
+                 * symbol table, so the system linker leaves `call +0` and
+                 * the binary segfaults at runtime (Chunk M2 root cause).
+                 * Runs only for direct calls to names with no known
+                 * function/local/global entry, so function-pointer
+                 * variables are never registered as externs.
+                 * __zerocc_* intrinsics and unmapped __builtin_* names are
+                 * excluded: the semantic analyzer treats them as implicitly
+                 * declared functions, and a phantom external entry would
+                 * pollute later functions' global scope (c-torture
+                 * compile/fold-popcount-1.c). */
+                if (!is_indirect_call && name &&
+                    c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                    !zero_cc_find_function(c, name) &&
+                    strncmp(name, "__zerocc_", 9) != 0 &&
+                    strncmp(name, "__builtin_", 10) != 0) {
+                    ZeroCCFunction *fn = &c->functions[c->function_count++];
+                    memset(fn, 0, sizeof(*fn));
+                    snprintf(fn->name, sizeof(fn->name), "%s", name);
+                    fn->text_offset = 0;
+                    /* return type is unused for external prototypes without an
+                     * inline body; zero-initialized to TYPE_VOID by memset above. */
+                    fn->returns_struct = false;
+                    fn->ret_struct_sz = 0;
+                    fn->is_prototype = true;
+                    fn->has_prototype = false;
+                    fn->is_external = true;
+                    fn->is_variadic = (strcmp(name, "printf") == 0 ||
+                                       strcmp(name, "fprintf") == 0 ||
+                                       strcmp(name, "sprintf") == 0 ||
+                                       strcmp(name, "snprintf") == 0);
+                    fn->noreturn = (strcmp(name, "abort") == 0 ||
+                                    strcmp(name, "exit") == 0);
+                    fn->is_inline = false;
+                    fn->is_static = false;
+                    fn->can_inline = false;
+                    fn->inline_body = AST_NULL;
+                    fn->ast_arena = NULL;
+                    fn->param_count = 0;
+                    fn->param_names = NULL;
+                    fn->param_types = NULL;
+                    fn->sret_stack_offset = 0;
+                }
 
                 /* Small Function Inlining: Expand candidate body directly at call site */
                 if (callee_fn && callee_fn->can_inline && callee_fn->inline_body != AST_NULL &&

@@ -258,7 +258,7 @@ static void opt_restrict_memory_forward(void) {
             case OP_CALLEE_SAVE_STORES: case OP_CALLEE_SAVE_LOADS:
             case OP_ATOMIC_XADD: case OP_ATOMIC_OR: case OP_ATOMIC_AND: case OP_ATOMIC_XOR:
             case OP_ATOMIC_CMPXCHG: case OP_ATOMIC_CMPXCHG_BOOL:
-            case OP_ATOMIC_XCHG: case OP_MFENCE:
+            case OP_ATOMIC_XCHG: case OP_MFENCE: case OP_TRAP:
             case OP_FSTORE: case OP_VSTORE: case OP_VSTORESS: case OP_VSTORESD:
                 mf_reset();
                 continue;

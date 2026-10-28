@@ -81,6 +81,14 @@ static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
 }
 
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
+    /* The function being lowered is the most recently registered one at
+     * entry.  Body lowering can append entries to c->functions afterwards
+     * (builtins mapped to libc symbols register their extern during
+     * lowering), so capture the identity now for the implicit-`return 0`
+     * check, diagnostics, and the -dump-ir label below. */
+    ZeroCCFunction *lowering_fn = (c->function_count > 0)
+        ? &c->functions[c->function_count - 1] : NULL;
+
     /* Initialize lowering state */
     memset(&c->lowering, 0, sizeof(c->lowering));
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
@@ -112,8 +120,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
     bool can_promote_params = false;
-    if (c->function_count > 0) {
-        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+    if (lowering_fn) {
+        ZeroCCFunction *fn = lowering_fn;
         int max_int_params = (c->isa == ISA_X86_64) ? 3 : 8;
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
@@ -262,8 +270,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
-    /* C99 5.1.2.2.3p1: reaching the '}' that terminates main returns 0. */
-    if (c->function_count > 0 && strcmp(c->functions[c->function_count - 1].name, "main") == 0) {
+    /* C99 5.1.2.2.3p1: reaching the '}' that terminates main returns 0.
+     * Test the captured entry-time identity: lowering the body may have
+     * appended extern entries after main (builtins mapped to libc symbols),
+     * so re-reading functions[function_count - 1] here would miss main. */
+    if (lowering_fn && strcmp(lowering_fn->name, "main") == 0) {
         ir_emit_mov_imm(VREG_0, 0);
     }
     ir_emit_label(c->lowering.epilogue_label);
@@ -291,8 +302,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * still exhaust the 16-bit space; fail loudly instead of wrapping
      * (the pre-C2b 8-bit wrap silently miscompiled). */
     if (c->next_temp_id - 1 >= TEMP_NONE) {
-        const char *fn_name = "<anon>";
-        if (c->function_count > 0) fn_name = c->functions[c->function_count - 1].name;
+        const char *fn_name = lowering_fn ? lowering_fn->name : "<anon>";
         diag_report_error_at_token(c,
             "function '%s' uses %d temporaries; max is 65534 per function "
             "(16-bit temp ids). Split the function into smaller helper "
@@ -431,7 +441,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                            (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1);
         /* Disable frame pointer omission for variadic functions:
          * va_start offset computation assumes a stable frame pointer. */
-        bool is_variadic_fn = (c->function_count > 0) && c->functions[c->function_count - 1].is_variadic;
+        bool is_variadic_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
         if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn) {
             bool has_vla = false;
             for (size_t i = 0; i < ir_count; i++) {
@@ -488,9 +498,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Debug: Dump IR if requested */
     if (c->dump_ir) {
         fprintf(stderr, "DEBUG: dump_ir flag is SET, function_count=%zu\n", c->function_count);
-        if (c->function_count > 0) {
-            ZeroCCFunction *fn = &c->functions[c->function_count - 1];
-            fprintf(stderr, "=== IR for function '%s' ===\n", fn->name);
+        if (lowering_fn) {
+            fprintf(stderr, "=== IR for function '%s' ===\n", lowering_fn->name);
             ir_dump(stderr);
             fprintf(stderr, "\n");
         } else {

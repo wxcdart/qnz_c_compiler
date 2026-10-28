@@ -247,6 +247,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_atomic_cmpxchg_bool)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int expected_reg, int desired_reg, int width);
     void (*emit_atomic_xchg)(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width);
     void (*emit_mfence)(ZeroCCCompiler *c);
+    /* __builtin_trap / __builtin_unreachable: emit the target's trap
+     * instruction (x86-64 ud2, AArch64 brk #0, RISC-V unimp). */
+    void (*emit_trap)(ZeroCCCompiler *c);
+    void (*emit_trap_asm)(ZeroCCCompiler *c, FILE *out);
     /* OS syscall (OP_SYSCALL / __zerocc_syscall): arg_count temps (syscall
      * number first, then up to 6 operands) are resolved and moved into the
      * target's syscall argument registers one at a time, then the syscall

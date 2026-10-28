@@ -538,6 +538,17 @@ static void aarch64_emit_mfence(ZeroCCCompiler *c) {
     arm64_emit_u32(c, 0xD5033FB5);
 }
 
+/* __builtin_trap / __builtin_unreachable */
+static void aarch64_emit_trap(ZeroCCCompiler *c) {
+    /* brk #0 */
+    arm64_emit_u32(c, 0xAA000000);
+}
+
+static void aarch64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
+    (void)c;
+    fprintf(out, "\tbrk #0\n");
+}
+
 static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* Load from [base_reg + offset]
      * For positive 8-byte aligned offsets (0 to 4095): use LDR (scaled)
@@ -1174,6 +1185,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xadd = aarch64_emit_atomic_xadd,
     .emit_atomic_xchg = aarch64_emit_atomic_xchg,
     .emit_mfence = aarch64_emit_mfence,
+    .emit_trap = aarch64_emit_trap,
+    .emit_trap_asm = aarch64_emit_trap_asm,
 
     /* Assembly emission for IR instructions (Option A) */
     .emit_mov_imm_asm = aarch64_emit_mov_imm_asm,

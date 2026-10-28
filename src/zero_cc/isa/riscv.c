@@ -1128,6 +1128,17 @@ static void riscv64_emit_mfence(ZeroCCCompiler *c) {
     riscv_emit_u32(c, 0x0000000F);
 }
 
+/* __builtin_trap / __builtin_unreachable */
+static void riscv64_emit_trap(ZeroCCCompiler *c) {
+    /* unimp (illegal instruction) */
+    riscv_emit_u32(c, 0x00002007);
+}
+
+static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
+    (void)c;
+    fprintf(out, "\tunimp\n");
+}
+
 /* RISC-V 64-bit backend instance */
 
 /* RISC-V VREG mapping: map virtual register numbers to RISC-V encodings
@@ -1231,6 +1242,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xadd = riscv64_emit_atomic_xadd,
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
+    .emit_trap = riscv64_emit_trap,
+    .emit_trap_asm = riscv64_emit_trap_asm,
 
     .get_int_reg = riscv_get_int_reg,
     .get_fp_reg = riscv_get_fp_reg,
@@ -1479,6 +1492,8 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xadd = riscv64_emit_atomic_xadd,
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
+    .emit_trap = riscv64_emit_trap,
+    .emit_trap_asm = riscv64_emit_trap_asm,
     .emit_param_save_int = riscv64_emit_param_save_int,
     .emit_param_save_fp = riscv64_emit_param_save_fp,
     .emit_variadic_spill = riscv64_emit_variadic_spill,

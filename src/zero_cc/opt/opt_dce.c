@@ -133,6 +133,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
+        case OP_TRAP:
         // Comparison/flag-setting instructions have side effects (affect jumps)
         case OP_CMP:
         case OP_CMP_ZERO:

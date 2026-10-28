@@ -584,8 +584,27 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
         for (size_t i = 0; i < c->function_count; i++) {
             ZeroCCFunction *f = &c->functions[i];
+            /* Phantoms registered during lowering (extern calls whose symbol
+             * the ELF writer needs, e.g. __builtin_memcpy -> memcpy and
+             * __sync_* / __atomic_* names) are codegen-level symbol entries,
+             * not semantic declarations: re-registering them would let a
+             * zero-typed void function shadow the analyzer's implicit
+             * int-returning declaration for later functions (c-torture
+             * compile/sync-2.c: `sc = __sync_fetch_and_add(...)` became an
+             * assignment from void). */
+            if (f->is_external && !f->is_object) continue;
             TypeInfo *ret_t = zero_cc_type_to_typeinfo(perm, f->return_type);
-            if (f->is_external) {
+            if (f->is_external && f->is_object) {
+                /* Extern *variable* declarations (`extern int j;`,
+                 * `extern struct A a;`) register a function-table entry with
+                 * the variable's type in return_type; they must appear as
+                 * variables.  Extern *functions* (incl. __builtin_* routines
+                 * registered during lowering, e.g. memcpy/abort) fall through
+                 * to the function registration below: a later function
+                 * calling the same name must see a callable type
+                 * (registering the return type as SYMBOL_VAR made
+                 * `__builtin_popcount` an "int variable" and broke its second
+                 * use - c-torture compile/fold-popcount-1.c). */
                 scope_put_symbol(global_scope_root, f->name, SYMBOL_VAR, ret_t);
                 continue;
             }
@@ -596,9 +615,16 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     params[j] = zero_cc_type_to_typeinfo(perm, f->param_types[j]);
                 }
             }
+            /* Extern entries (incl. __builtin_* routines registered during
+             * lowering, e.g. memcpy/abort) must appear as FUNCTIONS, not
+             * variables: a later function calling the same name must see a
+             * callable type (registering the return type as SYMBOL_VAR made
+             * `__builtin_popcount` an "int variable" and broke its second
+             * use - c-torture compile/fold-popcount-1.c). */
             TypeInfo *fn_t = type_function(perm, ret_t, params, f->param_count, f->is_variadic);
-            /* C99 6.7.5.3: a declaration with a parameter type list is a
-             * prototype; use it to constrain call argument counts. */
+            /* No-prototype declaration: a phantom extern registered during
+             * lowering has no parameter list, so it must not constrain call
+             * argument counts (C99 6.7.5.3). */
             fn_t->details.function.is_prototype = f->has_prototype;
             scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
         }

@@ -133,6 +133,8 @@ typedef enum {
     OP_ATOMIC_CMPXCHG_BOOL, /* atomic compare and exchange (returns success) */
     OP_ATOMIC_XCHG,         /* atomic exchange */
     OP_MFENCE,              /* memory fence (serialization) */
+    OP_TRAP,                /* __builtin_trap / __builtin_unreachable: emit a
+                             * target-specific illegal/trap instruction */
     OP_SYSCALL,             /* OS syscall intrinsic (zero_rt OS boundary).
                              * Arguments (number + up to 6 operands) are packed
                              * like OP_CALL: temp_dest = arg_count, full list in
@@ -320,6 +322,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
         case OP_ATOMIC_XCHG: return "ATOMIC_XCHG";
         case OP_MFENCE: return "MFENCE";
+        case OP_TRAP: return "TRAP";
         case OP_FMOV_IMM: return "FMOV_IMM";
         case OP_FLOAD: return "FLOAD";
         case OP_FSTORE: return "FSTORE";
@@ -660,6 +663,10 @@ static inline void ir_emit_atomic_xchg(uint16_t temp_dest, uint16_t temp_addr, u
 
 static inline void ir_emit_mfence(void) {
     ir_emit((Instr){.op = OP_MFENCE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_trap(void) {
+    ir_emit((Instr){.op = OP_TRAP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Float literal load via RIP-relative (imm64 holds rodata offset) */

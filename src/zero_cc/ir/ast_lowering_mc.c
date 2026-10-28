@@ -390,6 +390,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_mfence(c);
                 }
                 break;
+            case OP_TRAP:
+                if (BE(c)->emit_trap) {
+                    BE(c)->emit_trap(c);
+                }
+                break;
 
             case OP_SYSCALL: {
                 /* OS syscall intrinsic. Arguments are packed like OP_CALL:

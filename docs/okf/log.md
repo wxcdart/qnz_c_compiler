@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-28T12:33:12Z
+timestamp: 2026-10-28T16:16:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -494,3 +494,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-28 — Updated `c-torture-gate.md`
 - Resolve 20000917-1: dereference assignment evaluation order and multi-chunk struct copying
+
+## 2026-10-28 — Updated `c-torture-gate.md`
+- Chunk M2 continued: repaired all 25+ external-registration regressions (implicit return 0, fptr-as-extern, extern-object/function scope distinction, OP_TRAP, ctz/clz/popcount lowerings, >16B struct deref copy, 9-16B struct ident loads); 52 tests fixed (48 partial-mode M2 + 3 M3 + fp-cmp-7 improvement); gate re-baselined to true tree state: 1009->956 bad since 6215d10, M2 49/67 resolved, 0 regressions

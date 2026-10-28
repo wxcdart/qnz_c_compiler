@@ -315,6 +315,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
+        case OP_TRAP:
         case OP_LABEL:
         case OP_JMP:
         case OP_JE:

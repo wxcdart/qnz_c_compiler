@@ -1,5 +1,21 @@
 # ZeroCC Changelog
 
+## [Chunk M2 (continued)] - 2026-10-30 - External-Registration Regression Burn-Down & Gate Re-Baseline (49/67 M2 Resolved, Gate Green)
+
+Worktree sweeps of `28b5e28`/`a431205` revealed their ratcheted baselines were recorded **before** those commits' code landed in the sweep: both trees regressed 25+ tests against their own baselines (the "50/67" figure was never gate-verified). This session repaired every regression and burned down 52 more tests.
+
+- **Implicit `return 0` in `main` (C99 5.1.2.2.3p1)**: the lowering-time extern registration appended `ZeroCCFunction` entries after `main`, so the post-lowering `functions[count-1].name == "main"` check missed it and `main` fell off the epilogue without returning 0 (rc 255/48/2 on the `bitops-1.c`-family). `zero_cc_lower_ast` now captures the lowered function's identity at entry and uses it for the implicit-return, temp-overflow diagnostic, variadic check, and `-dump-ir` label.
+- **Function-pointer variables registered as externs**: `fp(x)`, `x(1)`, `terminate_me(1)`, `extfunc(a)` — indirect calls whose callee expression is a variable were registered as external *functions* and emitted a direct `call` to an undefined symbol. Registration now runs **after** the `is_indirect_call` classification and only for direct calls to names with no existing function entry.
+- **`__builtin_unreachable` / `__builtin_trap`**: new `OP_TRAP` IR opcode with per-ISA emission (`ud2` x86-64, `brk #0` AArch64, `unimp` RISC-V) and DCE/GVN/loop-boundary awareness; direct lowering in `ast_lowering_expr.c`.
+- **`__builtin_ctz` / `__builtin_clz` / `__builtin_popcount`**: branchless direct IR lowerings.
+- **>16B local-struct dereference assignment SIGSEGV** (`pr35472.c`): the >16B copy loop expected a buffer *address* but received the 8-byte value load; the deref-assign path now emits an LEA for >16B local-struct RHS idents (by-value argument marshaling keeps the value load).
+- **Global-scope registration of externs** (`fold-popcount-1.c` "called object is not a function"; `pr59803.c` "member reference base is not a structure or union"); extern function-table entries were all registered as `SYMBOL_VAR` (their return type as a variable). Extern *objects* (`extern int j;`) now carry a `ZeroCCFunction.is_object` flag and register as variables; extern *functions* register as functions; lowering-time phantoms are skipped entirely (re-registering them shadowed the analyzer's implicit `int` declarations — `sync-2.c` "incompatible types in assignment") and set `has_prototype = false` (C99 6.7.5.3).
+- **9–16B struct ident loads**: two 8-byte chunk loads matching the by-value argument/return convention (previously a single 8-byte load).
+- **Results**: 51 `MISCOMPILE`→`PASS` (48 partial-mode M2 + 3 all-config M3), `fp-cmp-7.c` improved (JIT configs now pass; only the AOT `link_error` stub remains), **0 regressions**. Corpus since the true 6215d10 baseline: **1,009 → 956 bad** (PASS 1,912 → 1,964), M2 partial set **49/67 resolved** (18 remaining). Baseline ratcheted to the true tree state.
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `make test-torture` gate OK (956 bad, 0 regressions) · `sret_verifier` 6/6 · `style_check` 0 errors · `okf lint` PASS · `test-isa-qemu` 44/44.
+
+---
+
 ## [Chunk M2 (partial)] - 2026-10-29 - GCC `c-torture` Partial-Mode MISCOMPILE Burn-Down (50/67 Resolved)
 
 Progress on Chunk M2 of the `c-torture` conformance plan (78 partial-mode `MISCOMPILE`s, 67 remaining in baseline).

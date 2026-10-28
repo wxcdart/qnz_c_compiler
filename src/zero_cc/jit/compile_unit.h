@@ -336,6 +336,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         fn->return_type = cur_ext_type;
                         fn->is_external = true;
                         fn->is_prototype = true;
+                        fn->is_object = true; /* extern variable, not a function */
                     }
                     if (c->tokens[c->token_pos].type == TK_COMMA) {
                         c->token_pos++;
