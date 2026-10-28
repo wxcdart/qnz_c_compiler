@@ -99,25 +99,86 @@ static inline ZeroCCType* zero_cc_find_enum(ZeroCCCompiler *c, const char *name)
     return NULL;
 }
 
-/* Enum Constant Registry */
+/* Enum Constant Registry — open-addressing hash table (string -> value) */
+
+/* Forward declarations to break cycles between grow <-> register */
+static inline void zero_cc_register_enum_const(ZeroCCCompiler *c, const char *name, int64_t val);
+static inline ZeroCCEnumConst* zero_cc_find_enum_const(ZeroCCCompiler *c, const char *name);
+
+static inline size_t enum_const_hash(const char *name, size_t capacity) {
+    uint64_t h = zero_cc_hash64(name);
+    return (size_t)(h & (capacity - 1));
+}
+
+static inline void enum_const_table_init(ZeroCCCompiler *c) {
+    if (c->enum_const_capacity) return; /* already initialized */
+    c->enum_const_capacity = 256;
+    c->enum_constants = (ZeroCCEnumConst *)calloc(c->enum_const_capacity,
+                                                 sizeof(ZeroCCEnumConst));
+    c->enum_const_count = 0;
+}
+
+static inline void enum_const_table_reset(ZeroCCCompiler *c) {
+    /* Reuse allocated table, just clear entries */
+    if (c->enum_constants) {
+        for (size_t i = 0; i < c->enum_const_capacity; i++) {
+            c->enum_constants[i].name[0] = '\0';
+        }
+    }
+    c->enum_const_count = 0;
+}
+
+static inline void enum_const_table_grow(ZeroCCCompiler *c);
+
 static inline void zero_cc_register_enum_const(ZeroCCCompiler *c, const char *name, int64_t val) {
-    for (size_t i = 0; i < c->enum_const_count; i++) {
-        if (strcmp(c->enum_constants[i].name, name) == 0) {
-            c->enum_constants[i].value = val;
+    enum_const_table_init(c);
+    /* Check load factor before insertion */
+    if (c->enum_const_count * 10 >= c->enum_const_capacity * 7) {
+        enum_const_table_grow(c);
+    }
+    size_t idx = enum_const_hash(name, c->enum_const_capacity);
+    for (size_t probe = 0; probe < c->enum_const_capacity; probe++) {
+        size_t pos = (idx + probe) & (c->enum_const_capacity - 1);
+        if (c->enum_constants[pos].name[0] == '\0' ||
+            strcmp(c->enum_constants[pos].name, name) == 0) {
+            if (c->enum_constants[pos].name[0] == '\0') {
+                c->enum_const_count++;
+            }
+            snprintf(c->enum_constants[pos].name, 128, "%s", name);
+            c->enum_constants[pos].value = val;
             return;
         }
     }
-    if (c->enum_const_count < ZERO_CC_MAX_ENUMS) {
-        snprintf(c->enum_constants[c->enum_const_count].name, 128, "%s", name);
-        c->enum_constants[c->enum_const_count].value = val;
-        c->enum_const_count++;
+    /* Should not reach here if grow works correctly */
+    enum_const_table_grow(c);
+    zero_cc_register_enum_const(c, name, val);
+}
+
+static inline void enum_const_table_grow(ZeroCCCompiler *c) {
+    size_t old_cap = c->enum_const_capacity;
+    ZeroCCEnumConst *old_table = c->enum_constants;
+    size_t new_cap = old_cap ? old_cap * 2 : 256;
+    c->enum_constants = (ZeroCCEnumConst *)calloc(new_cap, sizeof(ZeroCCEnumConst));
+    c->enum_const_capacity = new_cap;
+    c->enum_const_count = 0;
+    if (old_table) {
+        for (size_t i = 0; i < old_cap; i++) {
+            if (old_table[i].name[0] != '\0') {
+                zero_cc_register_enum_const(c, old_table[i].name, old_table[i].value);
+            }
+        }
+        free(old_table);
     }
 }
 
 static inline ZeroCCEnumConst* zero_cc_find_enum_const(ZeroCCCompiler *c, const char *name) {
-    for (size_t i = 0; i < c->enum_const_count; i++) {
-        if (strcmp(c->enum_constants[i].name, name) == 0) {
-            return &c->enum_constants[i];
+    if (!c->enum_constants || c->enum_const_count == 0) return NULL;
+    size_t idx = enum_const_hash(name, c->enum_const_capacity);
+    for (size_t probe = 0; probe < c->enum_const_capacity; probe++) {
+        size_t pos = (idx + probe) & (c->enum_const_capacity - 1);
+        if (c->enum_constants[pos].name[0] == '\0') return NULL; /* empty slot */
+        if (strcmp(c->enum_constants[pos].name, name) == 0) {
+            return &c->enum_constants[pos];
         }
     }
     return NULL;

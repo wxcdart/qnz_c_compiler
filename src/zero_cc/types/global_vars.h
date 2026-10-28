@@ -13,10 +13,12 @@ typedef struct {
     bool is_static;           /* Internal linkage */
     bool has_initializer;     /* Has = expression */
     bool is_tls;              /* _Thread_local (static TLS) */
+    bool is_bss;              /* Zero-initialized, no explicit initializer -> .bss */
 } ZeroCCGlobalVar;
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
 #define ZERO_CC_GLOBALS_INITIAL_CAPACITY 64
+#define ZERO_CC_BSS_THRESHOLD 256  /* Size above which zero-init globals go to .bss */
 
 #ifdef ZERO_CC_GLOBAL_VARS_IMPL
 ZeroCCGlobalVar *global_vars = NULL;
@@ -65,6 +67,7 @@ static int add_global_var(const char *name, ZeroCCType type, size_t offset, size
     gv->is_static = is_static;
     gv->has_initializer = has_init;
     gv->is_tls = false;
+    gv->is_bss = (!has_init && size >= ZERO_CC_BSS_THRESHOLD);
     return global_var_count - 1;
 }
 

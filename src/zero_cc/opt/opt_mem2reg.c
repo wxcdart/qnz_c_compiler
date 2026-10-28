@@ -355,14 +355,38 @@ static void opt_promote_loop_carried(void) {
             int init_temp = init_ins->temp_src1;
             if (init_temp < 16) continue;
 
+            /* Verify that no other instruction defines head_temp, and that the
+             * loop [hdr_idx..back_idx] is not nested inside an outer loop (for
+             * an inner loop, promoting the slot into a register without
+             * writing it back to the stack slot at first_exit leaves the slot
+             * stale if the outer loop or a sibling loop reads it; and any
+             * post-loop load inside the outer loop cannot be safely forwarded
+             * across outer iterations). */
+            bool head_temp_conflict = false;
+            for (int l2 = 0; l2 < cfg->loop_count; l2++) {
+                if (l2 == l) continue;
+                size_t h2 = cfg->blocks[cfg->loops[l2].header].start;
+                size_t u2 = cfg->blocks[cfg->loops[l2].backedge_from].end - 1;
+                if (h2 <= hdr_idx && u2 >= back_idx && (h2 < hdr_idx || u2 > back_idx)) {
+                    head_temp_conflict = true;
+                    break;
+                }
+            }
+            for (int k = init_store_idx + 1; k < (int)count && !head_temp_conflict; k++) {
+                if (k == load_idx || k == store_idx) continue;
+                Instr *chk = ir_get(k);
+                if (chk && chk->temp_dest == head_temp) {
+                    head_temp_conflict = true;
+                    break;
+                }
+            }
+            if (head_temp_conflict) continue;
+
             /* Transformation:
              * 1. Change preheader store: init_temp -> head_temp
              * 2. Remove loop load: load_ins becomes OP_NOP
              * 3. Change loop store: store_ins becomes OP_MOV_REG head_temp, update_temp
-             * 4. Forward ALL post-loop loads of the slot to head_temp.
-             *    Safe: head_temp mirrors the slot on every path from the init
-             *    onward (same init, same update paths), no other store to
-             *    the slot exists, and its address was never taken. */
+             * 4. Forward post-loop loads of the slot to head_temp. */
             init_ins->op = OP_MOV_REG;
             init_ins->temp_dest = head_temp;
             init_ins->temp_src1 = init_temp;

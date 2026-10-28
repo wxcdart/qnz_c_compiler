@@ -61,8 +61,12 @@ typedef struct ZeroCCCompiler {
     ZeroCCEnumDef enums[ZERO_CC_MAX_ENUM_DEFS];
     size_t enum_count;
 
-    ZeroCCEnumConst enum_constants[ZERO_CC_MAX_ENUMS];
-    size_t enum_const_count;
+    /* Enum constants: open-addressing hash table (string -> value).
+     * Power-of-two capacity; empty slots have name[0] == '\0'.
+     * Grows on load factor > 0.7.  O(1) registration and lookup. */
+    ZeroCCEnumConst *enum_constants;     /* dynamically allocated table */
+    size_t enum_const_capacity;          /* power of two */
+    size_t enum_const_count;             /* active entries */
 
     ZeroCCFunction functions[ZERO_CC_MAX_FUNCTIONS];
     size_t function_count;

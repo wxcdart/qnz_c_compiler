@@ -1072,6 +1072,14 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 
     asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2, out);
 
+    /* C99 width semantics: if the op produced a narrow-int result,
+     * extend it to full 64-bit width now (sign or zero per the mark),
+     * before any spill-back so the stored value is the extended one. */
+    if (instr->width != 0 && instr->temp_dest != TEMP_NONE && BE(c)->emit_extend_asm) {
+        BE(c)->emit_extend_asm(c, phys_dst, phys_dst,
+                               (int)(instr->width & 7), (instr->width < 8) ? 1 : 0, out);
+    }
+
     /* If destination temp was spilled, store the scratch register back to
      * the frame spill slot (FP scratch for FP-class). */
     if (spill_dst >= 0) {

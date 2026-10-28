@@ -277,23 +277,32 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         size_t start = lra->temp_def_pos[temp_id];
         size_t end = lra->temp_live_end[temp_id];
 
-        /* Extend end position across any loop that contains uses of this temp */
+        /* Extend end position across any loop that contains uses of this temp.
+         * Multiple nested loops may require fixed-point propagation (e.g. a
+         * constant hoisted before an outer loop that is only directly used inside
+         * an inner loop: first extends to the inner backedge, which is inside the
+         * outer loop, and then extends to the outer backedge). */
         if (label_to_pos) {
-            for (size_t i = 0; i < instr_count; i++) {
-                Instr *ins = ir_get(i);
-                if (!ins) continue;
-                if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
-                    ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
-                    int lbl = (int)ins->label_idx;
-                    if (lbl >= 0 && lbl <= max_label) {
-                        int hdr = label_to_pos[lbl];
-                        if (hdr >= 0 && (size_t)hdr < i) {
-                            /* Loop from hdr to i: only loop-carried values (defined BEFORE loop and used in loop)
-                             * need their live interval extended to the backedge i so their register is preserved.
-                             * Temporaries defined inside the loop (start >= hdr) are recomputed every iteration. */
-                            if (start < (size_t)hdr && end >= (size_t)hdr) {
-                                if (end < i) {
-                                    end = i;
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                for (size_t i = 0; i < instr_count; i++) {
+                    Instr *ins = ir_get(i);
+                    if (!ins) continue;
+                    if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
+                        ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
+                        int lbl = (int)ins->label_idx;
+                        if (lbl >= 0 && lbl <= max_label) {
+                            int hdr = label_to_pos[lbl];
+                            if (hdr >= 0 && (size_t)hdr < i) {
+                                /* Loop from hdr to i: any value defined BEFORE the loop header
+                                 * and live inside the loop [hdr..i] is loop-carried across the
+                                 * backedge at i, so its interval must cover [start..i]. */
+                                if (start < (size_t)hdr && end >= (size_t)hdr) {
+                                    if (end < i) {
+                                        end = i;
+                                        changed = true;
+                                    }
                                 }
                             }
                         }

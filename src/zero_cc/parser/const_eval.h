@@ -834,6 +834,11 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             }
             return ty;
         }
+        /* Check for function */
+        ZeroCCFunction *fn = zero_cc_find_function(c, name);
+        if (fn) {
+            return fn->return_type;
+        }
         /* Check for typedef/struct */
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);

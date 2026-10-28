@@ -24,289 +24,11 @@
 /* Forward declaration */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
 
-/* Evaluate a floating-point constant initializer (literal, char literal,
- * unary +/-, parenthesized). Advances token_pos past the consumed value. */
-static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
-    double sign = 1.0;
-    while (c->token_pos < c->token_count &&
-           (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
-        if (c->tokens[c->token_pos].type == TK_MINUS) sign = -sign;
-        c->token_pos++;
-    }
-    double v = 0.0;
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-        c->token_pos++;
-        v = zero_cc_eval_const_expr_float(c);
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
-    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
-        v = c->tokens[c->token_pos].float_val;
-        c->token_pos++;
-    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
-        v = (double)c->tokens[c->token_pos].num_val;
-        c->token_pos++;
-    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR_LIT) {
-        v = (double)(int)c->tokens[c->token_pos].num_val;
-        c->token_pos++;
-    }
-    return sign * v;
-}
-
 /* Emit `width` low bytes of `bits` (little-endian) into a section buffer. */
 static inline void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint64_t bits) {
     for (size_t i = 0; i < width && i < 8; i++) {
         zero_cc_emit_u8(b, (uint8_t)(bits >> (8 * i)));
     }
-}
-/* Sprint 44: recursive aggregate-initializer writer for global/static
- * initializers (C99 6.7.8/6.7.9).  Fills buf[buf_off .. buf_off+obj_type.size)
- * from the brace list at c->token_pos (pointing at the opening '{').
- *
- * Nested sub-aggregate designators (`.m = { .f = v }`), element designators
- * (`.m[i]`, `[i..j]` ranges), designator chains (`.a.b = v`) and elided
- * braces all resolve through the shared engine in parser/init_common.h,
- * keeping offsets identical to the AST/lowering path.
- * `data_patch_off` is the .data offset that receives data-reloc patches for
- * string pointers (element 0 of the object). */
-static void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
-                                           uint8_t *buf, size_t buf_off, size_t buf_cap,
-                                           size_t data_patch_off, size_t *cursor) {
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) c->token_pos++;
-    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
-        size_t iter_start = c->token_pos;
-        bool has_desig = false;
-        bool is_range = false;
-        int64_t desig_lo = 0, desig_hi = 0;
-        size_t step = 0;
-        ZcInitTarget tgt;
-        memset(&tgt, 0, sizeof(tgt));
-        if (!zc_init_parse_designators(c, &c->token_pos, &obj_type, buf_off, &tgt,
-                                       &has_desig, &is_range, &desig_lo, &desig_hi, &step)) {
-            int depth = 0;
-            while (c->token_pos < c->token_count) {
-                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
-                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
-                    if (depth == 0) break;
-                    depth--;
-                }
-                c->token_pos++;
-            }
-            break;
-        }
-        if (!has_desig) {
-            size_t cur = cursor ? *cursor : 0;
-            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, &tgt)) {
-                /* Excess elements: warn, stop (the rest stays zero). */
-                diag_report_warning_at_token(c, "excess elements in aggregate initializer");
-                int depth = 0;
-                while (c->token_pos < c->token_count) {
-                    if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
-                    else if (c->tokens[c->token_pos].type == TK_RBRACE) {
-                        if (depth == 0) break;
-                        depth--;
-                    }
-                    c->token_pos++;
-                }
-                break;
-            }
-            if (cursor) *cursor = cur;
-        }
-
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
-            /* Sub-aggregate value; transparent only for POSITIONAL scalar
-             * targets (grouping braces, C99 6.7.9).  Designated scalar
-             * targets (`.arr[i] = { v }`) take the sub-list path so that
-             * ranges re-apply the value per element. */
-            bool transparent = tgt.is_scalar && !has_desig;
-            ZeroCCType sub_type = transparent ? obj_type : tgt.val_type;
-            size_t sub_start = c->token_pos;
-            size_t sub_cursor = 0;
-            zero_cc_emit_brace_init_global(c, sub_type, buf,
-                                           transparent ? buf_off : tgt.abs_off,
-                                           buf_cap, data_patch_off,
-                                           transparent ? cursor : &sub_cursor);
-            if (cursor && !transparent) {
-                if (has_desig) {
-                    size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
-                    size_t nc = tgt.leaf_idx + cnt * tgt.advance;
-                    if (nc > *cursor) *cursor = nc;
-                } else {
-                    *cursor += tgt.advance;
-                }
-            }
-            if (is_range && !transparent) {
-                for (int64_t k = desig_lo + 1; k <= desig_hi; k++) {
-                    c->token_pos = sub_start;
-                    sub_cursor = 0;
-                    zero_cc_emit_brace_init_global(c, sub_type, buf,
-                                                   tgt.abs_off + (size_t)(k - desig_lo) * step,
-                                                   buf_cap, data_patch_off, &sub_cursor);
-                }
-            }
-        } else if (c->token_pos < c->token_count &&
-                   c->tokens[c->token_pos].type == TK_STRING) {
-            if (tgt.arr_ctx_size > 0) {
-                /* String into a char array: copy (NUL-terminated when it
-                 * fits), starting at the value target. */
-                const char *sv = c->tokens[c->token_pos].allocated_str ?
-                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                size_t sl = strlen(sv);
-                size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
-                    (tgt.abs_off - tgt.arr_ctx_off) : 0;
-                size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
-                    (tgt.arr_ctx_size - off_in_ctx) : 0;
-                size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
-                size_t base = tgt.abs_off;
-                for (size_t bi = 0; bi < copy; bi++) {
-                    if (base + bi < buf_cap) buf[base + bi] = (bi < sl) ? (uint8_t)sv[bi] : 0;
-                }
-                c->token_pos++;
-                if (cursor) {
-                    /* A string fully consumes an aggregate char-array
-                     * target (row / member) and a char-array member; into
-                     * a top-level char-array element it consumes just the
-                     * copied bytes. */
-                    size_t str_adv = tgt.is_scalar ?
-                        (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
-                    if (has_desig) {
-                        size_t nc = tgt.leaf_idx + str_adv;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += str_adv;
-                    }
-                }
-            } else if (tgt.val_type.tag == TYPE_PTR ||
-                       (tgt.is_scalar && tgt.val_type.tag == TYPE_INT64 &&
-                        obj_type.tag == TYPE_ARRAY &&
-                        obj_type.base && obj_type.base->tag == TYPE_PTR)) {
-                /* Pointer element: string literal -> rodata address patched
-                 * by a data reloc (the slot stays zero until patched). */
-                const char *sv = c->tokens[c->token_pos].allocated_str ?
-                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                size_t ro_off = c->rodata_section.length;
-                zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
-                c->token_pos++;
-                if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
-                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
-                    dr->data_patch_offset = data_patch_off + tgt.abs_off;
-                    dr->target_kind = 0; /* .rodata target */
-                    dr->rodata_offset = ro_off;
-                    dr->target_data_offset = 0;
-                    dr->target_global_idx = -1;
-                }
-                if (cursor) {
-                    if (has_desig) {
-                        size_t nc = tgt.leaf_idx + 1;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += tgt.advance;
-                    }
-                }
-            } else {
-                c->token_pos++;
-                if (cursor) {
-                    if (has_desig) {
-                        size_t nc = tgt.leaf_idx + 1;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += 1;
-                    }
-                }
-            }
-        } else {
-            /* Scalar constant value (int/char/float/enum/sizeof). */
-            bool is_f = (c->tokens[c->token_pos].type == TK_FLOAT ||
-                         (tgt.val_type.tag == TYPE_FLOAT || tgt.val_type.tag == TYPE_DOUBLE));
-            /* Elided braces: a scalar into an aggregate target fills the
-             * first leaf of that aggregate (C99 6.7.9p14). */
-            size_t off = tgt.abs_off;
-            size_t w = tgt.is_scalar ? tgt.scalar_sz : 0;
-            bool is_bf = tgt.is_bitfield;
-            uint8_t boff = tgt.bit_offset;
-            uint8_t bw = tgt.bit_width;
-            if (!tgt.is_scalar) {
-                size_t loff = 0, lsz = 0;
-                zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf, &loff, &lsz,
-                                                 &is_bf, &boff, &bw);
-                off += loff;
-                w = lsz ? lsz : 4;
-                if (cursor) {
-                    if (has_desig) {
-                        size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
-                        size_t nc = tgt.leaf_idx + cnt;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += 1; /* one leaf, not the whole sub-object */
-                    }
-                }
-            } else {
-                if (w > 8) w = 8;
-                if (w == 0) w = 4;
-                if (cursor) {
-                    if (has_desig) {
-                        size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
-                        size_t nc = tgt.leaf_idx + cnt;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += tgt.advance;
-                    }
-                }
-            }
-            if (is_f) {
-                double dv = zero_cc_eval_const_expr_float(c);
-                uint64_t bits = 0;
-                if (w <= 4) {
-                    float fv = (float)dv;
-                    memcpy(&bits, &fv, sizeof(fv));
-                } else {
-                    memcpy(&bits, &dv, sizeof(dv));
-                }
-                for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
-                    size_t eo = off + (size_t)k * step;
-                    for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                        buf[eo + i] = (uint8_t)(bits >> (8 * i));
-                    }
-                }
-            } else {
-                int64_t iv = zero_cc_eval_const_expr(c);
-                for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
-                    size_t eo = off + (size_t)k * step;
-                    if (is_bf) {
-                        uint64_t cur = 0;
-                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                            cur |= ((uint64_t)buf[eo + i]) << (8 * i);
-                        }
-                        uint64_t vmask = (bw >= 64) ? ~0ULL : ((1ULL << bw) - 1);
-                        uint64_t fmask = (bw >= 64) ? ~0ULL : (vmask << boff);
-                        cur = (cur & ~fmask) | ((((uint64_t)iv) & vmask) << boff);
-                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                            buf[eo + i] = (uint8_t)(cur >> (8 * i));
-                        }
-                    } else {
-                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                            buf[eo + i] = (uint8_t)((uint64_t)iv >> (8 * i));
-                        }
-                    }
-                }
-            }
-        }
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
-            c->token_pos++;
-        } else if (c->token_pos == iter_start ||
-                   (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE)) {
-            diag_report_error_at_token(c, "unexpected token in brace initializer");
-            int depth = 0;
-            while (c->token_pos < c->token_count) {
-                if (c->tokens[c->token_pos].type == TK_LBRACE) depth++;
-                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
-                    if (depth == 0) break;
-                    depth--;
-                }
-                c->token_pos++;
-            }
-            break;
-        }
-    }
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
 }
 
 /* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
@@ -470,6 +192,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     c->tls_var_count = 0;
     c->function_count = 0;
     reset_global_vars(); /* Reset global variable state */
+    enum_const_table_reset(c); /* Reset enum constants hash table */
     // Create permanent and temporary arenas for semantic analysis
     Arena *perm = arena_create(1024 * 1024);
     Arena *tmp = arena_create(1024 * 1024);
@@ -1207,8 +930,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             }
                         } else {
                             /* Zero-initialized data */
-                            for (size_t i = 0; i < size; i++) {
-                                zero_cc_emit_u8(&c->data_section, 0);
+                            if (!(has_initializer || size < ZERO_CC_BSS_THRESHOLD)) {
+                                /* Large zero-init global -> will be .bss, skip emission */
+                            } else {
+                                for (size_t i = 0; i < size; i++) {
+                                    zero_cc_emit_u8(&c->data_section, 0);
+                                }
                             }
                         }
                         #undef CV_WRITE_SCALAR

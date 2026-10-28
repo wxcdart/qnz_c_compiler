@@ -274,10 +274,19 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = lt;
                 } else if (type_is_pointer(rt) && (op == '+' || op == TK_PLUS)) {
                     res = rt;
-                } else if (lt->kind == TYPE_KIND_LONG || rt->kind == TYPE_KIND_LONG) {
-                    res = type_long(ctx->perm_arena);
-                } else {
+                } else if (op == TK_LOGAND || op == TK_LOGOR) {
                     res = type_int(ctx->perm_arena);
+                } else if (op == TK_SHL || op == TK_SHR) {
+                    res = type_promote(ctx->perm_arena, lt);
+                } else {
+                    res = type_common_arithmetic_type(ctx->perm_arena, lt, rt);
+                    if (!res) {
+                        if (lt->kind == TYPE_KIND_LONG || rt->kind == TYPE_KIND_LONG) {
+                            res = type_long(ctx->perm_arena);
+                        } else {
+                            res = type_int(ctx->perm_arena);
+                        }
+                    }
                 }
             }
             break;

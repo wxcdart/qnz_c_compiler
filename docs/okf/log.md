@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-27T12:48:37Z
+timestamp: 2026-10-28T04:14:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -479,3 +479,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-27 — Updated `c-torture-gate.md`
 - M1 hang-triage tooling in tools/torture_run.py (--hang-debug gdb capture, --only-class, --repro, --keep, --timeout); first findings: pr94238 hangs in zero_cc_stmt_enum, 20011126-2 is an O2 runtime infinite loop
+
+## 2026-10-28 — Updated `c-torture-gate.md`
+- Complete c-torture Chunk M1: burn down all 10 TIMEOUT cases to 0

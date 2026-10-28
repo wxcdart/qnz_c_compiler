@@ -14,6 +14,7 @@
 #include "zero_cc/jit/type_info.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/parser/definitions.h"
+#include "zero_cc/parser/init_common.h"
 
 static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
@@ -269,6 +270,22 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         if (c->data_section.length < written_end) {
             c->data_section.length = written_end;
         }
+        return true;
+    }
+    if (t == TK_LBRACE && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
+        size_t total = (sym->type.size > 0) ? sym->type.size : 8;
+        size_t cap_end = sym->static_data_offset + total;
+        if (c->data_section.length < cap_end) {
+            size_t grow = cap_end - c->data_section.length;
+            zero_cc_buf_ensure(&c->data_section, grow);
+            memset(c->data_section.data + c->data_section.length, 0, grow);
+            c->data_section.length = cap_end;
+        }
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        memset(dst, 0, total);
+        size_t init_cursor = 0;
+        zero_cc_emit_brace_init_global(c, sym->type, dst, 0, total,
+                                       sym->static_data_offset, &init_cursor);
         return true;
     }
     if (is_float) {
@@ -1053,6 +1070,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     while (c->token_pos < c->token_count &&
                            c->tokens[c->token_pos].type != TK_RBRACE &&
                            c->tokens[c->token_pos].type != TK_EOF) {
+                        size_t entry_pos = c->token_pos;
                         ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
                         if (s != AST_NULL) {
                             if (head == AST_NULL) {
@@ -1063,6 +1081,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                                 if (tail_node) tail_node->next = s;
                                 tail = s;
                             }
+                            while (tail != AST_NULL) {
+                                ZeroCCASTNode *cur_node = zero_cc_ast_get(arena, tail);
+                                if (cur_node && cur_node->next != AST_NULL) {
+                                    tail = cur_node->next;
+                                } else {
+                                    break;
+                                }
+                            }
+                        } else if (c->token_pos == entry_pos) {
+                            diag_report_error_at_token(c, "unexpected token '%s' in statement",
+                                                       c->tokens[c->token_pos].str_val[0] ? c->tokens[c->token_pos].str_val : "unknown");
+                            zero_cc_synchronize_ast(c);
                         }
                     }
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {

@@ -72,6 +72,24 @@ static void detect_loops(LoopAnalysisState *state) {
         int u = cfg->loops[l].backedge_from;
         if (h < 0 || h >= cfg->block_count || u < 0 || u >= cfg->block_count) continue;
 
+        /* Verify loop entry cleanness: any predecessor from outside [h..u]
+         * into a non-header block strictly inside (h..u], or an explicit jump
+         * from outside [h..u] into h that bypasses a straight-line preheader,
+         * makes hoisting unsafe (instructions hoisted before h would be
+         * bypassed on side-entry paths). */
+        bool entry_clean = true;
+        for (int b = h; b <= u && entry_clean; b++) {
+            for (int p = 0; p < cfg->blocks[b].pred_count; p++) {
+                int P = cfg->blocks[b].preds[p];
+                if (P >= h && P <= u) continue;
+                if (b != h) {
+                    entry_clean = false;
+                    break;
+                }
+            }
+        }
+        if (!entry_clean) continue;
+
         LoopInfo *loop = &state->loops[state->loop_count];
         loop->header_idx = (int)cfg->blocks[h].start;
         loop->exit_idx = (int)cfg->blocks[u].end - 1;

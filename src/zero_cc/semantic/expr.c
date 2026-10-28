@@ -6,8 +6,8 @@
 #include "zero_cc/types/token.h"
 
 /* Token type constants for binary operators */
-#define TOK_SHL         81
-#define TOK_SHR         82
+#define TOK_SHL         TK_SHL
+#define TOK_SHR         TK_SHR
 
 /* Helper to report an error at an AST node location */
 static void expr_error(SemContext *ctx, const ZeroCCASTNode *node, const char *fmt, ...) {

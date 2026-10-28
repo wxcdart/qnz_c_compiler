@@ -152,8 +152,14 @@ bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine) {
 bool elf_writer_add_section(ElfWriterCtx* ctx, const char* name,
                             const uint8_t* data, size_t size,
                             ElfSectionType type, uint64_t flags, uint64_t align) {
-    if (!ctx || !name || !data) {
+    if (!ctx || !name) {
         set_error(ctx, "Invalid arguments");
+        return false;
+    }
+
+    /* For NOBITS sections (e.g., .bss), data can be NULL since no file payload */
+    if (!data && type != ELF_SHT_NOBITS) {
+        set_error(ctx, "Invalid arguments: data required for non-NOBITS sections");
         return false;
     }
 
@@ -164,11 +170,13 @@ bool elf_writer_add_section(ElfWriterCtx* ctx, const char* name,
 
     ElfWriterSection* sec = &ctx->sections[idx];
 
-    // Ensure capacity
-    ensure_section_capacity(sec, size);
-
-    // Copy data
-    memcpy(sec->data, data, size);
+    // Ensure capacity and copy data (skip for NOBITS sections like .bss)
+    if (type != ELF_SHT_NOBITS) {
+        ensure_section_capacity(sec, size);
+        if (data) {
+            memcpy(sec->data, data, size);
+        }
+    }
     sec->size = size;
 
     // Add section name to shstrtab
@@ -303,6 +311,7 @@ static size_t elf_writer_get_output_size_32(ElfWriterCtx* ctx) {
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->type == ELF_SHT_NOBITS) continue;
         if (sec->align > 1) {
             offset = (offset + sec->align - 1) & ~(sec->align - 1);
         }
@@ -403,6 +412,10 @@ static bool elf_writer_write_to_buffer_32(ElfWriterCtx* ctx, uint8_t* buffer,
 
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->type == ELF_SHT_NOBITS) {
+            sec->offset = offset;
+            continue;
+        }
         if (sec->align > 1) {
             size_t aligned = (offset + sec->align - 1) & ~(sec->align - 1);
             offset = aligned;
@@ -658,6 +671,7 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->type == ELF_SHT_NOBITS) continue;
         if (sec->align > 1) {
             offset = (offset + sec->align - 1) & ~(sec->align - 1);
         }
@@ -806,6 +820,10 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // Data sections (text, data, rodata, etc.)
     for (int i = 0; i < ctx->section_count; i++) {
         ElfWriterSection* sec = &ctx->sections[i];
+        if (sec->type == ELF_SHT_NOBITS) {
+            sec->offset = offset;
+            continue;
+        }
 
         // Align offset
         if (sec->align > 1) {

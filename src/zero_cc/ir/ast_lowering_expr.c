@@ -53,8 +53,21 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             if (gv) return zero_cc_narrow_int_width(&gv->type, sign);
             return 0;
         }
-        default:
+        default: {
+            TypeInfo *ti = ast_node_get_typeinfo(c, n);
+            if (ti && type_is_integer(ti)) {
+                size_t sz = type_size(ti);
+                if (sz < 4) {
+                    *sign = 1;
+                    return 4;
+                }
+                if (sz == 4) {
+                    *sign = type_is_unsigned(ti) ? 0 : 1;
+                    return 4;
+                }
+            }
             return 0;
+        }
     }
 }
 
@@ -887,18 +900,34 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 case TK_STAR:
                     ir_emit_mul(result_temp, left_temp, right_temp);
                     break;
-                case TK_SLASH:
+                case TK_SLASH: {
+                    int lu = 0, ru = 0;
+                    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+                    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+                    if (lw == 4 && rw == 4 && (lu != ru)) {
+                        if (!lu) ir_emit_zext(left_temp, 4);
+                        if (!ru) ir_emit_zext(right_temp, 4);
+                    }
                     ir_emit_div(result_temp, left_temp, right_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
                         ir_mark_last_unsigned(1);
                     }
                     break;
-                case TK_PERCENT:
+                }
+                case TK_PERCENT: {
+                    int lu = 0, ru = 0;
+                    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+                    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+                    if (lw == 4 && rw == 4 && (lu != ru)) {
+                        if (!lu) ir_emit_zext(left_temp, 4);
+                        if (!ru) ir_emit_zext(right_temp, 4);
+                    }
                     ir_emit_mod(result_temp, left_temp, right_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
                         ir_mark_last_unsigned(1);
                     }
                     break;
+                }
                 case TK_AMP:
                     ir_emit_and(result_temp, left_temp, right_temp);
                     break;
@@ -943,6 +972,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
                         cond += 6;
                     }
+                    if (!c->last_expr_is_float) {
+                        int lu = 0, ru = 0;
+                        int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+                        int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+                        if (lw == 4 && rw == 4 && (lu != ru)) {
+                            if (!lu) ir_emit_zext(left_temp, 4);
+                            if (!ru) ir_emit_zext(right_temp, 4);
+                        }
+                    }
                     ir_emit_cmp(left_temp, right_temp);
                     ir_emit_cond_set(result_temp, cond);
                     break;
@@ -963,6 +1001,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int ls = 1, rs = 1;
                     int lw = zero_cc_operand_int_width(c, arena, node->left, &ls);
                     int rw = zero_cc_operand_int_width(c, arena, node->right, &rs);
+                    /* In C, integer promotions promote types narrower than int (1, 2)
+                     * to signed int (4). */
+                    if (lw > 0 && lw < 4) { lw = 4; ls = 1; }
+                    if (rw > 0 && rw < 4) { rw = 4; rs = 1; }
                     if (lw != 0 && rw != 0) {
                         int w, s;
                         if (lw > rw) { w = lw; s = ls; }
@@ -1017,6 +1059,24 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                         }
 
+                        if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
+                            int val_temp = c->next_temp_id++;
+                            int one_i = c->next_temp_id++;
+                            int one_f = c->next_temp_id++;
+                            int res_temp = c->next_temp_id++;
+                            ir_emit_fload((uint16_t)val_temp, TEMP_NONE, -sym->stack_offset);
+                            ir_emit_mov_imm(one_i, 1);
+                            ir_emit_cvtsi2sd((uint16_t)one_f, (uint16_t)one_i);
+                            if (node->aux.op == TK_INC) {
+                                ir_emit_fadd((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
+                            } else {
+                                ir_emit_fsub((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
+                            }
+                            ir_emit_fstore((uint16_t)res_temp, TEMP_NONE, -sym->stack_offset);
+                            c->last_expr_is_float = 1;
+                            return (node->flags == 1) ? val_temp : res_temp;
+                        }
+
                         int step = lvalue_inc_step(&sym->type);
                         int val_temp = c->next_temp_id++;
                         int one_temp = c->next_temp_id++;
@@ -1028,6 +1088,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_mov_imm(one_temp, (node->aux.op == TK_INC) ? step : -step);
                         /* res = val ± step */
                         ir_emit_add(res_temp, val_temp, one_temp);
+                        zero_cc_emit_int_extend(c, res_temp, &sym->type);
                         /* Store new value back to stack */
                         ir_emit_store(res_temp, BE(c)->fp_reg, -sym->stack_offset);
 
@@ -1043,6 +1104,25 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (gv) {
                         int gaddr_temp = c->next_temp_id++;
                         ir_emit_global_addr(c, gaddr_temp, gv);
+                        if (gv->type.tag == TYPE_FLOAT || gv->type.tag == TYPE_DOUBLE) {
+                            int val_temp = c->next_temp_id++;
+                            int one_i = c->next_temp_id++;
+                            int one_f = c->next_temp_id++;
+                            int res_temp = c->next_temp_id++;
+                            if (gv->type.tag == TYPE_FLOAT) ir_emit_vloadss((uint16_t)val_temp, (uint16_t)gaddr_temp);
+                            else ir_emit_vloadsd((uint16_t)val_temp, (uint16_t)gaddr_temp);
+                            ir_emit_mov_imm(one_i, 1);
+                            ir_emit_cvtsi2sd((uint16_t)one_f, (uint16_t)one_i);
+                            if (node->aux.op == TK_INC) {
+                                ir_emit_fadd((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
+                            } else {
+                                ir_emit_fsub((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
+                            }
+                            if (gv->type.tag == TYPE_FLOAT) ir_emit_vstoress((uint16_t)gaddr_temp, (uint16_t)res_temp);
+                            else ir_emit_vstoresd((uint16_t)gaddr_temp, (uint16_t)res_temp);
+                            c->last_expr_is_float = 1;
+                            return (node->flags == 1) ? val_temp : res_temp;
+                        }
                         int val_temp = c->next_temp_id++;
                         int one_temp = c->next_temp_id++;
                         int res_temp = c->next_temp_id++;
@@ -1051,10 +1131,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else if (gv_sz == 2) ir_emit_load_16(val_temp, gaddr_temp);
                         else if (gv_sz == 4) ir_emit_load_32(val_temp, gaddr_temp);
                         else ir_emit_deref(val_temp, gaddr_temp);
+                        zero_cc_emit_int_extend(c, val_temp, &gv->type);
 
                         ir_emit_mov_imm(one_temp, (node->aux.op == TK_INC) ?
                             lvalue_inc_step(&gv->type) : -lvalue_inc_step(&gv->type));
                         ir_emit_add(res_temp, val_temp, one_temp);
+                        zero_cc_emit_int_extend(c, res_temp, &gv->type);
 
                         if (gv_sz == 1) ir_emit_store_byte(res_temp, gaddr_temp);
                         else if (gv_sz == 2) ir_emit_store_16(res_temp, gaddr_temp);
@@ -3262,6 +3344,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
             bool callee_is_ident = (callee && callee->tag == NODE_IDENT);
             const char *name = callee_is_ident ? callee->s.str : NULL;
+            if (name && strncmp(name, "__builtin_", 10) == 0) {
+                const char *base_fn = name + 10;
+                if (strcmp(base_fn, "memcpy") == 0 || strcmp(base_fn, "memset") == 0 ||
+                    strcmp(base_fn, "memmove") == 0 || strcmp(base_fn, "memcmp") == 0 ||
+                    strcmp(base_fn, "strlen") == 0 || strcmp(base_fn, "strcmp") == 0 ||
+                    strcmp(base_fn, "strncmp") == 0 || strcmp(base_fn, "strcpy") == 0 ||
+                    strcmp(base_fn, "strncpy") == 0 || strcmp(base_fn, "strcat") == 0 ||
+                    strcmp(base_fn, "strchr") == 0 || strcmp(base_fn, "strrchr") == 0 ||
+                    strcmp(base_fn, "strstr") == 0 || strcmp(base_fn, "abort") == 0 ||
+                    strcmp(base_fn, "exit") == 0 || strcmp(base_fn, "malloc") == 0 ||
+                    strcmp(base_fn, "calloc") == 0 || strcmp(base_fn, "realloc") == 0 ||
+                    strcmp(base_fn, "free") == 0 || strcmp(base_fn, "printf") == 0 ||
+                    strcmp(base_fn, "fprintf") == 0 || strcmp(base_fn, "sprintf") == 0 ||
+                    strcmp(base_fn, "snprintf") == 0) {
+                    name = base_fn;
+                }
+            }
 
             if (callee_is_ident) {
                 /* Intercept __zerocc_syscall (zero_rt OS boundary):

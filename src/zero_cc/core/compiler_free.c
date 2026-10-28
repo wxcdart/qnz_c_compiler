@@ -71,6 +71,14 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     zero_cc_buf_free(&c->rodata_section);
     zero_cc_buf_free(&c->data_section);
 
+    /* Enum constants hash table */
+    if (c->enum_constants) {
+        free(c->enum_constants);
+        c->enum_constants = NULL;
+        c->enum_const_capacity = 0;
+        c->enum_const_count = 0;
+    }
+
     /* diag_buf.entries pointed at the per-compile tmp arena, destroyed
      * inside zero_cc_compile_c99 — clear, never free. */
     c->diag_buf.entries = NULL;

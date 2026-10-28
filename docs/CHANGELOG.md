@@ -1,6 +1,34 @@
 # ZeroCC Changelog
 
-## [M1 Prep] - 2026-10-27 - c-torture Hang-Triage Tooling (`tools/torture_run.py`)
+## [Chunk M1] - 2026-10-28 - GCC `c-torture` TIMEOUT Burn-Down (10/10 Hangs Resolved, 0 TIMEOUTs)
+
+Completed Chunk M1 of the `c-torture` conformance plan, resolving all 10 baseline `TIMEOUT` hangs (9 moving to `PASS`, 1 to `SKIP-C89`, leaving **0 TIMEOUTs** remaining). Across the entire 3,940-test corpus, **`PASS` increased 1,714 → 1,912 (+198 tests)** and **`REJECT` dropped 954 → 748 (-206 fewer rejections)**.
+
+- **Compile-Time Hangs (4/4 Resolved)**:
+  - `compile/pr94238.c`: unified enum member parsing in `zero_cc_parse_enum_members` to accept `TK_IDENT`, `TK_FALSE`, and `TK_TRUE` with progress guards, and removed preprocessor hardcoded `true`/`false` macros (delegating to `<stdbool.h>`).
+  - `compile/limits-enumconst.c`: replaced linear scans in enum constant registry with open-addressing $O(1)$ hash tables (`ZeroCCEnumConstTable`), supported whitespace before `(` in function-like macro calls (`LIM5 (e)`), and predefined `__INT_MAX__`.
+  - `compile/20010518-2.c` & `compile/pr103813.c`: added `.bss` section with `NOBITS` ELF section header and zero-fill mmap execution for zero-initialized globals $\ge 256$ bytes (`ZERO_CC_BSS_THRESHOLD`), avoiding multi-megabyte/gigabyte emission loops.
+- **Optimizer-Induced Runtime Loop Hangs (2/2 Resolved)**:
+  - `execute/pr43269.c`: added CFG clean-entry loop check to `detect_loops` in `opt_loop.c` so LICM does not hoist invariants out of multi-entry loops.
+  - `execute/20011126-2.c`: fixed register allocator fixed-interval conflict in `regalloc.h` — `alloc_reg` now checks `regalloc_reg_conflicts_fixed` before assigning physical return registers (`VREG_0` / `VREG_2`) to virtual registers, `expire_old_intervals` only frees physical registers when no other active interval holds them, and spill selection preserves pre-colored return registers.
+- **-O0 Runtime Loop Hangs (4/4 Resolved)**:
+  - `execute/20000731-1.c`: added `float`/`double` support to `NODE_UNOP` (`TK_INC`/`TK_DEC`) for locals and globals in `ast_lowering_expr.c`.
+  - `execute/20020404-1.c`: added `struct`/`union` brace initialization for static locals in `ast_stmt.h` / `init_common.h`, and deduplicated forward prototype symbols in `main.c` `.symtab` emission to prevent PLT relocations from binding to `SHN_UNDEF`.
+  - `execute/20061220-1.c`: added synchronization/progress guard to statement parser loop for nested functions.
+  - `execute/930529-1.c`: synchronized token operator types in `semantic/promote.c` and `semantic/expr.c`, fixed `NODE_BINOP` type inference in `semantic/visitor.c`, and correctly handled unsigned promotions and extensions.
+- **Libc Builtins & Typeof**:
+  - Removed faulty `__builtin_memcpy`/`__builtin_memset` preprocessor macros from `preprocessor.h` and mapped them directly in `ast_lowering_expr.c` to avoid undeclared identifier errors in headerless tests.
+  - Added function lookup to `zero_cc_type_of_equality` in `const_eval.h` for `__typeof(fn)` expressions.
+- **Verification**:
+  - `make test-torture`: **1,912 PASS**, **0 TIMEOUT**, ratcheted baseline clean
+  - `make test`: **156/156 passed**
+  - `make test-opt`: **117/117 ok**
+  - `make test-isa-qemu`: **44/44 ok** (x86-64, AArch64, RISC-V64, RISC-V32)
+  - `python3 tools/sret_verifier.py --verify-all`: **6/6 passed**
+  - `python3 tools/diag_battery.py`: baseline OK
+  - `python3 tools/style_check.py`: 0 errors
+  - `python3 tools/okf.py lint && tools/okf.py index`: PASS
+
 
 Added the M1 chunk (`10 TIMEOUT`s) burn-down tooling to [`tools/torture_run.py`](../tools/torture_run.py). No compiler or baseline changes — the full gate still reports `1172 bad == baseline` (verified via `make test-torture`).
 

@@ -1,25 +1,26 @@
 #include "zero_cc/semantic/promote.h"
 #include <string.h>
+#include "zero_cc/types/token.h"
 
-/* Token values matching ZeroCCTokType from types_lexer.h */
-#define TOK_PLUS        63
-#define TOK_MINUS       64
-#define TOK_STAR        65
-#define TOK_SLASH       66
-#define TOK_PERCENT     67
-#define TOK_AMP         68
-#define TOK_PIPE        69
-#define TOK_CARET       70
-#define TOK_EQ          73
-#define TOK_NE          74
-#define TOK_LT          75
-#define TOK_LE          76
-#define TOK_GT          77
-#define TOK_GE          78
-#define TOK_LOGAND      79
-#define TOK_LOGOR       80
-#define TOK_SHL         81
-#define TOK_SHR         82
+/* Token values matching ZeroCCTokType from token.h */
+#define TOK_PLUS        TK_PLUS
+#define TOK_MINUS       TK_MINUS
+#define TOK_STAR        TK_STAR
+#define TOK_SLASH       TK_SLASH
+#define TOK_PERCENT     TK_PERCENT
+#define TOK_AMP         TK_AMP
+#define TOK_PIPE        TK_PIPE
+#define TOK_CARET       TK_CARET
+#define TOK_EQ          TK_EQ
+#define TOK_NE          TK_NE
+#define TOK_LT          TK_LT
+#define TOK_LE          TK_LE
+#define TOK_GT          TK_GT
+#define TOK_GE          TK_GE
+#define TOK_LOGAND      TK_LOGAND
+#define TOK_LOGOR       TK_LOGOR
+#define TOK_SHL         TK_SHL
+#define TOK_SHR         TK_SHR
 
 /* Helper to get integer rank according to C11 6.3.1.1 */
 static int get_integer_rank(const TypeInfo *t) {

@@ -35,13 +35,22 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     if (code_page_sz == 0) code_page_sz = page_sz;
 
     size_t data_len = c->data_section.length;
+    /* Compute BSS size (zero-initialized globals above threshold) */
+    size_t bss_len = 0;
+    for (size_t i = 0; i < global_var_count; i++) {
+        if (global_vars[i].is_bss && !global_vars[i].is_tls) {
+            bss_len += global_vars[i].size;
+        }
+    }
     size_t data_page_sz = (data_len + page_sz - 1) & ~(page_sz - 1);
-    size_t total_sz = code_page_sz + data_page_sz;
+    size_t bss_page_sz = (bss_len + page_sz - 1) & ~(page_sz - 1);
+    size_t total_sz = code_page_sz + data_page_sz + bss_page_sz;
 
     void *mem = zero_mmap_alloc_rw(total_sz);
     if (!mem) return -1;
 
     size_t data_offset = code_page_sz;
+    size_t bss_offset = code_page_sz + data_page_sz;
 
     /* Patch internal function calls and string literal RIP offsets */
     for (size_t i = 0; i < c->reloc_count; i++) {
@@ -65,7 +74,8 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             strcpy(var_name, c->relocs[i].target_symbol + 7);
             ZeroCCGlobalVar *gv = find_global_var(var_name);
             if (gv) {
-                size_t target_addr = data_offset + gv->data_offset;
+                size_t target_addr = gv->is_bss ? (bss_offset + gv->data_offset)
+                                                : (data_offset + gv->data_offset);
                 int32_t rel = (int32_t)(target_addr - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             }
@@ -76,7 +86,8 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
              * absolute address in the JIT data page. */
             ZeroCCGlobalVar *gv = find_global_var(c->relocs[i].target_symbol);
             if (gv) {
-                uintptr_t gv_addr = (uintptr_t)((char *)mem + data_offset + gv->data_offset);
+                uintptr_t gv_addr = (uintptr_t)((char *)mem +
+                    (gv->is_bss ? bss_offset : data_offset) + gv->data_offset);
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &gv_addr, 8);
             } else {
                 ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
@@ -120,7 +131,8 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             /* Extern object defined in another TU: resolved against the
              * (merged) global registry at patch time. */
             ZeroCCGlobalVar *eg = find_global_var(dr->target_extern_name);
-            target = eg ? (uintptr_t)((char *)mem + data_offset + eg->data_offset) : 0;
+            target = eg ? (uintptr_t)((char *)mem +
+                (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset);
         }

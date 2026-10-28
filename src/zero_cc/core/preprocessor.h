@@ -241,8 +241,7 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__linux__", "1");
     zero_cc_cpp_define_obj(cpp, "__unix__", "1");
     zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
-    zero_cc_cpp_define_obj(cpp, "true", "1");
-    zero_cc_cpp_define_obj(cpp, "false", "0");
+    zero_cc_cpp_define_obj(cpp, "__INT_MAX__", "2147483647");
     /* Atomic memory orders */
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
@@ -267,8 +266,6 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__volatile", "volatile");
     zero_cc_cpp_define_obj(cpp, "__const", "const");
     zero_cc_cpp_define_obj(cpp, "__const__", "const");
-    zero_cc_cpp_define_func3(cpp, "__builtin_memcpy", "dest", "src", "n", "memcpy(dest, src, n)");
-    zero_cc_cpp_define_func1(cpp, "__builtin_memset", "s", "memset(s, 0, 0)");
 #if defined(ZERO_CC_TARGET_X86_64)
     zero_cc_cpp_define_obj(cpp, "__x86_64__", "1");
     zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
@@ -1683,21 +1680,30 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     cpp->expanding_macro_index = (int)(m - cpp->macros);
                     zero_cc_cpp_process_text(cpp, m->replacement, out);
                     cpp->expanding_macro_index = prev_expanding;
-                } else if (*p == '(') {
-                    p++;
-                    char *args[64];
-                    int arg_count = 0;
-                    while (*p && *p != ')') {
-                        while (*p && isspace((unsigned char)*p)) p++;
-                        const char *arg_s = p;
-                        int paren_nest = 0;
-                        while (*p && (paren_nest > 0 || (*p != ',' && *p != ')'))) {
-                            if (*p == '(') paren_nest++;
-                            else if (*p == ')') paren_nest--;
-                            p++;
-                        }
-                        size_t arg_l = (size_t)(p - arg_s);
-                        char *arg_str = (char *)malloc(arg_l + 1);
+                } else {
+                    const char *ws_skip = p;
+                    size_t ws_newlines = 0;
+                    while (*ws_skip && isspace((unsigned char)*ws_skip)) {
+                        if (*ws_skip == '\n') ws_newlines++;
+                        ws_skip++;
+                    }
+                    if (*ws_skip == '(') {
+                        p = ws_skip + 1;
+                        cpp->line_num += ws_newlines;
+                        char *args[64];
+                        int arg_count = 0;
+                        while (*p && *p != ')') {
+                            while (*p && isspace((unsigned char)*p)) p++;
+                            const char *arg_s = p;
+                            int paren_nest = 0;
+                            while (*p && (paren_nest > 0 || (*p != ',' && *p != ')'))) {
+                                if (*p == '(') paren_nest++;
+                                else if (*p == ')') paren_nest--;
+                                p++;
+                            }
+                            size_t arg_l = (size_t)(p - arg_s);
+                            while (arg_l > 0 && isspace((unsigned char)arg_s[arg_l - 1])) arg_l--;
+                            char *arg_str = (char *)malloc(arg_l + 1);
                         if (arg_str) {
                             memcpy(arg_str, arg_s, arg_l);
                             arg_str[arg_l] = '\0';
@@ -1866,11 +1872,12 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                      * operand; the text is discarded (constraint violation). */
                     zero_cc_cpp_process_text(cpp, temp_buf.data, out);
                     zero_cc_buf_free(&temp_buf);
-                    cpp->expanding_macro_index = prev_expanding;
-                    for (int k = 0; k < arg_count; k++) free(args[k]);
-                } else {
-                    zero_cc_buf_puts(out, ident);
-                continue;
+                        cpp->expanding_macro_index = prev_expanding;
+                        for (int k = 0; k < arg_count; k++) free(args[k]);
+                    } else {
+                        zero_cc_buf_puts(out, ident);
+                        continue;
+                    }
                 }
             } else {
                 zero_cc_buf_puts(out, ident);

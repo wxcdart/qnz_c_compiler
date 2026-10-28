@@ -653,13 +653,14 @@ Closed the raw-binary emission gap across all target ISAs under QEMU differentia
 
 ### 13. GCC `c-torture` Conformance Burn-Down Plan (Sprint 57+ Roadmap)
 
-**Current Baseline** ([`test/torture/baseline.json`](../test/torture/baseline.json), 3,940 tests): **`PASS: 1,714`**, **`MISCOMPILE: 218`**, **`REJECT: 954`**, **`SKIP-C89: 699`**, **`NO-REF: 190`**, **`SKIP-TARGET:*: 144`**, **`TIMEOUT: 10`**. Full concept documentation: [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md).
+**Current Baseline** ([`test/torture/baseline.json`](../test/torture/baseline.json), 3,940 tests): **`PASS: 1,912`**, **`MISCOMPILE: 261`**, **`REJECT: 748`**, **`SKIP-C89: 676`**, **`NO-REF: 188`**, **`SKIP-TARGET:*: 144`**, **`TIMEOUT: 0`**. Full concept documentation: [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md).
 
-#### Tier 1: Correctness First (`TIMEOUT` + `MISCOMPILE` — 228 tests → 3 Chunks)
-- **Chunk M1 — Clear All 10 `TIMEOUT`s (`4 compile` + `6 execute`)**:
-  - 4 compile-time hangs (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`).
-  - 2 `-O2/-O3` optimizer loop hangs (`execute/20011126-2.c`, `execute/pr43269.c`).
-  - 4 `-O0` runtime loop hangs (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`).
+#### Tier 1: Correctness First (`TIMEOUT` + `MISCOMPILE` — 261 tests → 3 Chunks)
+- **Chunk M1 — Clear All 10 `TIMEOUT`s (`4 compile` + `6 execute`) ✅ COMPLETE**:
+  - All 10 former TIMEOUT cases resolved (9 PASS, 1 SKIP-C89; 0 TIMEOUT remaining).
+  - 4 compile-time hangs (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): resolved by .bss ELF NOBITS/mmap threshold, open-addressing enum registry hash table, enum false/true keyword fix, function-like macro whitespace handling, and __INT_MAX__ predefined macro.
+  - 2 `-O2/-O3` optimizer loop hangs (`execute/20011126-2.c`, `execute/pr43269.c`): resolved by CFG loop clean-entry LICM hoist guard and linear-scan register allocator VREG_0/VREG_2 fixed-interval conflict protection + active interval expire guard.
+  - 4 `-O0` runtime loop hangs (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): resolved by float NODE_UNOP ++/--, static local struct/union brace initialization, ELF prototype symbol deduplication, AST statement progress guard, and unsigned promotion/condition code extension.
 - **Chunk M2 — Partial-Mode `MISCOMPILE`s (`78 tests` that already pass in ≥1 ZeroCC mode)**:
   - **57 pass `O0-jit` (`rc=0`) but crash (`SIGSEGV`) in `O0-aot` and `O1..O3-jit`** (e.g. `execute/20000703-1.c`, `execute/20001111-1.c`, `execute/20010915-1.c`): shared root cause in struct/array member decay (`p->b`) or statement expressions `({ ... })` interacting with stack frame layout / `mem2reg`.
   - **17 AOT-only failures** (pass `O0..O3` in JIT, fail AOT): ELF relocation / `.data` / symbol emission differences between `execution.h` and `elf_writer.c` (incl. 4 `Linking failed` cases).

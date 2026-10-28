@@ -276,21 +276,32 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
     for (size_t i = 0; i < ra->active_count; ) {
         LiveInterval *active = ra->active[i];
         if (active->end < current_pos) {
-            /* Free the register */
+            /* Free the register only if no other remaining active interval holds it */
             if (active->assigned_reg >= 0) {
-                if (active->reg_class == REG_CLASS_GPR) {
-                    ra->gpr_free[active->assigned_reg] = true;
-                } else if (active->reg_class == REG_CLASS_XMM) {
-                    ra->xmm_free[active->assigned_reg] = true;
-                    if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
-                        active->assigned_reg < 32) {
-                        ra->vec_free[active->assigned_reg] = true;
+                bool still_in_use = false;
+                for (size_t j = 0; j < ra->active_count; j++) {
+                    if (j != i && ra->active[j]->end >= current_pos &&
+                        ra->active[j]->reg_class == active->reg_class &&
+                        ra->active[j]->assigned_reg == active->assigned_reg) {
+                        still_in_use = true;
+                        break;
                     }
-                } else if (active->reg_class == REG_CLASS_VEC) {
-                    ra->vec_free[active->assigned_reg] = true;
-                    if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
-                        active->assigned_reg < XMM_COUNT) {
+                }
+                if (!still_in_use) {
+                    if (active->reg_class == REG_CLASS_GPR) {
+                        ra->gpr_free[active->assigned_reg] = true;
+                    } else if (active->reg_class == REG_CLASS_XMM) {
                         ra->xmm_free[active->assigned_reg] = true;
+                        if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                            active->assigned_reg < 32) {
+                            ra->vec_free[active->assigned_reg] = true;
+                        }
+                    } else if (active->reg_class == REG_CLASS_VEC) {
+                        ra->vec_free[active->assigned_reg] = true;
+                        if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                            active->assigned_reg < XMM_COUNT) {
+                            ra->xmm_free[active->assigned_reg] = true;
+                        }
                     }
                 }
             }
@@ -313,6 +324,29 @@ static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys
     } else {
         return phys_reg == 3 || (phys_reg >= 12 && phys_reg <= 15);
     }
+}
+
+/* Check if a physical GPR conflicts with a pre-colored fixed interval (VREG_0 / VREG_2) */
+static inline bool regalloc_reg_conflicts_fixed(const RegAllocator *ra, int phys_reg,
+                                                const LiveInterval *interval) {
+    if (!ra || !interval) return false;
+    bool is_aarch64 = (ra->target_isa == ISA_AARCH64);
+    bool is_riscv = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32);
+    int ret_reg0 = is_riscv ? 10 : 0;
+    int ret_reg2 = is_riscv ? 11 : (is_aarch64 ? 1 : 2);
+    if (phys_reg != ret_reg0 && phys_reg != ret_reg2) {
+        return false;
+    }
+    int fixed_temp = (phys_reg == ret_reg0) ? VREG_0 : VREG_2;
+    for (size_t i = 0; i < ra->interval_count; i++) {
+        const LiveInterval *other = &ra->intervals[i];
+        if (other->temp_id == fixed_temp && other->reg_class == REG_CLASS_GPR) {
+            if (!(interval->end < other->start || interval->start > other->end)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /* Allocate a register for the given interval */
@@ -372,7 +406,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             };
             for (size_t pool_idx = 0; pool_idx < sizeof(aarch64_pool)/sizeof(aarch64_pool[0]); pool_idx++) {
                 int phys_reg = aarch64_pool[pool_idx];
-                if (ra->gpr_free[phys_reg]) {
+                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                     ra->gpr_free[phys_reg] = false;
                     if (phys_reg >= 19 && phys_reg <= 28) {
                         ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
@@ -389,7 +423,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             };
             for (size_t pool_idx = 0; pool_idx < sizeof(riscv_pool)/sizeof(riscv_pool[0]); pool_idx++) {
                 int phys_reg = riscv_pool[pool_idx];
-                if (ra->gpr_free[phys_reg]) {
+                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                     ra->gpr_free[phys_reg] = false;
                     if (phys_reg == 9 || (phys_reg >= 18 && phys_reg <= 27)) {
                         ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
@@ -402,7 +436,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             static const int pool_to_phys[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
             for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
                 int phys_reg = pool_to_phys[pool_idx];
-                if (ra->gpr_free[phys_reg]) {
+                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                     ra->gpr_free[phys_reg] = false;
                     static const uint32_t x86_callee_saved_mask =
                         (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
@@ -547,8 +581,11 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    /* Pre-colored return value intervals cannot be spilled/stolen */
+                    if (active->temp_id == VREG_0 || active->temp_id == VREG_2) continue;
                     /* Already-spilled intervals hold no register to hand over */
                     if (active->is_spilled) continue;
+                    if (regalloc_reg_conflicts_fixed(ra, active->assigned_reg, current)) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
                         continue;
@@ -576,8 +613,11 @@ static void regalloc_allocate(RegAllocator *ra) {
                 for (size_t j = 0; j < ra->active_count; j++) {
                     LiveInterval *active = ra->active[j];
                     if (active->reg_class != current->reg_class) continue;
+                    /* Pre-colored return value intervals cannot be spilled/stolen */
+                    if (active->temp_id == VREG_0 || active->temp_id == VREG_2) continue;
                     /* Already-spilled intervals hold no register to hand over */
                     if (active->is_spilled) continue;
+                    if (regalloc_reg_conflicts_fixed(ra, active->assigned_reg, current)) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
                         continue;

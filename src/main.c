@@ -380,7 +380,14 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
     }
 
     /* Emit .data / global variables if present */
-    if (global_var_count > 0 || comp->data_section.length > 0) {
+    bool has_data = false;
+    for (size_t i = 0; i < global_var_count; i++) {
+        if (global_vars[i].name[0] && !global_vars[i].is_tls && !global_vars[i].is_bss) {
+            has_data = true;
+            break;
+        }
+    }
+    if (has_data || comp->data_section.length > 0) {
         fprintf(comp->asm_out, "\t.section\t.data\n");
         const uint8_t *data_buf = (const uint8_t *)comp->data_section.data;
         size_t data_len = comp->data_section.length;
@@ -461,6 +468,42 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
             for (size_t b = cur_offset; b < data_len; b++) {
                 fprintf(comp->asm_out, "\t.byte\t0x%02x\n", data_buf[b]);
             }
+        }
+    }
+
+    /* Emit .bss (zero-initialized globals above threshold) */
+    bool has_bss = false;
+    for (size_t i = 0; i < global_var_count; i++) {
+        if (global_vars[i].name[0] && global_vars[i].is_bss && !global_vars[i].is_tls) {
+            has_bss = true;
+            break;
+        }
+    }
+    if (has_bss) {
+        if (comp->isa == ISA_AARCH64) {
+            fprintf(comp->asm_out, "\t.section\t.bss,\"aw\",@nobits\n");
+        } else {
+            fprintf(comp->asm_out, "\t.section\t.bss\n");
+        }
+        for (size_t i = 0; i < global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &global_vars[i];
+            if (!gv->name[0] || gv->is_tls || !gv->is_bss) continue;
+
+            size_t align = gv->type.align ? gv->type.align : 8;
+            if (comp->isa == ISA_AARCH64) {
+                int p2 = 0;
+                while ((1ULL << p2) < align) p2++;
+                fprintf(comp->asm_out, "\t.align\t%d\n", p2);
+            } else {
+                int p2 = 0;
+                while ((1ULL << p2) < align) p2++;
+                fprintf(comp->asm_out, "\t.p2align\t%d\n", p2);
+            }
+            if (!gv->is_static) {
+                fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);
+            }
+            fprintf(comp->asm_out, "%s:\n", gv->name);
+            fprintf(comp->asm_out, "\t.zero\t%zu\n", gv->size);
         }
     }
 
@@ -1100,6 +1143,22 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                8);
     }
 
+    /* Add .bss section (zero-initialized globals above threshold) */
+    size_t bss_total = 0;
+    for (size_t i = 0; i < global_var_count; i++) {
+        if (global_vars[i].is_bss && !global_vars[i].is_tls) {
+            bss_total += global_vars[i].size;
+        }
+    }
+    if (bss_total > 0) {
+        /* NOBITS section - no file payload, just zero-filled at load */
+        elf_writer_add_section(&elf_ctx, ".bss",
+                               NULL, bss_total,
+                               ELF_SHT_NOBITS,
+                               ELF_SHF_ALLOC | ELF_SHF_WRITE,
+                               8);
+    }
+
     /* Add .tdata (initialized TLS) and .tbss (uninitialized TLS) sections.
      * The TLS backend (tls_backend.c) packs the block; each _Thread_local
      * variable gets a symbol in its section, and OP_TLS_LEA accesses get
@@ -1132,6 +1191,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     uint16_t data_idx = elf_writer_section_index(&elf_ctx, ".data");
     uint16_t tdata_idx = elf_writer_section_index(&elf_ctx, ".tdata");
     uint16_t tbss_idx = elf_writer_section_index(&elf_ctx, ".tbss");
+    uint16_t bss_idx = elf_writer_section_index(&elf_ctx, ".bss");
 
     /* Add .rodata section symbol first (needed for string literal relocations) */
     /* Section symbols must come before global symbols for correct sh_info calculation */
@@ -1146,6 +1206,18 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
         if (fn->name[0]) {
+            if (fn->is_prototype) {
+                /* Skip forward prototype if a real definition exists in this TU */
+                bool has_def = false;
+                for (size_t k = 0; k < comp->function_count; k++) {
+                    if (k != i && !comp->functions[k].is_prototype && !comp->functions[k].is_external &&
+                        strcmp(comp->functions[k].name, fn->name) == 0) {
+                        has_def = true;
+                        break;
+                    }
+                }
+                if (has_def) continue;
+            }
             if (fn->is_external) {
                 bool referenced = false;
                 for (size_t r = 0; r < comp->reloc_count; r++) {
@@ -1173,8 +1245,9 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         }
     }
 
-    /* Add symbols for global variables (.data section) */
+    /* Add symbols for global variables (.data / .bss sections) */
     int data_section_idx = data_idx;
+    int bss_section_idx = bss_idx;
     for (size_t i = 0; i < global_var_count; i++) {
         ZeroCCGlobalVar *gv = &global_vars[i];
         if (gv->name[0]) {
@@ -1198,11 +1271,19 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 }
                 continue;
             }
-            elf_writer_add_symbol(&elf_ctx, gv->name,
-                                  binding, ELF_STT_OBJECT,
-                                  data_section_idx,
-                                  gv->data_offset,
-                                  gv->size);
+            if (gv->is_bss) {
+                elf_writer_add_symbol(&elf_ctx, gv->name,
+                                      binding, ELF_STT_OBJECT,
+                                      bss_section_idx,
+                                      gv->data_offset,
+                                      gv->size);
+            } else {
+                elf_writer_add_symbol(&elf_ctx, gv->name,
+                                      binding, ELF_STT_OBJECT,
+                                      data_section_idx,
+                                      gv->data_offset,
+                                      gv->size);
+            }
         }
     }
 
