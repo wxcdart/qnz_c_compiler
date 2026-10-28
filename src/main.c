@@ -1755,7 +1755,7 @@ static int compile_and_link(CompileOptions *opts) {
                  all_objs, output, lib_args);
     } else {
         snprintf(cmd, sizeof(cmd),
-                 "%s %s %s -o %s %s -lc%s 2>&1",
+                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s 2>&1",
                  linker, abi_flags, static_flag, output, all_objs, lib_args);
     }
 

@@ -1480,18 +1480,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 case TK_MINUS:  /* Negation */
                     if (c->last_expr_is_float) {
-                        /* Float negation as (0.0 - x). An integer NEG on the
-                         * IEEE-754 bit pattern is wrong, and the 128-bit
-                         * sign-mask trick (xorpd [m128]) faults on WSL2
-                         * (16-byte reads from RX pages raise a GPF). */
-                        double zero = 0.0;
-                        size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
-                        if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
-                        size_t zero_off = c->rodata_section.length;
-                        zero_cc_buf_put_bytes(&c->rodata_section, &zero, sizeof(double));
-                        int zero_temp = c->next_temp_id++;
-                        ir_emit_fmov_imm((uint16_t)zero_temp, (int64_t)zero_off);
-                        ir_emit_fsub((uint16_t)result_temp, (uint16_t)zero_temp, (uint16_t)operand_temp);
+                        /* IEEE 754 float negation: flip the sign bit (bit 63).
+                         * (0.0 - x) does not preserve -0.0 because 0.0 - 0.0 = +0.0
+                         * per IEEE 754 §6.3. */
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        int32_t slot = c->current_stack_frame;
+                        ir_emit_fstore((uint16_t)operand_temp, TEMP_NONE, -slot);
+                        int int_temp = c->next_temp_id++;
+                        ir_emit_load(int_temp, BE(c)->fp_reg, -slot);
+                        int sign_mask = c->next_temp_id++;
+                        ir_emit_mov_imm(sign_mask, (int64_t)0x8000000000000000ULL);
+                        int flipped = c->next_temp_id++;
+                        ir_emit_xor(flipped, int_temp, sign_mask);
+                        ir_emit_store(flipped, BE(c)->fp_reg, -slot);
+                        ir_emit_fload((uint16_t)result_temp, TEMP_NONE, -slot);
                         c->last_expr_is_float = 1;
                         return result_temp;
                     }
@@ -3809,9 +3812,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return t_result;
             }
 
-            /* __builtin_inf() - return double infinity. */
+            /* __builtin_inf() / __builtin_inff() - return infinity. */
             if (callee_is_ident && callee->s.str &&
-                strcmp(callee->s.str, "__builtin_inf") == 0) {
+                (strcmp(callee->s.str, "__builtin_inf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_inff") == 0 ||
+                 strcmp(callee->s.str, "__builtin_infl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_huge_val") == 0 ||
+                 strcmp(callee->s.str, "__builtin_huge_valf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_huge_vall") == 0)) {
                 /* Infinity bit pattern: sign=0, exp=all-ones, mantissa=0 */
                 union { double d; int64_t i; } u;
                 u.i = 0x7FF0000000000000LL;
@@ -3824,6 +3832,118 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_fmov_imm((uint16_t)temp, (int64_t)rodata_offset);
                 c->last_expr_is_float = 1;
                 return temp;
+            }
+
+            /* __builtin_nan() / __builtin_nanf() - return quiet NaN. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_nan") == 0 ||
+                 strcmp(callee->s.str, "__builtin_nanf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_nanl") == 0)) {
+                union { double d; int64_t i; } u;
+                u.i = 0x7FF8000000000000LL;
+                double qnan = u.d;
+                size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+                if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
+                size_t rodata_offset = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, &qnan, sizeof(double));
+                int temp = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)temp, (int64_t)rodata_offset);
+                c->last_expr_is_float = 1;
+                return temp;
+            }
+
+            /* __builtin_fabs() / __builtin_fabsf() - absolute value.
+             * Clears the sign bit (bit 63) in IEEE 754 representation. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_fabs") == 0 ||
+                 strcmp(callee->s.str, "__builtin_fabsf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_fabsl") == 0)) {
+                int arg_temp = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)arg_temp);
+                    arg_temp = conv;
+                }
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                int32_t slot = c->current_stack_frame;
+                ir_emit_fstore((uint16_t)arg_temp, TEMP_NONE, -slot);
+                int int_temp = c->next_temp_id++;
+                ir_emit_load(int_temp, BE(c)->fp_reg, -slot);
+                int mask_temp = c->next_temp_id++;
+                ir_emit_mov_imm(mask_temp, 0x7FFFFFFFFFFFFFFFLL);
+                int abs_int = c->next_temp_id++;
+                ir_emit_and(abs_int, int_temp, mask_temp);
+                ir_emit_store(abs_int, BE(c)->fp_reg, -slot);
+                int res_temp = c->next_temp_id++;
+                ir_emit_fload((uint16_t)res_temp, TEMP_NONE, -slot);
+                c->last_expr_is_float = 1;
+                return res_temp;
+            }
+
+            /* __builtin_isinf() / __builtin_isinff() - infinity test.
+             * In IEEE 754, x != 0.0 && (x * 2.0 == x) holds iff x is +/-inf. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_isinf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_isinff") == 0 ||
+                 strcmp(callee->s.str, "__builtin_isinfl") == 0)) {
+                int arg_temp = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)arg_temp);
+                    arg_temp = conv;
+                }
+                int two_i = c->next_temp_id++;
+                ir_emit_mov_imm(two_i, 2);
+                int two_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)two_f, (uint16_t)two_i);
+
+                int zero_i = c->next_temp_id++;
+                ir_emit_mov_imm(zero_i, 0);
+                int zero_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+
+                int mul_temp = c->next_temp_id++;
+                ir_emit_fmul((uint16_t)mul_temp, (uint16_t)arg_temp, (uint16_t)two_f);
+
+                int c1 = c->next_temp_id++;
+                ir_emit_cmp(arg_temp, zero_f);
+                ir_emit_cond_set(c1, CC_NE);
+
+                int c2 = c->next_temp_id++;
+                ir_emit_cmp(mul_temp, arg_temp);
+                ir_emit_cond_set(c2, CC_EQ);
+
+                int res_temp = c->next_temp_id++;
+                ir_emit_and(res_temp, c1, c2);
+                c->last_expr_is_float = 0;
+                return res_temp;
+            }
+
+            /* __builtin_signbit() / __builtin_signbitf() - sign bit test.
+             * Returns 1 if sign bit is set (negative), 0 otherwise. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_signbit") == 0 ||
+                 strcmp(callee->s.str, "__builtin_signbitf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_signbitl") == 0)) {
+                int arg_temp = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)arg_temp);
+                    arg_temp = conv;
+                }
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                int32_t slot = c->current_stack_frame;
+                ir_emit_fstore((uint16_t)arg_temp, TEMP_NONE, -slot);
+                int int_temp = c->next_temp_id++;
+                ir_emit_load(int_temp, BE(c)->fp_reg, -slot);
+                int shift_imm = c->next_temp_id++;
+                ir_emit_mov_imm(shift_imm, 63);
+                int res_temp = c->next_temp_id++;
+                ir_emit_shr(res_temp, int_temp, shift_imm);
+                c->last_expr_is_float = 0;
+                return res_temp;
             }
 
             /* GCC Integer Overflow Builtins:

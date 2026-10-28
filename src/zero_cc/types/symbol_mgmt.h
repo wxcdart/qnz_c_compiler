@@ -169,7 +169,22 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
     if (strcmp(name, "stderr") == 0) return (void*)&stderr;
     if (strcmp(name, "stdout") == 0) return (void*)&stdout;
     if (strcmp(name, "stdin") == 0) return (void*)&stdin;
+    if (strcmp(name, "link_error") == 0) {
+        extern void abort(void);
+        return (void*)&abort;
+    }
     void *sym = dlsym(RTLD_DEFAULT, name);
+    if (!sym) {
+        static void *libm_handle = NULL;
+        static int libm_tried = 0;
+        if (!libm_tried) {
+            libm_tried = 1;
+            libm_handle = dlopen("libm.so.6", RTLD_LAZY | RTLD_GLOBAL);
+        }
+        if (libm_handle) {
+            sym = dlsym(libm_handle, name);
+        }
+    }
     return sym;
 #else
     (void)name;
