@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-28T04:14:40Z
+timestamp: 2026-10-28T05:21:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -482,3 +482,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-28 — Updated `c-torture-gate.md`
 - Complete c-torture Chunk M1: burn down all 10 TIMEOUT cases to 0
+
+## 2026-10-29 — Updated `c-torture-gate.md`
+- Chunk M2 partial-mode MISCOMPILE burn-down: 50/67 resolved (was 78 at plan time). Fixed missing external-call symbol registration (`__builtin_*` routines now registered as external `ZeroCCFunction` entries so AOT emits PLT relocations instead of `call +0`) and added builtin lowerings (`__builtin_expect`, `__builtin_prefetch`, `__builtin_constant_p`, `__builtin_bswap32`, `__builtin_ffs`, `__builtin_inf`, `__builtin_mul_overflow`). Remaining 17 involve statement expressions + mem2reg, nested functions, float codegen, JIT-only symbol resolution, and missing builtins (`__builtin_fabsf`, `__builtin_isinf`, etc.).
+
+## 2026-10-28 — Updated `c-torture-gate.md`
+- M2 partial-mode MISCOMPILE burn-down progress: 50/67 resolved
+
+## 2026-10-28 — Updated `log.md`
+- M2 progress recorded

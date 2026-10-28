@@ -3362,6 +3362,237 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
             }
 
+            /* Register __builtin_* routines (memcpy, memset, abort, ...)
+             * as external functions so AOT codegen emits a symbol-table
+             * entry and a PLT relocation for them. Without this, e.g.
+             * __builtin_memcpy() lowers to a `call` relocation whose target
+             * symbol is missing from the ELF symbol table, so the system
+             * linker leaves `call +0` and the binary segfaults at runtime
+             * (Chunk M2 root cause: external-call relocations silently
+             * dropped because the symbol was never registered).
+             * __zerocc_* intrinsics are excluded: the semantic analyzer
+             * already treats them as implicitly declared functions. */
+            if (name && c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                !zero_cc_find_function(c, name) &&
+                strncmp(name, "__zerocc_", 9) != 0) {
+                ZeroCCFunction *fn = &c->functions[c->function_count++];
+                memset(fn, 0, sizeof(*fn));
+                snprintf(fn->name, sizeof(fn->name), "%s", name);
+                fn->text_offset = 0;
+                /* return type is unused for external prototypes without an
+                 * inline body; zero-initialized to TYPE_VOID by memset above. */
+                fn->returns_struct = false;
+                fn->ret_struct_sz = 0;
+                fn->is_prototype = true;
+                fn->has_prototype = true;
+                fn->is_external = true;
+                fn->is_variadic = (strcmp(name, "printf") == 0 ||
+                                   strcmp(name, "fprintf") == 0 ||
+                                   strcmp(name, "sprintf") == 0 ||
+                                   strcmp(name, "snprintf") == 0);
+                fn->noreturn = (strcmp(name, "abort") == 0 ||
+                                strcmp(name, "exit") == 0);
+                fn->is_inline = false;
+                fn->is_static = false;
+                fn->can_inline = false;
+                fn->inline_body = AST_NULL;
+                fn->ast_arena = NULL;
+                fn->param_count = 0;
+                fn->param_names = NULL;
+                fn->param_types = NULL;
+                fn->sret_stack_offset = 0;
+            }
+
+            /* __builtin_expect(cond, val) is a branch-hint builtin: it
+             * evaluates to `cond` (the hint is ignored by ZeroCC's codegen).
+             * Lower to just the condition expression so no external "expect"
+             * call is emitted. */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_expect", 16) == 0) {
+                ASTRef expect_arg = node->right;
+                int res = lower_expr(c, arena, expect_arg);
+                c->last_expr_is_float = 0;
+                return res;
+            }
+
+            /* __builtin_prefetch(addr, rw, locality) is a cache hint.
+             * It is a no-op for ZeroCC: evaluate the arguments (so any
+             * side effects occur) but emit no memory access. */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_prefetch", 18) == 0) {
+                ASTRef pa = node->right;
+                while (pa != AST_NULL) {
+                    lower_expr(c, arena, pa);
+                    ZeroCCASTNode *an = zero_cc_ast_get(arena, pa);
+                    pa = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                }
+                c->last_expr_is_float = 0;
+                return VREG_0;
+            }
+
+            /* __builtin_constant_p(expr) returns 1 if expr is a compile-time
+             * constant, 0 otherwise. Conservative: return 1 only for integer
+             * literals, 0 otherwise. */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_constant_p") == 0) {
+                ASTRef cp_arg = node->right;
+                ZeroCCASTNode *an = zero_cc_ast_get(arena, cp_arg);
+                int res = (an && an->tag == NODE_INT) ? 1 : 0;
+                int temp = c->next_temp_id++;
+                ir_emit_mov_imm(temp, res);
+                c->last_expr_is_float = 0;
+                return temp;
+            }
+
+            /* __builtin_bswap32(x) - byte-swap a 32-bit value.
+             * result = ((x & 0xFF) << 24) | ((x >> 8) & 0xFF) << 16 |
+             *          ((x >> 16) & 0xFF) << 8  | (x >> 24) */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_bswap32") == 0) {
+                ASTRef b_arg = node->right;
+                int t_a = lower_expr(c, arena, b_arg);
+                int t_ff = c->next_temp_id++; ir_emit_mov_imm(t_ff, 0xFF);
+                int t_8  = c->next_temp_id++; ir_emit_mov_imm(t_8,  8);
+                int t_16 = c->next_temp_id++; ir_emit_mov_imm(t_16, 16);
+                int t_24 = c->next_temp_id++; ir_emit_mov_imm(t_24, 24);
+                int t_b0 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_b0,
+                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_ff});
+                int t_a8 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHR,.temp_dest=(uint16_t)t_a8,
+                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_8});
+                int t_b1 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_b1,
+                    .temp_src1=(uint16_t)t_a8,.temp_src2=(uint16_t)t_ff});
+                int t_a16 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHR,.temp_dest=(uint16_t)t_a16,
+                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_16});
+                int t_b2 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_b2,
+                    .temp_src1=(uint16_t)t_a16,.temp_src2=(uint16_t)t_ff});
+                int t_a24 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHR,.temp_dest=(uint16_t)t_a24,
+                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_24});
+                int t_b3 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_b3,
+                    .temp_src1=(uint16_t)t_a24,.temp_src2=(uint16_t)t_ff});
+                int t_b0s = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_b0s,
+                    .temp_src1=(uint16_t)t_b0,.temp_src2=(uint16_t)t_24});
+                int t_b1s = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_b1s,
+                    .temp_src1=(uint16_t)t_b1,.temp_src2=(uint16_t)t_16});
+                int t_b2s = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_b2s,
+                    .temp_src1=(uint16_t)t_b2,.temp_src2=(uint16_t)t_8});
+                int t_r1 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_r1,
+                    .temp_src1=(uint16_t)t_b0s,.temp_src2=(uint16_t)t_b1s});
+                int t_r2 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_r2,
+                    .temp_src1=(uint16_t)t_r1,.temp_src2=(uint16_t)t_b2s});
+                int t_result = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
+                    .temp_src1=(uint16_t)t_r2,.temp_src2=(uint16_t)t_b3});
+                c->last_expr_is_float = 0;
+                return t_result;
+            }
+
+            /* __builtin_ffs(x) - return 1 + index of least significant set
+             * bit (1-indexed), or 0 if x == 0.  Branchless bit scan:
+             * result = 0; for i in 0..31: if ((x>>i)&1) && result==0:
+             * result = i+1 */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_ffs") == 0) {
+                ASTRef f_arg = node->right;
+                int t_x = lower_expr(c, arena, f_arg);
+                /* t_one = 1 */
+                int t_one = c->next_temp_id++; ir_emit_mov_imm(t_one, 1);
+                /* t_zero = 0 */
+                int t_zero = c->next_temp_id++; ir_emit_mov_imm(t_zero, 0);
+                /* result = 0 */
+                int t_result = c->next_temp_id++; ir_emit_mov_imm(t_result, 0);
+                for (int b = 0; b < 32; b++) {
+                    /* t_bit = 1 << b */
+                    int t_bit = c->next_temp_id++;
+                    ir_emit_mov_imm(t_bit, 1);
+                    int t_bimm = c->next_temp_id++; ir_emit_mov_imm(t_bimm, b);
+                    ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
+                        .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
+                    /* t_masked = x & (1<<b) */
+                    int t_masked = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
+                        .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
+                    /* t_nonzero = (masked != 0) */
+                    int t_nonzero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
+                        .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_NE});
+                    /* t_res_zero = (result == 0) */
+                    int t_res_zero = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
+                        .cond=CC_EQ});
+                    /* t_set = nonzero && res_zero */
+                    int t_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
+                        .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
+                    /* t_val = b + 1 */
+                    int t_val = c->next_temp_id++; ir_emit_mov_imm(t_val, b + 1);
+                    /* t_val_set = val * set  (val if set, 0 otherwise) */
+                    int t_val_set = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
+                        .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
+                    /* result = result | val_set */
+                    ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
+                        .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
+                }
+                /* If x == 0, result should be 0 (all bits clear, loop sets nothing,
+                 * but result stays 0 anyway).  For x != 0, result = first set bit + 1.
+                 * The loop above already gives 0 when x == 0 since no t_set is 1. */
+                c->last_expr_is_float = 0;
+                return t_result;
+            }
+
+            /* __builtin_inf() - return double infinity. */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_inf") == 0) {
+                /* Infinity bit pattern: sign=0, exp=all-ones, mantissa=0 */
+                union { double d; int64_t i; } u;
+                u.i = 0x7FF0000000000000LL;
+                double inf = u.d;
+                size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+                if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
+                size_t rodata_offset = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, &inf, sizeof(double));
+                int temp = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)temp, (int64_t)rodata_offset);
+                c->last_expr_is_float = 1;
+                return temp;
+            }
+
+            /* __builtin_mul_overflow(a, b, &r) - store a*b to *r, return
+             * 1 if overflow, 0 otherwise. Conservative: always returns 0
+             * (no overflow) but correctly stores the product. */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_mul_overflow") == 0) {
+                ASTRef mo_arg = node->right;
+                int t_a = lower_expr(c, arena, mo_arg);
+                ZeroCCASTNode *an = zero_cc_ast_get(arena, mo_arg);
+                mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                int t_b = lower_expr(c, arena, mo_arg);
+                an = zero_cc_ast_get(arena, mo_arg);
+                mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                int t_ptr = lower_expr(c, arena, mo_arg);
+                int t_res = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_res,
+                    .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                ir_emit((Instr){.op=OP_STORE_32,.temp_dest=TEMP_NONE,
+                    .temp_src1=(uint16_t)t_res,.temp_src2=(uint16_t)t_ptr});
+                c->last_expr_is_float = 0;
+                return 0;
+            }
+
             if (callee_is_ident) {
                 /* Intercept __zerocc_syscall (zero_rt OS boundary):
                  * __zerocc_syscall(number, a, b, c, d, e, f) - 1..7 integer

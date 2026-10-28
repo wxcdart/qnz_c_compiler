@@ -1,5 +1,16 @@
 # ZeroCC Changelog
 
+## [Chunk M2 (partial)] - 2026-10-29 - GCC `c-torture` Partial-Mode MISCOMPILE Burn-Down (50/67 Resolved)
+
+Progress on Chunk M2 of the `c-torture` conformance plan (78 partial-mode `MISCOMPILE`s, 67 remaining in baseline).
+
+- **Fixed missing external-call symbol registration**: `__builtin_*` routines (`memcpy`, `memset`, `abort`, `exit`, `fabs`, ...) were mapped to base names but never registered as `ZeroCCFunction` entries. AOT codegen emitted `call` relocations with symbol index 0, no PLT entry, and `call +0` at runtime (SIGSEGV). Fixed by registering builtins as external `ZeroCCFunction` entries during lowering in `src/zero_cc/ir/ast_lowering_expr.c`. `__zerocc_*` intrinsics excluded (semantic analyzer treats them as implicitly declared).
+- **Added builtin lowerings**: `__builtin_expect`, `__builtin_prefetch`, `__builtin_constant_p`, `__builtin_bswap32`, `__builtin_ffs`, `__builtin_inf`, `__builtin_mul_overflow` lowered directly in IR.
+- **Result: 50/67 partial-mode MISCOMPILEs now pass both JIT and AOT at O0** (up from 0 at plan time).
+- **Remaining (17/67):** statement expressions + `mem2reg` stack-frame interaction (`20000917-1.c`), nested functions (`20040520-1.c`), float conditional codegen (`980604-1.c`), variadic float + nested function (`nest-stdar-1.c`), JIT-only symbol resolution (`20000917-1.c`, `pr58209.c`, `mzero4.c`), missing builtins (`pr109386.c`: `__builtin_fabsf`/`__builtin_isinf`/`__builtin_inff`/`__builtin_nanf`), and test-harness deps (`fp-cmp-7.c`: `link_error` stub).
+
+---
+
 ## [Chunk M1] - 2026-10-28 - GCC `c-torture` TIMEOUT Burn-Down (10/10 Hangs Resolved, 0 TIMEOUTs)
 
 Completed Chunk M1 of the `c-torture` conformance plan, resolving all 10 baseline `TIMEOUT` hangs (9 moving to `PASS`, 1 to `SKIP-C89`, leaving **0 TIMEOUTs** remaining). Across the entire 3,940-test corpus, **`PASS` increased 1,714 → 1,912 (+198 tests)** and **`REJECT` dropped 954 → 748 (-206 fewer rejections)**.
