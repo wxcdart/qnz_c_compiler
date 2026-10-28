@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-28T21:06:59Z
+timestamp: 2026-10-28T22:00:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -509,3 +509,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-28 — Updated `c-torture-gate.md`
 - Complete Chunk M2 (5/5 PASS): LP64 type macros, HW division regalloc intervals, struct memory lval/rval marshaling, and function identity tracking; PASS reaches 2042
+
+## 2026-10-28 — Updated `c-torture-gate.md`
+- Chunk M3: 22 MISCOMPILEs resolved (-22 to 148, PASS +22 to 2064) via generalized lvalues, non-local va_list/va_copy, multi-chunk struct passing & prototype conversion

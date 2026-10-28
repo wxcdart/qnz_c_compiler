@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-28T21:06:59Z
+timestamp: 2026-10-28T22:00:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M2 COMPLETE)
+## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M3 In Progress)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,042** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+66 from Phase 3 completion, +328 from initial baseline) |
-| **`REJECT`** | **713** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-35 from Phase 3 scalar typedefs & builtins, -241 from initial baseline) |
-| **`SKIP-C89`** | **672** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **170** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-26 from Phase 3, -48 from initial baseline) |
+| **`PASS`** | **2,064** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+22 from Chunk M3, +350 from initial baseline) |
+| **`REJECT`** | **714** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) |
+| **`SKIP-C89`** | **671** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **148** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-22 from Chunk M3: 170 → 148) |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |
@@ -152,13 +152,22 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
    - Function identity corruption & x86-64 MOVSXD operand bug: encapsulated `current_func_idx` in `LoweringState` so extern registrations during lowering (e.g. `abort`) do not overwrite the current function's label or prologue in `asm_emitter.c`; corrected `x86_emit_extend` to use destination register for both 32-bit and 64-bit MOVSXD operands. Fixed `execute/20171008-1.c`.
    - Result: Chunk M2 burned down to **0 failures (5/5 PASS)**; overall PASS increased to **2,042**, MISCOMPILE reduced to **170**.
 
+9. **Chunk M3: Generalized Lvalue Lowering, Non-Local `va_list` & `va_copy`, Multi-Chunk Struct Arguments & Prototype Conversions** (`src/zero_cc/core/preprocessor.h`, `parser/definitions.h`, `semantic/expr.c`, `ir/ast_lowering_internal.h`, `ir/ast_lowering_stmt.c`, `ir/ast_lowering_expr.c`):
+   - **Bitfield C11 §6.3.1.1p2 Promotion & Multi-Word Specifiers**: bitfields with width < 32 or (width == 32 and signed) are promoted to signed `int`, else unsigned `int` (`execute/bf-sign-2.c`). Parser consumes trailing `long` and `int` in struct member specifiers (`execute/struct-aliasing-1.c`).
+   - **`va_copy` & Macro Definitions**: predefined object/function macros `__va_copy` and `__builtin_va_copy` mapping to struct assignment (`execute/va-arg-14.c`).
+   - **Generalized Lvalue Address Lowering (`zero_cc_lower_lvalue_addr`)**: unified computation of base addresses across local identifiers, global variables, struct members (`p->m`, `s.m`), array indexing, and pointer dereferences. Used in `NODE_VA_START`, `NODE_VA_ARG`, and compound assignments.
+   - **Multi-Chunk Struct Copying (`zero_cc_emit_struct_copy_to_addr`)**: unified byte/chunk copying for struct assignments and initializations of arbitrary size (>16B, including 40B `va_list` objects) across local, member, global, and dereference destinations.
+   - **By-Value Struct Arguments Across Registers & Stack**: generalized `ast_expr_is_struct_addr()` and `NODE_CALL` to marshal struct arguments > 16B chunk-by-chunk across GP argument registers and stack slots, correctly handling member struct arguments (`dummy(statep->ap)` in `execute/va-arg-13.c`) and global struct arguments (`execute/packed-aligned.c`).
+   - **Function Prototype Argument Conversion**: implemented automatic conversion between scalar types (int to float/double via `cvtsi2sd`, float/double to int via `cvttsd2si`) during `NODE_CALL` argument marshaling according to the callee's prototype. Fixed `execute/va-arg-26.c`.
+   - **Result**: 22 MISCOMPILE tests burned down to PASS across all configurations (`bf-sign-2`, `packed-aligned`, `struct-aliasing-1`, `va-arg-10`, `va-arg-13`, `va-arg-14`, `va-arg-26`, etc.). Overall PASS increased to **2,064**, MISCOMPILE reduced from **170 → 148**.
+
 ---
 
-## 5. Chunked Burn-Down Plan (Remaining 1,182 Actionable Tests)
+## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
 
-Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`170 MISCOMPILE` + `0 TIMEOUT` + `713 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
+Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 
-### Tier 1: `TIMEOUT` & `MISCOMPILE` Burn-Down (170 tests → 1 Chunk Remaining)
+### Tier 1: `TIMEOUT` & `MISCOMPILE` Burn-Down (148 tests → 1 Chunk Remaining)
 
 | Chunk | Scope & Count | Failure Signature & Root-Cause Cluster |
 | :--- | :--- | :--- |

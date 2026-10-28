@@ -251,10 +251,12 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "__builtin_va_start(ap, last)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "__builtin_va_end", "ap", "((void)0)");
-    zero_cc_cpp_define_func2(cpp, "__builtin_va_copy", "dest", "src", "__builtin_va_copy(dest, src)");
+    zero_cc_cpp_define_func2(cpp, "__builtin_va_copy", "dest", "src", "((void)((dest) = (src)))");
+    zero_cc_cpp_define_func2(cpp, "__va_copy", "dest", "src", "((void)((dest) = (src)))");
     zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "__builtin_va_start(ap, last)");
     zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "va_end", "ap", "((void)0)");
+    zero_cc_cpp_define_func2(cpp, "va_copy", "dest", "src", "((void)((dest) = (src)))");
     zero_cc_cpp_define_func1(cpp, "__attribute__", "x", "");
     zero_cc_cpp_define_func1(cpp, "__attribute", "x", "");
     zero_cc_cpp_define_obj(cpp, "__extension__", "");
@@ -483,8 +485,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef struct { unsigned long long *gp; unsigned long long *gp_end; unsigned long long *fp; unsigned long long *fp_end; unsigned long long *ovf; } va_list;\n"
             "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
             "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
-            "#define va_end(ap) __builtin_va_end(ap)\n"
+            "#define va_end(ap) ((void)0)\n"
             "#define va_copy(dest, src) ((void)((dest) = (src)))\n"
+            "#define __va_copy(dest, src) ((void)((dest) = (src)))\n"
+            "#define __builtin_va_copy(dest, src) ((void)((dest) = (src)))\n"
             "#endif\n"
         );
     }

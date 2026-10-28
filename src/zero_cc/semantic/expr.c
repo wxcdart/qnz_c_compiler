@@ -580,6 +580,14 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
                 node->aux.step = ((uint32_t)fld->bit_offset) |
                                  (((uint32_t)fld->bit_width) << 8) |
                                  (((uint32_t)(fld->is_signed ? 1 : 0)) << 16);
+                /* C11 6.3.1.1p2: integer promotions apply to bit-fields:
+                 * if int can represent all values, promote to int;
+                 * otherwise if unsigned int can represent all values, promote to unsigned int. */
+                if (fld->bit_width < 32 || (fld->bit_width == 32 && fld->is_signed)) {
+                    member_t = type_int(ctx->perm_arena);
+                } else if (fld->bit_width == 32 && !fld->is_signed) {
+                    member_t = type_uint(ctx->perm_arena);
+                }
             }
         } else {
             /* A field table exists but has no such member: C99 6.5.2.1p3

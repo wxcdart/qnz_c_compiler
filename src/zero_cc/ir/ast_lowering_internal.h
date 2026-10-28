@@ -103,7 +103,13 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     if (ref == AST_NULL) return false;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return false;
-    if (node->tag == NODE_INDEX) {
+    if (node->tag == NODE_CALL) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+    } else if (node->tag == NODE_COMPOUND_LIT) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+    } else if (node->tag == NODE_INDEX) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
         ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
@@ -111,8 +117,21 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
             ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
             if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION)) return true;
         }
+    } else if (node->tag == NODE_IDENT) {
+        if (!zero_cc_find_local(c, node->s.str)) {
+            ZeroCCGlobalVar *gv = find_global_var(node->s.str);
+            if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION)) return true;
+        }
+    } else if (node->tag == NODE_MEMBER) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
     }
     return false;
 }
+
+int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                      int dst_addr, size_t struct_sz,
+                                      ASTRef rhs_ref, int rhs_temp);
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

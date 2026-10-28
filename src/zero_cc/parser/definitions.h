@@ -462,20 +462,35 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     typeof_type.is_atomic = false;
                 }
             }
-            if (mt == TK_UNSIGNED) {
-                is_unsigned = true;
+            if (mt == TK_UNSIGNED || mt == TK_SIGNED) {
+                is_unsigned = (mt == TK_UNSIGNED);
                 if (c->tokens[c->token_pos].type == TK_INT) { mt = TK_INT; c->token_pos++; }
                 else if (c->tokens[c->token_pos].type == TK_CHAR) { mt = TK_CHAR; c->token_pos++; }
-                else if (c->tokens[c->token_pos].type == TK_SHORT) { mt = TK_SHORT; c->token_pos++; }
-                else if (c->tokens[c->token_pos].type == TK_LONG) { mt = TK_LONG; c->token_pos++; }
+                else if (c->tokens[c->token_pos].type == TK_SHORT) {
+                    mt = TK_SHORT;
+                    c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+                }
+                else if (c->tokens[c->token_pos].type == TK_LONG) {
+                    mt = TK_LONG;
+                    c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+                }
                 else { mt = TK_INT; }
-            } else if (mt == TK_SIGNED) {
-                is_unsigned = false;
-                if (c->tokens[c->token_pos].type == TK_INT) { mt = TK_INT; c->token_pos++; }
-                else if (c->tokens[c->token_pos].type == TK_CHAR) { mt = TK_CHAR; c->token_pos++; }
-                else if (c->tokens[c->token_pos].type == TK_SHORT) { mt = TK_SHORT; c->token_pos++; }
-                else if (c->tokens[c->token_pos].type == TK_LONG) { mt = TK_LONG; c->token_pos++; }
-                else { mt = TK_INT; }
+            } else if (mt == TK_LONG) {
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+                if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                    is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+            } else if (mt == TK_SHORT) {
+                if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                    is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
             }
             while (c->tokens[c->token_pos].type == TK_CONST ||
                    c->tokens[c->token_pos].type == TK_VOLATILE ||
