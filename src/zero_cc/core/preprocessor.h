@@ -273,6 +273,20 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__aarch64__", "1");
     zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
 #endif
+    zero_cc_cpp_define_obj(cpp, "__SIZE_TYPE__", "unsigned long");
+    zero_cc_cpp_define_obj(cpp, "__PTRDIFF_TYPE__", "long");
+    zero_cc_cpp_define_obj(cpp, "__INTPTR_TYPE__", "long");
+    zero_cc_cpp_define_obj(cpp, "__UINTPTR_TYPE__", "unsigned long");
+    zero_cc_cpp_define_obj(cpp, "__INTMAX_TYPE__", "long");
+    zero_cc_cpp_define_obj(cpp, "__UINTMAX_TYPE__", "unsigned long");
+    zero_cc_cpp_define_obj(cpp, "__INT8_TYPE__", "signed char");
+    zero_cc_cpp_define_obj(cpp, "__INT16_TYPE__", "short");
+    zero_cc_cpp_define_obj(cpp, "__INT32_TYPE__", "int");
+    zero_cc_cpp_define_obj(cpp, "__INT64_TYPE__", "long");
+    zero_cc_cpp_define_obj(cpp, "__UINT8_TYPE__", "unsigned char");
+    zero_cc_cpp_define_obj(cpp, "__UINT16_TYPE__", "unsigned short");
+    zero_cc_cpp_define_obj(cpp, "__UINT32_TYPE__", "unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT64_TYPE__", "unsigned long");
 }
 
 static inline void zero_cc_cpp_undef(ZeroCCPreprocessor *cpp, const char *name) {

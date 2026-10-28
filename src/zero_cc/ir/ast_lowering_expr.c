@@ -585,8 +585,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             /* Special case: __func__ returns pointer to function name string */
             if (strcmp(name, "__func__") == 0) {
                 const char *fn_name = "";
-                if (c->function_count > 0) {
-                    fn_name = c->functions[c->function_count - 1].name;
+                ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
+                if (cur_fn) {
+                    fn_name = cur_fn->name;
                 }
                 size_t len = strlen(fn_name);
                 size_t rodata_offset = c->rodata_section.length;
@@ -1608,9 +1609,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             ZeroCCASTNode *ap_node = zero_cc_ast_get(arena, node->left);
             const char *ap_var = (ap_node && ap_node->tag == NODE_IDENT) ? ap_node->s.str : "";
             ZeroCCSym *ap_sym = zero_cc_find_local(c, ap_var);
+            ZeroCCFunction *fn = zero_cc_get_current_fn(c);
 
-            if (ap_sym && c->function_count > 0) {
-                ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+            if (ap_sym && fn) {
 
                 /* Save area base: above all named locals (mirrors the
                  * prologue's base_spill_offset = locals-top + 8). */
@@ -1697,6 +1698,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_sub(t_diff, t_ptr, t_end);
                 ir_emit_je((uint16_t)t_diff, ovf_label);
 
+                size_t struct_sz = (t_t && (t_t->kind == TYPE_KIND_STRUCT || t_t->kind == TYPE_KIND_UNION)) ? type_size(t_t) : 0;
+
                 /* Save-area path. The save slots extend toward MORE
                  * negative offsets (slot i at -(base + i*8)), so the
                  * stream pointer DECREASES by 8 per argument; it is
@@ -1704,14 +1707,31 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (is_fp) {
                     if (t_t->kind == TYPE_KIND_FLOAT) ir_emit_vloadss((uint16_t)result_temp, (uint16_t)t_ptr);
                     else ir_emit_vloadsd((uint16_t)result_temp, (uint16_t)t_ptr);
+                    int t_neg8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_neg8, -8);
+                    int t_ptr2 = c->next_temp_id++;
+                    ir_emit_add(t_ptr2, t_ptr, t_neg8);
+                    ir_emit_store(t_ptr2, BE(c)->fp_reg, -(ap_off - ptr_field));
+                } else if (struct_sz > 8 && struct_sz <= 16) {
+                    ir_emit_deref(result_temp, t_ptr);
+                    int t_neg8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_neg8, -8);
+                    int t_ptr2 = c->next_temp_id++;
+                    ir_emit_add(t_ptr2, t_ptr, t_neg8);
+                    ir_emit_deref(VREG_2, t_ptr2);
+                    int t_neg16 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_neg16, -16);
+                    int t_ptr3 = c->next_temp_id++;
+                    ir_emit_add(t_ptr3, t_ptr, t_neg16);
+                    ir_emit_store(t_ptr3, BE(c)->fp_reg, -(ap_off - ptr_field));
                 } else {
                     ir_emit_deref(result_temp, t_ptr);
+                    int t_neg8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_neg8, -8);
+                    int t_ptr2 = c->next_temp_id++;
+                    ir_emit_add(t_ptr2, t_ptr, t_neg8);
+                    ir_emit_store(t_ptr2, BE(c)->fp_reg, -(ap_off - ptr_field));
                 }
-                int t_neg8 = c->next_temp_id++;
-                ir_emit_mov_imm(t_neg8, -8);
-                int t_ptr2 = c->next_temp_id++;
-                ir_emit_add(t_ptr2, t_ptr, t_neg8);
-                ir_emit_store(t_ptr2, BE(c)->fp_reg, -(ap_off - ptr_field));
                 ir_emit_jmp(end_label);
 
                 /* Stack-overflow path: the caller's stack args sit at
@@ -1722,14 +1742,31 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (is_fp) {
                     if (t_t->kind == TYPE_KIND_FLOAT) ir_emit_vloadss((uint16_t)result_temp, (uint16_t)t_ovf);
                     else ir_emit_vloadsd((uint16_t)result_temp, (uint16_t)t_ovf);
+                    int t_pos8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_pos8, 8);
+                    int t_ovf2 = c->next_temp_id++;
+                    ir_emit_add(t_ovf2, t_ovf, t_pos8);
+                    ir_emit_store(t_ovf2, BE(c)->fp_reg, -(ap_off - 32));
+                } else if (struct_sz > 8 && struct_sz <= 16) {
+                    ir_emit_deref(result_temp, t_ovf);
+                    int t_pos8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_pos8, 8);
+                    int t_ovf2 = c->next_temp_id++;
+                    ir_emit_add(t_ovf2, t_ovf, t_pos8);
+                    ir_emit_deref(VREG_2, t_ovf2);
+                    int t_pos16 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_pos16, 16);
+                    int t_ovf3 = c->next_temp_id++;
+                    ir_emit_add(t_ovf3, t_ovf, t_pos16);
+                    ir_emit_store(t_ovf3, BE(c)->fp_reg, -(ap_off - 32));
                 } else {
                     ir_emit_deref(result_temp, t_ovf);
+                    int t_pos8 = c->next_temp_id++;
+                    ir_emit_mov_imm(t_pos8, 8);
+                    int t_ovf2 = c->next_temp_id++;
+                    ir_emit_add(t_ovf2, t_ovf, t_pos8);
+                    ir_emit_store(t_ovf2, BE(c)->fp_reg, -(ap_off - 32));
                 }
-                int t_pos8 = c->next_temp_id++;
-                ir_emit_mov_imm(t_pos8, 8);
-                int t_ovf2 = c->next_temp_id++;
-                ir_emit_add(t_ovf2, t_ovf, t_pos8);
-                ir_emit_store(t_ovf2, BE(c)->fp_reg, -(ap_off - 32));
                 ir_emit_label(end_label);
 
                 /* Narrow/widen integer targets to their true C width
@@ -1919,6 +1956,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             int right_temp = lower_expr(c, arena, node->right);
+            int right_is_float = c->last_expr_is_float;
 
             /* C11 6.5.16: pointer compound assignment (p += n / p -= n)
              * scales by sizeof(pointee), like pointer +/- arithmetic.  The
@@ -2400,6 +2438,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 if (is_elem_float) {
+                    if (!right_is_float) {
+                        int flt_temp = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)flt_temp, (uint16_t)right_temp);
+                        right_temp = flt_temp;
+                    }
                     if (elem_size == 4) {
                         ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
                     } else {
@@ -2431,7 +2474,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                 if (target_is_float) {
                     int float_temp = right_temp;
-                    if (!c->last_expr_is_float) {
+                    if (!right_is_float) {
                         /* Convert int to float via IR */
                         float_temp = c->next_temp_id++;
                         ir_emit_cvtsi2sd((uint16_t)float_temp, (uint16_t)right_temp);
@@ -2584,22 +2627,52 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 }
                             }
                         } else {
-                            ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
-                            if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
-                                /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
-                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
-                            } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
-                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
-                                size_t rem = sym->type.size - 8;
-                                int32_t tail_off = -(sym->stack_offset - 8);
-                                if (rem >= 8) {
-                                    ir_emit_store(reg2, BE(c)->fp_reg, tail_off);
+                            bool rhs_is_struct_addr = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                                                      !is_compound && ast_expr_is_struct_addr(c, arena, node->right);
+                            if (rhs_is_struct_addr) {
+                                if (sym->type.size <= 8) {
+                                    int val_temp = c->next_temp_id++;
+                                    if (sym->type.size == 1) ir_emit_load_byte(val_temp, right_temp);
+                                    else if (sym->type.size == 2) ir_emit_load_16(val_temp, right_temp);
+                                    else if (sym->type.size == 4) ir_emit_load_32(val_temp, right_temp);
+                                    else ir_emit_deref(val_temp, right_temp);
+                                    ir_emit_store(val_temp, BE(c)->fp_reg, -sym->stack_offset);
                                 } else {
-                                    int dst_addr = c->next_temp_id++;
-                                    ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
-                                    if (rem >= 4) ir_emit_store_32(reg2, dst_addr);
-                                    else if (rem >= 2) ir_emit_store_16(reg2, dst_addr);
-                                    else ir_emit_store_byte(reg2, dst_addr);
+                                    int val1 = c->next_temp_id++;
+                                    ir_emit_deref(val1, right_temp);
+                                    ir_emit_store(val1, BE(c)->fp_reg, -sym->stack_offset);
+
+                                    int off8 = c->next_temp_id++;
+                                    ir_emit_mov_imm(off8, 8);
+                                    int addr2 = c->next_temp_id++;
+                                    ir_emit_add(addr2, right_temp, off8);
+
+                                    int val2 = c->next_temp_id++;
+                                    size_t rem = sym->type.size - 8;
+                                    if (rem == 1) ir_emit_load_byte(val2, addr2);
+                                    else if (rem == 2) ir_emit_load_16(val2, addr2);
+                                    else if (rem == 4) ir_emit_load_32(val2, addr2);
+                                    else ir_emit_deref(val2, addr2);
+                                    ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                }
+                            } else {
+                                ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
+                                if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
+                                    /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
+                                    ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                                } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
+                                    int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+                                    size_t rem = sym->type.size - 8;
+                                    int32_t tail_off = -(sym->stack_offset - 8);
+                                    if (rem >= 8) {
+                                        ir_emit_store(reg2, BE(c)->fp_reg, tail_off);
+                                    } else {
+                                        int dst_addr = c->next_temp_id++;
+                                        ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
+                                        if (rem >= 4) ir_emit_store_32(reg2, dst_addr);
+                                        else if (rem >= 2) ir_emit_store_16(reg2, dst_addr);
+                                        else ir_emit_store_byte(reg2, dst_addr);
+                                    }
                                 }
                             }
                         }
@@ -2671,6 +2744,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             default: op_res = right_temp; break;
                         }
                         final_val = op_res;
+                    }
+                    bool rhs_is_struct_addr = (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) &&
+                                              !is_compound && ast_expr_is_struct_addr(c, arena, node->right);
+                    if (rhs_is_struct_addr) {
+                        int val_temp = c->next_temp_id++;
+                        if (gv_sz == 1) ir_emit_load_byte(val_temp, final_val);
+                        else if (gv_sz == 2) ir_emit_load_16(val_temp, final_val);
+                        else if (gv_sz == 4) ir_emit_load_32(val_temp, final_val);
+                        else ir_emit_deref(val_temp, final_val);
+                        final_val = val_temp;
                     }
                     if (gv_sz == 1) ir_emit_store_byte(final_val, gaddr_temp);
                     else if (gv_sz == 2) ir_emit_store_16(final_val, gaddr_temp);
@@ -4472,6 +4555,36 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_fstore((uint16_t)temp, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
                         fp_arg_idx++;
                     } else {
+                        size_t arg_struct_sz = 0;
+                        ZeroCCSym *arg_struct_sym = NULL;
+                        if (arg_node && arg_node->tag == NODE_IDENT) {
+                            arg_struct_sym = zero_cc_find_local(c, arg_node->s.str);
+                            if (arg_struct_sym && (arg_struct_sym->type.tag == TYPE_STRUCT ||
+                                                   arg_struct_sym->type.tag == TYPE_UNION)) {
+                                arg_struct_sz = arg_struct_sym->type.size;
+                            }
+                        } else if (arg_node) {
+                            TypeInfo *arg_ti = ast_node_get_typeinfo(c, arg_node);
+                            if (arg_ti && (arg_ti->kind == TYPE_KIND_STRUCT || arg_ti->kind == TYPE_KIND_UNION)) {
+                                arg_struct_sz = type_size(arg_ti);
+                            }
+                        }
+                        bool is_mem_struct = (arg_struct_sz > 0 && arg_struct_sz <= 16 &&
+                                              ast_expr_is_struct_addr(c, arena, arg));
+                        int mem_struct_addr = is_mem_struct ? temp : TEMP_NONE;
+                        if (is_mem_struct) {
+                            int val0 = c->next_temp_id++;
+                            if (arg_struct_sz < 8) {
+                                if (arg_struct_sz == 1) ir_emit_load_byte(val0, mem_struct_addr);
+                                else if (arg_struct_sz == 2) ir_emit_load_16(val0, mem_struct_addr);
+                                else if (arg_struct_sz == 4) ir_emit_load_32(val0, mem_struct_addr);
+                                else ir_emit_deref(val0, mem_struct_addr);
+                            } else {
+                                ir_emit_deref(val0, mem_struct_addr);
+                            }
+                            temp = val0;
+                        }
+
                         /* Integer or struct argument: spill to stack slot(s) */
                         int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
                         gp_stream++;
@@ -4490,38 +4603,34 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                          *  - struct/union local (NODE_IDENT): lower_expr
                          *    loaded only chunk 0 into `temp`, so the other
                          *    chunks are read from the local's stack slot;
+                         *  - struct/union in memory (NODE_INDEX, global, member):
+                         *    chunks are read from mem_struct_addr + ch * 8;
                          *  - any other 9-16 byte value (compound literal,
                          *    struct-returning call): chunk 1 sits in the ABI
                          *    secondary value register (rdx / a1 / x1);
                          *  - >16 byte values: `temp` already holds the
                          *    address of the value (ABI: passed by pointer),
                          *    so no extra chunks are passed. */
-                        size_t arg_struct_sz = 0;
-                        ZeroCCSym *arg_struct_sym = NULL;
-                        if (arg_node && arg_node->tag == NODE_IDENT) {
-                            arg_struct_sym = zero_cc_find_local(c, arg_node->s.str);
-                            if (arg_struct_sym && (arg_struct_sym->type.tag == TYPE_STRUCT ||
-                                                   arg_struct_sym->type.tag == TYPE_UNION)) {
-                                arg_struct_sz = arg_struct_sym->type.size;
-                            }
-                        } else if (arg_node) {
-                            TypeInfo *arg_ti = ast_node_get_typeinfo(c, arg_node);
-                            if (arg_ti && (arg_ti->kind == TYPE_KIND_STRUCT || arg_ti->kind == TYPE_KIND_UNION)) {
-                                arg_struct_sz = type_size(arg_ti);
-                            }
-                        }
                         if (arg_struct_sz > 8 && (arg_struct_sz <= 16 || (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym))) {
                             int num_chunks = (int)((arg_struct_sz + 7) / 8);
-                            /* Secondary chunk comes from VREG_2 (canonical secondary
-                             * value register: rdx on x86-64, x1 on AArch64, a1 on
-                             * RISC-V) — same as 9-16B struct returns and compound
-                             * literals. */
                             for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
                                 int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
                                 gp_stream++;
                                 int ch_temp = c->next_temp_id++;
                                 if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
                                     ir_emit_load(ch_temp, BE(c)->fp_reg, -(arg_struct_sym->stack_offset - ch * 8));
+                                } else if (is_mem_struct) {
+                                    int off_t = c->next_temp_id++;
+                                    ir_emit_mov_imm(off_t, ch * 8);
+                                    int ch_addr = c->next_temp_id++;
+                                    ir_emit_add(ch_addr, mem_struct_addr, off_t);
+                                    int ch_val = c->next_temp_id++;
+                                    size_t rem = arg_struct_sz - ch * 8;
+                                    if (rem == 1) ir_emit_load_byte(ch_val, ch_addr);
+                                    else if (rem == 2) ir_emit_load_16(ch_val, ch_addr);
+                                    else if (rem == 4) ir_emit_load_32(ch_val, ch_addr);
+                                    else ir_emit_deref(ch_val, ch_addr);
+                                    ch_temp = ch_val;
                                 } else {
                                     ir_emit_mov_reg(ch_temp, VREG_2);
                                 }

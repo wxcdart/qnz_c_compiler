@@ -243,15 +243,45 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                             /* Struct/union already initialized in-place by brace initializer */
                         } else {
                             /* Integer or small struct assignment: use IR store */
-                            ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
-                            if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8) {
-                                /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
-                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
-                            } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
-                                /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2)
-                                 * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
-                                 * via regalloc_get_reg_for_temp. */
-                                ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                            bool rhs_is_struct_addr = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                                                      ast_expr_is_struct_addr(c, arena, node->left);
+                            if (rhs_is_struct_addr) {
+                                if (sym->type.size <= 8) {
+                                    int val_temp = c->next_temp_id++;
+                                    if (sym->type.size == 1) ir_emit_load_byte(val_temp, result_temp);
+                                    else if (sym->type.size == 2) ir_emit_load_16(val_temp, result_temp);
+                                    else if (sym->type.size == 4) ir_emit_load_32(val_temp, result_temp);
+                                    else ir_emit_deref(val_temp, result_temp);
+                                    ir_emit_store(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                                } else {
+                                    int val1 = c->next_temp_id++;
+                                    ir_emit_deref(val1, result_temp);
+                                    ir_emit_store(val1, BE(c)->fp_reg, -sym->stack_offset);
+
+                                    int off8 = c->next_temp_id++;
+                                    ir_emit_mov_imm(off8, 8);
+                                    int addr2 = c->next_temp_id++;
+                                    ir_emit_add(addr2, result_temp, off8);
+
+                                    int val2 = c->next_temp_id++;
+                                    size_t rem = sym->type.size - 8;
+                                    if (rem == 1) ir_emit_load_byte(val2, addr2);
+                                    else if (rem == 2) ir_emit_load_16(val2, addr2);
+                                    else if (rem == 4) ir_emit_load_32(val2, addr2);
+                                    else ir_emit_deref(val2, addr2);
+                                    ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                }
+                            } else {
+                                ir_emit_store(result_temp, BE(c)->fp_reg, -sym->stack_offset);
+                                if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8) {
+                                    /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
+                                    ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                                } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
+                                    /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2)
+                                     * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
+                                     * via regalloc_get_reg_for_temp. */
+                                    ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                }
                             }
                         }
                     }
@@ -320,7 +350,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             /* System V AMD64 ABI: >16 byte struct returned via hidden pointer (sret) */
             /* RDI contains the hidden pointer to caller's buffer */
             else {
-                ZeroCCFunction *cur_fn = (c->function_count > 0) ? &c->functions[c->function_count - 1] : NULL;
+                ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
                 int32_t sret_off = cur_fn ? cur_fn->sret_stack_offset : 0;
 
                 /* Load hidden pointer directly into VREG_0 (RAX) from stack slot (RDI saved at -sret_off) */
@@ -375,7 +405,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         }
 
         int result_temp = lower_expr(c, arena, node->left);
-        ZeroCCFunction *cur_fn = (c->function_count > 0) ? &c->functions[c->function_count - 1] : NULL;
+        ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
         if (cur_fn && cur_fn->ret_struct_sz > 16) {
             /* Return expression (e.g., NODE_CALL or NODE_COMPOUND_LIT) evaluated to a pointer to a >16B struct buffer.
              * Copy chunks from [result_temp + i*8] to caller's sret buffer at -sret_off. */

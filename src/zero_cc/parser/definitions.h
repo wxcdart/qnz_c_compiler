@@ -1242,18 +1242,29 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     else if (t == TK_FLOAT_KW) { ttype = zero_cc_type_float(); c->token_pos++; }
     else if (t == TK_DOUBLE_KW) { ttype = zero_cc_type_double(); c->token_pos++; }
     else if (t == TK_BOOL_KW) { ttype = zero_cc_type_bool(); c->token_pos++; }
-    else if (t == TK_SHORT) { ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16(); c->token_pos++; }
+    else if (t == TK_SHORT) {
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+        ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
+    }
     else if (t == TK_LONG) {
         c->token_pos++;
-        if (c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
     }
     else if (t == TK_IDENT) {
         const char *tname = c->tokens[c->token_pos].str_val;
-        c->token_pos++;
         ZeroCCType *found = zero_cc_find_typedef(c, tname);
-        if (found) { ttype = *found; }
-        else { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); }
+        if (found) {
+            ttype = *found;
+            c->token_pos++;
+        } else if (!is_unsigned && !is_signed) {
+            ttype = zero_cc_type_int();
+            c->token_pos++;
+        } else {
+            ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+        }
     } else {
         ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
     }

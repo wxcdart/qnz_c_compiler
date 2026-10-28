@@ -86,11 +86,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * (builtins mapped to libc symbols register their extern during
      * lowering), so capture the identity now for the implicit-`return 0`
      * check, diagnostics, and the -dump-ir label below. */
+    size_t current_fn_idx = (c->function_count > 0) ? (c->function_count - 1) : 0;
     ZeroCCFunction *lowering_fn = (c->function_count > 0)
-        ? &c->functions[c->function_count - 1] : NULL;
+        ? &c->functions[current_fn_idx] : NULL;
 
     /* Initialize lowering state */
     memset(&c->lowering, 0, sizeof(c->lowering));
+    c->lowering.current_func_idx = current_fn_idx;
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
 
@@ -158,7 +160,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     if (can_promote_params) {
         c->current_stack_frame = 0;
-        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+        ZeroCCFunction *fn = lowering_fn;
         int int_idx = 0;
         int fp_idx = 0;
         for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
@@ -174,8 +176,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 zero_cc_emit_int_extend(c, sym->promoted_vreg, &sym->type);
             }
         }
-    } else if (c->function_count > 0) {
-        ZeroCCFunction *fn = &c->functions[c->function_count - 1];
+    } else if (lowering_fn) {
+        ZeroCCFunction *fn = lowering_fn;
         int xmm_idx = 0;
         int int_idx = 0;
         int stack_idx = 0;

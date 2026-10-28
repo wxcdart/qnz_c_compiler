@@ -81,12 +81,38 @@ static inline void zero_cc_emit_int_extend(ZeroCCCompiler *c, int temp, const Ze
     else ir_emit_zext(temp, w);
 }
 
+/* Helper: Get function currently being lowered */
+static inline ZeroCCFunction *zero_cc_get_current_fn(ZeroCCCompiler *c) {
+    if (c->function_count > 0 && c->lowering.current_func_idx < c->function_count) {
+        return &c->functions[c->lowering.current_func_idx];
+    }
+    return NULL;
+}
+
 /* Helper: Get current function's return type */
 static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
-    if (c->function_count > 0) {
-        return c->functions[c->function_count - 1].return_type;
+    ZeroCCFunction *fn = zero_cc_get_current_fn(c);
+    if (fn) {
+        return fn->return_type;
     }
     return zero_cc_type_int();
+}
+
+/* Check if an AST reference evaluates to a struct/union in memory (an address temp) */
+static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
+    if (!node) return false;
+    if (node->tag == NODE_INDEX) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
+        ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+        if (ln && ln->tag == NODE_IDENT) {
+            ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION)) return true;
+        }
+    }
+    return false;
 }
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

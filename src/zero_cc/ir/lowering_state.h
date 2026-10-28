@@ -45,6 +45,7 @@ typedef struct {
 
 /* Lowering State - Encapsulated per-compiler-instance state for Task 61/62 */
 typedef struct {
+    size_t current_func_idx;           /* Index of function currently being lowered */
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
     bool is_frameless;                 /* True when leaf function needs no stack frame */

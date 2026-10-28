@@ -960,6 +960,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else if (t == TK_LONG) {
         ty = zero_cc_type_int64(); (*pos)++;
         if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) (*pos)++; /* long long */
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* long int */
     } else if (t == TK_ATOMIC) {
         (*pos)++;
         if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
@@ -977,6 +978,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         if (*pos < c->token_count && c->tokens[*pos].type == TK_SHORT) {
             ty = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
             (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++;
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_CHAR) {
             ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
             (*pos)++;
@@ -984,6 +986,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
             (*pos)++;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) (*pos)++; /* long long */
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* unsigned long int */
         } else {
             if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* [int] */
             ty = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();

@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-28T20:19:42Z
+timestamp: 2026-10-28T21:06:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M2 In Progress)
+## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M2 COMPLETE)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **1,976** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+12 from Phase 1 & 2 burn-downs, +262 from initial baseline) |
-| **`REJECT`** | **748** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-1 from fp-cmp-7, -206 from initial baseline) |
-| **`SKIP-C89`** | **677** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **196** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-5 from Phase 2, -22 from initial baseline) |
+| **`PASS`** | **2,042** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+66 from Phase 3 completion, +328 from initial baseline) |
+| **`REJECT`** | **713** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-35 from Phase 3 scalar typedefs & builtins, -241 from initial baseline) |
+| **`SKIP-C89`** | **672** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **170** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-26 from Phase 3, -48 from initial baseline) |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |
@@ -144,18 +144,26 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
    - IEEE 754 float negation unary `-`: flipped bit 63 via stack XOR rather than `(0.0 - x)` (which produced `+0.0` on `-0.0` per IEEE 754 §6.3). Fixed `execute/pr35456.c` and `execute/ieee/pr109386.c`.
    - Result: 5 MISCOMPILEs + 1 REJECT promoted to PASS on all 8 configs; Chunk M2 reduced from 10 → 5 remaining.
 
+8. **Chunk M2 Completion: LP64 System Type Macros, HW Division Regalloc Intervals, Struct Memory Lval/Rval Marshaling, and Current Function Index Tracking** (`src/zero_cc/core/preprocessor.h`, `parser/definitions.h`, `parser/const_eval.h`, `ir/live_range.h`, `ir/lowering_state.h`, `ir/ast_lowering.c`, `ir/ast_lowering_stmt.c`, `ir/ast_lowering_expr.c`, `ir/asm_emitter.c`, `isa/x86_64.c`):
+   - LP64 standard type definitions (`__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, `__INTPTR_TYPE__`, `__INT32_TYPE__`, `__INT64_TYPE__`, etc.) and multi-word scalar typedef parsing (`typedef long unsigned int`, `long int`, `unsigned short int`). Fixed `execute/pr58209.c`, `mul-sext.c`, `strlen-2.c`, `va-arg-2.c`, etc.
+   - Hardware division clobber protection: x86-64 `idivq`/`divq` hard-clobbers `RAX` and `RDX`. Added fixed live-range intervals `[i, i]` for `VREG_0` (RAX) and `VREG_2` (RDX) at all division instructions in `live_range_compute`, preventing linear-scan regalloc from allocating loop invariants to `RDX` across division loops. Fixed `execute/memcpy-bi.c` (`SIGFPE`).
+   - Local/global struct initialization and assignment from memory addresses: added `ast_expr_is_struct_addr()` helper to distinguish struct addresses (`NODE_INDEX`) from struct values, properly copying chunks instead of storing the pointer. Fixed `execute/pr71700.c` and `execute/921123-2.c`.
+   - Float assignment evaluation order: saved `right_is_float` immediately after lowering RHS, preventing LHS array index expressions from clobbering `c->last_expr_is_float` and erroneously inserting `cvtsi2sd` conversions on float values. Also enhanced `NODE_CALL` and `va_arg` for 9-16B structs in memory. Fixed `execute/pr44575.c` and `execute/20021118-2.c`.
+   - Function identity corruption & x86-64 MOVSXD operand bug: encapsulated `current_func_idx` in `LoweringState` so extern registrations during lowering (e.g. `abort`) do not overwrite the current function's label or prologue in `asm_emitter.c`; corrected `x86_emit_extend` to use destination register for both 32-bit and 64-bit MOVSXD operands. Fixed `execute/20171008-1.c`.
+   - Result: Chunk M2 burned down to **0 failures (5/5 PASS)**; overall PASS increased to **2,042**, MISCOMPILE reduced to **170**.
+
 ---
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,182 Actionable Tests)
 
-Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`218 MISCOMPILE` + `10 TIMEOUT` + `954 REJECT`) by failing configuration and diagnostic message breaks the remaining work into 8 bounded sprint chunks, ordered **correctness before syntax**:
+Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`170 MISCOMPILE` + `0 TIMEOUT` + `713 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 
-### Tier 1: `TIMEOUT` & `MISCOMPILE` Burn-Down (228 tests → 3 Chunks)
+### Tier 1: `TIMEOUT` & `MISCOMPILE` Burn-Down (170 tests → 1 Chunk Remaining)
 
 | Chunk | Scope & Count | Failure Signature & Root-Cause Cluster |
 | :--- | :--- | :--- |
 | **Chunk M1** | **10 `TIMEOUT`s ✅ COMPLETE**<br>(`0 TIMEOUT remaining`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): resolved by .bss ELF NOBITS/mmap threshold, open-addressing enum registry hash table, enum false/true keyword fix, function-like macro whitespace handling, and __INT_MAX__ predefined macro.<br>• **2 optimizer loop hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): resolved by CFG loop clean-entry LICM hoist guard and linear-scan register allocator VREG_0/VREG_2 fixed-interval conflict protection + active interval expire guard.<br>• **4 runtime loop hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): resolved by float NODE_UNOP ++/--, static local struct/union brace initialization, ELF prototype symbol deduplication, AST statement progress guard, and unsigned promotion/condition code extension. Result: 9 PASS, 1 SKIP-C89. |
-| **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s**<br>(Already pass in ≥1 ZeroCC config)<br>✅ **62/67 resolved (measured)**<br>— 5 remaining | • **Root cause 1 — Missing external-call symbol registration:** `__builtin_*` routines (memcpy, memset, abort, exit, fabs, ...) were mapped to base names but never registered as `ZeroCCFunction` entries, so AOT codegen emitted `call` relocations with symbol index 0, no PLT entry, and `call +0` at runtime (SIGSEGV). Fixed by registering builtins as external `ZeroCCFunction` entries during lowering (`src/zero_cc/ir/ast_lowering_expr.c`).<br>• **Root cause 2 — Missing builtin lowerings:** `__builtin_expect`, `__builtin_prefetch`, `__builtin_constant_p`, `__builtin_bswap32`, `__builtin_ffs`, `__builtin_inf`/`inff`, `__builtin_nan`/`nanf`, `__builtin_fabs`/`fabsf`, `__builtin_isinf`/`isinff`, `__builtin_signbit`/`signbitf`, `__builtin_mul_overflow`/`add_overflow`/`sub_overflow`/`*_overflow_p`, `__builtin_ctz`/`__builtin_clz`/`__builtin_popcount` (branchless scan), `__builtin_unreachable`/`__builtin_trap` (new `OP_TRAP` opcode: `ud2`/`brk #0`/`unimp` per ISA) now lowered directly in IR.<br>• **Root cause 3 — Dereference assignment evaluation order & multi-chunk struct copying (`20000917-1.c`):** LHS target pointer is evaluated before the RHS value (volatile ABI return registers were clobbered by calls inside the LHS pointer computation); full 9-16B multi-register stores and >16B by-value struct memory copies; >16B local-struct RHS idents emit an LEA (address) for the copy loop while by-value argument marshaling keeps the 8-byte value load; 9-16B struct idents load both 8-byte chunks to match the by-value convention.<br>• **Root cause 4 — Extern registration side effects:** (a) the lowering-time extern registration pushed `main` off the end of `c->functions`, silently dropping the implicit `return 0` (C99 5.1.2.2.3p1) — the lowering entry now captures the function identity up front; (b) function-*pointer* variables were registered as external functions (direct `call` to undefined symbol) — registration now runs after indirect-call classification and only for direct calls to names with no function entry; (c) the global-scope registration loop treated every extern function-table entry as a variable — extern *objects* carry `is_object` flag and register as variables, extern *functions* as functions, and lowering phantoms are skipped.<br>• **Root cause 5 — Float condition lowering (`980604-1.c`):** `lower_condition_as_int` emits `cvtsi2sd` 0.0 + `ucomisd` on float condition temps before `OP_JE`, preventing integer `test %rax, %rax` on uninitialized GPRs.<br>• **Root cause 6 — IEEE 754 Float Negation & Math Libraries (`pr35456.c`, `20020720-1.c`, `mzero4.c`):** Unary `-` flips bit 63 via stack XOR (fixing `-0.0`); `-lm` and `-Wl,--defsym=link_error=0` link math and DejaGnu dead-code assertions.<br>• **Remaining (5/67):** `20171008-1.c` (optimizer inlining struct alignment), `memcpy-bi.c` (`SIGFPE` at -O2), `pr44575.c` (varargs struct array at -O2), `pr58209.c` (JIT memory resolution), and `pr71700.c` (JIT bitfield edge). |
+| **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s ✅ COMPLETE**<br>(`0 MISCOMPILE remaining / 67 resolved`) | • **Root causes resolved:** Missing external-call symbol registration, missing builtin lowerings, dereference assignment evaluation order & multi-chunk struct copying, extern registration side effects / `current_func_idx`, float condition lowering, IEEE-754 float negation unary `-`, LP64 type macros, division fixed intervals in regalloc, and float array element assignment order. Result: All 67 target tests pass across all configurations. |
 | **Chunk M3** | **140 All-Config `MISCOMPILE`s**<br>(Fail across all 8 `O0..O3 × JIT/AOT` configs) | • **Part A — Bitfields & Struct Layout**: bitfield signedness (`int x : 3` sign-extension on load), multi-word bitfield straddling, and nested struct/union assignment (`struct-cpy`, `bf-*`, `bitfld-*`).<br>• **Part B — Integer Promotions, Casts & Pointer Arithmetic**: sub-`int` (`char`/`short`) usual arithmetic conversions, compound assignments (`*=`, `/=`, `%=`) on narrow/unsigned types, and multidimensional array/pointer indexing. |
 
 ### Tier 2: `REJECT` Burn-Down (954 tests → 4 Chunks)

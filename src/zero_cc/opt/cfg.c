@@ -281,7 +281,9 @@ void cfg_dump(FILE *out) {
     if (!c || !cfg_build()) return;
     ZeroCCCFG *cfg = &c->cfg_cache;
     const char *fn_name = "<anon>";
-    if (c->function_count > 0) fn_name = c->functions[c->function_count - 1].name;
+    if (c->function_count > 0 && c->lowering.current_func_idx < c->function_count) {
+        fn_name = c->functions[c->lowering.current_func_idx].name;
+    }
     fprintf(out, "fn %s\n", fn_name);
     int reachable = 0;
     for (int b = 0; b < cfg->block_count; b++) {

@@ -22,7 +22,7 @@ static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
 /* Emit function label (.globl and func:) */
 void emit_function_label_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
-    size_t func_idx = c->function_count - 1;
+    size_t func_idx = c->lowering.current_func_idx;
 
     /* Emit .globl and label (skip .globl for static functions) */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
@@ -1108,7 +1108,7 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer();
     size_t count = ir_get_count();
-    size_t func_idx = c->function_count > 0 ? c->function_count - 1 : 0;
+    size_t func_idx = c->lowering.current_func_idx;
 
     /* Emit all IR instructions */
     for (size_t i = 0; i < count; i++) {

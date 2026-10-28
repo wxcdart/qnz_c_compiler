@@ -787,9 +787,9 @@ static void x86_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int 
             me_emit_u8(c, 0x0F);
             me_emit_u8(c, 0xBE);
             x86_modrm(c, 3, dst, rm);
-            x86_rex(c, 1, rex_r, 0, (src >> 3) & 1);
+            x86_rex(c, 1, rex_r, 0, (dst >> 3) & 1);
             me_emit_u8(c, 0x63);
-            x86_modrm(c, 3, dst, src);
+            x86_modrm(c, 3, dst, dst);
         } else {
             /* movzx r64, r/m8 */
             x86_rex(c, 1, rex_r, rex_x, rex_b);

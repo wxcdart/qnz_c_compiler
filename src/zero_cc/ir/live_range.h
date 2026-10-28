@@ -332,6 +332,20 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         }
     }
 
+    /* On x86-64, idiv/div instructions implicitly read/write RAX (phys 0)
+     * and RDX (phys 2). Register intervals at [i, i] for VREG_0 and VREG_2
+     * so that the register allocator never assigns RAX or RDX to any temp
+     * that is live across or used at an OP_DIV or OP_MOD. */
+    if (ra->target_isa == ISA_X86_64) {
+        for (size_t i = 0; i < instr_count; i++) {
+            Instr *ins = ir_get(i);
+            if (ins && (ins->op == OP_DIV || ins->op == OP_MOD)) {
+                regalloc_add_interval(ra, VREG_0, i, i, REG_CLASS_GPR);
+                regalloc_add_interval(ra, VREG_2, i, i, REG_CLASS_GPR);
+            }
+        }
+    }
+
     if (label_to_pos) free(label_to_pos);
 }
 
