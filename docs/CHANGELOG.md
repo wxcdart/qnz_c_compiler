@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [M1 Prep] - 2026-10-27 - c-torture Hang-Triage Tooling (`tools/torture_run.py`)
+
+Added the M1 chunk (`10 TIMEOUT`s) burn-down tooling to [`tools/torture_run.py`](../tools/torture_run.py). No compiler or baseline changes — the full gate still reports `1172 bad == baseline` (verified via `make test-torture`).
+
+- **`--hang-debug TEST`** (standalone mode, no sweep/baseline update): reproduces a test's hanging configs and captures the hang point. Two phases per config: a plain run confirms the hang and prints the exact `zerocc` invocation, then a re-run under `gdb` interrupts the hung inferior (SIGINT, like terminal Ctrl-C) and prints `bt` + source line + `x/4i $pc` disasm. gdb is launched as the inferior's **parent** (`--args`), so tracing works under `yama/ptrace_scope=1` where sibling attach is blocked. Config order: the baseline's `TIMEOUT` configs for that test, overridable with repeatable `--hang-config CFG`; stops after the first hang unless `--hang-all`. AOT binaries are kept under `/tmp/torture_work/hangdebug/<tid>/` for manual `gdb`/`objdump`.
+- **`--only-class CLASS`**: re-run exactly the tests of one baseline class — `--only-class TIMEOUT` is the 10-test M1 set in a single invocation (partial run; never updates the baseline).
+- **`--repro`**: prints the exact repro shell command for every failing config of each reported test (JIT: `zerocc -O<n> --run <t>`; AOT: build + run chain; compile: `-c` form, dg-options preserved via `zc_flags`).
+- **`--keep`**: retains sweep work artifacts (`obj_<tid>_O<lvl>.o`, `bin_<tid>_O<lvl>`) in `/tmp/torture_work` instead of unlinking them, for post-hoc inspection of hung/miscompiled builds.
+- **`--timeout SEC`**: overrides the per-step run/build timeout (defaults 5s run / 10s build) for both the sweep and `--hang-debug`.
+- **First triage findings** (recorded in [`docs/okf/c-torture-gate.md`](okf/c-torture-gate.md) §3): `compile/pr94238.c` hangs in `zero_cc_stmt_enum` (`src/zero_cc/parser/definitions.h:1180`, the enum-constant loop — confirms the "large enum chains" hypothesis); `execute/20011126-2.c`'s "optimizer hang" is actually an **optimizer-produced runtime infinite loop** (the `-O2` build succeeds; the generated `test()` spins on a `je`-backed loop) — i.e. an `-O2` miscompile, not a compile-time hang.
+- **Docs**: `tools/README.md` tool table gains the `torture_run.py` row; OKF `c-torture-gate.md` §3 (M1 triage workflow) and §5 (M1 chunk cross-reference) updated.
+- **Verification**: `python3 -m py_compile` clean; `--only-class TIMEOUT` re-runs exactly the 10 baseline `TIMEOUT` tests (all still `TIMEOUT`, gate OK); `--hang-debug` exercised against all three hang classes (compile hang → parser backtrace; runtime loop → pc disasm + kept binary; JIT hang → pc disasm of the JIT image); full `make test-torture` green (`1172 bad == baseline 1172`).
+
 ## [Sprint 57] - 2026-10-26 - GCC `c-torture` Conformance Gate & High-Leverage Correctness Fixes
 
 Established a ratcheting differential conformance gate against the vendored GCC `gcc.c-torture` test suite (`third_party/vendor/c-torture/`, 3,940 `.c` files from `gcc-mirror` commit `442eb35f`) ahead of the Windows (PE/COFF + Win64 ABI) phase, and fixed five compiler bugs exposed by the initial sweep.

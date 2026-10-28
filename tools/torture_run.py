@@ -33,6 +33,16 @@ Usage:
   python3 tools/torture_run.py --update-baseline
   python3 tools/torture_run.py --only "execute/pr" --limit 50   # dev iteration
   python3 tools/torture_run.py --quick       # -O1/-O2, JIT only
+
+M1 (TIMEOUT hang) burn-down tools:
+  python3 tools/torture_run.py --only-class TIMEOUT            # re-run just the 10 M1 hangs
+  python3 tools/torture_run.py --only "execute/pr94238" --repro # exact repro commands
+  python3 tools/torture_run.py --hang-debug "execute/pr94238"  # reproduce a hang and
+                                                               # gdb-attach: backtrace,
+                                                               # source line, pc disasm
+  python3 tools/torture_run.py --hang-debug T --hang-config O2-jit --hang-all
+  python3 tools/torture_run.py --keep                    # retain artifacts in /tmp/torture_work
+  python3 tools/torture_run.py --timeout 30              # override run/build timeout (sec)
 """
 
 import argparse
@@ -40,6 +50,8 @@ import concurrent.futures
 import hashlib
 import json
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -57,6 +69,7 @@ RUN_MODES = ["jit", "aot"]
 COMPILE_LEVELS = [0, 2]
 RUN_TIMEOUT = 5
 BUILD_TIMEOUT = 10
+KEEP = False  # --keep: retain work artifacts instead of unlinking
 
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
 # other architectures / features we deliberately do not implement).
@@ -151,6 +164,13 @@ def run(cmd, timeout):
         return "TIMEOUT", "", ""
 
 
+def keep_or_unlink(p):
+    """Remove a work artifact unless --keep is active (hang/miscompile retention)."""
+    if KEEP:
+        return
+    p.unlink(missing_ok=True)
+
+
 def gcc_ref(path, d, is_run):
     """Build (or reuse) the gcc reference. Returns (ok, artifact, detail)."""
     opt = d["options"]
@@ -230,7 +250,7 @@ def run_one(rel_path):
             out = WORK / ("obj_%s_O%d.o" % (tid, lvl))
             rc, _o, err = run(
                 [str(ZEROC), *fl, "-c", str(path), "-o", str(out)], BUILD_TIMEOUT)
-            out.unlink(missing_ok=True)
+            keep_or_unlink(out)
             if rc == "TIMEOUT":
                 res["configs"]["O%d-aot" % lvl] = "TIMEOUT"
             else:
@@ -261,18 +281,18 @@ def run_one(rel_path):
                 rc, _o, err = run(
                     [str(ZEROC), *fl, str(path), "-o", str(binp)], BUILD_TIMEOUT)
                 if rc == "TIMEOUT":
-                    binp.unlink(missing_ok=True)
+                    keep_or_unlink(binp)
                     res["configs"][tag] = "TIMEOUT"
                     continue
                 if rc != 0:
-                    binp.unlink(missing_ok=True)
+                    keep_or_unlink(binp)
                     res["configs"][tag] = "REJECT"
                     if not res["note"]:
                         errl = [l for l in err.splitlines() if l.strip()]
                         res["note"] = "; ".join(errl[-2:])[:200]
                     continue
                 rc, outp, err = run([str(binp)], d["timeout"])
-                binp.unlink(missing_ok=True)
+                keep_or_unlink(binp)
             if rc == "TIMEOUT":
                 res["configs"][tag] = "TIMEOUT"
                 continue
@@ -318,6 +338,168 @@ def _finalize(res, path):
         res["class"] = "PASS"
 
 
+def repro_cmd(rel_path, d, cfg):
+    """Exact shell command reproducing one (test, config) pair."""
+    lvl_s, mode = cfg.rsplit("-", 1)
+    lvl = int(lvl_s[1:])
+    path = CORPUS / rel_path
+    fl = " ".join(zc_flags(d, lvl))
+    if rel_path.startswith("compile/"):
+        return "%s %s -c %s -o /tmp/torture.o" % (ZEROC, fl, path)
+    if mode == "jit":
+        return "%s %s --run %s" % (ZEROC, fl, path)
+    return "%s %s %s -o /tmp/torture.bin && /tmp/torture.bin" % (ZEROC, fl, path)
+
+
+def gdb_probe(cmd, wait):
+    """Re-run cmd under gdb (gdb is the parent, so ptrace works even under
+    yama ptrace_scope=1). If the inferior survives `wait` seconds, interrupt
+    it (SIGINT, like terminal Ctrl-C) and grab bt + source line + pc disasm.
+    Returns the gdb transcript."""
+    p = subprocess.Popen(
+        ["gdb", "-q", "-nx",
+         "-iex", "set debuginfod enabled off",
+         "-ex", "set pagination off",
+         "-ex", "set confirm off",
+         "--args", *cmd],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    p.stdin.write("run\n")
+    p.stdin.flush()
+    try:
+        p.wait(timeout=wait)
+    except subprocess.TimeoutExpired:
+        p.send_signal(signal.SIGINT)
+        time.sleep(0.5)  # let gdb stop the inferior and reach the prompt
+        p.stdin.write("bt 25\ninfo line\nx/4i $pc\nquit\n")
+        p.stdin.flush()
+        try:
+            p.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            p.kill()
+    out, _ = p.communicate()
+    return out
+
+
+def spawn_and_watch(cmd, wait, label):
+    """Run cmd with a wall-clock budget. Returns (hung, rc).
+    On hang: print a marker and kill the process."""
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    try:
+        p.wait(timeout=wait)
+        return False, p.returncode
+    except subprocess.TimeoutExpired:
+        print("  HUNG after %ds (%s, pid %d)" % (wait, label, p.pid))
+        p.kill()
+        p.wait()
+        return True, None
+
+
+def hang_debug(test_arg, cfgs_override, hang_all):
+    """M1 triage: reproduce a test's hanging configs and capture the hang point.
+
+    Two phases per config: (1) a plain run confirms the hang and reports it;
+    (2) a re-run under gdb (gdb as parent, ptrace-safe under yama) interrupts
+    the hung inferior and prints bt + source line + pc disasm. Stops after the
+    first hang unless --hang-all. AOT binaries are kept under
+    /tmp/torture_work/hangdebug/<tid>/ for manual gdb/objdump.
+    """
+    if not shutil.which("gdb"):
+        sys.exit("--hang-debug requires gdb on PATH")
+    all_tests = sorted(
+        str(p.relative_to(CORPUS))
+        for p in list((CORPUS / "execute").rglob("*.c"))
+        + list((CORPUS / "compile").glob("*.c")))
+    matches = [t for t in all_tests if t == test_arg or test_arg in t]
+    if not matches:
+        sys.exit("no c-torture test matches %r" % test_arg)
+    if len(matches) > 1:
+        sys.exit("ambiguous %r: %s" % (test_arg, ", ".join(matches[:10])))
+    rel = matches[0]
+    path = CORPUS / rel
+    d = parse_directives(path)
+    in_execute = rel.startswith("execute/")
+    is_run = (d["do"] == "run") if d["do"] else in_execute
+
+    probe_cfgs = (["O%d-%s" % (l, m) for l in RUN_LEVELS for m in RUN_MODES]
+                  if is_run else ["O%d-aot" % l for l in COMPILE_LEVELS])
+    cfgs = list(cfgs_override)
+    if not cfgs and BASELINE_PATH.exists():
+        base = json.loads(BASELINE_PATH.read_text())["tests"].get(rel)
+        if base:
+            cfgs = sorted(c for c, v in base.get("configs", {}).items()
+                          if v == "TIMEOUT")
+            if cfgs:
+                print("baseline TIMEOUT configs: %s" % ",".join(cfgs))
+            else:
+                print("baseline class %s (no TIMEOUT configs); probing: %s"
+                      % (base["class"], ",".join(probe_cfgs)))
+    if not cfgs:
+        cfgs = probe_cfgs
+    print("hang-debug: %s (%s test) — trying: %s"
+          % (rel, "run" if is_run else "compile", ",".join(cfgs)))
+
+    hdir = WORK / "hangdebug" / hashlib.sha1(rel.encode()).hexdigest()[:12]
+    hdir.mkdir(parents=True, exist_ok=True)
+    hung_any = False
+
+    def probe(cmd, wait, label):
+        """Phase 1: confirm the hang. Phase 2: capture it under gdb."""
+        nonlocal hung_any
+        hung, rc = spawn_and_watch(cmd, wait, label)
+        if not hung:
+            if rc is not None:
+                print("  finished rc=%d (did not hang)" % rc)
+            return False
+        hung_any = True
+        print("  re-running under gdb to capture the hang point...")
+        transcript = gdb_probe(cmd, wait)
+        for line in transcript.splitlines():
+            if line.strip():
+                print("  " + line)
+        return True
+
+    for cfg in cfgs:
+        lvl_s, mode = cfg.rsplit("-", 1)
+        lvl = int(lvl_s[1:])
+        fl = zc_flags(d, lvl)
+        print("\n=== %s @ %s ===" % (rel, cfg))
+        if is_run and mode == "aot":
+            binp = hdir / ("bin_O%d" % lvl)
+            bcmd = [str(ZEROC), *fl, str(path), "-o", str(binp)]
+            print("  build: %s   (timeout %ds)" % (" ".join(map(str, bcmd)),
+                                                    BUILD_TIMEOUT))
+            hung, rc = spawn_and_watch(bcmd, BUILD_TIMEOUT, "build")
+            if hung:
+                hung_any = True
+                print("  re-running build under gdb to capture the hang point...")
+                for line in gdb_probe(bcmd, BUILD_TIMEOUT).splitlines():
+                    if line.strip():
+                        print("  " + line)
+            elif rc != 0:
+                print("  build rc=%d (not a build hang)" % rc)
+            else:
+                print("  run: %s   (timeout %ds)" % (binp, d["timeout"]))
+                if probe([str(binp)], d["timeout"], "runtime"):
+                    print("  hung binary kept: %s" % binp)
+        else:
+            if is_run:
+                cmd = [str(ZEROC), *fl, "--run", str(path)]
+                wait, label = d["timeout"], "jit build+run"
+            else:
+                cmd = [str(ZEROC), *fl, "-c", str(path),
+                       "-o", str(hdir / "obj.o")]
+                wait, label = BUILD_TIMEOUT, "compile"
+            print("  cmd: %s   (timeout %ds)" % (" ".join(map(str, cmd)),
+                                                 wait))
+            probe(cmd, wait, label)
+        if hung_any and not hang_all:
+            print("\n(first hang captured; re-run with --hang-all for the rest)")
+            break
+    print()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--update-baseline", action="store_true")
@@ -328,15 +510,43 @@ def main():
     ap.add_argument("--parallel", type=int, default=16)
     ap.add_argument("--show", type=int, default=25,
                     help="max issues to print in the report")
+    ap.add_argument("--only-class", metavar="CLASS",
+                    help="only re-run tests whose baseline class is CLASS "
+                         "(e.g. TIMEOUT = the M1 chunk)")
+    ap.add_argument("--keep", action="store_true",
+                    help="keep work artifacts (objects/binaries) in "
+                         "/tmp/torture_work for inspection")
+    ap.add_argument("--timeout", type=int, default=0, metavar="SEC",
+                    help="override the run/build timeout in seconds "
+                         "(defaults 5 run / 10 build)")
+    ap.add_argument("--repro", action="store_true",
+                    help="print the exact repro command for each failing "
+                         "config in the report")
+    ap.add_argument("--hang-debug", metavar="TEST",
+                    help="standalone: reproduce a test's hanging configs and "
+                         "gdb-attach when one hangs (M1 triage); no sweep, "
+                         "no baseline update")
+    ap.add_argument("--hang-config", metavar="CFG", action="append",
+                    help="force a config for --hang-debug (e.g. O2-jit)")
+    ap.add_argument("--hang-all", action="store_true",
+                    help="--hang-debug: keep going after the first hang")
     args = ap.parse_args()
 
-    global RUN_LEVELS, RUN_MODES
+    global RUN_LEVELS, RUN_MODES, KEEP, RUN_TIMEOUT, BUILD_TIMEOUT
     if args.quick:
         RUN_LEVELS = [1, 2]
         RUN_MODES = ["jit"]
+    KEEP = bool(args.keep)
+    if args.timeout > 0:
+        RUN_TIMEOUT = args.timeout
+        BUILD_TIMEOUT = args.timeout
 
     if not ZEROC.exists():
         sys.exit("build/bin/zerocc missing; run `make build/bin/zerocc` first")
+
+    if args.hang_debug:
+        hang_debug(args.hang_debug, args.hang_config or [], args.hang_all)
+        return
 
     tests = sorted(
         str(p.relative_to(CORPUS))
@@ -346,6 +556,12 @@ def main():
         tests = [t for t in tests if args.only in t]
     if args.limit:
         tests = tests[: args.limit]
+    if args.only_class:
+        if not BASELINE_PATH.exists():
+            sys.exit("--only-class requires an existing baseline")
+        cls = args.only_class.upper()
+        base = json.loads(BASELINE_PATH.read_text())["tests"]
+        tests = [t for t in tests if base.get(t, {}).get("class") == cls]
 
     t0 = time.time()
     results = {}
@@ -363,23 +579,33 @@ def main():
     for k in sorted(totals, key=lambda x: (-totals[x], x)):
         print("  %-16s %5d" % (k, totals[k]))
 
+    if KEEP:
+        print("\nwork artifacts kept under %s (obj_<tid>_O<lvl>.o, "
+              "bin_<tid>_O<lvl>)" % WORK)
+
     for k in ("MISCOMPILE", "REJECT", "TIMEOUT"):
-        lst = ["%s  %s" % (p, r.get("note", ""))
-               for p, r in sorted(results.items()) if r["class"] == k]
-        if not lst:
+        items = [(p, r) for p, r in sorted(results.items())
+                 if r["class"] == k]
+        if not items:
             continue
-        print("\n%s — %d:" % (k, len(lst)))
-        for line in lst[: args.show]:
-            print("  " + line)
-        if len(lst) > args.show:
-            print("  ... and %d more" % (len(lst) - args.show))
+        print("\n%s — %d:" % (k, len(items)))
+        for p, r in items[: args.show]:
+            print("  %s  %s" % (p, r.get("note", "")))
+            if args.repro:
+                d = parse_directives(CORPUS / p)
+                bad = sorted(c for c, v in r["configs"].items()
+                             if v in ("MISCOMPILE", "REJECT", "TIMEOUT"))
+                for cfg in bad:
+                    print("      %s: %s" % (cfg, repro_cmd(p, d, cfg)))
+        if len(items) > args.show:
+            print("  ... and %d more" % (len(items) - args.show))
 
     compact = {
         p: {"class": r["class"], "configs": r["configs"], "note": r["note"]}
         for p, r in results.items()
     }
 
-    is_partial = bool(args.only or args.limit or args.quick)
+    is_partial = bool(args.only or args.limit or args.quick or args.only_class)
     if args.update_baseline or (not BASELINE_PATH.exists() and not is_partial):
         if is_partial:
             sys.exit("--update-baseline requires a full run (no --only/--limit/--quick)")

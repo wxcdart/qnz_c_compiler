@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-27T11:35:39Z
+timestamp: 2026-10-27T12:48:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -75,13 +75,43 @@ make test-torture
 # Quick dev sweep (-O1 AOT only on execute/, -O0 on compile/)
 python3 tools/torture_run.py --quick
 
-# Filter by substring or limit count during bug triage (never overwrites baseline.json)
+# Filter by substring, limit count, or baseline class (never overwrites baseline.json)
 python3 tools/torture_run.py --only execute/pr --limit 100
 python3 tools/torture_run.py --only execute/2000
+python3 tools/torture_run.py --only-class TIMEOUT    # re-run exactly the 10 M1 hangs
+
+# M1 hang triage (TIMEOUT burn-down): exact repro commands per failing config,
+# artifact retention, timeout override, and automated hang capture
+python3 tools/torture_run.py --only "execute/930529-1" --repro
+python3 tools/torture_run.py --keep                  # retain objects/binaries in /tmp/torture_work
+python3 tools/torture_run.py --timeout 30            # override run/build timeout (sec)
+python3 tools/torture_run.py --hang-debug "execute/930529-1"        # capture a hang under gdb
+python3 tools/torture_run.py --hang-debug T --hang-config O2-jit --hang-all
 
 # Re-record baseline after fixing MISCOMPILE / REJECT / TIMEOUT bugs
 python3 tools/torture_run.py --update-baseline
 ```
+
+### M1 Hang Triage (`--hang-debug`)
+
+`--hang-debug TEST` (standalone mode; no sweep, no baseline update) reproduces a test's
+hanging configurations and captures the hang point. Per config it runs in two phases:
+(1) a plain run confirms the hang (and reports the exact `zerocc` invocation), then
+(2) a re-run under `gdb` — with gdb as the inferior's **parent**, so tracing works even
+under `yama/ptrace_scope=1` — interrupts the hung process (SIGINT, like terminal
+Ctrl-C) and prints `bt` + source line + `x/4i $pc` disasm. Config order is the
+baseline's `TIMEOUT` configs for that test (override with repeatable
+`--hang-config CFG`); it stops after the first hang unless `--hang-all`. AOT binaries
+are kept under `/tmp/torture_work/hangdebug/<tid>/` for manual `gdb`/`objdump`.
+For JIT-mode hangs the frames are frameless (JIT image) but the pc disasm shows the
+loop; for AOT binaries the kept `bin_O<n>` is the debuggable artifact.
+
+First findings (2026-10-27, before any M1 fixes):
+`compile/pr94238.c` hangs in `zero_cc_stmt_enum` (`src/zero_cc/parser/definitions.h:1180`
+— the enum-constant loop, confirming the "large enum chains" hypothesis); and
+`execute/20011126-2.c`'s "optimizer hang" is actually an **optimizer-produced runtime
+infinite loop** — the `-O2` build succeeds, and the generated `test()` body spins on a
+`je`-backed loop (miscompile, not a compile-time hang).
 
 ---
 
@@ -111,7 +141,7 @@ Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`21
 
 | Chunk | Scope & Count | Failure Signature & Root-Cause Cluster |
 | :--- | :--- | :--- |
-| **Chunk M1** | **10 `TIMEOUT`s**<br>(`4 compile`, `6 execute`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): parser/constant-evaluator loops on pathological input or large enum chains.<br>• **2 optimizer-only runtime hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): pass `-O0/-O1`, hang at `-O2/-O3` (LICM/GVN/inlining loop transformation).<br>• **4 all-level runtime hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): loop termination / unsigned wraparound at `-O0`. |
+| **Chunk M1** | **10 `TIMEOUT`s**<br>(`4 compile`, `6 execute`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): parser/constant-evaluator loops on pathological input or large enum chains. Triage: `python3 tools/torture_run.py --hang-debug "compile/pr94238"` (see §3).<br>• **2 optimizer-only runtime hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): pass `-O0/-O1`, hang at `-O2/-O3` (LICM/GVN/inlining loop transformation).<br>• **4 all-level runtime hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): loop termination / unsigned wraparound at `-O0`. |
 | **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s**<br>(Already pass in ≥1 ZeroCC config) | • **57 pass `O0-jit` (`rc=0`) but crash (`SIGSEGV`) in `O0-aot` and `O1..O3-jit`** (e.g. `execute/20000703-1.c`, `execute/20001111-1.c`, `execute/20010915-1.c`): shared root cause in struct/array member decay (`p->b`) or statement expressions `({ ... })` interacting with stack frame layout / `mem2reg`.<br>• **17 AOT-only failures** (pass `O0..O3` in JIT, fail AOT): ELF relocation / `.data` / symbol emission differences between `execution.h` and `elf_writer.c` (incl. 4 `Linking failed` cases).<br>• **3 JIT-only failures** (pass `O0..O3` in AOT, fail JIT): JIT symbol resolution / data-page patching.<br>• **1 `-O2/-O3`-only failure** (`execute/20020720-1.c`). |
 | **Chunk M3** | **140 All-Config `MISCOMPILE`s**<br>(Fail across all 8 `O0..O3 × JIT/AOT` configs) | • **Part A — Bitfields & Struct Layout**: bitfield signedness (`int x : 3` sign-extension on load), multi-word bitfield straddling, and nested struct/union assignment (`struct-cpy`, `bf-*`, `bitfld-*`).<br>• **Part B — Integer Promotions, Casts & Pointer Arithmetic**: sub-`int` (`char`/`short`) usual arithmetic conversions, compound assignments (`*=`, `/=`, `%=`) on narrow/unsigned types, and multidimensional array/pointer indexing. |
 
