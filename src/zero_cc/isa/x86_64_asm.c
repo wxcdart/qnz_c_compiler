@@ -869,9 +869,7 @@ static void x86_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FI
 static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *size_name = BE(c)->get_hw_reg_name(size);
-    fprintf(out, "\tmovq\t%%%s,%%rax\n", size_name);
-    fprintf(out, "\tandq\t$-16,%%rax\n");
-    fprintf(out, "\tsubq\t%%rax,%%rsp\n");
+    fprintf(out, "\tsubq\t%%%s,%%rsp\n", size_name);
     fprintf(out, "\tmovq\t%%rsp,%%%s\n", dst_name);
 }
 

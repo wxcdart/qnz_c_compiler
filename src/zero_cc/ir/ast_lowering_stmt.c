@@ -340,6 +340,11 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
         if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
+            if (sym->is_promoted) {
+                ir_emit_mov_reg(VREG_0, sym->promoted_vreg);
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
             int32_t struct_offset = -sym->stack_offset;
             if (c->isa == ISA_RISCV32 && sym->type.size > 4 && sym->type.size <= 8) {
                 /* RV32 ILP32 ABI: 5-8 byte struct returned across a0 (VREG_0) and a1 (VREG_2) */

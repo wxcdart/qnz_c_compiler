@@ -354,7 +354,7 @@ static inline bool zero_cc_parse_declarator_internal(
                 is_paren = true;
             } else if (next_tok == TK_IDENT) {
                 const char *s = c->tokens[c->token_pos + 1].str_val;
-                if (!zero_cc_find_typedef(c, s) && !zero_cc_find_struct(c, s) && !zero_cc_find_enum(c, s)) {
+                if (!zero_cc_find_typedef(c, s)) {
                     is_paren = true;
                 }
             } else if (next_tok == TK_RPAREN) {

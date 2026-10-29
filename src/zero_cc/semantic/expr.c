@@ -118,6 +118,12 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
             expr_node_set_type(ctx, node, res);
             return res;
         }
+        if (strcmp(name, "__builtin_alloca") == 0 || strcmp(name, "alloca") == 0) {
+            TypeInfo *ret = type_pointer_to(ctx->perm_arena, type_void(ctx->perm_arena));
+            TypeInfo *res = type_function(ctx->perm_arena, ret, NULL, 0, true);
+            expr_node_set_type(ctx, node, res);
+            return res;
+        }
         if (strncmp(name, "__builtin_", 10) == 0 ||
             strncmp(name, "__sync_", 7) == 0 ||
             strncmp(name, "__atomic_", 9) == 0 ||

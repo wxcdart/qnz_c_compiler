@@ -49,9 +49,7 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     }
     if (t == TK_IDENT) {
         const char *name = c->tokens[pos].str_val;
-        return zero_cc_find_typedef(c, name) != NULL ||
-               zero_cc_find_struct(c, name) != NULL ||
-               zero_cc_find_enum(c, name) != NULL;
+        return zero_cc_find_typedef(c, name) != NULL;
     }
     return false;
 }
@@ -689,7 +687,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
                         next == TK_TYPEOF || next == TK_TYPEOF_UNQUAL);
         if (!is_type && next == TK_IDENT) {
             const char *name = c->tokens[*pos].str_val;
-            if (zero_cc_find_typedef(c, name) || zero_cc_find_struct(c, name) || zero_cc_find_enum(c, name)) {
+            if (zero_cc_find_typedef(c, name)) {
                 is_type = true;
             }
         }

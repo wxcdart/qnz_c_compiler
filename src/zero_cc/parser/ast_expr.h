@@ -1121,7 +1121,7 @@ static bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t)
     if (t == TK_IDENT && pos < c->token_count) {
         const char *tname = c->tokens[pos].allocated_str ?
                             c->tokens[pos].allocated_str : c->tokens[pos].str_val;
-        if (zero_cc_find_typedef(c, tname) != NULL || zero_cc_find_struct(c, tname) != NULL || zero_cc_find_enum(c, tname) != NULL) {
+        if (zero_cc_find_typedef(c, tname) != NULL) {
             return true;
         }
     }

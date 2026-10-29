@@ -1,6 +1,32 @@
 # ZeroCC Changelog
 
-## [Chunk M2 (continued)] - 2026-10-30 - External-Registration Regression Burn-Down & Gate Re-Baseline (49/67 M2 Resolved, Gate Green)
+## [Chunk M4] - 2026-10-29 - GCC `c-torture` MISCOMPILE & REJECT Conformance Sweep (PASS reaches 2,101, MISCOMPILE down to 129)
+
+- **Bitfield Assignment & Multiple Declarator Packing**:
+  - Implemented generalized `assign_member_bitfield` helper in `src/zero_cc/ir/ast_lowering_expr.c` supporting compound assignment and 64-bit storage units.
+  - Fixed comma-separated bitfield declarator parsing in `src/zero_cc/parser/definitions.h` to properly group contiguous bitfield members instead of allocating full 4-byte boundaries.
+  - Implemented `__builtin_classify_type` lowering in IR.
+  - Fixed promoted struct parameter returns (`sym->is_promoted`) in `ast_lowering_stmt.c`.
+  - Fixed `(uint8_t)` register truncation bug in global float member loads (`ir_emit_vloadsd`/`ir_emit_vloadss`) that caused temp register numbers $\ge 256$ to wrap around modulo 256.
+  - Resolves `execute/20040709-1.c`, `execute/20040709-2.c`, `execute/20040709-3.c`.
+- **1-Element Struct Member Array Decay**:
+  - Replaced faulty `elem_count > 1` checks in `definitions.h` with an explicit `is_array` flag, allowing single-element struct arrays (`unsigned char data[1]`) to retain `TYPE_ARRAY` rather than collapsing into scalars.
+  - Resolves `execute/20080222-1.c`, `execute/pr41395-1.c`, `execute/pr41395-2.c`.
+- **Compound Assignment Width Mismatch**:
+  - Load and extend narrow types using `p_size` rather than full 8-byte loads (`ast_lowering_expr.c`), resolving `execute/990222-1.c`.
+- **Struct Tag Namespace Collisions**:
+  - Restricted identifier-based type checks in `ast_expr.h`, `const_eval.h`, and `zero_cc_declarator_stack.h` to `zero_cc_find_typedef`, preventing bare struct tags from colliding with identifier variables (`execute/pr30778.c`).
+- **Struct Cast Lvalue Lowering & Array Pointer Decay**:
+  - Generalized address lowering in `ast_lowering_expr.c` for `(*(T*)&B).member` and skipped memory dereferencing for array decay in `*(*(p + i) + j)`.
+  - Resolves `execute/pr43987.c`, `execute/pr124358.c`, `execute/pr42154.c`, `execute/pr84339.c`, `execute/pr30185.c`, `execute/20040625-1.c`, `execute/950628-1.c`.
+- **Results**:
+  - **`PASS`**: Increased from 2,064 to **2,101** (+37 tests passing across all -O0..-O3 JIT & AOT configs).
+  - **`MISCOMPILE`**: Reduced from 148 to **129** (-19 miscompiles).
+  - **`REJECT`**: Reduced from 714 to **699** (-15 compiler rejections).
+  - **0 regressions** against baseline across the 3,940-test corpus.
+- **Verification**: `make test` 156/156 passed · `make test-opt` 117/117 passed · `tools/sret_verifier.py` 6/6 passed · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `make test-torture` baseline updated.
+
+---
 
 Worktree sweeps of `28b5e28`/`a431205` revealed their ratcheted baselines were recorded **before** those commits' code landed in the sweep: both trees regressed 25+ tests against their own baselines (the "50/67" figure was never gate-verified). This session repaired every regression and burned down 52 more tests.
 

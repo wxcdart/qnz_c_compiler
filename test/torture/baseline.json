@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-28T21:59:29Z",
+ "generated": "2026-10-29T01:15:27Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -208,12 +208,12 @@
    "note": ""
   },
   "compile/20000504-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000511-1.c": {
    "class": "SKIP-C89",
@@ -676,7 +676,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20010503-1.c": {
    "class": "PASS",
@@ -2036,7 +2036,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                         ^; Compile error: use of undeclared identifier 'G928b' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20040202-1.c": {
    "class": "PASS",
@@ -2595,7 +2595,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20051228-1.c": {
    "class": "PASS",
@@ -3078,12 +3078,12 @@
    "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20080929-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20081101-1.c": {
    "class": "PASS",
@@ -3925,7 +3925,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                   ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: use of undeclared identifier 'v' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-4.c": {
    "class": "PASS",
@@ -4193,7 +4193,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                         ^; Compile error: use of undeclared identifier 'y' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920825-1.c": {
    "class": "REJECT",
@@ -4201,7 +4201,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                   ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920825-2.c": {
    "class": "PASS",
@@ -4264,7 +4264,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920928-2.c": {
    "class": "SKIP-C89",
@@ -4304,7 +4304,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                 ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/921004-1.c": {
    "class": "PASS",
@@ -4360,7 +4360,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'p' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/921021-1.c": {
    "class": "SKIP-C89",
@@ -4897,7 +4897,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                                      ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/941014-4.c": {
    "class": "SKIP-TARGET:label_values",
@@ -6180,12 +6180,12 @@
    "note": ""
   },
   "compile/b2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/b3.c": {
    "class": "REJECT",
@@ -8186,7 +8186,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr108783.c": {
    "class": "PASS",
@@ -8532,7 +8532,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                    ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "             ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr113623.c": {
    "class": "REJECT",
@@ -8540,7 +8540,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "              ^; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr113759.c": {
    "class": "REJECT",
@@ -8681,7 +8681,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                ^; Compile error: use of undeclared identifier 'm_lowres' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr122588-1.c": {
    "class": "SKIP-C89",
@@ -9005,7 +9005,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                         ^; Compile error: unexpected token in brace initializer (near 'global_int') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                 ^; Compile error: unexpected token in brace initializer (near 'global_int') [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr20203.c": {
    "class": "PASS",
@@ -9465,7 +9465,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: invalid operands to binary operator 74; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr27528.c": {
    "class": "SKIP-C89",
@@ -9507,12 +9507,12 @@
    "note": ""
   },
   "compile/pr28675.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr28776-1.c": {
    "class": "REJECT",
@@ -10678,12 +10678,12 @@
    "note": ""
   },
   "compile/pr39614-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39614-2.c": {
    "class": "PASS",
@@ -10883,7 +10883,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr40233.c": {
    "class": "PASS",
@@ -12748,20 +12748,20 @@
    "note": ""
   },
   "compile/pr58970-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr58970-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr58978.c": {
    "class": "PASS",
@@ -13086,7 +13086,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr65735.c": {
    "class": "PASS",
@@ -13445,7 +13445,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr77754-5.c": {
    "class": "REJECT",
@@ -13562,7 +13562,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr79197.c": {
    "class": "PASS",
@@ -13722,7 +13722,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr82096.c": {
    "class": "SKIP-TARGET:arm",
@@ -14073,12 +14073,12 @@
    "note": "              ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
   },
   "compile/pr88140.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr88347.c": {
    "class": "NO-REF",
@@ -14360,12 +14360,12 @@
    "note": ""
   },
   "compile/pr93776.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                          ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr93927-1.c": {
    "class": "PASS",
@@ -14746,7 +14746,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/sc.c": {
    "class": "SKIP-C89",
@@ -15209,7 +15209,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/structs.c": {
    "class": "REJECT",
@@ -15396,12 +15396,12 @@
    "note": "            ^; Compile error: use of undeclared identifier 'random'; did you mean 'xlrandom'? | cfgs: O0-aot,O2-aot"
   },
   "compile/unalign-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/uns.c": {
    "class": "SKIP-C89",
@@ -15767,18 +15767,18 @@
    "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000113-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000121-1.c": {
    "class": "PASS",
@@ -16187,18 +16187,18 @@
    "note": ""
   },
   "execute/20000605-2.c": {
-   "class": "PASS",
+   "class": "MISCOMPILE",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
     "O1-jit": "OK",
     "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "OK",
+    "O3-aot": "MISCOMPILE",
     "O3-jit": "OK"
    },
-   "note": ""
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-jit,O1-aot,O3-aot"
   },
   "execute/20000605-3.c": {
    "class": "PASS",
@@ -17758,21 +17758,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 'a' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020215-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020216-1.c": {
    "class": "PASS",
@@ -17887,18 +17887,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'alloca' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020320-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020321-1.c": {
    "class": "PASS",
@@ -18433,18 +18433,18 @@
    "note": ""
   },
   "execute/20021113-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20021118-1.c": {
    "class": "PASS",
@@ -18998,18 +18998,18 @@
    "note": ""
   },
   "execute/20030717-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030718-1.c": {
    "class": "PASS",
@@ -19297,18 +19297,18 @@
    "note": ""
   },
   "execute/20031211-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20031211-2.c": {
    "class": "SKIP-C89",
@@ -19322,7 +19322,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20031214-1.c": {
    "class": "REJECT",
@@ -19638,18 +19638,18 @@
    "note": "ref(rc=0 out='') O0 got rc=4 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/20040625-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040629-1.c": {
    "class": "REJECT",
@@ -19663,7 +19663,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                                 ^; Compile error: use of undeclared identifier 'b' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040703-1.c": {
    "class": "PASS",
@@ -19705,7 +19705,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                                 ^; Compile error: use of undeclared identifier 'b' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040705-2.c": {
    "class": "REJECT",
@@ -19719,7 +19719,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                                 ^; Compile error: use of undeclared identifier 'b' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040706-1.c": {
    "class": "PASS",
@@ -19750,46 +19750,46 @@
    "note": ""
   },
   "execute/20040709-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040709-2.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040709-3.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040805-1.c": {
    "class": "PASS",
@@ -20354,7 +20354,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                 ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050607-1.c": {
    "class": "PASS",
@@ -20471,7 +20471,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                   ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                 ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20051110-1.c": {
    "class": "PASS",
@@ -20502,18 +20502,18 @@
    "note": ""
   },
   "execute/20051113-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20051215-1.c": {
    "class": "PASS",
@@ -20586,18 +20586,18 @@
    "note": ""
   },
   "execute/20060412-1.c": {
-   "class": "PASS",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": ""
+   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20060420-1.c": {
    "class": "MISCOMPILE",
@@ -20681,7 +20681,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                     ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                     ^; Compile error: use of undeclared identifier 't' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20061031-1.c": {
    "class": "SKIP-C89",
@@ -20754,18 +20754,18 @@
    "note": ""
   },
   "execute/20070212-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20070212-2.c": {
    "class": "PASS",
@@ -20866,18 +20866,18 @@
    "note": ""
   },
   "execute/20070824-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20070919-1.c": {
    "class": "SKIP-C89",
@@ -20975,7 +20975,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token in brace initializer (near 'deferred_access_no_check') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                              ^; Compile error: unexpected token in brace initializer (near 'deferred_access_no_check') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20071202-1.c": {
    "class": "REJECT",
@@ -21105,18 +21105,18 @@
    "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20080222-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20080408-1.c": {
    "class": "PASS",
@@ -21242,7 +21242,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20080719-1.c": {
    "class": "PASS",
@@ -21494,7 +21494,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                 ^; Compile error: use of undeclared identifier 'f' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20100416-1.c": {
    "class": "REJECT",
@@ -21648,7 +21648,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                           ^; Compile error: unknown identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20111227-1.c": {
    "class": "PASS",
@@ -22127,18 +22127,18 @@
    "note": "<stdin>: error: incompatible types in assignment; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20190901-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20191023-1.c": {
    "class": "PASS",
@@ -22996,7 +22996,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                     ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                     ^; Compile error: use of undeclared identifier 'cell' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/921123-1.c": {
    "class": "SKIP-C89",
@@ -23235,7 +23235,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 's' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930429-1.c": {
    "class": "PASS",
@@ -23982,7 +23982,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931110-2.c": {
    "class": "PASS",
@@ -24349,18 +24349,18 @@
    "note": "          ^; Compile error: incompatible return type in return statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950628-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/950704-1.c": {
    "class": "PASS",
@@ -24612,7 +24612,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: use of undeclared identifier 'foo' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960302-1.c": {
    "class": "PASS",
@@ -25063,18 +25063,18 @@
    "note": ""
   },
   "execute/961223-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/970214-1.c": {
    "class": "REJECT",
@@ -25633,18 +25633,18 @@
    "note": ""
   },
   "execute/990222-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/990324-1.c": {
    "class": "PASS",
@@ -25829,18 +25829,18 @@
    "note": ""
   },
   "execute/990811-1.c": {
-   "class": "REJECT",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": "        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/990826-0.c": {
    "class": "REJECT",
@@ -25983,18 +25983,18 @@
    "note": ""
   },
   "execute/991118-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/991201-1.c": {
    "class": "REJECT",
@@ -26302,7 +26302,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'foo' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/arith-1.c": {
    "class": "PASS",
@@ -26445,18 +26445,18 @@
    "note": ""
   },
   "execute/bf64-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/bitfld-1.c": {
    "class": "REJECT",
@@ -29774,7 +29774,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/mayalias-1.c": {
    "class": "PASS",
@@ -30084,7 +30084,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "MISCOMPILE"
    },
-   "note": "ref(rc=0 out='') O0 got rc=16 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=48 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/nestfunc-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -30165,7 +30165,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 't' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/packed-2.c": {
    "class": "PASS",
@@ -30224,18 +30224,18 @@
    "note": "ref(rc=0 out='') O0 got rc=1 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr100453.c": {
-   "class": "PASS",
+   "class": "REJECT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
    },
-   "note": ""
+   "note": "         ^; Compile error: use of undeclared identifier 'd' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr101188.c": {
    "class": "PASS",
@@ -30953,18 +30953,18 @@
    "note": ""
   },
   "execute/pr111613.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr111863-1.c": {
    "class": "PASS",
@@ -31375,7 +31375,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                  ^; Compile error: use of undeclared identifier 'g_205' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr123753.c": {
    "class": "REJECT",
@@ -31389,7 +31389,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                 ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr123864.c": {
    "class": "MISCOMPILE",
@@ -31420,18 +31420,18 @@
    "note": ""
   },
   "execute/pr124358.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr125291.c": {
    "class": "SKIP-C89",
@@ -31730,7 +31730,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 'f' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr20100-1.c": {
    "class": "PASS",
@@ -31968,7 +31968,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr22141-2.c": {
    "class": "REJECT",
@@ -31982,7 +31982,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr22348.c": {
    "class": "PASS",
@@ -32066,7 +32066,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                           ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr23324.c": {
    "class": "SKIP-C89",
@@ -32382,18 +32382,18 @@
    "note": "ref(rc=0 out='') O0 got rc=1 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr29006.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr29156.c": {
    "class": "PASS",
@@ -32480,18 +32480,18 @@
    "note": ""
   },
   "execute/pr30185.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr30314.c": {
    "class": "NO-REF",
@@ -32499,18 +32499,18 @@
    "note": "compilation terminated."
   },
   "execute/pr30778.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr31072.c": {
    "class": "PASS",
@@ -32538,7 +32538,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr31169.c": {
    "class": "PASS",
@@ -32608,7 +32608,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr32500.c": {
    "class": "PASS",
@@ -32916,7 +32916,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                       ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr34982.c": {
    "class": "PASS",
@@ -33210,7 +33210,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                      ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                      ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr37924.c": {
    "class": "MISCOMPILE",
@@ -33406,7 +33406,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "              ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 'x' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr39228.c": {
    "class": "REJECT",
@@ -33523,21 +33523,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr40493.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr40579.c": {
    "class": "PASS",
@@ -33624,32 +33624,32 @@
    "note": ""
   },
   "execute/pr41395-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr41395-2.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr41463.c": {
    "class": "REJECT",
@@ -33750,18 +33750,18 @@
    "note": ""
   },
   "execute/pr42154.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr42231.c": {
    "class": "REJECT",
@@ -34044,18 +34044,18 @@
    "note": ""
   },
   "execute/pr43987.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr44164.c": {
    "class": "SKIP-C89",
@@ -34069,7 +34069,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                 ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr44202-1.c": {
    "class": "PASS",
@@ -34508,7 +34508,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr48973-2.c": {
    "class": "REJECT",
@@ -34522,7 +34522,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                          ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr49039.c": {
    "class": "PASS",
@@ -35003,7 +35003,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                        ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                        ^; Compile error: use of undeclared identifier 'p' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr54471.c": {
    "class": "PASS",
@@ -35512,7 +35512,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: use of undeclared identifier 'f' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr58385.c": {
    "class": "PASS",
@@ -35666,7 +35666,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                    ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                    ^; Compile error: use of undeclared identifier '__CHAR_BIT__' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr58831.c": {
    "class": "REJECT",
@@ -35806,7 +35806,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                ^; Compile error: use of undeclared identifier 'b' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr59388.c": {
    "class": "REJECT",
@@ -37296,7 +37296,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 'c' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr78378.c": {
    "class": "PASS",
@@ -37324,7 +37324,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr78438.c": {
    "class": "SKIP-C89",
@@ -37579,18 +37579,18 @@
    "note": ""
   },
   "execute/pr79737-1.c": {
-   "class": "PASS",
+   "class": "REJECT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
    },
-   "note": ""
+   "note": "      ^; Compile error: use of undeclared identifier 'i' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr79737-2.c": {
    "class": "SKIP-C89",
@@ -37929,18 +37929,18 @@
    "note": ""
   },
   "execute/pr84339.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr84478.c": {
    "class": "SKIP-C89",
@@ -38711,7 +38711,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "              ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "              ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr94130.c": {
    "class": "SKIP-C89",
@@ -38893,7 +38893,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr97325.c": {
    "class": "MISCOMPILE",
@@ -39440,7 +39440,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "               ^; Compile error: use of undeclared identifier 'f' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/simd-1.c": {
    "class": "REJECT",
@@ -39454,7 +39454,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: use of undeclared identifier 'res' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/simd-2.c": {
    "class": "REJECT",
@@ -39468,7 +39468,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: use of undeclared identifier 'res' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/simd-4.c": {
    "class": "REJECT",
@@ -39580,7 +39580,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                           ^; Compile error: use of undeclared identifier 's1'; did you mean 'f1'? [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                          ^; Compile error: use of undeclared identifier 's1'; did you mean 'f1'? [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/stdarg-4.c": {
    "class": "MISCOMPILE",
@@ -40621,7 +40621,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 't' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/wchar_t-1.c": {
    "class": "MISCOMPILE",
@@ -40738,12 +40738,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 148,
+  "MISCOMPILE": 129,
   "NO-REF": 188,
-  "PASS": 2064,
-  "REJECT": 714,
+  "PASS": 2101,
+  "REJECT": 699,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 671,
+  "SKIP-C89": 668,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,

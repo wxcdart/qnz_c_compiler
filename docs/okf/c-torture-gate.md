@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-28T22:00:34Z
+timestamp: 2026-10-29T01:15:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M3 In Progress)
+## 2. Classification Buckets & Baseline (Sprint 57 / Chunk M4)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,064** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+22 from Chunk M3, +350 from initial baseline) |
-| **`REJECT`** | **714** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) |
-| **`SKIP-C89`** | **671** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **148** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-22 from Chunk M3: 170 → 148) |
+| **`PASS`** | **2,101** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+37 from Chunk M4, +387 from initial baseline) |
+| **`REJECT`** | **699** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-15 from Chunk M4: 714 → 699) |
+| **`SKIP-C89`** | **668** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **129** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-19 from Chunk M4: 148 → 129) |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |

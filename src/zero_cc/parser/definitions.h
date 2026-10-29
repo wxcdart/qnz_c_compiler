@@ -239,8 +239,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
             size_t elem_count = 1;
             bool is_flexible = false;
+            bool is_array = false;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
             while (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                is_array = true;
                 c->token_pos++;
                 size_t dim = 1;
                 if (c->tokens[c->token_pos].type == TK_NUM) {
@@ -294,7 +296,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     /* Pointer members also record the pointee (C5): `t *p`
                      * members need m->base so `o.p->field` resolves. */
                     m->base = zero_cc_type_alloc_base(&inner_type);
-                    if (!is_ptr && !is_bitfield && (elem_count > 1 || is_flexible)) {
+                    if (!is_ptr && !is_bitfield && (is_array || is_flexible)) {
                         m->tag = TYPE_ARRAY; /* array-of-struct member in union */
                     }
                     if (m->size > max_size) max_size = m->size;
@@ -361,7 +363,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     /* Pointer members also record the pointee (C5). */
                     m->base = zero_cc_type_alloc_base(&inner_type);
-                    if (!is_ptr && (elem_count > 1 || is_flexible)) {
+                    if (!is_ptr && (is_array || is_flexible)) {
                         /* Array of struct/union/enum member (`struct S arr[N]`):
                          * store as TYPE_ARRAY with the element type as base so
                          * `o.arr[i]` resolves. m->base already points to the
@@ -576,8 +578,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
             size_t elem_count = 1;
             bool is_flexible = false;
+            bool is_array = false;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
             while (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                is_array = true;
                 c->token_pos++;
                 size_t dim = 1;
                 if (c->tokens[c->token_pos].type == TK_NUM) {
@@ -653,8 +657,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                         m->tag = TYPE_PTR;
                         zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
-                        if (!is_bitfield && (elem_count > 1 || is_flexible)) zero_cc_member_make_ptr_array(m);
-                    } else if (!is_bitfield && (elem_count > 1 || is_flexible)) {
+                        if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
+                    } else if (!is_bitfield && (is_array || is_flexible)) {
                         ZeroCCType elem_t;
                         if (m->base) {
                             elem_t = *m->base;
@@ -807,8 +811,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                             m->tag = TYPE_PTR;
                         zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
-                        if (!is_bitfield && (elem_count > 1 || is_flexible)) zero_cc_member_make_ptr_array(m);
-                        } else if (elem_count > 1 || is_flexible) {
+                        if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
+                        } else if (is_array || is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {
                                 elem_t = *m->base;
@@ -861,8 +865,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
                 size_t c_elem_count = 1;
                 bool c_is_flexible = false;
+                bool c_is_array = false;
                 /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
                 while (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                    c_is_array = true;
                     c->token_pos++;
                     size_t dim = 1;
                     if (c->tokens[c->token_pos].type == TK_NUM) {
@@ -932,8 +938,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
                             zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
-                            if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) zero_cc_member_make_ptr_array(m);
-                        } else if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) {
+                            if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
+                        } else if (!c_is_bitfield && (c_is_array || c_is_flexible)) {
                             ZeroCCType elem_t;
                             if (m->base) {
                                 elem_t = *m->base;
@@ -949,6 +955,54 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }
                         if (m->size > max_size) max_size = m->size;
+                    }
+                } else if (c_is_bitfield) {
+                    if (c_bit_width == 0) {
+                        if (in_bitfield) {
+                            current_offset = bitfield_storage_offset + bitfield_storage_size;
+                            in_bitfield = false;
+                        }
+                        current_offset = (current_offset + c_effective_align - 1) & ~(c_effective_align - 1);
+                    } else if (in_bitfield && bitfield_storage_size == c_base_size &&
+                               (bitfield_bit_offset + c_bit_width <= c_base_size * 8)) {
+                        size_t m_offset = bitfield_storage_offset;
+                        uint8_t m_bit_off = (uint8_t)bitfield_bit_offset;
+                        bitfield_bit_offset += c_bit_width;
+                        if (c_mname[0] != '\0' && struct_member_room(c, &st)) {
+                            ZeroCCStructMember *m = &st.members[st.member_count++];
+                            snprintf(m->name, sizeof(m->name), "%s", c_mname);
+                            m->offset = m_offset;
+                            m->size = c_base_size;
+                            m->align = c_effective_align;
+                            m->is_flexible = false;
+                            m->is_bitfield = true;
+                            m->bit_offset = m_bit_off;
+                            m->bit_width = c_bit_width;
+                            m->is_signed = !is_unsigned;
+                            m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+                        }
+                    } else {
+                        if (in_bitfield) {
+                            current_offset = bitfield_storage_offset + bitfield_storage_size;
+                        }
+                        current_offset = (current_offset + c_effective_align - 1) & ~(c_effective_align - 1);
+                        bitfield_storage_offset = current_offset;
+                        bitfield_storage_size = c_base_size;
+                        bitfield_bit_offset = c_bit_width;
+                        in_bitfield = true;
+                        if (c_mname[0] != '\0' && struct_member_room(c, &st)) {
+                            ZeroCCStructMember *m = &st.members[st.member_count++];
+                            snprintf(m->name, sizeof(m->name), "%s", c_mname);
+                            m->offset = bitfield_storage_offset;
+                            m->size = c_base_size;
+                            m->align = c_effective_align;
+                            m->is_flexible = false;
+                            m->is_bitfield = true;
+                            m->bit_offset = 0;
+                            m->bit_width = c_bit_width;
+                            m->is_signed = !is_unsigned;
+                            m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+                        }
                     }
                 } else {
                     if (in_bitfield) {
@@ -1001,8 +1055,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->tag = TYPE_PTR;
                             m->base = zero_cc_type_alloc_base(&dummy);
                             zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
-                            if (!c_is_bitfield && (c_elem_count > 1 || c_is_flexible)) zero_cc_member_make_ptr_array(m);
-                        } else if (c_elem_count > 1 || c_is_flexible) {
+                            if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
+                        } else if (c_is_array || c_is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {
                                 elem_t = *m->base;
