@@ -486,9 +486,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             return;
         }
         /* Ensure result is in rax (VREG_0) for return */
+        ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
         int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {
-            ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
             /* C99 width semantics: truncate/extend the result to the declared
              * return width (e.g. `return a + a;` from an `int` function must
              * wrap to 32 bits, not return the 64-bit residue). */
@@ -504,6 +504,15 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 final_float_temp = c->next_temp_id++;
                 ir_emit_cvtsi2sd((uint16_t)final_float_temp, (uint16_t)result_temp);
                 c->last_expr_is_float = 1;
+            }
+        } else {
+            /* Expression is float/double. If function returns integer, convert float to int */
+            if (fn_ret_type.tag != TYPE_FLOAT && fn_ret_type.tag != TYPE_DOUBLE) {
+                int int_res = c->next_temp_id++;
+                ir_emit_cvttsd2si((uint16_t)int_res, (uint16_t)result_temp);
+                zero_cc_emit_int_extend(c, int_res, &fn_ret_type);
+                ir_emit_mov_reg(VREG_0, int_res);
+                c->last_expr_is_float = 0;
             }
         }
         /* Float result must be in the FP return register (xmm0/d0/fa0).

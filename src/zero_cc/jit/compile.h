@@ -265,6 +265,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 /* signed/unsigned qualifier (C11 6.7.5): consume and remember */
                 bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
                 if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED)) {
+                    pfound = NULL;
                     if (c->token_pos < c->token_count &&
                         (c->tokens[c->token_pos].type == TK_INT ||
                          c->tokens[c->token_pos].type == TK_CHAR ||

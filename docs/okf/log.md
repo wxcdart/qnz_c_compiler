@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-29T04:50:09Z
+timestamp: 2026-10-29T18:00:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -524,3 +524,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-29 — Updated `frontend-and-types.md`
 - Torture baseline improved: 809 -> 806 bad (3 fewer failures) via AArch64 IEEE-754 FP compare fix
+
+## 2026-10-29 — Updated `c-torture-gate.md`
+- Sprint 58: c-torture MISCOMPILE burn-down down to 81, PASS up to 2154. Fixed sizeof/alignof on arrays/strings, float constant-folding, struct array assignments, compound literal postfix increments, and struct pointer dereference copies.

@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-29T01:15:54Z
+timestamp: 2026-10-29T18:00:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,10 +46,10 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,101** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+37 from Chunk M4, +387 from initial baseline) |
-| **`REJECT`** | **699** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-15 from Chunk M4: 714 → 699) |
-| **`SKIP-C89`** | **668** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **129** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-19 from Chunk M4: 148 → 129) |
+| **`PASS`** | **2,154** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+53 from Chunk M4, +440 from initial baseline) |
+| **`REJECT`** | **692** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-22 from Chunk M4: 714 → 692) |
+| **`SKIP-C89`** | **670** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **81** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-67 from Chunk M4: 148 → 81) |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |

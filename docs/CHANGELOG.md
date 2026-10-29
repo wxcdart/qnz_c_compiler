@@ -1,5 +1,35 @@
 # ZeroCC Changelog
 
+## [Chunk M4 / Sprint 58] - 2026-10-29 - GCC `c-torture` MISCOMPILE Burn-Down (PASS reaches 2,154, MISCOMPILE down to 81)
+
+- **Array Dereference & String Literal `sizeof`/`_Alignof` (`parser/const_eval.h`)**:
+  - `zero_cc_type_of_unary`: Fixed dereferencing (`*a`) where operand is an array (`TYPE_ARRAY`). In standard C, arrays decay to pointers in dereference expressions, yielding element type `*operand.base`. Previously returned the array type unchanged (`sizeof(*a)` returned array size instead of element size, making `sizeof(a)/sizeof(*a) == 1`). Resolves `execute/20030105-1.c`.
+  - `zero_cc_type_of_primary`: Fixed string literal typing for `TK_STRING` in `sizeof(str)` to return `zero_cc_type_array(&char_type, str_len + 1)` instead of pointer size `8`. Resolves `execute/20030626-2.c`.
+- **Float Literal Constant Folding & Float-to-Int Saturation (`ir/ast_lowering_expr.c`)**:
+  - `NODE_CAST` constant-folding: Pre-evaluates compile-time float literals cast to integer types (`(int)2147483648.0f`), clamping to `[TYPE_MIN, TYPE_MAX]` without emitting runtime `cvttsd2si` (which on x86 produces the indefinite integer `0x80000000`). Resolves `execute/20031003-1.c`.
+- **Struct Element Assignment in Arrays (`ir/ast_lowering_expr.c`)**:
+  - `NODE_ASSIGN` with `NODE_INDEX` target: Added detection of struct/union array elements (`is_elem_struct`). Copies full struct memory via `zero_cc_emit_struct_copy_to_addr` instead of treating the RHS struct address as a scalar 32/64-bit value to store directly into the destination. Resolves `execute/20050826-2.c`.
+- **Postfix Increment in Designated / Compound Initializers (`parser/ast_expr.h`, `ir/ast_lowering_expr.c`)**:
+  - Initializer designator stamping (`ast_expr.h:262`): Changed `en->flags = ...` to `en->flags |= NODE_FLAG_DESIGNATED`, preserving preexisting flags on initializer elements.
+  - Postfix testing (`ast_lowering_expr.c`): Replaced `node->flags == 1` with `(node->flags & 1)` across all increment/decrement paths so bit 15 (`NODE_FLAG_DESIGNATED`) does not cause postfix expressions (`cnt++`) to return the pre-incremented value. Resolves `execute/20071029-1.c`.
+- **Float Member Assignment & Function Return Conversions (`ir/ast_lowering_expr.c`, `ir/ast_lowering_stmt.c`)**:
+  - Member assignment: Tested `(right_is_float || c->last_expr_is_float)` in all member store paths. Base address lowering previously cleared `c->last_expr_is_float` to 0, forcing float RHS values to be emitted via GPR `movl %eax` instead of vector `vstoress`.
+  - Return conversion (`lower_stmt_return`): Added explicit `ir_emit_cvttsd2si` conversion when returning a float/double expression from a function declared to return integer types (`int`). Resolves `execute/20071030-1.c`.
+- **Struct Pointer Dereference Copy (`ir/ast_lowering_internal.h`, `ir/ast_lowering_expr.c`)**:
+  - `ast_expr_is_struct_addr`: Added `NODE_UNOP` with `TK_STAR` for struct/union types >16 bytes (`*p`).
+  - `lower_expr` `TK_STAR`: Returns `operand_temp` (pointer address) directly for structs >16B rather than loading only the first 8 bytes into a temporary register. Resolves `execute/20071219-1.c`.
+- **Preprocessor `#if`/`#elif` Expression Evaluator & `unsigned long` Parameter Fixes**:
+  - Recursive descent preprocessor constant expression evaluator in `src/zero_cc/core/preprocessor.h` with `__has_include` and operator precedence.
+  - Parameter typing: cleared typedef caching for `signed`/`unsigned` parameter qualifiers so `unsigned long` parameters are not locked to 32-bit `unsigned int`. Resolves `execute/20020510-1.c`, `execute/20040409-1..3`, `test/unit/has_include.c`.
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **`PASS`**: Increased from 2,133 to **2,154** (+21).
+  - **`MISCOMPILE`**: Reduced from 96 to **81** (-15).
+  - **`REJECT`**: Reduced from 693 to **692** (-1).
+  - **0 regressions** against the previous ratcheted baseline.
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/sret_verifier.py` 6/6 · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK.
+
+---
+
 ## [Chunk M4] - 2026-10-29 - AArch64 IEEE-754 FP Compare Fix & Conformance Burn-down (PASS reaches 2,120, MISCOMPILE down to 111, total bad 806)
 
 - **AArch64 FP compare uses IEEE-754 correct `fcmpe` + condition codes**: replaced `fcmp` with `fcmpe` (signaling NaN compare) and updated condition codes to `mi` (LT), `ls` (LE), `gt` (GT), `ge` (GE) per GCC's AArch64 ABI. This fixes NaN handling in FP comparisons (`lt`/`le`/`gt`/`ge`/`eq`/`ne` all now return IEEE-correct results for NaN operands).

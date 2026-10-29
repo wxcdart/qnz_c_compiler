@@ -225,7 +225,26 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                     bool is_bf = tgt.is_bitfield;
                     uint8_t boff = tgt.bit_offset;
                     uint8_t bw = tgt.bit_width;
-                    if (!tgt.is_scalar) {
+                    bool is_struct_val = false;
+                    if (!tgt.is_scalar && (tgt.val_type.tag == TYPE_STRUCT || tgt.val_type.tag == TYPE_UNION)) {
+                        ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
+                        if (en) {
+                            if (en->tag == NODE_IDENT) {
+                                ZeroCCSym *esym = zero_cc_find_local(c, en->s.str);
+                                if (!esym) {
+                                    ZeroCCGlobalVar *egv = find_global_var(en->s.str);
+                                    if (egv && (egv->type.tag == TYPE_STRUCT || egv->type.tag == TYPE_UNION)) is_struct_val = true;
+                                } else if (esym->type.tag == TYPE_STRUCT || esym->type.tag == TYPE_UNION) {
+                                    is_struct_val = true;
+                                }
+                            } else if (en->tag == NODE_COMPOUND_LIT || en->tag == NODE_CALL || en->tag == NODE_MEMBER) {
+                                is_struct_val = true;
+                            }
+                        }
+                    }
+                    if (is_struct_val) {
+                        sz = tgt.val_type.size;
+                    } else if (!tgt.is_scalar) {
                         size_t loff = 0, lsz = 0;
                         zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf,
                                                          &loff, &lsz, &is_bf, &boff, &bw);
@@ -240,7 +259,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                         ZeroCCASTNode *en = zero_cc_ast_get(arena, node_ref);
                         if (en) {
                             en->next = AST_NULL;
-                            en->flags = (has_desig ? NODE_FLAG_DESIGNATED : 0u);
+                            if (has_desig) en->flags |= NODE_FLAG_DESIGNATED;
                             size_t e_off = off + (size_t)k * step;
                             en->desig_idx = is_bf ? ZC_INIT_BF_STAMP(e_off, sz, boff, bw)
                                                   : ZC_INIT_ABS_STAMP(e_off, sz);

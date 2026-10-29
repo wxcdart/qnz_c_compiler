@@ -245,6 +245,7 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
     if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) return zero_cc_type_char();
     if (type_tok == TK_SHORT) return zero_cc_type_int16();
     if (type_tok == TK_INT) return zero_cc_type_int();
+    if (type_tok == TK_LONG) return zero_cc_type_int64();
     if (type_tok == TK_FLOAT_KW) return zero_cc_type_float();
     if (type_tok == TK_DOUBLE_KW) return zero_cc_type_double();
     if (type_tok == TK_VOID) return zero_cc_type_void();

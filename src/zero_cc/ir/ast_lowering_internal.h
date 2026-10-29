@@ -109,6 +109,16 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     } else if (node->tag == NODE_COMPOUND_LIT) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+    } else if (node->tag == NODE_UNOP && (node->aux.op == '*' || node->aux.op == TK_STAR)) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+        ZeroCCASTNode *in = zero_cc_ast_get(arena, node->left);
+        if (in && in->tag == NODE_IDENT) {
+            ZeroCCSym *sym = zero_cc_find_local(c, in->s.str);
+            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION) && sym->type.base->size > 16) return true;
+            ZeroCCGlobalVar *gv = find_global_var(in->s.str);
+            if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION) && gv->type.base->size > 16) return true;
+        }
     } else if (node->tag == NODE_INDEX) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;

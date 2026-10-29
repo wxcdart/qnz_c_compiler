@@ -598,7 +598,7 @@ static inline ZeroCCType zero_cc_type_of_unary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_STAR) { /* dereference */
         (*pos)++;
         ZeroCCType operand = zero_cc_type_of_unary(c, pos);
-        if (operand.tag == TYPE_PTR && operand.base) {
+        if ((operand.tag == TYPE_PTR || operand.tag == TYPE_ARRAY) && operand.base) {
             return *operand.base;
         }
         return operand;
@@ -648,8 +648,10 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         return zero_cc_type_nullptr();
     }
     if (t == TK_STRING) {
+        size_t len = c->tokens[*pos].str_len + 1;
         (*pos)++;
-        return zero_cc_type_ptr(NULL);
+        ZeroCCType elem = zero_cc_type_char();
+        return zero_cc_type_array(&elem, (ssize_t)len);
     }
     /* Type keywords as primary (for sizeof(type)/_Alignof(type)) */
     if (t == TK_STRUCT || t == TK_UNION) {

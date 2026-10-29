@@ -1368,7 +1368,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int old_temp = c->next_temp_id++;
                             ir_emit_atomic_xadd(old_temp, addr_temp, delta_temp, width);
                             c->last_expr_is_float = 0;
-                            if (node->flags == 1) {
+                            if (node->flags & 1) {
                                 /* Postfix x++ / x--: return old value */
                                 return old_temp;
                             } else {
@@ -1396,7 +1396,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                             ir_emit_fstore((uint16_t)res_temp, TEMP_NONE, -sym->stack_offset);
                             c->last_expr_is_float = 1;
-                            return (node->flags == 1) ? val_temp : res_temp;
+                            return (node->flags & 1) ? val_temp : res_temp;
                         }
 
                         int step = lvalue_inc_step(&sym->type);
@@ -1416,11 +1416,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                         c->last_expr_is_float = 0;
                         /* Postfix x++ / x-- yields the OLD value; prefix
-                         * ++x / --x yields the new value (node->flags == 1
+                         * ++x / --x yields the new value ((node->flags & 1)
                          * marks postfix, matching the global/atomic paths
                          * below). Pre-fix the local path always returned the
                          * new value, miscompiling `return x++;` etc. */
-                        return (node->flags == 1) ? val_temp : res_temp;
+                        return (node->flags & 1) ? val_temp : res_temp;
                     }
                     ZeroCCGlobalVar *gv = find_global_var(var);
                     if (gv) {
@@ -1443,7 +1443,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             if (gv->type.tag == TYPE_FLOAT) ir_emit_vstoress((uint16_t)gaddr_temp, (uint16_t)res_temp);
                             else ir_emit_vstoresd((uint16_t)gaddr_temp, (uint16_t)res_temp);
                             c->last_expr_is_float = 1;
-                            return (node->flags == 1) ? val_temp : res_temp;
+                            return (node->flags & 1) ? val_temp : res_temp;
                         }
                         int val_temp = c->next_temp_id++;
                         int one_temp = c->next_temp_id++;
@@ -1466,7 +1466,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else ir_emit_store_64(res_temp, gaddr_temp);
 
                         c->last_expr_is_float = 0;
-                        return (node->flags == 1) ? val_temp : res_temp;
+                        return (node->flags & 1) ? val_temp : res_temp;
                     }
                 }
                 /* Non-ident lvalue (C11 6.5.2.4): a[i]++, (*p)++, s.f++,
@@ -1580,7 +1580,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         if (lval_size == 4) ir_emit_vstoress((uint16_t)addr, (uint16_t)new_t);
                         else ir_emit_vstoresd((uint16_t)addr, (uint16_t)new_t);
                         c->last_expr_is_float = 1;
-                        return (node->flags == 1) ? old_t : new_t;
+                        return (node->flags & 1) ? old_t : new_t;
                     }
                     if (lval_size == 1) ir_emit_load_byte(old_t, addr);
                     else if (lval_size == 2) ir_emit_load_16(old_t, addr);
@@ -1595,7 +1595,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     else if (lval_size == 4) ir_emit_store_32(new_t, addr);
                     else ir_emit_store_64(new_t, addr);
                     c->last_expr_is_float = 0;
-                    return (node->flags == 1) ? old_t : new_t;
+                    return (node->flags & 1) ? old_t : new_t;
                 }
                 return TEMP_NONE;
             }
@@ -1636,7 +1636,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
                                 p_size = ptr_sym->type.base->size;
                             }
+                            ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                            if (gv && gv->type.base && gv->type.base->size > 0) {
+                                p_size = gv->type.base->size;
+                            }
                         }
+                    }
+                    bool is_struct = (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION));
+                    if (!is_struct) {
+                        ZeroCCASTNode *inner = zero_cc_ast_get(arena, node->left);
+                        if (inner && inner->tag == NODE_IDENT) {
+                            ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                            if (ptr_sym && ptr_sym->type.base && (ptr_sym->type.base->tag == TYPE_STRUCT || ptr_sym->type.base->tag == TYPE_UNION)) {
+                                is_struct = true;
+                            }
+                            ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                            if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION)) {
+                                is_struct = true;
+                            }
+                        }
+                    }
+                    if (is_struct && p_size > 16) {
+                        c->last_expr_is_float = 0;
+                        return operand_temp;
                     }
                     if (p_size == 1) ir_emit_load_byte(result_temp, operand_temp);
                     else if (p_size == 2) ir_emit_load_16(result_temp, operand_temp);
@@ -1725,9 +1747,55 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_CAST: {
-            int result = lower_expr(c, arena, node->left);
             TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
             bool target_is_float = type_is_floating(cast_ti);
+            ZeroCCASTNode *cast_src = zero_cc_ast_get(arena, node->left);
+            if (cast_src && cast_src->tag == NODE_FLOAT && !target_is_float) {
+                double f = cast_src->float_val;
+                int64_t ival;
+                size_t sz = cast_ti ? type_size(cast_ti) : 4;
+                bool is_u = cast_ti && (cast_ti->modifiers & TYPE_MOD_UNSIGNED);
+                if (sz == 4 && !is_u) {
+                    if (f >= 2147483647.0) ival = 2147483647;
+                    else if (f <= -2147483648.0) ival = -2147483648LL;
+                    else ival = (int32_t)f;
+                } else if (sz == 4 && is_u) {
+                    if (f >= 4294967295.0) ival = 4294967295ULL;
+                    else if (f <= 0.0) ival = 0;
+                    else ival = (uint32_t)f;
+                } else if (sz == 8 && !is_u) {
+                    if (f >= 9223372036854775807.0) ival = 9223372036854775807LL;
+                    else if (f <= -9223372036854775808.0) ival = (-9223372036854775807LL - 1);
+                    else ival = (int64_t)f;
+                } else if (sz == 8 && is_u) {
+                    if (f >= 18446744073709551615.0) ival = (int64_t)18446744073709551615ULL;
+                    else if (f <= 0.0) ival = 0;
+                    else ival = (int64_t)(uint64_t)f;
+                } else if (sz == 1 && !is_u) {
+                    if (f >= 127.0) ival = 127;
+                    else if (f <= -128.0) ival = -128;
+                    else ival = (int8_t)f;
+                } else if (sz == 1 && is_u) {
+                    if (f >= 255.0) ival = 255;
+                    else if (f <= 0.0) ival = 0;
+                    else ival = (uint8_t)f;
+                } else if (sz == 2 && !is_u) {
+                    if (f >= 32767.0) ival = 32767;
+                    else if (f <= -32768.0) ival = -32768;
+                    else ival = (int16_t)f;
+                } else if (sz == 2 && is_u) {
+                    if (f >= 65535.0) ival = 65535;
+                    else if (f <= 0.0) ival = 0;
+                    else ival = (uint16_t)f;
+                } else {
+                    ival = (int64_t)f;
+                }
+                int int_res_temp = c->next_temp_id++;
+                ir_emit_mov_imm(int_res_temp, ival);
+                c->last_expr_is_float = 0;
+                return int_res_temp;
+            }
+            int result = lower_expr(c, arena, node->left);
             if (target_is_float) {
                 if (!c->last_expr_is_float) {
                     /* int/pointer -> float/double: convert (C9). Previously
@@ -2322,7 +2390,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             c->last_expr_is_float = 0;
                             return right_temp;
                         }
-                        if (c->last_expr_is_float) {
+                        if (right_is_float || c->last_expr_is_float) {
                             if (m_size == 4) {
                                 ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
                             } else {
@@ -2373,7 +2441,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             c->last_expr_is_float = 0;
                             return right_temp;
                         }
-                        if (c->last_expr_is_float) {
+                        if (right_is_float || c->last_expr_is_float) {
                             if (m_size == 4) {
                                 ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
                             } else {
@@ -2450,7 +2518,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return right_temp;
                     }
-                    if (c->last_expr_is_float) {
+                    if (right_is_float || c->last_expr_is_float) {
                         if (m_size == 4) {
                             ir_emit_vstoress(addr_temp, (uint16_t)right_temp);
                         } else {
@@ -2494,7 +2562,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                            (mc_ti && type_is_floating(mc_ti)) || c->last_expr_is_float);
                 }
 
-                if (c->last_expr_is_float) {
+                if (right_is_float || c->last_expr_is_float) {
                     /* Float value: store via IR. A 4-byte float member must
                      * use the width-correct VSTORESS - the 8-byte FSTORE
                      * writes the raw double bits and clobbers the bytes
@@ -2631,6 +2699,21 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     c->last_expr_is_float = 1;
                 } else {
+                    bool is_elem_struct = (elem_ti && (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION));
+                    if (!is_elem_struct) {
+                        ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
+                        if (ln && ln->tag == NODE_IDENT) {
+                            ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
+                            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION)) {
+                                is_elem_struct = true;
+                            }
+                        }
+                    }
+                    if (is_elem_struct && !is_compound) {
+                        zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, elem_size, node->right, right_temp);
+                        c->last_expr_is_float = 0;
+                        return right_temp;
+                    }
                     if (elem_size == 1) {
                         ir_emit_store_byte(right_temp, addr_temp);
                     } else if (elem_size == 2) {
@@ -3659,7 +3742,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 if (base_ptr == TEMP_NONE) {
                     base_ptr = lower_expr(c, arena, base_ref);
-                    if (!ast_expr_is_struct_addr(c, arena, base_ref)) {
+                    if (!base_is_ptr && !ast_expr_is_struct_addr(c, arena, base_ref)) {
                         c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                         c->current_stack_frame += 16;
                         int32_t spill_slot = c->current_stack_frame;
