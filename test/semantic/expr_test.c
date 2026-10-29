@@ -70,7 +70,7 @@ int main(void) {
         ASTRef r_str = zero_cc_ast_alloc_node(&ast_arena, NODE_STRING);
         ZeroCCASTNode *n_str = zero_cc_ast_get(&ast_arena, r_str);
         n_str->s.str = "hello";
-        n_str->s.len = 5;
+        n_str->s_len = 5;
         ty = expr_handle_expression(&ctx, n_str);
         assert(ty != NULL);
         assert(type_equal(ty, t_char_ptr));
@@ -108,7 +108,7 @@ int main(void) {
         ASTRef r_foo = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_foo = zero_cc_ast_get(&ast_arena, r_foo);
         n_foo->s.str = "foo";
-        n_foo->s.len = 3;
+        n_foo->s_len = 3;
         TypeInfo *ty = expr_handle_expression(&ctx, n_foo);
         assert(ty != NULL);
         assert(type_equal(ty, t_int));
@@ -119,7 +119,7 @@ int main(void) {
         ASTRef r_bad = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_bad = zero_cc_ast_get(&ast_arena, r_bad);
         n_bad->s.str = "nonexistent_var";
-        n_bad->s.len = 15;
+        n_bad->s_len = 15;
         ty = expr_handle_expression(&ctx, n_bad);
         assert(ty == NULL);
         assert(diags.count > diags_before);
@@ -134,7 +134,7 @@ int main(void) {
         ASTRef r_foo = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_foo = zero_cc_ast_get(&ast_arena, r_foo);
         n_foo->s.str = "foo";
-        n_foo->s.len = 3;
+        n_foo->s_len = 3;
 
         ASTRef r_addr = zero_cc_ast_alloc_node(&ast_arena, NODE_UNOP);
         ZeroCCASTNode *n_addr = zero_cc_ast_get(&ast_arena, r_addr);
@@ -162,7 +162,7 @@ int main(void) {
         ASTRef r_ptr = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_ptr = zero_cc_ast_get(&ast_arena, r_ptr);
         n_ptr->s.str = "ptr";
-        n_ptr->s.len = 3;
+        n_ptr->s_len = 3;
 
         ASTRef r_deref = zero_cc_ast_alloc_node(&ast_arena, NODE_UNOP);
         ZeroCCASTNode *n_deref = zero_cc_ast_get(&ast_arena, r_deref);
@@ -226,7 +226,7 @@ int main(void) {
         ASTRef r_cval = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_cval = zero_cc_ast_get(&ast_arena, r_cval);
         n_cval->s.str = "c_val";
-        n_cval->s.len = 5;
+        n_cval->s_len = 5;
 
         diags_before = diags.count;
         ASTRef r_bad_inc = zero_cc_ast_alloc_node(&ast_arena, NODE_UNOP);
@@ -274,7 +274,7 @@ int main(void) {
         /* Pointer arithmetic: int* + int -> int* */
         ASTRef r_ptr = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_ptr)->s.str = "ptr";
-        zero_cc_ast_get(&ast_arena, r_ptr)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_ptr)->s_len = 3;
 
         ASTRef r_ptr_add = zero_cc_ast_alloc_node(&ast_arena, NODE_BINOP);
         ZeroCCASTNode *n_ptr_add = zero_cc_ast_get(&ast_arena, r_ptr_add);
@@ -288,7 +288,7 @@ int main(void) {
         /* Pointer subtraction: int* - int* -> long (ptrdiff_t) */
         ASTRef r_ptr2 = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_ptr2)->s.str = "ptr";
-        zero_cc_ast_get(&ast_arena, r_ptr2)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_ptr2)->s_len = 3;
 
         ASTRef r_ptr_diff = zero_cc_ast_alloc_node(&ast_arena, NODE_BINOP);
         ZeroCCASTNode *n_ptr_diff = zero_cc_ast_get(&ast_arena, r_ptr_diff);
@@ -328,7 +328,7 @@ int main(void) {
         /* Simple assignment foo = 100 */
         ASTRef r_foo = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_foo)->s.str = "foo";
-        zero_cc_ast_get(&ast_arena, r_foo)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_foo)->s_len = 3;
 
         ASTRef r_val = zero_cc_ast_alloc_node(&ast_arena, NODE_INT);
         zero_cc_ast_get(&ast_arena, r_val)->int_val = 100;
@@ -356,7 +356,7 @@ int main(void) {
         /* Assignment to const variable -> error */
         ASTRef r_cval = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_cval)->s.str = "c_val";
-        zero_cc_ast_get(&ast_arena, r_cval)->s.len = 5;
+        zero_cc_ast_get(&ast_arena, r_cval)->s_len = 5;
 
         diags_before = diags.count;
         ASTRef r_const_assign = zero_cc_ast_alloc_node(&ast_arena, NODE_ASSIGN);
@@ -394,7 +394,7 @@ int main(void) {
         /* Valid call: my_add(10, 3.14) */
         ASTRef r_fn_id = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_fn_id)->s.str = "my_add";
-        zero_cc_ast_get(&ast_arena, r_fn_id)->s.len = 6;
+        zero_cc_ast_get(&ast_arena, r_fn_id)->s_len = 6;
 
         ASTRef r_arg1 = zero_cc_ast_alloc_node(&ast_arena, NODE_INT);
         zero_cc_ast_get(&ast_arena, r_arg1)->int_val = 10;
@@ -425,7 +425,7 @@ int main(void) {
         diags_before = diags.count;
         ASTRef r_ptr_arg = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_ptr_arg)->s.str = "ptr";
-        zero_cc_ast_get(&ast_arena, r_ptr_arg)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_ptr_arg)->s_len = 3;
         zero_cc_ast_get(&ast_arena, r_arg1)->next = r_ptr_arg;
 
         ASTRef r_bad_arg_call = zero_cc_ast_alloc_node(&ast_arena, NODE_CALL);
@@ -458,7 +458,7 @@ int main(void) {
         size_t diags_before = diags.count;
         ASTRef r_ptr = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_ptr)->s.str = "ptr";
-        zero_cc_ast_get(&ast_arena, r_ptr)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_ptr)->s_len = 3;
 
         ASTRef r_bad_cast = zero_cc_ast_alloc_node(&ast_arena, NODE_CAST);
         ZeroCCASTNode *n_bad_cast = zero_cc_ast_get(&ast_arena, r_bad_cast);
@@ -480,7 +480,7 @@ int main(void) {
 
         ASTRef r_arr = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         zero_cc_ast_get(&ast_arena, r_arr)->s.str = "arr";
-        zero_cc_ast_get(&ast_arena, r_arr)->s.len = 3;
+        zero_cc_ast_get(&ast_arena, r_arr)->s_len = 3;
 
         ASTRef r_idx = zero_cc_ast_alloc_node(&ast_arena, NODE_INT);
         zero_cc_ast_get(&ast_arena, r_idx)->int_val = 0;

@@ -89,7 +89,7 @@ static void sem_collect_labels_impl(SemContext *ctx, ASTRef ref, int depth) {
     ZeroCCASTNode *n = zero_cc_ast_get(ctx->ast_arena, ref);
     if (!n) return;
     if (n->tag == NODE_LABEL) {
-        sem_register_label(ctx, n->s.str, n->s.len);
+        sem_register_label(ctx, n->s.str, n->s_len);
     }
     /* Tag-aware child edges: aux.step/aux.alt only exist on NODE_FOR
      * (step, body) and NODE_IF / NODE_TERNARY (else).  On every other
@@ -163,7 +163,12 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
     switch (node->tag) {
         /* Literals & Primary */
         case NODE_INT: {
-            res = type_int(ctx->perm_arena);
+            /* C99 6.4.4.1: the literal's type follows its suffix/value
+             * (0x12345678ABCDEF0LLU is unsigned long long, not int) — this
+             * drives usual-arithmetic-conversion widths for the whole
+             * enclosing expression. */
+            res = type_int_literal(ctx->perm_arena,
+                                   (uint8_t)(node->flags & 7u), node->int_val);
             break;
         }
         case NODE_FLOAT: {
@@ -491,7 +496,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         case NODE_LABEL: {
             /* Register and keep traversing: the labeled statement must be
              * analyzed too (it was previously skipped entirely). */
-            sem_register_label(ctx, node->s.str, node->s.len);
+            sem_register_label(ctx, node->s.str, node->s_len);
             if (node->left != AST_NULL) {
                 (void)sem_analyze_ref(ctx, node->left);
             }
@@ -501,7 +506,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             /* C99 6.8.4.3p1: the label must be defined in the enclosing
              * function (labels are pre-collected over the whole body, so
              * forward gotos are validated). */
-            if (node->s.str && !sem_find_label(ctx, node->s.str, node->s.len)) {
+            if (node->s.str && !sem_find_label(ctx, node->s.str, node->s_len)) {
                 sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
             }
             break;

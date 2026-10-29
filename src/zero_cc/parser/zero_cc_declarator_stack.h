@@ -199,6 +199,7 @@ static inline void zero_cc_parse_param_list(
         param_base.is_volatile = param_is_volatile;
 
         int param_ptr_depth = 0;
+        ASTRef param_dim_expr = AST_NULL; /* VLA parameter dimension expr (C99 6.7.6.2) */
         bool param_ptr_is_const = false;
         bool param_ptr_is_volatile = false;
         bool param_ptr_is_restrict = false;
@@ -246,11 +247,24 @@ static inline void zero_cc_parse_param_list(
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                 c->token_pos++;
+                /* Array parameter: `int f(int a[n])` decays to `int *a`,
+                 * but the dimension expression is evaluated at call entry
+                 * (C99 6.7.6.2) - parse and keep it (VLA parameter
+                 * dimension) instead of discarding the brackets. */
+                size_t dim_start = c->token_pos;
                 int bdepth = 1;
                 while (c->token_pos < c->token_count && bdepth > 0) {
                     if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
                     else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
                     c->token_pos++;
+                }
+                size_t dim_end = c->token_pos; /* just past ']' */
+                if (dim_start + 1 < dim_end) {
+                    size_t saved_pos = c->token_pos;
+                    c->token_pos = dim_start;
+                    param_dim_expr = parse_expr_ast_internal(c, arena);
+                    c->token_pos = dim_end;
+                    (void)saved_pos;
                 }
                 param_ptr_depth++;
             }
@@ -281,7 +295,8 @@ static inline void zero_cc_parse_param_list(
         p_node->line = c->tokens[c->token_pos].line;
         p_node->col = c->tokens[c->token_pos].col;
         p_node->s.str = pname;
-        p_node->s.len = strlen(pname);
+        p_node->s_len = strlen(pname);
+        p_node->right = param_dim_expr; /* VLA dimension, evaluated at entry */
 
         TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
         decl_node_set_type(ctx, p_node, ptype_ti);

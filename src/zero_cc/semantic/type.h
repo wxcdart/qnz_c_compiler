@@ -114,6 +114,13 @@ TypeInfo *type_ushort(Arena *perm);
 TypeInfo *type_uint(Arena *perm);
 TypeInfo *type_ulong(Arena *perm);
 
+/* C99 6.4.4.1p6: the type of an integer constant. `suffix` is the lexer
+ * int_suffix bit pattern (bit0 = u, bit1 = l, bit2 = ll); a suffix fixes
+ * the type even when the value fits a narrower type (1ULL is long long).
+ * Unsuffixed: first of int / unsigned int / long (long long) in which the
+ * value fits (hex/binary wrap past 2^63 is unsigned long long). */
+TypeInfo *type_int_literal(Arena *perm, uint8_t suffix, int64_t value);
+
 /* Derived type constructors */
 TypeInfo *type_pointer_to(Arena *perm, TypeInfo *base);
 TypeInfo *type_array_of(Arena *perm, TypeInfo *base, size_t count);

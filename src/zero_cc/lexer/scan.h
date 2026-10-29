@@ -254,6 +254,7 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
     }
 
     buf[sl] = '\0';
+    tok->str_len = sl;
     if (buf != tok->str_val) {
         /* Keep first 127 bytes in str_val for compatibility with functions accessing str_val directly */
         memcpy(tok->str_val, buf, sizeof(tok->str_val) - 1);

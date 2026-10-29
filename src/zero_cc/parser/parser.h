@@ -94,13 +94,19 @@ typedef struct ZeroCCASTNode {
                               * stores the offset in aux.alt (which overwrites the high half of
                               * s.str). Lets a node be analyzed more than once. */
 
+    /* Length of s.str in bytes.  Kept OUTSIDE the payload union: the aux
+     * half (expr_node_set_type's aux.extra, member offsets in aux.alt) is
+     * written by the semantic pass and would clobber a union-aliased len.
+     * For NODE_STRING this is the full literal content length and may
+     * exceed strlen(s.str) when the literal contains embedded NUL bytes. */
+    size_t s_len;
+
     /* Payload */
     union {
         int64_t  int_val;
         double   float_val;
         struct {
             const char *str;  /* pointer into token/source, zero-copy, unlimited size */
-            size_t      len;
         } s;
         struct {
             uint32_t op;      /* operator token type */

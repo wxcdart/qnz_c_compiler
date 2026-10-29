@@ -39,7 +39,7 @@ int main(void) {
         ASTRef r_decl_a = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_decl_a = zero_cc_ast_get(&ast_arena, r_decl_a);
         n_decl_a->s.str = "a";
-        n_decl_a->s.len = 1;
+        n_decl_a->s_len = 1;
         decl_node_set_type(&ctx, n_decl_a, t_int);
 
         TypeInfo *ty = decl_handle_var(&ctx, n_decl_a);
@@ -60,7 +60,7 @@ int main(void) {
         ASTRef r_decl_b = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_decl_b = zero_cc_ast_get(&ast_arena, r_decl_b);
         n_decl_b->s.str = "b";
-        n_decl_b->s.len = 1;
+        n_decl_b->s_len = 1;
         n_decl_b->left = r_init_42;
         decl_node_set_type(&ctx, n_decl_b, t_int);
 
@@ -82,7 +82,7 @@ int main(void) {
         ASTRef r_decl_c = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_decl_c = zero_cc_ast_get(&ast_arena, r_decl_c);
         n_decl_c->s.str = "c";
-        n_decl_c->s.len = 1;
+        n_decl_c->s_len = 1;
         n_decl_c->left = r_init_int;
         decl_node_set_type(&ctx, n_decl_c, t_double);
 
@@ -100,7 +100,7 @@ int main(void) {
         ASTRef r_decl_p = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_decl_p = zero_cc_ast_get(&ast_arena, r_decl_p);
         n_decl_p->s.str = "p";
-        n_decl_p->s.len = 1;
+        n_decl_p->s_len = 1;
         n_decl_p->left = r_init_float;
         decl_node_set_type(&ctx, n_decl_p, t_int_ptr);
 
@@ -121,7 +121,7 @@ int main(void) {
         ASTRef r_dup_a = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_dup_a = zero_cc_ast_get(&ast_arena, r_dup_a);
         n_dup_a->s.str = "a";
-        n_dup_a->s.len = 1;
+        n_dup_a->s_len = 1;
         decl_node_set_type(&ctx, n_dup_a, t_int);
 
         TypeInfo *ty = decl_handle_var(&ctx, n_dup_a);
@@ -136,7 +136,7 @@ int main(void) {
         ASTRef r_shadow_a = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_shadow_a = zero_cc_ast_get(&ast_arena, r_shadow_a);
         n_shadow_a->s.str = "a";
-        n_shadow_a->s.len = 1;
+        n_shadow_a->s_len = 1;
         decl_node_set_type(&ctx, n_shadow_a, t_double);
 
         ty = decl_handle_var(&ctx, n_shadow_a);
@@ -166,7 +166,7 @@ int main(void) {
         ASTRef r_tdef = zero_cc_ast_alloc_node(&ast_arena, NODE_TYPEDEF_DECL);
         ZeroCCASTNode *n_tdef = zero_cc_ast_get(&ast_arena, r_tdef);
         n_tdef->s.str = "my_int_t";
-        n_tdef->s.len = 8;
+        n_tdef->s_len = 8;
         decl_node_set_type(&ctx, n_tdef, t_int);
 
         TypeInfo *ty = decl_handle_typedef(&ctx, n_tdef);
@@ -183,7 +183,7 @@ int main(void) {
         ASTRef r_tdef_dup = zero_cc_ast_alloc_node(&ast_arena, NODE_TYPEDEF_DECL);
         ZeroCCASTNode *n_tdef_dup = zero_cc_ast_get(&ast_arena, r_tdef_dup);
         n_tdef_dup->s.str = "my_int_t";
-        n_tdef_dup->s.len = 8;
+        n_tdef_dup->s_len = 8;
         decl_node_set_type(&ctx, n_tdef_dup, t_int);
 
         ty = decl_handle_typedef(&ctx, n_tdef_dup);
@@ -194,7 +194,7 @@ int main(void) {
         ASTRef r_var_with_td = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_var_with_td = zero_cc_ast_get(&ast_arena, r_var_with_td);
         n_var_with_td->s.str = "td_var";
-        n_var_with_td->s.len = 6;
+        n_var_with_td->s_len = 6;
         decl_node_set_type(&ctx, n_var_with_td, sym_td->type);
 
         ty = decl_handle_var(&ctx, n_var_with_td);
@@ -214,7 +214,7 @@ int main(void) {
         ASTRef r_proto = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_proto = zero_cc_ast_get(&ast_arena, r_proto);
         n_proto->s.str = "add";
-        n_proto->s.len = 3;
+        n_proto->s_len = 3;
         decl_node_set_type(&ctx, n_proto, t_fn_add);
 
         TypeInfo *ty = decl_handle_function_proto(&ctx, n_proto);
@@ -237,7 +237,7 @@ int main(void) {
         ASTRef r_bad_proto = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_bad_proto = zero_cc_ast_get(&ast_arena, r_bad_proto);
         n_bad_proto->s.str = "add";
-        n_bad_proto->s.len = 3;
+        n_bad_proto->s_len = 3;
         decl_node_set_type(&ctx, n_bad_proto, t_fn_incompat);
 
         ty = decl_handle_function_proto(&ctx, n_bad_proto);
@@ -254,14 +254,14 @@ int main(void) {
         ASTRef r_param_x = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_param_x = zero_cc_ast_get(&ast_arena, r_param_x);
         n_param_x->s.str = "x";
-        n_param_x->s.len = 1;
+        n_param_x->s_len = 1;
         decl_node_set_type(&ctx, n_param_x, t_int);
 
         /* Return statement: return x; */
         ASTRef r_ret_ident = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *n_ret_ident = zero_cc_ast_get(&ast_arena, r_ret_ident);
         n_ret_ident->s.str = "x";
-        n_ret_ident->s.len = 1;
+        n_ret_ident->s_len = 1;
 
         ASTRef r_ret_stmt = zero_cc_ast_alloc_node(&ast_arena, NODE_RETURN);
         ZeroCCASTNode *n_ret_stmt = zero_cc_ast_get(&ast_arena, r_ret_stmt);
@@ -276,7 +276,7 @@ int main(void) {
         ASTRef r_def = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *n_def = zero_cc_ast_get(&ast_arena, r_def);
         n_def->s.str = "compute";
-        n_def->s.len = 7;
+        n_def->s_len = 7;
         n_def->left = r_param_x;   /* parameters */
         n_def->right = r_body;     /* body */
         decl_node_set_type(&ctx, n_def, t_fn_compute);

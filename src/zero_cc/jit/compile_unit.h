@@ -726,7 +726,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                             const char *sv = c->tokens[c->token_pos].allocated_str ?
                                                 c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                                             size_t ro_off = c->rodata_section.length;
-                                            zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                                            zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1);
                                             c->token_pos++;
                                             if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                                 ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
@@ -768,7 +768,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                                 size_t ro_off = c->rodata_section.length;
-                                zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                                zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1);
                                 c->token_pos++;
                                 zero_cc_emit_u64(&c->data_section, 0);
                                 if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
@@ -826,8 +826,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                  * Also handles size inference for `char g[] = "..."`. */
                                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                                size_t sl = zero_cc_token_str_len(&c->tokens[c->token_pos]);
                                 c->token_pos++;
-                                size_t sl = strlen(sv);
                                 /* C11 6.7.9p13: a fixed-size char array smaller than the
                                  * string is truncated (excess chars + the NUL) - warn
                                  * like GCC's "initializer-string ... is too long". */

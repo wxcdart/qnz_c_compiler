@@ -65,10 +65,10 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             printf("FloatLiteral: %f\n", n->float_val);
             break;
         case NODE_STRING:
-            printf("StringLiteral: \"%.*s\"\n", (int)n->s.len, n->s.str ? n->s.str : "");
+            printf("StringLiteral: \"%.*s\"\n", (int)n->s_len, n->s.str ? n->s.str : "");
             break;
         case NODE_IDENT:
-            printf("Identifier: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+            printf("Identifier: %.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
             break;
         case NODE_NULLPTR:
             printf("NullptrLiteral\n");
@@ -106,7 +106,7 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             zero_cc_ast_dump(arena, n->left, indent + 1);
             break;
         case NODE_MEMBER:
-            printf("MemberAccess: %s%.*s\n", n->flags ? "->" : ".", (int)n->s.len, n->s.str ? n->s.str : "");
+            printf("MemberAccess: %s%.*s\n", n->flags ? "->" : ".", (int)n->s_len, n->s.str ? n->s.str : "");
             zero_cc_ast_dump(arena, n->left, indent + 1);
             break;
         case NODE_INDEX:
@@ -238,14 +238,14 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
             break;
         case NODE_DECL:
             if (n->flags & NODE_DECL_IS_VLA) {
-                printf("Decl (VLA): %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+                printf("Decl (VLA): %.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
                 if (n->right != AST_NULL) {
                     for (int i = 0; i <= indent; i++) printf("  ");
                     printf(".dim:\n");
                     zero_cc_ast_dump(arena, n->right, indent + 2);
                 }
             } else {
-                printf("Decl: %.*s\n", (int)n->s.len, n->s.str ? n->s.str : "");
+                printf("Decl: %.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
             }
             if (n->left != AST_NULL) {
                 for (int i = 0; i <= indent; i++) printf("  ");

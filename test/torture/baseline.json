@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-29T01:15:27Z",
+ "generated": "2026-10-29T02:57:11Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -13453,7 +13453,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr77754-6.c": {
    "class": "SKIP-C89",
@@ -15865,18 +15865,18 @@
    "note": ""
   },
   "execute/20000227-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000313-1.c": {
    "class": "PASS",
@@ -16189,16 +16189,16 @@
   "execute/20000605-2.c": {
    "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
     "O2-jit": "OK",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "OK"
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-jit,O1-aot,O3-aot"
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O1-jit,O2-aot,O3-jit"
   },
   "execute/20000605-3.c": {
    "class": "PASS",
@@ -17733,18 +17733,18 @@
    "note": ""
   },
   "execute/20020206-2.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020213-1.c": {
    "class": "REJECT",
@@ -17831,18 +17831,18 @@
    "note": "                   ^; Compile error: use of undeclared identifier 'a' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020226-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020227-1.c": {
    "class": "REJECT",
@@ -18097,18 +18097,18 @@
    "note": "                               ^; Compile error: use of undeclared identifier '__LONG_LONG_MAX__' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020508-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020508-2.c": {
    "class": "PASS",
@@ -18531,18 +18531,18 @@
    "note": ""
   },
   "execute/20021120-3.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20021127-1.c": {
    "class": "MISCOMPILE",
@@ -19255,18 +19255,18 @@
    "note": ""
   },
   "execute/20031020-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20031201-1.c": {
    "class": "PASS",
@@ -22583,18 +22583,18 @@
    "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920710-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920711-1.c": {
    "class": "PASS",
@@ -25105,18 +25105,18 @@
    "note": "            ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/970217-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=1 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/970923-1.c": {
    "class": "REJECT",
@@ -26109,18 +26109,18 @@
    "note": ""
   },
   "execute/991227-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/991228-1.c": {
    "class": "REJECT",
@@ -28026,18 +28026,18 @@
    "note": ""
   },
   "execute/enum-3.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/extzvsi.c": {
    "class": "PASS",
@@ -30076,7 +30076,7 @@
    "class": "MISCOMPILE",
    "configs": {
     "O0-aot": "REJECT",
-    "O0-jit": "MISCOMPILE",
+    "O0-jit": "OK",
     "O1-aot": "REJECT",
     "O1-jit": "MISCOMPILE",
     "O2-aot": "REJECT",
@@ -30084,7 +30084,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "MISCOMPILE"
    },
-   "note": "ref(rc=0 out='') O0 got rc=48 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
+   "note": "Error: Linking failed | cfgs: O1-jit,O2-jit,O3-jit"
   },
   "execute/nestfunc-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -31009,18 +31009,18 @@
    "note": ""
   },
   "execute/pr113010.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr113787.c": {
    "class": "PASS",
@@ -31873,18 +31873,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'alloca' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr22061-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr22061-3.c": {
    "class": "SKIP-C89",
@@ -32555,32 +32555,32 @@
    "note": ""
   },
   "execute/pr31448-2.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr31448.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr31605.c": {
    "class": "PASS",
@@ -33213,18 +33213,18 @@
    "note": "                      ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr37924.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr37931.c": {
    "class": "PASS",
@@ -33820,18 +33820,18 @@
    "note": ""
   },
   "execute/pr42544.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr42570.c": {
    "class": "MISCOMPILE",
@@ -36813,18 +36813,18 @@
    "note": ""
   },
   "execute/pr68648.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr68841.c": {
    "class": "PASS",
@@ -37271,18 +37271,18 @@
    "note": ""
   },
   "execute/pr77767.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr78170.c": {
    "class": "REJECT",
@@ -39807,18 +39807,18 @@
    "note": ""
   },
   "execute/strlen-3.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strlen-4.c": {
    "class": "REJECT",
@@ -40738,10 +40738,10 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 129,
+  "MISCOMPILE": 111,
   "NO-REF": 188,
-  "PASS": 2101,
-  "REJECT": 699,
+  "PASS": 2120,
+  "REJECT": 698,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 668,
   "SKIP-PTR": 1,

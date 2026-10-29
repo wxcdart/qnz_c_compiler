@@ -36,7 +36,7 @@ int main(void) {
         ASTRef decl_ref = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *decl_node = zero_cc_ast_get(&ast_arena, decl_ref);
         decl_node->s.str = "x";
-        decl_node->s.len = 1;
+        decl_node->s_len = 1;
         decl_node->left = int_val_ref;
         decl_node->line = 1;
         decl_node->col = 1;
@@ -102,7 +102,7 @@ int main(void) {
         ASTRef decl_p_ref = zero_cc_ast_alloc_node(&ast_arena, NODE_DECL);
         ZeroCCASTNode *decl_p_node = zero_cc_ast_get(&ast_arena, decl_p_ref);
         decl_p_node->s.str = "p";
-        decl_p_node->s.len = 1;
+        decl_p_node->s_len = 1;
         decl_p_node->line = 20;
         decl_p_node->col = 1;
         /* Associate explicit type with decl node */
@@ -114,7 +114,7 @@ int main(void) {
         ASTRef ident_p_ref = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
         ZeroCCASTNode *ident_p_node = zero_cc_ast_get(&ast_arena, ident_p_ref);
         ident_p_node->s.str = "p";
-        ident_p_node->s.len = 1;
+        ident_p_node->s_len = 1;
         ident_p_node->line = 21;
         ident_p_node->col = 1;
 

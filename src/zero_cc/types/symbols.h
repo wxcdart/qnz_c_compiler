@@ -206,6 +206,9 @@ struct ZeroCCStrChunk {
 
 /* String pool functions (implemented in string_pool.c) */
 extern const char *zero_cc_intern_string(ZeroCCCompiler *c, const char *s);
+/* Length-aware intern for strings that may contain embedded NUL bytes
+ * (string literals); copies exactly len content bytes + terminating NUL. */
+extern const char *zero_cc_intern_string_len(ZeroCCCompiler *c, const char *s, size_t len);
 extern void zero_cc_free_string_pool(ZeroCCCompiler *c);
 
 /* Full teardown of a compiler instance (implemented in

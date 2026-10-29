@@ -72,7 +72,9 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
 
     switch (node->tag) {
         case NODE_INT:
-            res = type_int(ctx->perm_arena);
+            /* Suffix/value-driven literal type (C99 6.4.4.1) */
+            res = type_int_literal(ctx->perm_arena,
+                                   (uint8_t)(node->flags & 7u), node->int_val);
             break;
         case NODE_FLOAT:
             res = type_double(ctx->perm_arena);

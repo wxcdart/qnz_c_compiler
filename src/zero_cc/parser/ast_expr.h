@@ -172,10 +172,9 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                 /* String literal filling a char array (C11 6.7.9p13): one
                  * stamped byte node per character (NUL included when it
                  * fits), starting at the value target. */
-                const char *sv = c->tokens[c->token_pos].allocated_str ?
-                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                 const ZeroCCToken *stk = &c->tokens[c->token_pos];
-                size_t sl = strlen(sv);
+                const char *sv = stk->allocated_str ? stk->allocated_str : stk->str_val;
+                size_t sl = zero_cc_token_str_len(stk); /* may contain embedded NULs */
                 size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
                     (tgt.abs_off - tgt.arr_ctx_off) : 0;
                 size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
@@ -345,9 +344,11 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->line = (uint32_t)tok->line;
             n->col = (uint32_t)tok->col;
             const char *s = tok->allocated_str ? tok->allocated_str : tok->str_val;
-            /* Intern short strings (allocated_str is already stable heap) */
-            n->s.str = (tok->allocated_str) ? s : zero_cc_intern_string(c, s);
-            n->s.len = strlen(n->s.str);
+            size_t sl = zero_cc_token_str_len(tok); /* may contain embedded NULs */
+            /* Intern short strings (allocated_str is already stable heap); the
+             * length-aware copy preserves embedded NUL bytes. */
+            n->s.str = (tok->allocated_str) ? s : zero_cc_intern_string_len(c, s, sl);
+            n->s_len = sl;
             return ref;
         }
 
@@ -454,7 +455,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->col = (uint32_t)tok->col;
             /* Intern: tok->str_val dies when the token buffer grows */
             n->s.str = zero_cc_intern_string(c, tok->str_val);
-            n->s.len = strlen(n->s.str);
+            n->s_len = strlen(n->s.str);
             return ref;
         }
 
@@ -611,7 +612,7 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     cn->left = head_expr;
                     if (sym) {
                         cn->s.str = sym->name;
-                        cn->s.len = strlen(sym->name);
+                        cn->s_len = strlen(sym->name);
                         cn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
                     }
                     if (c->sem_ctx && c->sem_ctx->perm_arena) {
@@ -739,7 +740,7 @@ static ASTRef parse_postfix_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 mn->left = expr;
                 mn->flags = is_arrow ? 1 : 0;
                 mn->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-                mn->s.len = strlen(mn->s.str);
+                mn->s_len = strlen(mn->s.str);
                 c->token_pos++;
                 expr = mem_ref;
                 continue;

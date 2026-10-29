@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Chunk M4] - 2026-10-29 - Integer Literal Typing, 32-bit Wrap Semantics & Frontend Conformance Fixes (PASS reaches 2,120, MISCOMPILE down to 111)
+
+- **Integer literal types (C99 6.4.4.1)**: the lexer's suffix bits (`int_suffix`: bit0=`u`, bit1=`l`, bit2=`ll`) now drive the literal's *semantic type*, not just its value. New canonical helper `type_int_literal(perm, suffix, value)` in `src/zero_cc/semantic/type.c` is used by both expression analyzers (`sem_analyze_node` in `semantic/visitor.c`, `expr_handle_literal` in `semantic/expr.c`); the constant-expression type walker `zero_cc_type_of_primary` (`parser/const_eval.h`) mirrors the same rules so `sizeof(0x12345678ABCDEF0LLU)` is 8, not 4, in both in-expression `sizeof` precompute and const-eval paths. Pre-fix every literal was plain `int`, so 64-bit-literal arithmetic (rotate macros `(x>>4)|(x<<60)`) ran 32-bit.
+- **Mixed 32-bit signed/unsigned binops (C99 6.3.1.8)**: comparisons, `/`, and `%` with one signed and one unsigned 4-byte operand now reduce **both** operands to their low 32 bits (`ir_emit_zext` each) instead of only the unsigned side. A sign-extended negative int (high 32 bits all-1) previously could never compare equal to the zero-extended unsigned value (`bitfld-4.c`: `x.a != -123U` on an `int:12` bitfield).
+- **Unary minus wraps at the promoted operand's width (C99 6.5.3.3)**: `ir_emit_neg` results are width-marked from the node's semantic type (4-byte: sign/zero-extend at 32 bits per signedness — `-1U == 0xFFFFFFFF`; 1/2-byte: integer promotion to signed int; 8-byte: unmarked), matching the pre-existing `~` marking convention. Pre-fix `-1U / x` computed the 64-bit negation and `maxv == -2U` never matched.
+- **String literals with embedded NUL bytes**: `str_len` field added to `ZeroCCToken` (outside the union-aliased payload) and `ZeroCCASTNode`, with a `zero_cc_token_str_len()` accessor; 12+ sites that used `strlen()` on string tokens/values now use the length. `sizeof("\0\377")` is 3; pointer arithmetic into NUL-prefixed strings is correct.
+- **Compound literal member access**: `NODE_COMPOUND_LIT` member loads/stores now resolve the symbol by the parse-time-stashed index (`lowering_local_sym()`) instead of name-based `zero_cc_find_local`, which could hit a shadowing local and read the clobbered `s.str` union payload.
+- **`uint64_t` → `double` conversion (x86-64)**: two-term conversion `cvtsi2sd(v) + (v >> 63) * 2^64` for unsigned 64-bit sources (single `cvtsi2sd` truncates values ≥ 2^53); literal-suffix fallback corrected.
+- **Enum sign-extension on load**: `TYPE_KIND_ENUM` added to `lower_extend_narrow()` so enum-typed values load with their underlying int's sign extension.
+- **VLA parameter dimension expressions**: function-parameter bracket content is now parsed as an expression, stored on `ZeroCCFunction`, and evaluated at function entry in declaration order (so `a++` side effects order correctly); return-value promotion is disabled when any VLA parameter dimension exists.
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **`PASS`**: Increased from 2,101 to **2,120** (+19).
+  - **`MISCOMPILE`**: Reduced from 129 to **111** (-18). Resolves `execute/20020226-1.c`, `execute/20020508-1.c`, `execute/20020508-2.c`, `execute/20021120-3.c`, `execute/20031020-1.c`, `execute/pr113010.c`, `execute/pr31448.c`, `execute/pr31448-2.c`, `execute/pr37924.c`, `execute/pr42544.c`, `execute/pr68648.c` (literal width semantics), `execute/20000227-1.c`, `execute/991227-1.c`, `execute/strlen-3.c` (string NUL), `execute/20020206-2.c` (compound literal), `execute/920710-1.c` (u64→double), `execute/enum-3.c` (enum), `execute/970217-1.c`, `execute/pr77767.c` (VLA params).
+  - **`REJECT`**: Reduced from 699 to **698** (-1, `execute/pr22061-2.c` — non-constant parameter dimension now parses as an expression).
+  - Mid-session regression triage: the literal-typing change initially exposed two latent width bugs; `execute/bitfld-4.c`, `execute/pr49039.c`, and `execute/pr56250.c` (all passing in the prior baseline) stayed green after the zext-both and unary-minus fixes above.
+  - **0 regressions** against the previous ratcheted baseline; `test/torture/baseline.json` re-recorded (809 bad vs 828).
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `make test-isa-qemu` 44/44 · `tools/sret_verifier.py` 6/6 · `tools/diag_battery.py` baseline OK · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK.
+
+---
+
 ## [Chunk M4] - 2026-10-29 - GCC `c-torture` MISCOMPILE & REJECT Conformance Sweep (PASS reaches 2,101, MISCOMPILE down to 129)
 
 - **Bitfield Assignment & Multiple Declarator Packing**:

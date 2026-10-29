@@ -615,7 +615,18 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_NUM) {
+        /* C99 6.4.4.1p6: the suffix (bit0=u, bit1=l, bit2=ll) fixes the
+         * literal's type and an unsuffixed constant takes the first type in
+         * which its value fits, so sizeof(0x12345678ABCDEF0LLU) is 8, not
+         * sizeof(int). */
+        uint8_t suf = c->tokens[*pos].int_suffix;
+        int64_t v = c->tokens[*pos].num_val;
         (*pos)++;
+        if (suf & 0x06) return (suf & 0x01) ? zero_cc_type_uint64() : zero_cc_type_int64();
+        if (suf & 0x01) return (v > (int64_t)0xFFFFFFFF) ? zero_cc_type_uint64() : zero_cc_type_uint32();
+        if (v < 0) return zero_cc_type_uint64(); /* wrapped 64-bit hex literal */
+        if (v > (int64_t)0xFFFFFFFF) return zero_cc_type_int64();
+        if (v > INT32_MAX) return zero_cc_type_uint32();
         return zero_cc_type_int();
     }
     if (t == TK_FLOAT) {

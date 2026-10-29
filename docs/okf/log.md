@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-29T01:15:54Z
+timestamp: 2026-10-29T02:57:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -515,3 +515,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-29 — Updated `c-torture-gate.md`
 - Sprint 57 Chunk M4: burn down 19 MISCOMPILEs and 15 REJECTs (PASS reaches 2101, MISCOMPILE drops to 129)
+
+## 2026-10-29 — Updated `frontend-and-types.md`
+- Integer literal typing (C99 6.4.4.1) via type_int_literal + const_eval.h sizeof(literal); mixed 32-bit signed/unsigned binops zext BOTH operands; unary minus width-marked at promoted operand width (6.5.3.3). Fixes c-torture 20020226-1/20020508-2, bitfld-4, pr49039, pr56250; baseline 828 -> 809.

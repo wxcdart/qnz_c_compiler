@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 /* Forward declarations for backend structs – needed because zero_cc_backends.h
    refers to them before they are defined. */
 typedef struct ZeroCCEmitBackend   ZeroCCEmitBackend;
@@ -56,6 +57,7 @@ typedef struct ZeroCCToken {
     uint8_t int_suffix; /* bitflags: 1=U,2=L,4=LL */
     char str_val[128];
     char *allocated_str; /* for long strings (> 127 chars) */
+    size_t str_len;      /* string-literal content length in bytes (excl. NUL); 0 = use strlen */
     const char *filename; /* source filename if available */
     size_t line;      /* 1-based line number */
     size_t col;       /* 1-based column number */
@@ -64,6 +66,18 @@ typedef struct ZeroCCToken {
 } ZeroCCToken;
 
 typedef ZeroCCToken ZeroCCTokenV2;
+
+/* True byte length of a TK_STRING token's content.  String literals may
+ * contain embedded NUL bytes (\0, \000, raw 0x00 ...), where strlen() on
+ * str_val/allocated_str stops early and under-sizes char arrays, rodata
+ * emission, and initializer copies.  The lexer records the full content
+ * length in str_len; fall back to strlen() for synthetic tokens that never
+ * went through zero_cc_scan_string. */
+static inline size_t zero_cc_token_str_len(const ZeroCCToken *t) {
+    if (t->str_len > 0) return t->str_len;
+    const char *s = (t->allocated_str) ? t->allocated_str : t->str_val;
+    return strlen(s);
+}
 
 /* Type System */
 

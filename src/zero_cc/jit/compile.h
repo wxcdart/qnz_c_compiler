@@ -162,6 +162,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     ZeroCCType *param_types = (ZeroCCType *)arena_alloc(ctx->tmp_arena, param_cap * sizeof(ZeroCCType));
     const char **param_names = (const char **)arena_alloc(ctx->tmp_arena, param_cap * sizeof(const char *));
     size_t param_count = 0;
+    /* C99 6.7.6.2: VLA parameter dimension expressions (one per param,
+     * 0 = none) - parsed into a private arena, evaluated at entry. */
+    ZeroCCASTArena *dim_arena = NULL;
+    ASTRef dim_exprs[ZERO_CC_MAX_PARAMS];
+    for (size_t di = 0; di < ZERO_CC_MAX_PARAMS; di++) dim_exprs[di] = AST_NULL;
     bool is_variadic_fn = false;
     bool has_prototype = false; /* set once the param list holds at least one entry */
     c->local_count = 0;
@@ -423,9 +428,34 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                             ssize_t d = 0;
                             c->token_pos++; /* '[' */
                             if (c->token_pos < c->token_count &&
-                                c->tokens[c->token_pos].type == TK_NUM) {
+                                c->tokens[c->token_pos].type == TK_NUM &&
+                                c->token_pos + 1 < c->token_count &&
+                                c->tokens[c->token_pos + 1].type == TK_RBRACKET) {
                                 d = (ssize_t)c->tokens[c->token_pos].num_val;
                                 c->token_pos++;
+                            } else {
+                                /* VLA dimension expression (C99 6.7.6.2): parse
+                                 * the bracket content as an expression; it is
+                                 * evaluated in parameter order at function entry
+                                 * (for its side effects - the storage lives in
+                                 * the caller's frame). */
+                                size_t dim_start = c->token_pos;
+                                while (c->token_pos < c->token_count &&
+                                       c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
+                                size_t dim_end = c->token_pos; /* the ']' */
+                                d = 0;
+                                if (dim_start < dim_end && dim_exprs[param_count - 1] == AST_NULL) {
+                                    if (!dim_arena) {
+                                        dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                                        if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
+                                    }
+                                    if (dim_arena) {
+                                        size_t saved_pos = c->token_pos;
+                                        c->token_pos = dim_start;
+                                        dim_exprs[param_count - 1] = parse_expr_ast_internal(c, dim_arena);
+                                        c->token_pos = (dim_end < c->token_count) ? dim_end : saved_pos;
+                                    }
+                                }
                             }
                             if (c->token_pos < c->token_count &&
                                 c->tokens[c->token_pos].type == TK_RBRACKET) {
@@ -499,6 +529,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 }
             }
         }
+        if (dim_arena) { zero_cc_ast_arena_free(dim_arena); free(dim_arena); dim_arena = NULL; }
         c->token_pos++;
         return;
     }
@@ -528,6 +559,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             for (size_t i = 0; i < param_count; i++) {
                 fn->param_types[i] = param_types[i];
                 fn->param_names[i] = param_names[i];
+            }
+            fn->param_dim_arena = dim_arena;
+            if (dim_arena) {
+                fn->param_dim_exprs = (ASTRef *)arena_alloc(farena, param_count * sizeof(ASTRef));
+                for (size_t i = 0; i < param_count; i++) {
+                    fn->param_dim_exprs[i] = dim_exprs[i];
+                }
             }
         }
 
@@ -671,7 +709,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             zero_cc_lower_ast(c, &arena, body);
 
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
-             * are executed inside zero_cc_lower_ast(). */
+             * are executed inside zero_cc_lower_ast(). The VLA parameter
+             * dimension expressions were consumed at entry during Pass 1. */
+            if (dim_arena) {
+                zero_cc_ast_arena_free(dim_arena);
+                free(dim_arena);
+                dim_arena = NULL;
+            }
 
             /* Record small static/inline function body in translation-unit arena for inlining.
              * Sprint 35 Phase 1 (inline audit) conservative candidate filters - the

@@ -150,7 +150,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     if (t == TK_STRING && sym->type.tag == TYPE_ARRAY && sym->type.base && (sym->type.base->tag == TYPE_INT8 || sym->type.base->tag == TYPE_UINT8)) {
         c->token_pos++;
         const char *s = c->tokens[c->token_pos - 1].allocated_str ? c->tokens[c->token_pos - 1].allocated_str : c->tokens[c->token_pos - 1].str_val;
-        size_t len = strlen(s) + 1; /* include null terminator */
+        size_t len = zero_cc_token_str_len(&c->tokens[c->token_pos - 1]) + 1; /* content + null terminator */
         /* C11 6.7.9p13: a fixed-size array smaller than the string is
          * truncated (excess chars AND the NUL are dropped).  Clamp the copy
          * to the array's capacity so a fixed-size array never overruns into
@@ -215,12 +215,13 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
             if (c->tokens[c->token_pos].type == TK_STRING) {
                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                size_t slen = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1; /* content + NUL */
                 c->token_pos++;
                 if (elem_is_ptr) {
                     /* Pointer-to-string: emit literal to .rodata, patch the
                      * 8-byte data slot via a data relocation. */
                     size_t ro_off = c->rodata_section.length;
-                    zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                    zero_cc_buf_put_bytes(&c->rodata_section, sv, slen);
                     if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                         ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                         dr->data_patch_offset = sym->static_data_offset + off;
@@ -232,7 +233,6 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                     off += 8;
                 } else if (elem_is_char) {
                     /* Char element: write the string bytes (incl. NUL). */
-                    size_t slen = strlen(sv) + 1;
                     if (total > 0 && off + slen > total) slen = (total > off) ? (total - off) : 0;
                     memcpy(dst + off, sv, slen);
                     off += slen;
@@ -355,9 +355,7 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
     ZeroCCTokType first = c->tokens[brace_pos].type;
     if (first == TK_STRING) {
         if (!elem_is_char) return 0;
-        const char *s = c->tokens[brace_pos].allocated_str ?
-            c->tokens[brace_pos].allocated_str : c->tokens[brace_pos].str_val;
-        return strlen(s) + 1;
+        return zero_cc_token_str_len(&c->tokens[brace_pos]) + 1;
     }
     if (first != TK_LBRACE) return 0;
     size_t q = brace_pos + 1; /* first token after '{' */
@@ -379,9 +377,7 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
         /* A top-level element. */
         count++;
         if (tt == TK_STRING) {
-            const char *s = c->tokens[q].allocated_str ?
-                c->tokens[q].allocated_str : c->tokens[q].str_val;
-            total += (elem_is_ptr) ? 8 : (elem_is_char ? strlen(s) + 1 : ((elem_sz < 8) ? elem_sz : 8));
+            total += (elem_is_ptr) ? 8 : (elem_is_char ? zero_cc_token_str_len(&c->tokens[q]) + 1 : ((elem_sz < 8) ? elem_sz : 8));
             q++;
         } else {
             total += (elem_sz < 8) ? elem_sz : 8;
@@ -447,7 +443,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         gn->col = col;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
             gn->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-            gn->s.len = strlen(gn->s.str);
+            gn->s_len = strlen(gn->s.str);
             c->token_pos++;
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
@@ -465,7 +461,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ln->line = line;
         ln->col = col;
         ln->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-        ln->s.len = strlen(ln->s.str);
+        ln->s_len = strlen(ln->s.str);
         c->token_pos += 2; /* ident ':' */
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
             ln->left = zero_cc_parse_stmt_ast(c, arena, ctx);
@@ -1106,7 +1102,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     func_node->line = line;
                     func_node->col = col;
                     func_node->s.str = zero_cc_intern_string(c, vname);
-                    func_node->s.len = strlen(func_node->s.str);
+                    func_node->s_len = strlen(func_node->s.str);
                     func_node->left = param_list;   // parameter list
                     func_node->right = body_ref;    // body
                     decl_node_set_type(ctx, func_node, fn_ti);
@@ -1121,7 +1117,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     func_node->line = line;
                     func_node->col = col;
                     func_node->s.str = zero_cc_intern_string(c, vname);
-                    func_node->s.len = strlen(func_node->s.str);
+                    func_node->s_len = strlen(func_node->s.str);
                     func_node->flags |= NODE_FLAG_FUNC_PROTO;
                     func_node->left = param_list;
                     func_node->right = AST_NULL;
@@ -1214,7 +1210,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 dn->line = line;
                 dn->col = col;
                 dn->s.str = zero_cc_intern_string(c, vname);
-                dn->s.len = strlen(dn->s.str);
+                dn->s_len = strlen(dn->s.str);
                 /* Stash the exact local symbol for lowering: sibling blocks
                  * may legally reuse the name, and by-name lookup is
                  * latest-wins, so type-dependent initializers must resolve
@@ -1263,9 +1259,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING &&
                         decl_type.tag == TYPE_ARRAY && decl_type.array_len > 0 && decl_type.base &&
                         (decl_type.base->tag == TYPE_INT8 || decl_type.base->tag == TYPE_UINT8)) {
-                        const char *sinit = c->tokens[c->token_pos].allocated_str ?
-                            c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                        size_t need = strlen(sinit) + 1;  /* string + implicit NUL */
+                        size_t need = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1;  /* string + implicit NUL */
                         size_t esz  = (decl_type.base->size > 0) ? decl_type.base->size : 1;
                         if (need > decl_type.array_len * esz) {
                             diag_report_warning_at_token(c,
@@ -1311,7 +1305,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         cn->left = head_expr;
                         if (sym) {
                             cn->s.str = sym->name;
-                            cn->s.len = strlen(sym->name);
+                            cn->s_len = strlen(sym->name);
                             cn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
                         }
                         init_val = comp_ref;
@@ -1380,7 +1374,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     next_dn->line = line;
                     next_dn->col = col;
                     next_dn->s.str = next_vname;
-                    next_dn->s.len = strlen(next_vname);
+                    next_dn->s_len = strlen(next_vname);
                     if (nhas_any_vla) {
                         next_dn->flags |= NODE_DECL_IS_VLA;
                         next_dn->right = nvla_dim_expr; /* outermost runtime dimension expr */
@@ -1432,7 +1426,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                             cn->left = head_expr;
                             if (next_sym) {
                                 cn->s.str = next_sym->name;
-                                cn->s.len = strlen(next_sym->name);
+                                cn->s_len = strlen(next_sym->name);
                                 cn->aux.step = (uint32_t)((size_t)(next_sym - c->locals)) + 1;
                             }
                             next_init = comp_ref;

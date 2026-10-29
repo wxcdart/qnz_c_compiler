@@ -123,7 +123,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             (str_sym->type.base->tag == TYPE_INT8 || str_sym->type.base->tag == TYPE_UINT8)) {
             const char *lit = str_init_node->s.str;
             size_t total_size = str_sym->type.size;
-            size_t copy_len = strlen(lit) + 1;
+            size_t copy_len = str_init_node->s_len + 1; /* may contain embedded NULs */
             if (copy_len > total_size) copy_len = total_size; /* C11 6.7.9p12: truncate */
             int zero_temp = c->next_temp_id++;
             ir_emit_mov_imm(zero_temp, 0);

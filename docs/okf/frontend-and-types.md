@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-26T13:59:57Z
+timestamp: 2026-10-29T02:57:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -111,6 +111,15 @@ A string literal may initialize a `char`/`unsigned char` array in every position
 ## Hex Literal Classification (Sprint 40)
 
 `lexer/scan.h` (`zero_cc_scan_number`): a hex literal (`0x…`) is classified as a floating constant **only when the consumed prefix contains `.` or a `p`/`P` exponent** (C99 6.4.4.2 - `0x1.8p1`, `0x1.Fp0`). In a hex literal `e`/`E` are ordinary hex DIGITS, not exponent markers. The pre-Sprint 40 scan treated `E` as an exponent, so `0x123456789ABCDEFLL` (and any hex literal containing an `E`/`e` digit) was lexed as a hex float: one `L` was consumed as a long-double suffix, the second was left dangling (parse error), or a double bit-pattern was stored in an int (the root cause of the Sprint 39 "64-bit literals > 32 bits miscompile" finding in ternary arms and XOR operands). Decimal literals keep the `.`/`e`/`E` float test (`1e2` is still a double); binary literals (`0b…`) are always integers. Suffix parsing (`U`/`L`/`LL`) is unchanged.
+
+## Integer Literal Types & 32-bit Wrap Semantics (C99 6.4.4.1 / 6.3.1.8 / 6.5.3.3)
+
+An integer literal's **type** (not just its value) drives the width of every enclosing expression. The suffix is carried end-to-end: the lexer stores it in `ZeroCCToken.int_suffix` (bit0 = `u`, bit1 = `l`, bit2 = `ll`), `parse_primary_ast` copies it into `NODE_INT.flags`, and **`type_int_literal(perm, suffix, value)` (`src/zero_cc/semantic/type.c`) is the single canonical source of the literal's semantic `TypeInfo`** (used by both `sem_analyze_node` in `visitor.c` and `expr_handle_literal` in `expr.c`). The constant-expression type walker `zero_cc_type_of_primary` (`src/zero_cc/parser/const_eval.h`) mirrors the same suffix/value rules for the `ZeroCCType` side, which `sizeof(lit)` / `_Alignof(lit)` consume in **both** the in-expression precompute (`parse_unary_ast`, `ast_expr.h`) and const-eval paths. Pre-fix, every integer literal was typed plain `int`: `0x12345678ABCDEF0LLU` arithmetic ran 32-bit (`(x >> 4) | (x << 60)` rotate patterns truncated — c-torture `20020226-1.c`/`20020508-2.c`; the signed twin only passed because its macro casts the literal `(long long)` first) and `sizeof(0x12345678ABCDEF0LLU)` was 4 instead of 8.
+
+Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`):
+
+- **Mixed 32-bit signed/unsigned binops (C99 6.3.1.8)**: for `==/!=/</<=/>/>=`, `/`, and `%` where one 4-byte operand is signed and the other unsigned, **BOTH** operands are reduced to their low 32 bits (`ir_emit_zext(…, 4)`) before the op. The pre-fix code zexted only the unsigned side, so a sign-extended negative int (high 32 bits all-1) could never compare equal / divide correctly against the zero-extended unsigned value (`bitfld-4.c`: `x.a != -123U` on an `int:12` bitfield). The condition/unsigned marking already followed the common type via `zero_cc_binop_is_unsigned` (unsigned wins at equal width).
+- **Unary minus wraps at the promoted operand's width (C99 6.5.3.3)**: the `ir_emit_neg` result is width-marked from the node's semantic type — 4-byte operand: sign- or zero-extend at 32 bits per signedness (`-1U == 0xFFFFFFFF`, **not** `0xFFFFFFFFFFFFFFFF`); 1/2-byte operand: sign-extend at 32 (integer promotion to `int`); 8-byte: unmarked. Same convention as the pre-existing `~` marking (w = sign-extend, 8+w = zero-extend). Without it `-1U / x` computed the 64-bit negation and `maxv == -2U` never matched (c-torture `pr56250.c`, `pr49039.c` — both aborted pre-fix, both pass at every -O level post-fix).
 
 ## Goto, User Labels & Switch (Implemented)
 

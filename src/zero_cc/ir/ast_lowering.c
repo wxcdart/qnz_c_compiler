@@ -158,6 +158,19 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
+    /* C99 6.7.6.2: a VLA parameter dimension expression (e.g.
+     * `int f(int i, int a[i++])`) is evaluated at entry in parameter
+     * order; it may read/write earlier parameters, which requires the
+     * params in frame slots - so promotion must be off. */
+    if (can_promote_params && lowering_fn && lowering_fn->param_dim_exprs) {
+        for (size_t p = 0; p < lowering_fn->param_count; p++) {
+            if (lowering_fn->param_dim_exprs[p] != AST_NULL) {
+                can_promote_params = false;
+                break;
+            }
+        }
+    }
+
     if (can_promote_params) {
         c->current_stack_frame = 0;
         ZeroCCFunction *fn = lowering_fn;
@@ -243,6 +256,18 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             int32_t base_spill_offset = c->current_stack_frame + 8;
             c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * 8) + 15) & ~(size_t)15);
             ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
+        }
+    }
+
+    /* C99 6.7.6.2: evaluate VLA parameter dimension expressions in
+     * parameter order; all params are already in their frame slots and
+     * a dimension may reference earlier params (the array storage lives
+     * in the caller's frame, so only the side effects matter). */
+    if (lowering_fn && lowering_fn->param_dim_arena && lowering_fn->param_dim_exprs) {
+        ZeroCCASTArena *dim_arena = (ZeroCCASTArena *)lowering_fn->param_dim_arena;
+        for (size_t p = 0; p < lowering_fn->param_count; p++) {
+            ASTRef dim = lowering_fn->param_dim_exprs[p];
+            if (dim != AST_NULL) (void)lower_expr(c, dim_arena, dim);
         }
     }
 

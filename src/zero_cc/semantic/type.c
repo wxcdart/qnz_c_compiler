@@ -59,6 +59,25 @@ TypeInfo *type_ulong(Arena *perm) {
     return make_basic(perm, TYPE_KIND_LONG, TYPE_MOD_UNSIGNED);
 }
 
+/* C99 6.4.4.1p6: the type of an integer constant.
+ * Suffix (bit0 = u, bit1 = l, bit2 = ll) fixes the type even when the value
+ * fits in a narrower type (1ULL is long long, not int).  Unsuffixed: the
+ * first of int / unsigned int / long / long long in which the value fits;
+ * hex/binary constants that wrap past 2^63 arrive negative and are
+ * unsigned long long. */
+TypeInfo *type_int_literal(Arena *perm, uint8_t suffix, int64_t value) {
+    if (suffix & 0x06) {                 /* l / ll: 64-bit on LP64 */
+        return (suffix & 0x01) ? type_ulong(perm) : type_long(perm);
+    }
+    if (suffix & 0x01) {                 /* u: unsigned int (long if too large) */
+        return (value > INT64_C(0xFFFFFFFF)) ? type_ulong(perm) : type_uint(perm);
+    }
+    if (value < 0) return type_ulong(perm);          /* wrapped 64-bit hex literal */
+    if (value > INT64_C(0xFFFFFFFF)) return type_long(perm);
+    if (value > INT32_MAX) return type_uint(perm);
+    return type_int(perm);
+}
+
 TypeInfo *type_pointer_to(Arena *perm, TypeInfo *base) {
     TypeInfo *t = make_basic(perm, TYPE_KIND_POINTER, TYPE_MOD_NONE);
     if (!t) return NULL;

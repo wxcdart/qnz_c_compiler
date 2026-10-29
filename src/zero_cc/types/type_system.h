@@ -176,6 +176,10 @@ typedef struct {
     bool can_inline;                      /* Eligible for small function inlining */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
     void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */
+    uint32_t *param_dim_exprs;    /* C99 6.7.6.2: VLA parameter dimension expressions (ASTRef),
+                                     one slot per param (0 = none); evaluated in param
+                                     order at function entry. */
+    void *param_dim_arena;        /* ZeroCCASTArena* owning the param_dim_exprs nodes */
 } ZeroCCFunction;
 
 /* Relocation Record */

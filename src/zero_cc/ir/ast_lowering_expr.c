@@ -236,7 +236,7 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
         }
     } else if (base_node->tag == NODE_COMPOUND_LIT) {
         (void)lower_expr(c, arena, base_ref);
-        ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+        ZeroCCSym *sym = lowering_local_sym(c, base_node, base_node->s.str); /* index-based: name lookup misses post-bound __clit syms */
         if (sym) {
             addr = c->next_temp_id++;
             ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
@@ -310,7 +310,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         }
     } else if (operand->tag == NODE_COMPOUND_LIT) {
         (void)lower_expr(c, arena, ref);
-        ZeroCCSym *sym = (operand->s.str && operand->s.str[0]) ? zero_cc_find_local(c, operand->s.str) : NULL;
+        ZeroCCSym *sym = lowering_local_sym(c, operand, operand->s.str); /* index-based: name lookup misses post-bound __clit syms */
         if (sym) {
             int addr_temp = c->next_temp_id++;
             ir_emit_lea(addr_temp, TEMP_NONE, -sym->stack_offset);
@@ -357,7 +357,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             }
         } else if (!base_is_ptr && base_node && base_node->tag == NODE_COMPOUND_LIT) {
             (void)lower_expr(c, arena, base_ref);
-            ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+            ZeroCCSym *sym = lowering_local_sym(c, base_node, base_node->s.str); /* index-based: name lookup misses post-bound __clit syms */
             if (sym) {
                 int32_t total_offset = -sym->stack_offset + member_offset;
                 ir_emit_lea(addr_temp, TEMP_NONE, total_offset);
@@ -481,7 +481,8 @@ static void lower_extend_narrow(ZeroCCCompiler *c, int temp, const TypeInfo *ti)
     (void)c;
     if (!ti) return;
     if (ti->kind != TYPE_KIND_BOOL && ti->kind != TYPE_KIND_CHAR &&
-        ti->kind != TYPE_KIND_SHORT && ti->kind != TYPE_KIND_INT) return;
+        ti->kind != TYPE_KIND_SHORT && ti->kind != TYPE_KIND_INT &&
+        ti->kind != TYPE_KIND_ENUM) return; /* enums are signed ints */
     size_t sz = type_size(ti);
     if (sz != 1 && sz != 2 && sz != 4) return;
     if (type_is_unsigned(ti)) ir_emit_zext(temp, (int)sz);
@@ -848,7 +849,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_STRING: {
             int temp = c->next_temp_id++;
             if (node->s.str) {
-                size_t len = strlen(node->s.str);
+                size_t len = node->s_len; /* may contain embedded NULs */
                 size_t rodata_offset = c->rodata_section.length;
                 zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
                 uint8_t zero = 0;
@@ -1216,8 +1217,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
                     int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
                     if (lw == 4 && rw == 4 && (lu != ru)) {
-                        if (!lu) ir_emit_zext(left_temp, 4);
-                        if (!ru) ir_emit_zext(right_temp, 4);
+                        /* C99 6.3.1.8: both operands convert to the common
+                         * unsigned type - reduce BOTH to the low 32 bits (a
+                         * sign-extended negative int has its high bits set).
+                         * A zexted negative value is its 32-bit bit pattern. */
+                        ir_emit_zext(left_temp, 4);
+                        ir_emit_zext(right_temp, 4);
                     }
                     ir_emit_div(result_temp, left_temp, right_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
@@ -1230,8 +1235,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
                     int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
                     if (lw == 4 && rw == 4 && (lu != ru)) {
-                        if (!lu) ir_emit_zext(left_temp, 4);
-                        if (!ru) ir_emit_zext(right_temp, 4);
+                        /* C99 6.3.1.8: both operands convert to the common
+                         * unsigned type - reduce BOTH to the low 32 bits. */
+                        ir_emit_zext(left_temp, 4);
+                        ir_emit_zext(right_temp, 4);
                     }
                     ir_emit_mod(result_temp, left_temp, right_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
@@ -1288,8 +1295,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
                         int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
                         if (lw == 4 && rw == 4 && (lu != ru)) {
-                            if (!lu) ir_emit_zext(left_temp, 4);
-                            if (!ru) ir_emit_zext(right_temp, 4);
+                            /* C99 6.3.1.8: both operands convert to the common
+                             * unsigned type - reduce BOTH to the low 32 bits so
+                             * a sign-extended negative int compares as its
+                             * 32-bit unsigned bit pattern. */
+                            ir_emit_zext(left_temp, 4);
+                            ir_emit_zext(right_temp, 4);
                         }
                     }
                     ir_emit_cmp(left_temp, right_temp);
@@ -1655,6 +1666,24 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         return result_temp;
                     }
                     ir_emit_neg(result_temp, operand_temp);
+                    /* C99 6.5.3.3: the result type is the promoted operand
+                     * type, so a 32-bit unsigned negation wraps at 32 bits
+                     * (-1U == 0xFFFFFFFF, not 0xFFFFFFFFFFFFFFFF) and a
+                     * 1/2-byte operand promotes to signed int.  Without the
+                     * mark the full-width negation poisons later 32-bit
+                     * compares/divides (c-torture pr49039, pr56250). */
+                    {
+                        TypeInfo *neg_ti = ast_node_get_typeinfo(c, node);
+                        if (neg_ti) {
+                            size_t nwsz = type_size(neg_ti);
+                            if (nwsz == 4) {
+                                bool wu = (neg_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                                ir_mark_last_width(wu ? (uint8_t)(8 + 4) : (uint8_t)4);
+                            } else if (nwsz == 1 || nwsz == 2) {
+                                ir_mark_last_width(4); /* integer promotion */
+                            }
+                        }
+                    }
                     break;
                 case TK_BANG:  /* Logical NOT: !operand */
                     if (c->last_expr_is_float) {
@@ -1705,7 +1734,47 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                      * this case fell through and returned the raw integer
                      * bits as if they were a double bit pattern (int 3 ->
                      * 3.0e-323), with last_expr_is_float left 0 so callers
-                     * (e.g. the call-argument path) took the integer route. */
+                     * (e.g. the call-argument path) took the integer route.
+                     *
+                     * 64-bit *unsigned* sources (unsigned long / size_t /
+                     * pointers on LP64) need the two-term form: cvtsi2sd
+                     * reads the bits as *signed*, so values with the high
+                     * bit set come out as (v - 2^64); add back 2^64 scaled
+                     * by the top bit:  r = cvtsi2sd(v) + (double)(v >> 63) * 2^64. */
+                    ZeroCCASTNode *cast_src = zero_cc_ast_get(arena, node->left);
+                    TypeInfo *src_ti = cast_src ? ast_node_get_typeinfo(c, cast_src) : NULL;
+                    bool src_u64 = src_ti && type_size(src_ti) == 8 &&
+                        ((src_ti->kind == TYPE_KIND_LONG && (src_ti->modifiers & TYPE_MOD_UNSIGNED) != 0) ||
+                         src_ti->kind == TYPE_KIND_POINTER);
+                    /* 64-bit unsigned int literal (ULL/UL suffix): semantic
+                     * analysis types every int literal plain 'int', so fall
+                     * back to the stored suffix (bit0=u, bit1=l, bit2=ll). */
+                    if (!src_u64 && cast_src && cast_src->tag == NODE_INT &&
+                        (cast_src->flags & 0x1) && (cast_src->flags & 0x6)) {
+                        src_u64 = true;
+                    }
+                    if (src_u64) {
+                        int lo = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)lo, (uint16_t)result);
+                        int shift63 = c->next_temp_id++;
+                        ir_emit_mov_imm(shift63, 63);
+                        int hi = c->next_temp_id++;
+                        ir_emit((Instr){.op = OP_SHR, .temp_dest = (uint16_t)hi,
+                            .temp_src1 = (uint16_t)result, .temp_src2 = (uint16_t)shift63});
+                        int hi_d = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)hi_d, (uint16_t)hi);
+                        double two64 = 18446744073709551616.0; /* 2^64 */
+                        size_t ro64 = c->rodata_section.length;
+                        zero_cc_buf_put_bytes(&c->rodata_section, &two64, sizeof(double));
+                        int two64_d = c->next_temp_id++;
+                        ir_emit_fmov_imm((uint16_t)two64_d, (int64_t)ro64);
+                        int corr = c->next_temp_id++;
+                        ir_emit_fmul((uint16_t)corr, (uint16_t)hi_d, (uint16_t)two64_d);
+                        int fp_res = c->next_temp_id++;
+                        ir_emit_fadd((uint16_t)fp_res, (uint16_t)lo, (uint16_t)corr);
+                        c->last_expr_is_float = 1;
+                        return fp_res;
+                    }
                     int fp_res = c->next_temp_id++;
                     ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)result);
                     c->last_expr_is_float = 1;
@@ -2346,7 +2415,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     base_stack_offset = -sym->stack_offset;
                 } else if (base_node && base_node->tag == NODE_COMPOUND_LIT) {
                     (void)lower_expr(c, arena, base_ref);
-                    ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+                    ZeroCCSym *sym = lowering_local_sym(c, base_node, base_node->s.str); /* index-based: name lookup misses post-bound __clit syms */
                     if (sym) {
                         base_stack_offset = -sym->stack_offset;
                     }
@@ -2481,7 +2550,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             elem_size = sym->type.base->size;
                         }
                     } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
-                        ZeroCCSym *sym = (ln->s.str && ln->s.str[0]) ? zero_cc_find_local(c, ln->s.str) : NULL;
+                        ZeroCCSym *sym = lowering_local_sym(c, ln, ln->s.str); /* index-based: name lookup misses post-bound __clit syms */
                         if (sym && sym->type.base && sym->type.base->size > 0) {
                             elem_size = sym->type.base->size;
                         }
@@ -3314,7 +3383,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         elem_size = sym->type.base->size;
                     }
                 } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
-                    ZeroCCSym *sym = (ln->s.str && ln->s.str[0]) ? zero_cc_find_local(c, ln->s.str) : NULL;
+                    ZeroCCSym *sym = lowering_local_sym(c, ln, ln->s.str); /* index-based: name lookup misses post-bound __clit syms */
                     if (sym && sym->type.base && sym->type.base->size > 0) {
                         elem_size = sym->type.base->size;
                     }
@@ -3559,7 +3628,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
             } else if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_COMPOUND_LIT) {
                 (void)lower_expr(c, arena, base_ref);
-                ZeroCCSym *sym = (base_node->s.str && base_node->s.str[0]) ? zero_cc_find_local(c, base_node->s.str) : NULL;
+                ZeroCCSym *sym = lowering_local_sym(c, base_node, base_node->s.str); /* index-based: name lookup misses post-bound __clit syms */
                 if (sym) {
                     base_stack_offset = -sym->stack_offset;
                 }

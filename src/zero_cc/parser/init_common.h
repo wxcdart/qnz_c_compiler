@@ -558,7 +558,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                  * fits), starting at the value target. */
                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                size_t sl = strlen(sv);
+                size_t sl = zero_cc_token_str_len(&c->tokens[c->token_pos]);
                 size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
                     (tgt.abs_off - tgt.arr_ctx_off) : 0;
                 size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
@@ -592,7 +592,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                 size_t ro_off = c->rodata_section.length;
-                zero_cc_buf_put_bytes(&c->rodata_section, sv, strlen(sv) + 1);
+                zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1);
                 c->token_pos++;
                 if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                     ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
