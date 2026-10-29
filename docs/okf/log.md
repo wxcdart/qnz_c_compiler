@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-29T02:57:49Z
+timestamp: 2026-10-29T04:50:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -518,3 +518,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-29 — Updated `frontend-and-types.md`
 - Integer literal typing (C99 6.4.4.1) via type_int_literal + const_eval.h sizeof(literal); mixed 32-bit signed/unsigned binops zext BOTH operands; unary minus width-marked at promoted operand width (6.5.3.3). Fixes c-torture 20020226-1/20020508-2, bitfld-4, pr49039, pr56250; baseline 828 -> 809.
+
+## 2026-10-29 — Updated `isa-backends.md`
+- AArch64 FP compare: use fcmpe + IEEE-754 condition codes (mi/ls/gt/ge) for correct NaN handling
+
+## 2026-10-29 — Updated `frontend-and-types.md`
+- Torture baseline improved: 809 -> 806 bad (3 fewer failures) via AArch64 IEEE-754 FP compare fix

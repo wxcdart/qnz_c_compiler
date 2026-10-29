@@ -393,10 +393,10 @@ static void aarch64_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
         0x9A9FB7E0,  /* CC_GE: cset Xd, ge (CSINC Xd, XZR, XZR, lt) */
         0x9A9F17E0,  /* CC_EQ: cset Xd, eq (CSINC Xd, XZR, XZR, ne) */
         0x9A9F07E0,  /* CC_NE: cset Xd, ne (CSINC Xd, XZR, XZR, eq) */
-        0x9A9F27E0,  /* CC_FLT_LT/ULT: cset Xd, lo (CSINC Xd, XZR, XZR, hs) */
-        0x9A9F87E0,  /* CC_FLT_LE/ULE: cset Xd, ls (CSINC Xd, XZR, XZR, hi) */
-        0x9A9F97E0,  /* CC_FLT_GT/UGT: cset Xd, hi (CSINC Xd, XZR, XZR, ls) */
-        0x9A9F37E0,  /* CC_FLT_GE/UGE: cset Xd, hs (CSINC Xd, XZR, XZR, lo) */
+        0x9A9F57E0,  /* CC_FLT_LT: cset Xd, mi (N=1) */
+        0x9A9F87E0,  /* CC_FLT_LE: cset Xd, ls (C=0 OR Z=1) */
+        0x9A9FD7E0,  /* CC_FLT_GT: cset Xd, gt (Z=0 AND N=V) */
+        0x9A9FB7E0,  /* CC_FLT_GE: cset Xd, ge (N=V) */
     };
 
     if (cond < 0 || cond > 9) {
@@ -892,8 +892,10 @@ static void aarch64_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
 }
 
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
-    /* fcmp dN, dM - scalar double-precision */
-    arm64_emit_u32(c, 0x1E602000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
+    /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
+     * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
+     * This enables IEEE-correct condition codes (mi/ls/gt/ge) for FP. */
+    arm64_emit_u32(c, 0x1E612000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
 }
 
 static void aarch64_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {

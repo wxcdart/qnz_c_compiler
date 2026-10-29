@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-29T02:57:11Z",
+ "generated": "2026-10-29T04:49:53Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -16192,13 +16192,13 @@
     "O0-aot": "MISCOMPILE",
     "O0-jit": "OK",
     "O1-aot": "OK",
-    "O1-jit": "MISCOMPILE",
+    "O1-jit": "OK",
     "O2-aot": "MISCOMPILE",
     "O2-jit": "OK",
     "O3-aot": "OK",
-    "O3-jit": "MISCOMPILE"
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O1-jit,O2-aot,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O2-aot"
   },
   "execute/20000605-3.c": {
    "class": "PASS",
@@ -28993,18 +28993,18 @@
    "note": ""
   },
   "execute/ieee/mzero6.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/pr108540-1.c": {
    "class": "REJECT",
@@ -29203,18 +29203,18 @@
    "note": "ref(rc=0 out='') O0 got rc=-11 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/pr72824.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/pr84235.c": {
    "class": "MISCOMPILE",
@@ -30076,7 +30076,7 @@
    "class": "MISCOMPILE",
    "configs": {
     "O0-aot": "REJECT",
-    "O0-jit": "OK",
+    "O0-jit": "MISCOMPILE",
     "O1-aot": "REJECT",
     "O1-jit": "MISCOMPILE",
     "O2-aot": "REJECT",
@@ -30084,7 +30084,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "MISCOMPILE"
    },
-   "note": "Error: Linking failed | cfgs: O1-jit,O2-jit,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=64 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/nestfunc-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -34128,18 +34128,18 @@
    "note": ""
   },
   "execute/pr44683.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr44828.c": {
    "class": "PASS",
@@ -40738,9 +40738,9 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 111,
+  "MISCOMPILE": 108,
   "NO-REF": 188,
-  "PASS": 2120,
+  "PASS": 2123,
   "REJECT": 698,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 668,

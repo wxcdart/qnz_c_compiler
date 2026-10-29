@@ -355,9 +355,10 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
              * FP-class temp - mirrors the MC emitter's dispatch. */
             RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
             RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2);
-            if ((rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
-                 rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC)
-                && BE(c)->emit_fp_cmp_asm) {
+            int cmp_fp = (rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
+                          rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC);
+            c->lowering.cmp_is_fp = cmp_fp;
+            if (cmp_fp && BE(c)->emit_fp_cmp_asm) {
                 BE(c)->emit_fp_cmp_asm(c, phys_src1, phys_src2, out);
             } else if (BE(c)->emit_cmp_asm) {
                 BE(c)->emit_cmp_asm(c, phys_src1, phys_src2, out);

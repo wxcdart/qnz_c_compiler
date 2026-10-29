@@ -326,7 +326,9 @@ static void aarch64_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *ou
 /* COND_SET: cset dst, cond */
 static void aarch64_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
-    const char *cc[] = {"lt", "le", "gt", "ge", "eq", "ne", "lo", "ls", "hi", "hs"};
+    /* For FP (cond 6-9), use IEEE-correct FP condition codes:
+     * mi (N=1), ls (C=0|Z=1), gt (Z=0&N=V), ge (N=V) */
+    const char *cc[] = {"lt", "le", "gt", "ge", "eq", "ne", "mi", "ls", "gt", "ge"};
     if (cond < 0 || cond > 9) return;
     fprintf(out, "\tcset\t%s, %s\n", dst_name, cc[cond]);
 }

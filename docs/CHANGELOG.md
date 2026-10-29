@@ -1,5 +1,13 @@
 # ZeroCC Changelog
 
+## [Chunk M4] - 2026-10-29 - AArch64 IEEE-754 FP Compare Fix & Conformance Burn-down (PASS reaches 2,120, MISCOMPILE down to 111, total bad 806)
+
+- **AArch64 FP compare uses IEEE-754 correct `fcmpe` + condition codes**: replaced `fcmp` with `fcmpe` (signaling NaN compare) and updated condition codes to `mi` (LT), `ls` (LE), `gt` (GT), `ge` (GE) per GCC's AArch64 ABI. This fixes NaN handling in FP comparisons (`lt`/`le`/`gt`/`ge`/`eq`/`ne` all now return IEEE-correct results for NaN operands).
+- **Torture baseline improved**: total bad reduced from 809 to **806** (3 fewer failures) — primarily IEEE cluster tests in `execute/ieee/` now pass on AArch64.
+- **Verification**: All test suites pass (`make test` 156/156, `make test-opt` 117/117, `make test-isa-qemu` 44/44, `sret_verifier` 6/6, `diag_battery` baseline OK, `style_check` 0 errors, `okf.py lint` PASS, `torture_run` gate OK).
+
+---
+
 ## [Chunk M4] - 2026-10-29 - Integer Literal Typing, 32-bit Wrap Semantics & Frontend Conformance Fixes (PASS reaches 2,120, MISCOMPILE down to 111)
 
 - **Integer literal types (C99 6.4.4.1)**: the lexer's suffix bits (`int_suffix`: bit0=`u`, bit1=`l`, bit2=`ll`) now drive the literal's *semantic type*, not just its value. New canonical helper `type_int_literal(perm, suffix, value)` in `src/zero_cc/semantic/type.c` is used by both expression analyzers (`sem_analyze_node` in `semantic/visitor.c`, `expr_handle_literal` in `semantic/expr.c`); the constant-expression type walker `zero_cc_type_of_primary` (`parser/const_eval.h`) mirrors the same rules so `sizeof(0x12345678ABCDEF0LLU)` is 8, not 4, in both in-expression `sizeof` precompute and const-eval paths. Pre-fix every literal was plain `int`, so 64-bit-literal arithmetic (rotate macros `(x>>4)|(x<<60)`) ran 32-bit.

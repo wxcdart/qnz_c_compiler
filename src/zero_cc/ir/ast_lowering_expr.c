@@ -4249,6 +4249,213 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return res_temp;
             }
 
+            /* IEEE 754-2008 comparison predicates (C11 <math.h>), also
+             * available as GCC builtins.  All reduce to ordinary FP
+             * compares: in IEEE 754 a relational compare being true
+             * already implies both operands are ordered (non-NaN).
+             *   isless(x,y)         == x < y
+             *   islessequal(x,y)    == x <= y
+             *   isgreater(x,y)      == x > y
+             *   isgreaterequal(x,y) == x >= y
+             *   islessgreater(x,y)  == (x < y) || (x > y)
+             *   isunordered(x,y)    == !((x <= y) || (x >= y))
+             * Return int 0/1; the f/l width variants are accepted
+             * (ZeroCC holds all FP values as 64-bit double).  Note the
+             * prefix order below: islessequal/islessgreater must be
+             * tested before isless, isgreaterequal before isgreater. */
+            if (callee_is_ident && callee->s.str) {
+                const char *bn = callee->s.str;
+                if (strncmp(bn, "__builtin_islessequal", 19) == 0 ||
+                    strncmp(bn, "__builtin_islessgreater", 21) == 0 ||
+                    strncmp(bn, "__builtin_isunordered", 19) == 0 ||
+                    strncmp(bn, "__builtin_isless", 14) == 0 ||
+                    strncmp(bn, "__builtin_isgreater", 17) == 0 ||
+                    strncmp(bn, "__builtin_isgreaterequal", 22) == 0) {
+                    ASTRef ia1 = node->right;
+                    ZeroCCASTNode *a1n = zero_cc_ast_get(arena, ia1);
+                    ASTRef ia2 = (a1n && a1n->next != AST_NULL) ? a1n->next : AST_NULL;
+                    int t_x = lower_expr(c, arena, ia1);
+                    if (!c->last_expr_is_float) {
+                        int conv = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_x);
+                        t_x = conv;
+                    }
+                    int t_y = lower_expr(c, arena, ia2);
+                    if (!c->last_expr_is_float) {
+                        int conv = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_y);
+                        t_y = conv;
+                    }
+                    int res_temp = c->next_temp_id++;
+                    if (strncmp(bn, "__builtin_isunordered", 19) == 0) {
+                        /* unordered = !((x <= y) || (x >= y)) */
+                        int t_le = c->next_temp_id++;
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(t_le, CC_LE);
+                        int t_ge = c->next_temp_id++;
+                        ir_emit_cmp(t_y, t_x);
+                        ir_emit_cond_set(t_ge, CC_LE); /* x >= y  <=>  y <= x */
+                        int t_ord = c->next_temp_id++;
+                        ir_emit_or(t_ord, t_le, t_ge);
+                        ir_emit_cmp_zero(t_ord);
+                        ir_emit_cond_set(res_temp, CC_EQ); /* !ordered */
+                    } else if (strncmp(bn, "__builtin_islessgreater", 21) == 0) {
+                        int t_lt = c->next_temp_id++;
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(t_lt, CC_LT);
+                        int t_gt = c->next_temp_id++;
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(t_gt, CC_GT);
+                        ir_emit_or(res_temp, t_lt, t_gt);
+                    } else if (strncmp(bn, "__builtin_islessequal", 19) == 0) {
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(res_temp, CC_LE);
+                    } else if (strncmp(bn, "__builtin_isgreaterequal", 22) == 0) {
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(res_temp, CC_GE);
+                    } else if (strncmp(bn, "__builtin_isless", 14) == 0) {
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(res_temp, CC_LT);
+                    } else { /* __builtin_isgreater[f/l] */
+                        ir_emit_cmp(t_x, t_y);
+                        ir_emit_cond_set(res_temp, CC_GT);
+                    }
+                    c->last_expr_is_float = 0;
+                    return res_temp;
+                }
+            }
+
+            /* __builtin_isnan(x) - NaN is the only value that is not
+             * equal to itself. */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_isnan", 13) == 0) {
+                int t_x = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_x);
+                    t_x = conv;
+                }
+                int res_temp = c->next_temp_id++;
+                ir_emit_cmp(t_x, t_x);
+                ir_emit_cond_set(res_temp, CC_NE);
+                c->last_expr_is_float = 0;
+                return res_temp;
+            }
+
+            /* __builtin_isfinite(x) - neither inf nor NaN:
+             * (x * 0 == 0) && (x == x).  x*0 is NaN for inf/NaN (unordered
+             * -> false), 0 for finite (ordered -> true). */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_isfinite", 18) == 0) {
+                int t_x = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_x);
+                    t_x = conv;
+                }
+                int zero_i = c->next_temp_id++;
+                ir_emit_mov_imm(zero_i, 0);
+                int zero_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+                int t_x0 = c->next_temp_id++;
+                ir_emit_fmul((uint16_t)t_x0, (uint16_t)t_x, (uint16_t)zero_f);
+                int t_zero = c->next_temp_id++;
+                ir_emit_cmp(t_x0, zero_f);
+                ir_emit_cond_set(t_zero, CC_EQ);
+                int t_eq = c->next_temp_id++;
+                ir_emit_cmp(t_x, t_x);
+                ir_emit_cond_set(t_eq, CC_EQ);
+                int res_temp = c->next_temp_id++;
+                ir_emit_and(res_temp, t_zero, t_eq);
+                c->last_expr_is_float = 0;
+                return res_temp;
+            }
+
+            /* __builtin_isnormal(x) - neither zero, subnormal, inf, nor
+             * NaN: x != 0 && x == x && x/2^30 != x (subnormals flush to 0
+             * at /2^30; inf scales to itself). */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_isnormal", 18) == 0) {
+                int t_x = lower_expr(c, arena, node->right);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_x);
+                    t_x = conv;
+                }
+                int zero_i = c->next_temp_id++;
+                ir_emit_mov_imm(zero_i, 0);
+                int zero_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+                int p230_i = c->next_temp_id++;
+                ir_emit_mov_imm(p230_i, 1073741824); /* 2^30 */
+                int p230_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd((uint16_t)p230_f, (uint16_t)p230_i);
+                int t_xd = c->next_temp_id++;
+                ir_emit_fdiv((uint16_t)t_xd, (uint16_t)t_x, (uint16_t)p230_f);
+                int t_nz = c->next_temp_id++;
+                ir_emit_cmp(t_x, zero_f);
+                ir_emit_cond_set(t_nz, CC_NE);
+                int t_ne = c->next_temp_id++;
+                ir_emit_cmp(t_xd, t_x);
+                ir_emit_cond_set(t_ne, CC_NE);
+                int t_eq = c->next_temp_id++;
+                ir_emit_cmp(t_x, t_x);
+                ir_emit_cond_set(t_eq, CC_EQ);
+                int t_a = c->next_temp_id++;
+                ir_emit_and(t_a, t_nz, t_ne);
+                int res_temp = c->next_temp_id++;
+                ir_emit_and(res_temp, t_a, t_eq);
+                c->last_expr_is_float = 0;
+                return res_temp;
+            }
+
+            /* __builtin_copysign(x, y) - magnitude of x with the sign
+             * of y (IEEE 754-2008).  Bit surgery: clear x's sign bit and
+             * set it from y's. */
+            if (callee_is_ident && callee->s.str &&
+                strncmp(callee->s.str, "__builtin_copysign", 16) == 0) {
+                ASTRef ca1 = node->right;
+                ZeroCCASTNode *ca1n = zero_cc_ast_get(arena, ca1);
+                ASTRef ca2 = (ca1n && ca1n->next != AST_NULL) ? ca1n->next : AST_NULL;
+                int t_x = lower_expr(c, arena, ca1);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_x);
+                    t_x = conv;
+                }
+                int t_y = lower_expr(c, arena, ca2);
+                if (!c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)t_y);
+                    t_y = conv;
+                }
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                int32_t slot = c->current_stack_frame;
+                ir_emit_fstore((uint16_t)t_y, TEMP_NONE, -slot);
+                int y_int = c->next_temp_id++;
+                ir_emit_load(y_int, BE(c)->fp_reg, -slot);
+                int sh63 = c->next_temp_id++;
+                ir_emit_mov_imm(sh63, 63);
+                int y_sign = c->next_temp_id++;
+                ir_emit_shr(y_sign, y_int, sh63);
+                int sign_mask = c->next_temp_id++;
+                ir_emit_shl(sign_mask, y_sign, sh63);
+                ir_emit_fstore((uint16_t)t_x, TEMP_NONE, -slot);
+                int x_int = c->next_temp_id++;
+                ir_emit_load(x_int, BE(c)->fp_reg, -slot);
+                int nosig_mask = c->next_temp_id++;
+                ir_emit_mov_imm(nosig_mask, 0x7FFFFFFFFFFFFFFFLL);
+                int res_int = c->next_temp_id++;
+                ir_emit_and(res_int, x_int, nosig_mask);
+                ir_emit_or(res_int, res_int, sign_mask);
+                ir_emit_store(res_int, BE(c)->fp_reg, -slot);
+                int res_temp = c->next_temp_id++;
+                ir_emit_fload((uint16_t)res_temp, TEMP_NONE, -slot);
+                c->last_expr_is_float = 1;
+                return res_temp;
+            }
+
             /* GCC Integer Overflow Builtins:
              * 1. Value predicates: __builtin_{add,sub,mul}_overflow_p(a, b, (type)0)
              *    Evaluates arguments and returns 0 (conservative: no overflow).
