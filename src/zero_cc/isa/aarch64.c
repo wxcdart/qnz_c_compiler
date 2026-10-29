@@ -448,6 +448,7 @@ static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 /* Forward decls for stores and variadic spill. */
 static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
 static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
+static void aarch64_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
 
 /* param_save_int - save integer parameter (or x8 sret when param_idx == 8) */
 static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
@@ -459,12 +460,16 @@ static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_
 }
 
 /* param_save_fp - save FP parameter */
-static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t offset) {
+static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t offset, int is_single) {
     if (param_idx < 0 || param_idx >= 8) return;
     int src_reg = aarch64_fp_arg_regs[param_idx];
     int base = zero_cc_frame_base_reg(c);
     int32_t imm = zero_cc_frame_disp(c, -offset); /* [base, #imm] */
-    aarch64_emit_store_fp(c, src_reg, base, imm);
+    if (is_single) {
+        aarch64_emit_store_single_fp(c, src_reg, base, imm);
+    } else {
+        aarch64_emit_store_fp(c, src_reg, base, imm);
+    }
 }
 
 /* variadic_spill - spill ALL argument registers (x0..x7, then f0..f7 as

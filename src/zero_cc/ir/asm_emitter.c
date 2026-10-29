@@ -668,7 +668,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         case OP_PARAM_SAVE_FP:
             if (BE(c)->emit_param_save_fp_asm) {
-                BE(c)->emit_param_save_fp_asm(c, (int)instr->imm, (int32_t)instr->imm64, out);
+                BE(c)->emit_param_save_fp_asm(c, (int)instr->imm, (int32_t)instr->imm64, (int)instr->cond, out);
             }
             return;
         case OP_PARAM_LOAD: {

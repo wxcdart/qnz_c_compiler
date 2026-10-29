@@ -46,9 +46,9 @@ typedef struct ZeroCCCompiler {
     /* Block scope (C11 6.2.1): when lowering a NODE_BLOCK, local lookup is
      * capped at this many local symbols (visible indices 0..bound-1).
      * Symbols at index >= bound were declared in a LATER sibling block and
-     * must not shadow references in the current block. 0 = unbounded.
+     * must not shadow references in the current block. -1 = unbounded.
      * Set from NODE_BLOCK->aux.step (parse-time local_count + 1). */
-    uint32_t local_lookup_bound;
+    int32_t local_lookup_bound;
     int32_t current_stack_frame;
     size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
 
@@ -103,6 +103,7 @@ typedef struct ZeroCCCompiler {
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */
     ZeroCCBuffer data_section;            /* Initialized globals (.data) */
+    size_t bss_size;                      /* .bss size */
     /* Static TLS block (_Thread_local, x86-64).  AOT: .tdata (initialized)
      * followed by .tbss (uninitialized); finalized by the TLS backend after
      * all top-level declarations.  JIT: the block lives in the data section

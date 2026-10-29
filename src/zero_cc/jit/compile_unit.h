@@ -188,6 +188,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
     zero_cc_buf_init(&c->tls_data_section, 256);
+    c->bss_size = 0;
     c->tls_bss_size = 0;
     c->tls_var_count = 0;
     c->function_count = 0;
@@ -569,7 +570,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 }
                                 int64_t dim = zero_cc_eval_const_expr(c);
                                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
-                                if (dim <= 0) dim = 1;
+                                if (dim < 0) dim = 0;
                                 array_len *= dim;
                                 if (dim_count < 8) dims[dim_count++] = dim;
                             }
@@ -936,7 +937,14 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         } else {
                             /* Zero-initialized data */
                             if (!(has_initializer || size < ZERO_CC_BSS_THRESHOLD)) {
-                                /* Large zero-init global -> will be .bss, skip emission */
+                                /* Large zero-init global -> will be .bss, skip emission and assign BSS offset */
+                                if (padding > 0 && c->data_section.length >= padding) {
+                                    c->data_section.length -= padding;
+                                }
+                                size_t bss_pad = (elem_align - (c->bss_size % elem_align)) % elem_align;
+                                c->bss_size += bss_pad;
+                                var_offset = c->bss_size;
+                                c->bss_size += size;
                             } else {
                                 for (size_t i = 0; i < size; i++) {
                                     zero_cc_emit_u8(&c->data_section, 0);
@@ -952,7 +960,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             for (int d = dim_count - 1; d >= 0; d--) {
                                 int64_t dv = dims[d];
                                 if (array_unsized && d == 0) dv = array_len; /* size inferred */
-                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv > 0 ? dv : 1));
+                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
@@ -973,7 +981,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             for (int d = dim_count - 1; d >= 0; d--) {
                                 int64_t dv = dims[d];
                                 if (array_unsized && d == 0) dv = array_len; /* size inferred */
-                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv > 0 ? dv : 1));
+                                reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");

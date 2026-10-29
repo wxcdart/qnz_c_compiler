@@ -103,7 +103,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
             case OP_PARAM_SAVE_FP:
                 if (BE(c)->emit_param_save_fp) {
-                    BE(c)->emit_param_save_fp(c, (int)instr->imm, (int32_t)instr->imm64);
+                    BE(c)->emit_param_save_fp(c, (int)instr->imm, (int32_t)instr->imm64, (int)instr->cond);
                 }
                 break;
 

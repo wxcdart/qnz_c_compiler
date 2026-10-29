@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-29T20:46:49Z
+timestamp: 2026-10-29T23:06:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -530,3 +530,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-29 — Updated `c-torture-gate.md`
 - Sprint 58: Fix named variadic macros, sizeof paren consumption, abs builtins, wide characters/strings and target endianness macros; burn down MISCOMPILE to 75 (+16 PASS)
+
+## 2026-10-29 — Updated `c-torture-gate.md`
+- Torture baseline improved: 758 -> 758 bad (44 MISCOMPILE, 0 REJECT, 0 SKIP-C89). AArch64 IEEE-754 FP compare fix.

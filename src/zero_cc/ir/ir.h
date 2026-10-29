@@ -558,8 +558,8 @@ static inline void ir_emit_param_save_int(int reg_idx, int32_t offset) {
     ir_emit((Instr){.op = OP_PARAM_SAVE_INT, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
 }
 
-static inline void ir_emit_param_save_fp(int reg_idx, int32_t offset) {
-    ir_emit((Instr){.op = OP_PARAM_SAVE_FP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+static inline void ir_emit_param_save_fp(int reg_idx, int32_t offset, uint8_t is_single) {
+    ir_emit((Instr){.op = OP_PARAM_SAVE_FP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = is_single, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
 }
 
 static inline void ir_emit_param_load(int temp_dest, int arg_idx, bool is_fp) {

@@ -726,11 +726,43 @@ static void x86_emit_setcc(ZeroCCCompiler *c, int dst_reg, uint8_t cond_byte);
 static void x86_emit_cond_set(ZeroCCCompiler *c, int dst, int cond) {
     /* setcc dst based on condition code (flags set by previous cmp).
      * 6-9 are the float-safe CF/ZF-only variants (C12 remap):
-     * 6=setb, 7=setbe, 8=seta, 9=setae. */
+     * 6=setb, 7=setbe, 8=seta, 9=setae.
+     * 10=FP_EQ (sete && !parity), 11=FP_NE (setne || parity),
+     * 12=FP_UNORD (setp / parity), 13=FP_ORD (setnp / !parity). */
     static const uint8_t setcc_codes[] =
         {0x9C, 0x9E, 0x9F, 0x9D, 0x94, 0x95, 0x92, 0x96, 0x97, 0x93};
     if (cond >= 0 && cond <= 9) {
         x86_emit_setcc(c, dst, setcc_codes[cond]);
+    } else if (cond == 10) { /* CC_FP_EQ: sete dst8; jnp skip; movb $0, dst8; skip: movzx dst64, dst8 */
+        x86_emit_setcc(c, dst, 0x94);
+        me_emit_u8(c, 0x7B); /* jnp */
+        size_t p = me_get_offset(c);
+        me_emit_u8(c, 0);
+        size_t m_start = me_get_offset(c);
+        if (dst >= 4) {
+            me_emit_u8(c, 0x40 | ((dst >> 3) & 1));
+        }
+        me_emit_u8(c, 0xB0 | (dst & 7));
+        me_emit_u8(c, 0);
+        size_t m_end = me_get_offset(c);
+        c->text_section.data[p] = (uint8_t)(m_end - m_start);
+    } else if (cond == 11) { /* CC_FP_NE: setne dst8; jnp skip; movb $1, dst8; skip: movzx dst64, dst8 */
+        x86_emit_setcc(c, dst, 0x95);
+        me_emit_u8(c, 0x7B); /* jnp */
+        size_t p = me_get_offset(c);
+        me_emit_u8(c, 0);
+        size_t m_start = me_get_offset(c);
+        if (dst >= 4) {
+            me_emit_u8(c, 0x40 | ((dst >> 3) & 1));
+        }
+        me_emit_u8(c, 0xB0 | (dst & 7));
+        me_emit_u8(c, 1);
+        size_t m_end = me_get_offset(c);
+        c->text_section.data[p] = (uint8_t)(m_end - m_start);
+    } else if (cond == 12) { /* CC_FP_UNORD: setp */
+        x86_emit_setcc(c, dst, 0x9A);
+    } else if (cond == 13) { /* CC_FP_ORD: setnp */
+        x86_emit_setcc(c, dst, 0x9B);
     }
 }
 
@@ -1160,7 +1192,7 @@ static void x86_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     me_emit_u8(c, 0x66);
     x86_rex(c, 0, (src1 >> 3) & 1, 0, (src2 >> 3) & 1);
     me_emit_u8(c, 0x0F);
-    me_emit_u8(c, 0x2F);  /* ucomisd */
+    me_emit_u8(c, 0x2E);  /* ucomisd (0x2E is ucomisd; 0x2F is comisd) */
     x86_modrm(c, 3, src1 & 7, src2 & 7);
 }
 
@@ -1739,23 +1771,15 @@ static void x86_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offs
 }
 
 /* Parameter spilling: float register (XMM) to stack */
-static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
-    /* movsd base,disp <- xmmN; base = FP (or SP with delta, Option 4). */
+static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single) {
     if (reg_idx < 0 || reg_idx >= 8) return;
     int base = zero_cc_frame_base_reg(c);
     int32_t disp = zero_cc_frame_disp(c, -offset);
-    x86_rex(c, 0, 0, 0, (base >> 3) & 1);  /* no REX.W: 128-bit SSE */
-    me_emit_u8(c, 0xF2);
-    me_emit_u8(c, 0x0F);
-    me_emit_u8(c, 0x11);
-    int mod;
-    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
-    else if (disp >= -128 && disp <= 127)   mod = 1;
-    else                                     mod = 2;
-    x86_modrm(c, mod, reg_idx, base);
-    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);  /* SIB: base=rsp, no index */
-    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
-    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
+    if (is_single) {
+        x86_emit_vstoress(c, reg_idx, base, disp);
+    } else {
+        x86_emit_store_fp(c, reg_idx, base, disp);
+    }
 }
 
 /* Variadic spill: spill remaining integer registers for va_start */

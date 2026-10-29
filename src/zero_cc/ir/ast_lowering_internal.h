@@ -61,12 +61,14 @@ void emit_return_jumps(ZeroCCCompiler *c);
 static inline int zero_cc_narrow_int_width(const ZeroCCType *t, int *sign) {
     if (!t) return 0;
     switch (t->tag) {
+        case TYPE_BOOL:   *sign = 0; return 1;
         case TYPE_INT8:   *sign = 1; return 1;
         case TYPE_UINT8:  *sign = 0; return 1;
         case TYPE_INT16:  *sign = 1; return 2;
         case TYPE_UINT16: *sign = 0; return 2;
         case TYPE_INT32:  *sign = 1; return 4;
         case TYPE_UINT32: *sign = 0; return 4;
+        case TYPE_ENUM:   *sign = 1; return 4;
         default: return 0;
     }
 }
@@ -79,6 +81,15 @@ static inline void zero_cc_emit_int_extend(ZeroCCCompiler *c, int temp, const Ze
     if (w == 0) return;
     if (sign) ir_emit_sext(temp, w);
     else ir_emit_zext(temp, w);
+}
+
+/* Find type of a local or global identifier */
+static inline const ZeroCCType *find_ident_zero_type(ZeroCCCompiler *c, const char *name) {
+    ZeroCCSym *sym = zero_cc_find_local(c, name);
+    if (sym) return &sym->type;
+    ZeroCCGlobalVar *gv = find_global_var(name);
+    if (gv) return &gv->type;
+    return NULL;
 }
 
 /* Helper: Get function currently being lowered */

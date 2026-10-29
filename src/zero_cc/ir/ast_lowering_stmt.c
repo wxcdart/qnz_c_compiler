@@ -177,7 +177,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         }
         int result_temp = lower_expr(c, arena, node->left);
         const char *var = node->s.str;
-        ZeroCCSym *sym = zero_cc_find_local(c, var);
+        ZeroCCSym *sym = lowering_local_sym(c, node, var);
         if (sym) {
             bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             if (target_is_float) {
@@ -188,7 +188,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ir_emit_cvtsi2sd((uint16_t)float_temp, (uint16_t)result_temp);
                 }
                 /* Float assignment: store via IR */
-                ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                if (sym->type.tag == TYPE_FLOAT) {
+                    int addr = c->next_temp_id++;
+                    ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                    ir_emit_vstoress((uint16_t)addr, (uint16_t)float_temp);
+                } else {
+                    ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                }
                 c->last_expr_is_float = 1;
                 return;
             } else {
@@ -625,8 +631,8 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
      * the whole for statement (init/cond/step/body).  Cap name lookup at the
      * symbol count recorded by the parser after the init, so a later sibling
      * for redeclaring the same name doesn't shadow this loop's header. */
-    uint32_t saved_for_bound = c->local_lookup_bound;
-    if (node->aux.op != 0) c->local_lookup_bound = node->aux.op - 1;
+    int32_t saved_for_bound = c->local_lookup_bound;
+    if (node->aux.op != 0) c->local_lookup_bound = (int32_t)(node->aux.op - 1);
     if (node->left != AST_NULL) {
         lower_node(c, arena, node->left);
     }
@@ -654,35 +660,15 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     c->lowering.vla.loop_depth--;
 }
 
-void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
-    if (!node) return;
-
-    uint16_t switch_exit = c->ir_next_label++;
-
-    /* break inside a switch jumps to the switch exit */
-    label_patcher_enter_loop(&c->label_patcher, switch_exit, 0);
-
-    int cond_temp = lower_expr(c, arena, node->left);
-
-    /* Body is normally a NODE_BLOCK; its top-level statement chain may
-     * contain NODE_CASE / NODE_DEFAULT entries. */
-    ZeroCCASTNode *body = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
-    ASTRef first = AST_NULL;
-    if (body) {
-        first = (body->tag == NODE_BLOCK) ? body->left : node->right;
-    }
-
-    /* Dispatch: for each case, compare the switch value against the case
-     * constant and jump to the case's label (emitted when the case node
-     * itself is lowered below). The labels are stored in aux.alt.
-     * C3 fix: no case cap - dispatch is O(n) CMP/JNE and the per-function
-     * temp guard (C2b, 65534 temps) bounds the case count (~2 temps per
-     * case -> ~32k cases), which stays under the 16-bit label space. */
-    uint16_t default_label = 0;
-    ASTRef s = first;
-    while (s != AST_NULL) {
-        ZeroCCASTNode *sn = zero_cc_ast_get(arena, s);
+static void collect_switch_cases(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref, int cond_temp, uint16_t *default_label) {
+    while (ref != AST_NULL) {
+        ZeroCCASTNode *sn = zero_cc_ast_get(arena, ref);
         if (!sn) break;
+        if (sn->tag == NODE_SWITCH) {
+            /* Do not recurse into inner switch statements (their cases belong to the inner switch) */
+            ref = sn->next;
+            continue;
+        }
         if (sn->tag == NODE_CASE) {
             sn->aux.alt = c->ir_next_label++;
             uint16_t case_label = (uint16_t)sn->aux.alt;
@@ -707,11 +693,49 @@ void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* JE = jump-if-zero, so take the case when the flag is non-zero */
                 ir_emit_jne((uint16_t)flag_temp, case_label);
             }
+            if (sn->right != AST_NULL) {
+                collect_switch_cases(c, arena, sn->right, cond_temp, default_label);
+            }
         } else if (sn->tag == NODE_DEFAULT) {
             sn->aux.alt = c->ir_next_label++;
-            default_label = (uint16_t)sn->aux.alt;
+            *default_label = (uint16_t)sn->aux.alt;
+            if (sn->left != AST_NULL) {
+                collect_switch_cases(c, arena, sn->left, cond_temp, default_label);
+            }
+        } else if (sn->tag == NODE_BLOCK) {
+            collect_switch_cases(c, arena, sn->left, cond_temp, default_label);
+        } else if (sn->tag == NODE_IF) {
+            collect_switch_cases(c, arena, sn->right, cond_temp, default_label);
+            if (sn->aux.alt != AST_NULL) {
+                collect_switch_cases(c, arena, (ASTRef)sn->aux.alt, cond_temp, default_label);
+            }
+        } else if (sn->tag == NODE_WHILE || sn->tag == NODE_DO_WHILE || sn->tag == NODE_FOR) {
+            collect_switch_cases(c, arena, sn->right, cond_temp, default_label);
+        } else if (sn->tag == NODE_LABEL) {
+            collect_switch_cases(c, arena, sn->left, cond_temp, default_label);
         }
-        s = sn->next;
+        ref = sn->next;
+    }
+}
+
+void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    if (!node) return;
+
+    uint16_t switch_exit = c->ir_next_label++;
+
+    /* break inside a switch jumps to the switch exit */
+    label_patcher_enter_loop(&c->label_patcher, switch_exit, 0);
+
+    int cond_temp = lower_expr(c, arena, node->left);
+
+    /* Dispatch: recursively scan the switch body for all case and default labels
+     * (supporting Duff's device, cases nested in if/while/for/blocks).
+     * C3 fix: no case cap - dispatch is O(n) CMP/JNE and the per-function
+     * temp guard (C2b, 65534 temps) bounds the case count (~2 temps per
+     * case -> ~32k cases), which stays under the 16-bit label space. */
+    uint16_t default_label = 0;
+    if (node->right != AST_NULL) {
+        collect_switch_cases(c, arena, node->right, cond_temp, &default_label);
     }
 
     /* No matching case: jump to default, or skip the whole body.
@@ -786,16 +810,26 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (!node) return;
     switch (node->tag) {
         case NODE_BLOCK: {
+            if (c->lowering.inlining.active_depth > 0) {
+                lower_stmt_block(c, arena, node->left);
+                break;
+            }
             /* Block scope (C11 6.2.1): cap local-name lookup at the symbol
              * count recorded by the parser when this block was parsed
              * (aux.step = local_count at the block's '}' + 1, so 0 means
              * unannotated/unbounded).  Without this, a name redeclared in a
              * later sibling block (latest-wins table) shadows this block's
-             * references and miscompiles them to the newer symbol's slot. */
-            uint32_t saved_bound = c->local_lookup_bound;
-            if (node->aux.step != 0) c->local_lookup_bound = node->aux.step - 1;
+             * references and miscompiles them to the newer symbol's slot.
+             * On exit, restore to aux.alt - 1 (locals at block entry) so
+             * inner declarations do not leak into following outer statements. */
+            int32_t saved_bound = c->local_lookup_bound;
+            if (node->aux.step != 0) c->local_lookup_bound = (int32_t)(node->aux.step - 1);
             lower_stmt_block(c, arena, node->left);
-            c->local_lookup_bound = saved_bound;
+            if (node->aux.alt != 0) {
+                c->local_lookup_bound = (int32_t)(node->aux.alt - 1);
+            } else {
+                c->local_lookup_bound = saved_bound;
+            }
             break;
         }
         case NODE_EXPR_STMT:
@@ -807,6 +841,11 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 lower_stmt_block(c, arena, node->right);
             } else {
                 lower_stmt_decl(c, arena, node);
+                if (c->local_lookup_bound >= 0 && node->aux.step != 0) {
+                    if ((int32_t)node->aux.step > c->local_lookup_bound) {
+                        c->local_lookup_bound = (int32_t)node->aux.step;
+                    }
+                }
             }
             break;
         case NODE_STATIC_ASSERT:

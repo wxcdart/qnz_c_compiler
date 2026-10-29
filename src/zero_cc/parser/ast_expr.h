@@ -247,7 +247,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                     } else if (!tgt.is_scalar) {
                         size_t loff = 0, lsz = 0;
                         zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf,
-                                                         &loff, &lsz, &is_bf, &boff, &bw);
+                                                         &loff, &lsz, &is_bf, &boff, &bw, NULL);
                         off += loff;
                         sz = lsz ? lsz : 4;
                         adv = 1;

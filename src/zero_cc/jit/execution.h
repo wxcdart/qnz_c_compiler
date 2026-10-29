@@ -39,7 +39,8 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     size_t bss_len = 0;
     for (size_t i = 0; i < global_var_count; i++) {
         if (global_vars[i].is_bss && !global_vars[i].is_tls) {
-            bss_len += global_vars[i].size;
+            size_t end = global_vars[i].data_offset + global_vars[i].size;
+            if (end > bss_len) bss_len = end;
         }
     }
     size_t data_page_sz = (data_len + page_sz - 1) & ~(page_sz - 1);

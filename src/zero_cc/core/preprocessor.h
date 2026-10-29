@@ -82,6 +82,14 @@ static inline void zero_cc_cpp_destroy(ZeroCCPreprocessor *cpp) {
             if (cpp->diagnostic_state.disabled_warnings_stack[d][i]) free(cpp->diagnostic_state.disabled_warnings_stack[d][i]);
         }
     }
+    for (int d = 0; d < cpp->macro_stack_depth; d++) {
+        if (cpp->macro_stack[d].is_defined) {
+            if (cpp->macro_stack[d].macro.replacement) free(cpp->macro_stack[d].macro.replacement);
+            for (int p = 0; p < cpp->macro_stack[d].macro.param_count; p++) {
+                if (cpp->macro_stack[d].macro.params[p]) free(cpp->macro_stack[d].macro.params[p]);
+            }
+        }
+    }
     for (size_t i = 0; i < cpp->dep_file_count; i++) {
         if (cpp->dep_files[i]) free(cpp->dep_files[i]);
     }
@@ -313,6 +321,76 @@ static inline void zero_cc_cpp_undef(ZeroCCPreprocessor *cpp, const char *name) 
             if (m->params[p]) { free(m->params[p]); m->params[p] = NULL; }
         }
         m->name[0] = '\0';
+    }
+}
+
+static inline void zero_cc_cpp_restore_macro(ZeroCCPreprocessor *cpp, const ZeroCCMacro *src) {
+    if (!cpp || !src || !src->name[0]) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", src->name);
+    m->param_count = src->param_count;
+    m->is_variadic = src->is_variadic;
+    m->replacement = src->replacement ? strdup(src->replacement) : NULL;
+    for (int p = 0; p < src->param_count && p < 32; p++) {
+        m->params[p] = src->params[p] ? strdup(src->params[p]) : NULL;
+    }
+    uint32_t b = (uint32_t)(zero_cc_hash64(src->name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
+static inline void zero_cc_cpp_push_macro(ZeroCCPreprocessor *cpp, const char *name) {
+    if (!cpp || !name || cpp->macro_stack_depth >= 128) return;
+    ZeroCCMacroStackEntry *entry = &cpp->macro_stack[cpp->macro_stack_depth++];
+    memset(entry, 0, sizeof(*entry));
+    snprintf(entry->name, sizeof(entry->name), "%s", name);
+    ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, name);
+    if (m) {
+        entry->is_defined = true;
+        snprintf(entry->macro.name, sizeof(entry->macro.name), "%s", m->name);
+        entry->macro.param_count = m->param_count;
+        entry->macro.is_variadic = m->is_variadic;
+        entry->macro.replacement = m->replacement ? strdup(m->replacement) : NULL;
+        for (int p = 0; p < m->param_count && p < 32; p++) {
+            entry->macro.params[p] = m->params[p] ? strdup(m->params[p]) : NULL;
+        }
+    } else {
+        entry->is_defined = false;
+    }
+}
+
+static inline void zero_cc_cpp_pop_macro(ZeroCCPreprocessor *cpp, const char *name) {
+    if (!cpp || !name || cpp->macro_stack_depth <= 0) return;
+    int found_idx = -1;
+    for (int i = cpp->macro_stack_depth - 1; i >= 0; i--) {
+        if (strcmp(cpp->macro_stack[i].name, name) == 0) {
+            found_idx = i;
+            break;
+        }
+    }
+    if (found_idx < 0) return;
+
+    ZeroCCMacroStackEntry entry = cpp->macro_stack[found_idx];
+    for (int i = found_idx; i < cpp->macro_stack_depth - 1; i++) {
+        cpp->macro_stack[i] = cpp->macro_stack[i + 1];
+    }
+    cpp->macro_stack_depth--;
+
+    zero_cc_cpp_undef(cpp, name);
+
+    if (entry.is_defined) {
+        zero_cc_cpp_restore_macro(cpp, &entry.macro);
+        if (entry.macro.replacement) free(entry.macro.replacement);
+        for (int p = 0; p < entry.macro.param_count; p++) {
+            if (entry.macro.params[p]) free(entry.macro.params[p]);
+        }
     }
 }
 
@@ -1136,6 +1214,20 @@ static inline bool zero_cc_cpp_handle_pragma(ZeroCCPreprocessor *cpp, const char
                 cpp->filename ? cpp->filename : "<stdin>", (int)cpp->line_num, msg);
         return true;
     }
+    if (zero_cc_pragma_word(&q, "push_macro")) {
+        char name[128];
+        if (zero_cc_pragma_quoted(q, name, sizeof(name), false)) {
+            zero_cc_cpp_push_macro(cpp, name);
+            return true;
+        }
+    }
+    if (zero_cc_pragma_word(&q, "pop_macro")) {
+        char name[128];
+        if (zero_cc_pragma_quoted(q, name, sizeof(name), false)) {
+            zero_cc_cpp_pop_macro(cpp, name);
+            return true;
+        }
+    }
     if (!zero_cc_pragma_word(&q, "GCC")) return false;
     if (zero_cc_pragma_word(&q, "push_options") || zero_cc_pragma_word(&q, "pop_options")) {
         return true; /* no per-region options are tracked yet */
@@ -1252,7 +1344,12 @@ static inline int64_t zero_cc_cpp_eval_primary(const char **p) {
         return val;
     }
 
-    /* Character constant: 'x', '\n', etc. */
+    /* Character constant: 'x', '\n', L'x', etc. */
+    bool is_wide_char = false;
+    if ((**p == 'L' || **p == 'u' || **p == 'U') && (*p)[1] == '\'') {
+        is_wide_char = true;
+        (*p)++;
+    }
     if (**p == '\'') {
         (*p)++;
         int64_t val = 0;
@@ -1263,13 +1360,17 @@ static inline int64_t zero_cc_cpp_eval_primary(const char **p) {
                 char esc = 0;
                 if (!zero_cc_handle_escape(p, NULL, &esc, &ch)) {
                     ch = (unsigned char)(**p);
-                    if (**p) (*p)++;
                 }
+                if (**p) (*p)++;
             } else {
                 ch = (unsigned char)(**p);
                 (*p)++;
             }
-            val = (val << 8) | (ch & 0xFF);
+            if (is_wide_char) {
+                val = ch;
+            } else {
+                val = (val << 8) | (ch & 0xFF);
+            }
         }
         if (**p == '\'') (*p)++;
         return val;

@@ -1,0 +1,47 @@
+	.globl main
+main:
+	subq	$72, %rsp
+	leaq	.Lrodata+0(%rip),%rdi
+	movq	$1,%rsi
+	movq	%rdi,%rdx
+	addq	%rsi,%rdx
+	movzbq	(%rdx),%rdi
+	movsbl	%dil,%edi
+	movslq	%edi,%rdi
+	movq	$98,%rsi
+	cmpq	%rsi,%rdi
+	setne	%dil
+	movzbq	%dil,%rdi
+	testq	%rdi, %rdi
+	je	.L2_1
+	call	abort
+	jmp	.L2_2
+.L2_1:
+.L2_2:
+	movq	$0,%rdi
+	movslq	%edi,%rdi
+	movq	%rdi,8(%rsp)
+	movq	%rdi,%rsi
+	pushq	%rsi
+	popq	%rdi
+	call	exit
+	movq	$0,%rax
+.L2_0:
+	addq	$72, %rsp
+	ret
+	.section	.rodata
+	.p2align	3
+.Lrodata:
+	.byte	0x61
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.byte	0x62
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.byte	0x00
+	.text

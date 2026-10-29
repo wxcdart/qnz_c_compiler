@@ -20,10 +20,10 @@ static inline uint32_t zero_cc_local_hash(const char *str) {
 /* Find a local by name, honoring the current block-scope bound
  * (c->local_lookup_bound): symbols at index >= bound were declared in a
  * later sibling block and must not shadow this scope's references.
- * bound == 0 means unbounded (see local_lookup_bound in symbols.h). */
+ * bound < 0 means unbounded (see local_lookup_bound in symbols.h). */
 static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name) {
     if (!c || !name || !c->locals || c->local_count == 0) return NULL;
-    size_t bound = c->local_lookup_bound ? (size_t)c->local_lookup_bound : c->local_count;
+    size_t bound = (c->local_lookup_bound >= 0) ? (size_t)c->local_lookup_bound : c->local_count;
     if (bound > c->local_count) bound = c->local_count;
     if (c->local_hash_buckets && c->local_hash_bucket_count > 0 && c->local_hash_next) {
         uint32_t h = zero_cc_local_hash(name);
@@ -37,9 +37,9 @@ static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name)
         }
         return NULL;
     }
-    for (size_t i = 0; i < bound; i++) {
-        if (strcmp(c->locals[i].name, name) == 0) {
-            return &c->locals[i];
+    for (size_t i = bound; i > 0; i--) {
+        if (strcmp(c->locals[i - 1].name, name) == 0) {
+            return &c->locals[i - 1];
         }
     }
     return NULL;

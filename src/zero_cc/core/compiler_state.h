@@ -41,6 +41,12 @@ typedef struct {
 } ZeroCCMacro;
 
 typedef struct {
+    char name[128];
+    bool is_defined;
+    ZeroCCMacro macro;
+} ZeroCCMacroStackEntry;
+
+typedef struct {
     char *paths[ZERO_CC_MAX_INCLUDE_PATHS];
     size_t count;
 } ZeroCCIncludeDirs;
@@ -77,6 +83,9 @@ typedef struct {
     int pack_stack[32];
     int pack_stack_depth;
     int default_pack;
+
+    ZeroCCMacroStackEntry macro_stack[128];
+    int macro_stack_depth;
 
     /* GCC diagnostic pragma state */
     struct {

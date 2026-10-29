@@ -53,7 +53,7 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
             }
             if (digits == 4) {
                 val = hex;
-                *offset += digits;
+                if (offset) *offset += digits;
                 *s = p - 1;
             } else {
                 handled = 0;
@@ -72,7 +72,7 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
             }
             if (digits == 8) {
                 val = hex;
-                *offset += digits;
+                if (offset) *offset += digits;
                 *s = p - 1;
             } else {
                 handled = 0;
@@ -95,7 +95,7 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
                 val = (unsigned char)'x';
             } else {
                 val = (int)hex;
-                *offset += digits;
+                if (offset) *offset += digits;
                 *s = p - 1;
             }
             break;
@@ -111,7 +111,7 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
                     p++; digits++;
                 }
                 val = oct;
-                *offset += (digits - 1);
+                if (offset) *offset += (digits - 1);
                 *s = p - 1;
             } else {
                 handled = 0;

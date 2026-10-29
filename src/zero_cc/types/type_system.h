@@ -139,6 +139,7 @@ typedef struct {
     bool is_static_local;
     size_t static_data_offset;            /* Offset in data_section */
     char static_global_name[128];         /* Mangled name in the global table */
+    bool is_extern;                       /* Block-scope extern declaration */
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.

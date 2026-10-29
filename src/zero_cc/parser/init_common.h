@@ -635,7 +635,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             if (!tgt.is_scalar) {
                 size_t loff = 0, lsz = 0;
                 zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf, &loff, &lsz,
-                                                 &is_bf, &boff, &bw);
+                                                 &is_bf, &boff, &bw, NULL);
                 off += loff;
                 w = lsz ? lsz : 4;
                 if (cursor) {

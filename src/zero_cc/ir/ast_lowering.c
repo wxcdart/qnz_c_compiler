@@ -96,8 +96,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
 
-    /* Block scope starts unbounded at the function top level */
-    c->local_lookup_bound = 0;
+    /* Block scope starts unbounded at the function top level (-1 = unbounded) */
+    c->local_lookup_bound = -1;
 
     /* Initialize VLA state */
     c->lowering.vla.has_runtime_vla = false;
@@ -144,6 +144,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     if (!sym->is_param) continue;
                     bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                     if (is_fp) {
+                        if (sym->type.tag == TYPE_FLOAT) { can_promote_params = false; break; }
                         if (chk_fp >= BE(c)->conv->fp_arg_reg_count) { can_promote_params = false; break; }
                         chk_fp++;
                     } else {
@@ -231,7 +232,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     }
                 }
             } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
-                ir_emit_param_save_fp(xmm_idx, sym->stack_offset);
+                ir_emit_param_save_fp(xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
                 xmm_idx++;
             } else if (!is_fp && int_idx < BE(c)->conv->int_arg_reg_count) {
                 ir_emit_param_save_int(int_idx, sym->stack_offset);
@@ -380,15 +381,33 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     if (c->isa == ISA_X86_64) {
         size_t n = ir_get_count();
         for (size_t i = 1; i < n; i++) {
-            const Instr *cur = ir_get(i);
-            const Instr *prev = ir_get(i - 1);
+            Instr *cur = ir_get(i);
+            Instr *prev = ir_get(i - 1);
             if (!cur || !prev) break;
-            if (cur->op == OP_COND_SET && prev->op == OP_CMP && cur->cond <= 3) {
+            if (cur->op == OP_COND_SET && prev->op == OP_CMP && cur->cond <= 5) {
                 RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, prev->temp_src1);
                 RegClass rc2 = regalloc_get_class_for_temp(&c->regalloc, prev->temp_src2);
                 if (rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
                     rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC) {
-                    ir_get(i)->cond = (uint8_t)(cur->cond + 6);
+                    if (cur->cond == 0) { /* CC_LT: swap operands and use CC_A (8) */
+                        uint16_t tmp = prev->temp_src1;
+                        prev->temp_src1 = prev->temp_src2;
+                        prev->temp_src2 = tmp;
+                        ir_get(i)->cond = 8;
+                    } else if (cur->cond == 1) { /* CC_LE: swap operands and use CC_AE (9) */
+                        uint16_t tmp = prev->temp_src1;
+                        prev->temp_src1 = prev->temp_src2;
+                        prev->temp_src2 = tmp;
+                        ir_get(i)->cond = 9;
+                    } else if (cur->cond == 2) { /* CC_GT: use CC_A (8) */
+                        ir_get(i)->cond = 8;
+                    } else if (cur->cond == 3) { /* CC_GE: use CC_AE (9) */
+                        ir_get(i)->cond = 9;
+                    } else if (cur->cond == 4) { /* CC_EQ: use CC_FP_EQ (10) */
+                        ir_get(i)->cond = 10;
+                    } else if (cur->cond == 5) { /* CC_NE: use CC_FP_NE (11) */
+                        ir_get(i)->cond = 11;
+                    }
                 }
             }
         }

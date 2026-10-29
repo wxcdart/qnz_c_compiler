@@ -898,6 +898,7 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     comp->isa = target_isa;
     comp->isa_backend = backend;
     comp->omit_frame_pointer = -1; /* default: auto (omit at -O1+); CLI overrides */
+    comp->local_lookup_bound = -1; /* default: unbounded */
 
     /* Initialize IR arenas */
     if (!ir_arena_init(&comp->ir_arena, 4096)) {
@@ -1147,7 +1148,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     size_t bss_total = 0;
     for (size_t i = 0; i < global_var_count; i++) {
         if (global_vars[i].is_bss && !global_vars[i].is_tls) {
-            bss_total += global_vars[i].size;
+            size_t end = global_vars[i].data_offset + global_vars[i].size;
+            if (end > bss_total) bss_total = end;
         }
     }
     if (bss_total > 0) {

@@ -394,10 +394,18 @@ static void riscv_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_
 }
 
 /* PARAM_SAVE_FP: save incoming FP parameter fa0..fa7 to -offset(s0) (or SP+delta) */
-static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out) {
     const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
-    const char *s = (c->isa == ISA_RISCV32) ? "fsw" : "fsd";
-    fprintf(out, "\t%s\tfa%d, %d(%s)\n", s, reg_idx, (int)zero_cc_frame_disp(c, -offset), base_name);
+    int32_t disp = zero_cc_frame_disp(c, -offset);
+    if (is_single && c->isa != ISA_RISCV32) {
+        int s = BE(c)->fp_scratch_reg1;
+        const char *s_name = (s >= 0 && s < 32) ? BE(c)->regs->fp_regs[s] : "ft7";
+        fprintf(out, "\tfcvt.s.d\t%s, fa%d\n", s_name, reg_idx);
+        fprintf(out, "\tfsw\t%s, %d(%s)\n", s_name, (int)disp, base_name);
+    } else {
+        const char *s = (c->isa == ISA_RISCV32) ? "fsw" : "fsd";
+        fprintf(out, "\t%s\tfa%d, %d(%s)\n", s, reg_idx, (int)disp, base_name);
+    }
 }
 
 /* CALL - Full RISC-V LP64D ABI compliance (including sret in a0 and indirect jalr calls) */

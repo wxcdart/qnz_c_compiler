@@ -396,10 +396,19 @@ static void aarch64_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int3
     aarch64_emit_store_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
 }
 
-/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to -offset(%%fp) (or SP+delta) */
-static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to -offset(%fp) (or SP+delta) */
+static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out) {
     if (reg_idx < 0 || reg_idx >= 8) return;
-    aarch64_emit_store_fp_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
+    int32_t disp = zero_cc_frame_disp(c, -offset);
+    if (is_single) {
+        const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+        int s = BE(c)->fp_scratch_reg1;
+        fprintf(out, "\tfcvt\ts%d, d%d\n", s, reg_idx);
+        if (disp != 0) fprintf(out, "\tstr\ts%d, [%s, #%d]\n", s, base_name, (int)disp);
+        else fprintf(out, "\tstr\ts%d, [%s]\n", s, base_name);
+    } else {
+        aarch64_emit_store_fp_asm(c, reg_idx, zero_cc_frame_base_reg(c), disp, out);
+    }
 }
 
 /* CALL - Full AArch64 AAPCS64 compliance (including x8 sret and indirect blr calls) */

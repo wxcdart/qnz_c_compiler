@@ -473,6 +473,34 @@ static void x86_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *ou
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *dst8_name = x86_reg8_name(dst);
     const char *cc[] = {"l", "le", "g", "ge", "e", "ne", "b", "be", "a", "ae"};
+    if (cond == 10) { /* CC_FP_EQ: sete dst8; jnp 1f; movb $0, dst8; 1: movzbq */
+        uint32_t lbl = c->ir_next_label++;
+        fprintf(out, "\tsete\t%%%s\n", dst8_name);
+        fprintf(out, "\tjnp\t.Lfp_eq_%u\n", lbl);
+        fprintf(out, "\tmovb\t$0, %%%s\n", dst8_name);
+        fprintf(out, ".Lfp_eq_%u:\n", lbl);
+        fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
+        return;
+    }
+    if (cond == 11) { /* CC_FP_NE: setne dst8; jnp 1f; movb $1, dst8; 1: movzbq */
+        uint32_t lbl = c->ir_next_label++;
+        fprintf(out, "\tsetne\t%%%s\n", dst8_name);
+        fprintf(out, "\tjnp\t.Lfp_ne_%u\n", lbl);
+        fprintf(out, "\tmovb\t$1, %%%s\n", dst8_name);
+        fprintf(out, ".Lfp_ne_%u:\n", lbl);
+        fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
+        return;
+    }
+    if (cond == 12) { /* CC_FP_UNORD: setp dst8; movzbq */
+        fprintf(out, "\tsetp\t%%%s\n", dst8_name);
+        fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
+        return;
+    }
+    if (cond == 13) { /* CC_FP_ORD: setnp dst8; movzbq */
+        fprintf(out, "\tsetnp\t%%%s\n", dst8_name);
+        fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
+        return;
+    }
     if (cond < 0 || cond > 9) return;
     fprintf(out, "\tset%s\t%%%s\n", cc[cond], dst8_name);
     fprintf(out, "\tmovzbq\t%%%s,%%%s\n", dst8_name, dst_name);
@@ -883,12 +911,18 @@ static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t 
     }
 }
 
-/* PARAM_SAVE_FP: movsd incoming FP parameter d0..d7 to -offset(%%rbp) (or SP+delta) */
-static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
+/* PARAM_SAVE_FP: save incoming FP parameter d0..d7 to -offset(%rbp) (or SP+delta) */
+static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out) {
     if (reg_idx >= 0 && reg_idx < 8) {
         const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
-        fprintf(out, "\tmovsd\t%%xmm%d,%d(%%%s)\n", reg_idx,
-                (int)zero_cc_frame_disp(c, -offset), base_name);
+        int32_t disp = zero_cc_frame_disp(c, -offset);
+        if (is_single) {
+            const char *s_name = BE(c)->get_vec_reg_name(BE(c)->fp_scratch_reg1);
+            fprintf(out, "\tcvtsd2ss\t%%xmm%d,%%%s\n", reg_idx, s_name);
+            fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", s_name, (int)disp, base_name);
+        } else {
+            fprintf(out, "\tmovsd\t%%xmm%d,%d(%%%s)\n", reg_idx, (int)disp, base_name);
+        }
     }
 }
 

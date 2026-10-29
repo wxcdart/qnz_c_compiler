@@ -132,8 +132,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn_ret_type = zero_cc_type_int();
         c->token_pos++; }
     else if (c->tokens[c->token_pos].type == TK_LONG) {
-        fn_ret_type = zero_cc_type_int64();
-        c->token_pos++; }
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+            fn_ret_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+            c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+        fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+    }
     if (fn_ret_const && c->tokens[c->token_pos].type == TK_STAR) fn_ret_type.is_const = true;
     while (c->tokens[c->token_pos].type == TK_STAR) {
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
@@ -170,6 +177,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     bool is_variadic_fn = false;
     bool has_prototype = false; /* set once the param list holds at least one entry */
     c->local_count = 0;
+    c->local_lookup_bound = -1;
     if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
         for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
     }
@@ -571,6 +579,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
 
         c->local_count = 0;
+        c->local_lookup_bound = -1;
         if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
             for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
         }

@@ -46,6 +46,18 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
         case NODE_BOOL:  *sign = 0; return 1;  /* _Bool is 1-byte, 0/1 */
         case NODE_NULLPTR: return 0;  /* 8-byte pointer value */
+        case NODE_UNOP:
+            if (n->aux.op == TK_BANG) { *sign = 1; return 4; }
+            return zero_cc_operand_int_width(c, arena, n->left, sign);
+        case NODE_CAST: {
+            TypeInfo *ti = ast_node_get_typeinfo(c, n);
+            if (ti && type_is_integer(ti)) {
+                size_t sz = type_size(ti);
+                if (sz < 4) { *sign = 1; return 4; }
+                if (sz == 4) { *sign = type_is_unsigned(ti) ? 0 : 1; return 4; }
+            }
+            return 0;
+        }
         case NODE_IDENT: {
             ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
             if (sym) return zero_cc_narrow_int_width(&sym->type, sign);
@@ -224,8 +236,8 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
     bool generic_base = false;
     if (base_node->tag == NODE_IDENT) {
         ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-        ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(base_node->s.str);
-        if (sym) {
+        ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(base_node->s.str);
+        if (sym && !sym->is_extern) {
             addr = c->next_temp_id++;
             ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
         } else if (ggv) {
@@ -287,7 +299,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
 
     if (operand->tag == NODE_IDENT) {
         ZeroCCSym *sym = zero_cc_find_local(c, operand->s.str);
-        if (sym) {
+        if (sym && !sym->is_extern) {
             int addr_temp = c->next_temp_id++;
             if (sym->is_vla) {
                 ir_emit_load(addr_temp, BE(c)->fp_reg, -sym->stack_offset);
@@ -338,7 +350,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
         if (!base_is_ptr && base_node && base_node->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-            if (sym) {
+            if (sym && !sym->is_extern) {
                 int32_t total_offset = -sym->stack_offset + member_offset;
                 ir_emit_lea(addr_temp, TEMP_NONE, total_offset);
                 return addr_temp;
@@ -389,9 +401,9 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         } else {
             ZeroCCASTNode *ln = zero_cc_ast_get(arena, operand->left);
             if (ln && ln->tag == NODE_IDENT) {
-                ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                if (sym && sym->type.base && sym->type.base->size > 0) {
-                    elem_size = sym->type.base->size;
+                const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                if (zt && zt->base && zt->base->size > 0) {
+                    elem_size = zt->base->size;
                 }
             }
         }
@@ -803,6 +815,32 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
     }
 }
 
+static bool zc_type_offset_is_float(const ZeroCCType *t, size_t off) {
+    if (!t) return false;
+    if (t->tag == TYPE_FLOAT || t->tag == TYPE_DOUBLE) return true;
+    if (t->tag == TYPE_ARRAY) {
+        if (!t->base) return false;
+        size_t el_sz = t->base->size ? t->base->size : 4;
+        return zc_type_offset_is_float(t->base, el_sz ? (off % el_sz) : 0);
+    }
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        for (size_t i = 0; i < t->member_count; i++) {
+            const ZeroCCStructMember *m = &t->members[i];
+            if (off >= m->offset && off < m->offset + m->size) {
+                if (m->tag == TYPE_FLOAT || m->tag == TYPE_DOUBLE) return true;
+                if (m->tag == TYPE_ARRAY && m->base &&
+                    (m->base->tag == TYPE_FLOAT || m->base->tag == TYPE_DOUBLE)) return true;
+                if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base) {
+                    return zc_type_offset_is_float(m->base, off - m->offset);
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
@@ -906,12 +944,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             ZeroCCSym *sym = zero_cc_find_local(c, name);
-            if (sym) {
+            if (sym && !sym->is_extern) {
                 if (sym->is_promoted) {
                     c->last_expr_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
                     return sym->promoted_vreg;
                 }
-                if (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) {
+                if (sym->type.tag == TYPE_FLOAT) {
+                    int addr = c->next_temp_id++;
+                    ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                    int temp = c->next_temp_id++;
+                    ir_emit_vloadss((uint16_t)temp, (uint16_t)addr);
+                    c->last_expr_is_float = 1;
+                    return temp;
+                } else if (sym->type.tag == TYPE_DOUBLE) {
                     /* Float load via IR for proper register allocation */
                     int temp = c->next_temp_id++;
                     ir_emit_fload((uint16_t)temp, TEMP_NONE, -sym->stack_offset);
@@ -1272,8 +1317,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 case TK_SHR: {
                     /* Signed >> is an arithmetic shift (C: implementation-
                      * defined; gcc defines it as arithmetic for signed). */
-                    int lsign = 1;
-                    if (zero_cc_operand_int_width(c, arena, node->left, &lsign) > 0 && lsign) {
+                    int lu = 0;
+                    zero_cc_expr_int_info(c, arena, node->left, &lu);
+                    if (!lu) {
                         ir_emit_sar(result_temp, left_temp, right_temp);
                     } else {
                         ir_emit_shr(result_temp, left_temp, right_temp);
@@ -1331,19 +1377,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int bop = node->aux.op;
                 if (!(bop == TK_EQ || bop == TK_NE || bop == TK_LT ||
                       bop == TK_LE || bop == TK_GT || bop == TK_GE)) {
-                    int ls = 1, rs = 1;
-                    int lw = zero_cc_operand_int_width(c, arena, node->left, &ls);
-                    int rw = zero_cc_operand_int_width(c, arena, node->right, &rs);
-                    /* In C, integer promotions promote types narrower than int (1, 2)
-                     * to signed int (4). */
-                    if (lw > 0 && lw < 4) { lw = 4; ls = 1; }
-                    if (rw > 0 && rw < 4) { rw = 4; rs = 1; }
-                    if (lw != 0 && rw != 0) {
-                        int w, s;
-                        if (lw > rw) { w = lw; s = ls; }
-                        else if (rw > lw) { w = rw; s = rs; }
-                        else { w = lw; s = (ls && rs) ? 1 : 0; }  /* equal width: any unsigned -> unsigned */
-                        ir_mark_last_width(s ? (uint8_t)w : (uint8_t)(8 + w));
+                    if (bop == TK_SHL || bop == TK_SHR) {
+                        /* C99 6.5.7: shift result type and width depend ONLY on the left operand */
+                        int ls = 1;
+                        int lw = zero_cc_operand_int_width(c, arena, node->left, &ls);
+                        if (lw > 0 && lw < 4) { lw = 4; ls = 1; }
+                        if (lw != 0) {
+                            ir_mark_last_width(ls ? (uint8_t)lw : (uint8_t)(8 + lw));
+                        }
+                    } else {
+                        int ls = 1, rs = 1;
+                        int lw = zero_cc_operand_int_width(c, arena, node->left, &ls);
+                        int rw = zero_cc_operand_int_width(c, arena, node->right, &rs);
+                        /* In C, integer promotions promote types narrower than int (1, 2)
+                         * to signed int (4). */
+                        if (lw > 0 && lw < 4) { lw = 4; ls = 1; }
+                        if (rw > 0 && rw < 4) { rw = 4; rs = 1; }
+                        if (lw != 0 && rw != 0) {
+                            int w, s;
+                            if (lw > rw) { w = lw; s = ls; }
+                            else if (rw > lw) { w = rw; s = rs; }
+                            else { w = lw; s = (ls && rs) ? 1 : 0; }  /* equal width: any unsigned -> unsigned */
+                            ir_mark_last_width(s ? (uint8_t)w : (uint8_t)(8 + w));
+                        }
                     }
                 }
             }
@@ -1397,7 +1453,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int one_i = c->next_temp_id++;
                             int one_f = c->next_temp_id++;
                             int res_temp = c->next_temp_id++;
-                            ir_emit_fload((uint16_t)val_temp, TEMP_NONE, -sym->stack_offset);
+                            if (sym->type.tag == TYPE_FLOAT) {
+                                int addr = c->next_temp_id++;
+                                ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                                ir_emit_vloadss((uint16_t)val_temp, (uint16_t)addr);
+                            } else {
+                                ir_emit_fload((uint16_t)val_temp, TEMP_NONE, -sym->stack_offset);
+                            }
                             ir_emit_mov_imm(one_i, 1);
                             ir_emit_cvtsi2sd((uint16_t)one_f, (uint16_t)one_i);
                             if (node->aux.op == TK_INC) {
@@ -1405,7 +1467,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             } else {
                                 ir_emit_fsub((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
                             }
-                            ir_emit_fstore((uint16_t)res_temp, TEMP_NONE, -sym->stack_offset);
+                            if (sym->type.tag == TYPE_FLOAT) {
+                                int addr = c->next_temp_id++;
+                                ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                                ir_emit_vstoress((uint16_t)addr, (uint16_t)res_temp);
+                            } else {
+                                ir_emit_fstore((uint16_t)res_temp, TEMP_NONE, -sym->stack_offset);
+                            }
                             c->last_expr_is_float = 1;
                             return (node->flags & 1) ? val_temp : res_temp;
                         }
@@ -1671,6 +1739,30 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return operand_temp;
                     }
+                    bool is_fp = (ti && type_is_floating(ti));
+                    if (!is_fp) {
+                        ZeroCCASTNode *inner = zero_cc_ast_get(arena, node->left);
+                        if (inner && inner->tag == NODE_IDENT) {
+                            ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
+                            if (ptr_sym && ptr_sym->type.base &&
+                                (ptr_sym->type.base->tag == TYPE_FLOAT || ptr_sym->type.base->tag == TYPE_DOUBLE)) {
+                                is_fp = true;
+                                if (p_size == 0) p_size = (ptr_sym->type.base->tag == TYPE_FLOAT) ? 4 : 8;
+                            }
+                            ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                            if (gv && gv->type.base &&
+                                (gv->type.base->tag == TYPE_FLOAT || gv->type.base->tag == TYPE_DOUBLE)) {
+                                is_fp = true;
+                                if (p_size == 0) p_size = (gv->type.base->tag == TYPE_FLOAT) ? 4 : 8;
+                            }
+                        }
+                    }
+                    if (is_fp) {
+                        if (p_size == 4) ir_emit_vloadss((uint16_t)result_temp, (uint16_t)operand_temp);
+                        else ir_emit_vloadsd((uint16_t)result_temp, (uint16_t)operand_temp);
+                        c->last_expr_is_float = 1;
+                        return result_temp;
+                    }
                     if (p_size == 1) ir_emit_load_byte(result_temp, operand_temp);
                     else if (p_size == 2) ir_emit_load_16(result_temp, operand_temp);
                     else if (p_size == 4) ir_emit_load_32(result_temp, operand_temp);
@@ -1833,39 +1925,145 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         src_u64 = true;
                     }
                     if (src_u64) {
-                        int lo = c->next_temp_id++;
-                        ir_emit_cvtsi2sd((uint16_t)lo, (uint16_t)result);
-                        int shift63 = c->next_temp_id++;
-                        ir_emit_mov_imm(shift63, 63);
-                        int hi = c->next_temp_id++;
-                        ir_emit((Instr){.op = OP_SHR, .temp_dest = (uint16_t)hi,
-                            .temp_src1 = (uint16_t)result, .temp_src2 = (uint16_t)shift63});
-                        int hi_d = c->next_temp_id++;
-                        ir_emit_cvtsi2sd((uint16_t)hi_d, (uint16_t)hi);
-                        double two64 = 18446744073709551616.0; /* 2^64 */
-                        size_t ro64 = c->rodata_section.length;
-                        zero_cc_buf_put_bytes(&c->rodata_section, &two64, sizeof(double));
-                        int two64_d = c->next_temp_id++;
-                        ir_emit_fmov_imm((uint16_t)two64_d, (int64_t)ro64);
-                        int corr = c->next_temp_id++;
-                        ir_emit_fmul((uint16_t)corr, (uint16_t)hi_d, (uint16_t)two64_d);
+                        /* When casting to single-precision float (type_size 4), collapse sticky
+                         * bits below bit 31 into bit 31 to prevent double-rounding when converting
+                         * to float via intermediate double. */
+                        if (cast_ti && type_size(cast_ti) == 4) {
+                            int mask_lo = c->next_temp_id++;
+                            ir_emit_mov_imm(mask_lo, 0x7FFFFFFFLL);
+                            int has_sticky = c->next_temp_id++;
+                            ir_emit_and(has_sticky, result, mask_lo);
+                            int zero_sticky = c->next_temp_id++;
+                            ir_emit_mov_imm(zero_sticky, 0);
+                            int cond_sticky = c->next_temp_id++;
+                            ir_emit_cmp(has_sticky, zero_sticky);
+                            ir_emit_cond_set(cond_sticky, CC_NE);
+                            uint16_t skip_sticky = c->ir_next_label++;
+                            ir_emit_je((uint16_t)cond_sticky, skip_sticky);
+                            int bit31 = c->next_temp_id++;
+                            ir_emit_mov_imm(bit31, 0x80000000LL);
+                            int or_res = c->next_temp_id++;
+                            ir_emit_or(or_res, result, bit31);
+                            int mask_hi = c->next_temp_id++;
+                            ir_emit_mov_imm(mask_hi, ~0x7FFFFFFFLL);
+                            int clean_res = c->next_temp_id++;
+                            ir_emit_and(clean_res, or_res, mask_hi);
+                            result = clean_res;
+                            ir_emit_label(skip_sticky);
+                        }
+
+                        /* Standard uint64 -> double IEEE-754 conversion:
+                         * If high bit is not set (result >= 0), cvtsi2sd directly.
+                         * If high bit is set (< 0), compute ((result >> 1) | (result & 1)) * 2.0
+                         * to preserve the sticky bit and avoid double-rounding. */
+                        int zero_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(zero_temp, 0);
+                        int is_ge = c->next_temp_id++;
+                        ir_emit_cmp(result, zero_temp);
+                        ir_emit_cond_set(is_ge, CC_GE);
+
                         int fp_res = c->next_temp_id++;
-                        ir_emit_fadd((uint16_t)fp_res, (uint16_t)lo, (uint16_t)corr);
+                        uint16_t neg_label = c->ir_next_label++;
+                        uint16_t done_label = c->ir_next_label++;
+
+                        ir_emit_je((uint16_t)is_ge, neg_label);
+
+                        /* Positive (high bit clear): */
+                        int pos_d = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)pos_d, (uint16_t)result);
+                        ir_emit_fmov((uint16_t)fp_res, (uint16_t)pos_d);
+                        ir_emit_jmp(done_label);
+
+                        /* Negative (high bit set): */
+                        ir_emit_label(neg_label);
+                        int one_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(one_temp, 1);
+                        int odd_temp = c->next_temp_id++;
+                        ir_emit_and(odd_temp, result, one_temp);
+
+                        int shr_temp = c->next_temp_id++;
+                        ir_emit((Instr){.op = OP_SHR, .temp_dest = (uint16_t)shr_temp,
+                            .temp_src1 = (uint16_t)result, .temp_src2 = (uint16_t)one_temp});
+
+                        int adj_temp = c->next_temp_id++;
+                        ir_emit_or(adj_temp, shr_temp, odd_temp);
+
+                        int half_d = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)half_d, (uint16_t)adj_temp);
+
+                        int double_d = c->next_temp_id++;
+                        ir_emit_fadd((uint16_t)double_d, (uint16_t)half_d, (uint16_t)half_d);
+                        ir_emit_fmov((uint16_t)fp_res, (uint16_t)double_d);
+
+                        ir_emit_label(done_label);
                         c->last_expr_is_float = 1;
-                        return fp_res;
+                        result = fp_res;
+                    } else {
+                        int fp_res = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)result);
+                        c->last_expr_is_float = 1;
+                        result = fp_res;
                     }
-                    int fp_res = c->next_temp_id++;
-                    ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)result);
-                    c->last_expr_is_float = 1;
-                    return fp_res;
                 }
-                /* float -> float/double: no-op under the 64-bit double FP
-                 * model (previously the float-source branch below truncated
-                 * the value through cvttsd2si). */
+                if (cast_ti && type_size(cast_ti) == 4) {
+                    /* Explicit cast to float: round double to single-precision float */
+                    int addr = c->next_temp_id++;
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    int32_t off = c->current_stack_frame;
+                    ir_emit_lea(addr, BE(c)->fp_reg, -off);
+                    ir_emit_vstoress(addr, result);
+                    int rounded = c->next_temp_id++;
+                    ir_emit_vloadss(rounded, addr);
+                    result = rounded;
+                }
                 return result;
             }
             /* Float to int conversion: emit via IR for correct sequencing */
             if (c->last_expr_is_float) {
+                bool is_u64 = cast_ti && type_size(cast_ti) == 8 &&
+                              (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                if (is_u64) {
+                    double two63 = 9223372036854775808.0;
+                    size_t ro63 = c->rodata_section.length;
+                    zero_cc_buf_put_bytes(&c->rodata_section, &two63, sizeof(double));
+                    int two63_f = c->next_temp_id++;
+                    ir_emit_fmov_imm((uint16_t)two63_f, (int64_t)ro63);
+
+                    int cond_ge = c->next_temp_id++;
+                    ir_emit_cmp(result, two63_f);
+                    ir_emit_cond_set(cond_ge, CC_GE);
+
+                    int sub_f = c->next_temp_id++;
+                    ir_emit_fsub((uint16_t)sub_f, (uint16_t)result, (uint16_t)two63_f);
+
+                    int hi_i = c->next_temp_id++;
+                    ir_emit_cvttsd2si((uint16_t)hi_i, (uint16_t)sub_f);
+
+                    int bit63 = c->next_temp_id++;
+                    ir_emit_mov_imm(bit63, (int64_t)0x8000000000000000ULL);
+                    int hi_adj = c->next_temp_id++;
+                    ir_emit_xor(hi_adj, hi_i, bit63);
+
+                    int lo_i = c->next_temp_id++;
+                    ir_emit_cvttsd2si((uint16_t)lo_i, (uint16_t)result);
+
+                    uint16_t label_lo = c->ir_next_label++;
+                    uint16_t label_done = c->ir_next_label++;
+                    ir_emit_cmp_zero(cond_ge);
+                    ir_emit_je((uint16_t)cond_ge, label_lo);
+
+                    int int_res_temp = c->next_temp_id++;
+                    ir_emit_mov_reg(int_res_temp, hi_adj);
+                    ir_emit_jmp(label_done);
+
+                    ir_emit_label(label_lo);
+                    ir_emit_mov_reg(int_res_temp, lo_i);
+
+                    ir_emit_label(label_done);
+                    c->last_expr_is_float = 0;
+                    return int_res_temp;
+                }
                 int int_res_temp = c->next_temp_id++;
                 ir_emit_cvttsd2si((uint16_t)int_res_temp, (uint16_t)result);
                 c->last_expr_is_float = 0;
@@ -2624,9 +2822,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else {
                     ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
                     if (ln && ln->tag == NODE_IDENT) {
-                        ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                        if (sym && sym->type.base && sym->type.base->size > 0) {
-                            elem_size = sym->type.base->size;
+                        const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                        if (zt && zt->base && zt->base->size > 0) {
+                            elem_size = zt->base->size;
                         }
                     } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
                         ZeroCCSym *sym = lowering_local_sym(c, ln, ln->s.str); /* index-based: name lookup misses post-bound __clit syms */
@@ -2690,8 +2888,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else {
                     ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
                     if (ln && ln->tag == NODE_IDENT) {
-                        ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                        if (sym && sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE)) {
+                        const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                        if (zt && zt->base && (zt->base->tag == TYPE_FLOAT || zt->base->tag == TYPE_DOUBLE)) {
                             is_elem_float = true;
                         }
                     }
@@ -2714,8 +2912,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (!is_elem_struct) {
                         ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
                         if (ln && ln->tag == NODE_IDENT) {
-                            ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION)) {
+                            const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                            if (zt && zt->base && (zt->base->tag == TYPE_STRUCT || zt->base->tag == TYPE_UNION)) {
                                 is_elem_struct = true;
                             }
                         }
@@ -2741,7 +2939,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             const char *var = left_node ? left_node->s.str : "";
             ZeroCCSym *sym = zero_cc_find_local(c, var);
-            if (sym) {
+            if (sym && !sym->is_extern) {
                 if (sym->is_const || sym->type.is_const) {
                     diag_report_error_at_token(c, "cannot assign to const-qualified variable '%s'", var);
                     return TEMP_NONE;
@@ -2757,7 +2955,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* For compound assignment, load current value, operate, then store */
                     if (is_compound) {
                         int lhs_temp = c->next_temp_id++;
-                        ir_emit_fload((uint16_t)lhs_temp, TEMP_NONE, -sym->stack_offset);
+                        if (sym->type.tag == TYPE_FLOAT) {
+                            int addr = c->next_temp_id++;
+                            ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                            ir_emit_vloadss((uint16_t)lhs_temp, (uint16_t)addr);
+                        } else {
+                            ir_emit_fload((uint16_t)lhs_temp, TEMP_NONE, -sym->stack_offset);
+                        }
                         int op_res = c->next_temp_id++;
                         switch (node->aux.op) {
                             case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)op_res, (uint16_t)lhs_temp, (uint16_t)float_temp); break;
@@ -2766,12 +2970,24 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             case TK_DIV_ASSIGN: ir_emit_fdiv((uint16_t)op_res, (uint16_t)lhs_temp, (uint16_t)float_temp); break;
                             default: op_res = float_temp; break;
                         }
-                        ir_emit_fstore((uint16_t)op_res, TEMP_NONE, -sym->stack_offset);
+                        if (sym->type.tag == TYPE_FLOAT) {
+                            int addr = c->next_temp_id++;
+                            ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                            ir_emit_vstoress((uint16_t)addr, (uint16_t)op_res);
+                        } else {
+                            ir_emit_fstore((uint16_t)op_res, TEMP_NONE, -sym->stack_offset);
+                        }
                         c->last_expr_is_float = 1;
                         return op_res;
                     } else {
                         /* Simple assignment: just store */
-                        ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                        if (sym->type.tag == TYPE_FLOAT) {
+                            int addr = c->next_temp_id++;
+                            ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                            ir_emit_vstoress((uint16_t)addr, (uint16_t)float_temp);
+                        } else {
+                            ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                        }
                         c->last_expr_is_float = 1;
                         return float_temp;
                     }
@@ -3246,6 +3462,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         cur_ref = elem_node->next;
                         continue;
                     }
+                    bool abs_is_float = zc_type_offset_is_float(&sym->type, abs_off);
+                    if (abs_is_float && !c->last_expr_is_float) {
+                        int conv = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)val_temp);
+                        val_temp = conv;
+                        c->last_expr_is_float = 1;
+                    } else if (!abs_is_float && c->last_expr_is_float) {
+                        int conv = c->next_temp_id++;
+                        ir_emit_cvttsd2si((uint16_t)conv, (uint16_t)val_temp);
+                        val_temp = conv;
+                        c->last_expr_is_float = 0;
+                    }
+
                     if (abs_sz == 1) {
                         int addr_temp = c->next_temp_id++;
                         ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
@@ -3257,14 +3486,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else if (abs_sz == 4) {
                         int addr_temp = c->next_temp_id++;
                         ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
-                        if (c->last_expr_is_float) {
+                        if (abs_is_float) {
                             ir_emit_vstoress((uint16_t)addr_temp, (uint16_t)val_temp);
                             c->last_expr_is_float = 0;
                         } else {
                             ir_emit_store_32(val_temp, addr_temp);
                         }
                     } else {
-                        if (c->last_expr_is_float) {
+                        if (abs_is_float) {
                             int addr_temp = c->next_temp_id++;
                             ir_emit_lea(addr_temp, TEMP_NONE, abs_store_off);
                             ir_emit_vstoresd((uint16_t)addr_temp, (uint16_t)val_temp);
@@ -3278,6 +3507,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 size_t elem_offset = 0;
                 size_t elem_size = 4;
+                bool elem_is_float = false;
                 if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
                     if ((elem_node->flags & NODE_FLAG_DESIGNATED) != 0) {
                         size_t m_idx = (size_t)elem_node->desig_idx;
@@ -3308,12 +3538,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             } else {
                                 elem_offset = dm->offset;
                                 elem_size = dm->size;
+                                elem_is_float = (dm->tag == TYPE_FLOAT || dm->tag == TYPE_DOUBLE);
                             }
                         }
                     } else {
                         size_t cur_leaf = 0;
                         const char *flex_name = NULL;
-                        if (!zc_struct_resolve_scalar_leaf(&sym->type, idx, &cur_leaf, 0, &elem_offset, &elem_size, &flex_name)) {
+                        if (!zc_struct_resolve_scalar_leaf(&sym->type, idx, &cur_leaf, 0, &elem_offset, &elem_size, &flex_name, &elem_is_float)) {
                             if (flex_name) {
                                 diag_report_error_at_token(c,
                                     "initialization of flexible array member '%s'",
@@ -3341,19 +3572,32 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else {
                         leaf_idx = idx;
                     }
-                    if (zc_object_resolve_scalar_leaf(&sym->type, leaf_idx, &off, &sz)) {
+                    if (zc_object_resolve_scalar_leaf(&sym->type, leaf_idx, &off, &sz, &elem_is_float)) {
                         elem_offset = off;
                         elem_size = sz;
                     } else {
                         size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
                         elem_offset = a_idx * unit_sz;
                         elem_size = unit_sz;
+                        elem_is_float = (sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE));
                     }
                 } else {
                     elem_offset = 0;
                     elem_size = sym->type.size ? sym->type.size : 4;
+                    elem_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                 }
                 int32_t store_offset = -(sym->stack_offset - (int32_t)elem_offset);
+                if (elem_is_float && !c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)val_temp);
+                    val_temp = conv;
+                    c->last_expr_is_float = 1;
+                } else if (!elem_is_float && c->last_expr_is_float) {
+                    int conv = c->next_temp_id++;
+                    ir_emit_cvttsd2si((uint16_t)conv, (uint16_t)val_temp);
+                    val_temp = conv;
+                    c->last_expr_is_float = 0;
+                }
                 /* A float element is held in an XMM temp (double form): the
                  * 4/8-byte stores must be the width-correct VSTORESS/VSTORESD
                  * (cvt + movss/movsd), not the GPR store_32/store. */
@@ -3368,14 +3612,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else if (elem_size == 4) {
                     int addr_temp = c->next_temp_id++;
                     ir_emit_lea(addr_temp, TEMP_NONE, store_offset);
-                    if (c->last_expr_is_float) {
+                    if (elem_is_float) {
                         ir_emit_vstoress((uint16_t)addr_temp, (uint16_t)val_temp);
                         c->last_expr_is_float = 0;
                     } else {
                         ir_emit_store_32(val_temp, addr_temp);
                     }
                 } else {
-                    if (c->last_expr_is_float) {
+                    if (elem_is_float) {
                         int addr_temp = c->next_temp_id++;
                         ir_emit_lea(addr_temp, TEMP_NONE, store_offset);
                         ir_emit_vstoresd((uint16_t)addr_temp, (uint16_t)val_temp);
@@ -3472,10 +3716,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             } else {
                 ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
                 if (ln && ln->tag == NODE_IDENT) {
-                    ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                    if (sym && sym->type.base && sym->type.base->size > 0) {
-                        elem_size = sym->type.base->size;
+                    const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                    if (zt && zt->base && zt->base->size > 0) {
+                        elem_size = zt->base->size;
                     }
+                } else if (ln && ln->tag == NODE_STRING) {
+                    elem_size = (ln->flags & NODE_FLAG_WIDE) ? 4 : 1;
                 } else if (ln && ln->tag == NODE_COMPOUND_LIT) {
                     ZeroCCSym *sym = lowering_local_sym(c, ln, ln->s.str); /* index-based: name lookup misses post-bound __clit syms */
                     if (sym && sym->type.base && sym->type.base->size > 0) {
@@ -3518,8 +3764,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             } else {
                 ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
                 if (ln && ln->tag == NODE_IDENT) {
-                    ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-                    if (sym && sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE)) {
+                    const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                    if (zt && zt->base && (zt->base->tag == TYPE_FLOAT || zt->base->tag == TYPE_DOUBLE)) {
                         is_elem_float = true;
                     }
                 }
@@ -3544,6 +3790,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_deref(result_temp, addr_temp);
                 }
                 lower_extend_narrow(c, result_temp, elem_ti);
+                if (!elem_ti) {
+                    ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+                    if (ln && ln->tag == NODE_IDENT) {
+                        const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                        if (zt && zt->base) {
+                            zero_cc_emit_int_extend(c, result_temp, zt->base);
+                        }
+                    }
+                }
                 c->last_expr_is_float = 0;
             }
             return result_temp;
@@ -3582,7 +3837,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCType *st = NULL;
                 ZeroCCSym *bs = zero_cc_find_local(c, base_node->s.str);
-                if (bs) {
+                if (bs && !bs->is_extern) {
                     st = (base_is_ptr && bs->type.tag == TYPE_PTR) ? bs->type.base : &bs->type;
                 } else {
                     ZeroCCGlobalVar *bg = find_global_var(base_node->s.str);
@@ -3631,7 +3886,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-                ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(base_node->s.str);
+                ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(base_node->s.str);
                 if (ggv) {
                         /* Global struct/union base: load the variable address,
                          * add the member offset, then load/deref. */
@@ -3857,6 +4112,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 const char *base_fn = name + 10;
                 if (strcmp(base_fn, "memcpy") == 0 || strcmp(base_fn, "memset") == 0 ||
                     strcmp(base_fn, "memmove") == 0 || strcmp(base_fn, "memcmp") == 0 ||
+                    strcmp(base_fn, "memchr") == 0 ||
                     strcmp(base_fn, "strlen") == 0 || strcmp(base_fn, "strcmp") == 0 ||
                     strcmp(base_fn, "strncmp") == 0 || strcmp(base_fn, "strcpy") == 0 ||
                     strcmp(base_fn, "strncpy") == 0 || strcmp(base_fn, "strcat") == 0 ||
@@ -3866,7 +4122,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     strcmp(base_fn, "calloc") == 0 || strcmp(base_fn, "realloc") == 0 ||
                     strcmp(base_fn, "free") == 0 || strcmp(base_fn, "printf") == 0 ||
                     strcmp(base_fn, "fprintf") == 0 || strcmp(base_fn, "sprintf") == 0 ||
-                    strcmp(base_fn, "snprintf") == 0) {
+                    strcmp(base_fn, "snprintf") == 0 || strcmp(base_fn, "puts") == 0 ||
+                    strcmp(base_fn, "putchar") == 0 || strcmp(base_fn, "fputc") == 0 ||
+                    strcmp(base_fn, "fputs") == 0 || strcmp(base_fn, "sqrt") == 0 ||
+                    strcmp(base_fn, "sqrtf") == 0) {
                     name = base_fn;
                 }
             }
@@ -4421,17 +4680,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     int res_temp = c->next_temp_id++;
                     if (strncmp(bn, "__builtin_isunordered", 19) == 0) {
-                        /* unordered = !((x <= y) || (x >= y)) */
-                        int t_le = c->next_temp_id++;
                         ir_emit_cmp(t_x, t_y);
-                        ir_emit_cond_set(t_le, CC_LE);
-                        int t_ge = c->next_temp_id++;
-                        ir_emit_cmp(t_y, t_x);
-                        ir_emit_cond_set(t_ge, CC_LE); /* x >= y  <=>  y <= x */
-                        int t_ord = c->next_temp_id++;
-                        ir_emit_or(t_ord, t_le, t_ge);
-                        ir_emit_cmp_zero(t_ord);
-                        ir_emit_cond_set(res_temp, CC_EQ); /* !ordered */
+                        ir_emit_cond_set(res_temp, 12); /* CC_FP_UNORD */
                     } else if (strncmp(bn, "__builtin_islessgreater", 21) == 0) {
                         int t_lt = c->next_temp_id++;
                         ir_emit_cmp(t_x, t_y);
@@ -4470,7 +4720,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 int res_temp = c->next_temp_id++;
                 ir_emit_cmp(t_x, t_x);
-                ir_emit_cond_set(res_temp, CC_NE);
+                ir_emit_cond_set(res_temp, 12); /* CC_FP_UNORD (setp) */
                 c->last_expr_is_float = 0;
                 return res_temp;
             }
@@ -4985,6 +5235,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             uint16_t inline_exit_label = c->ir_next_label++;
 
                             /* Save previous inlining context */
+                            int prev_bound = c->local_lookup_bound;
                             int prev_depth = c->lowering.inlining.active_depth;
                             int prev_ret_temp = c->lowering.inlining.return_target_temp;
                             uint16_t prev_ret_label = c->lowering.inlining.return_target_label;
@@ -5013,6 +5264,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_label(inline_exit_label);
 
                             /* Restore previous inlining context */
+                            c->local_lookup_bound = prev_bound;
                             c->lowering.inlining.active_depth = prev_depth;
                             c->lowering.inlining.return_target_temp = prev_ret_temp;
                             c->lowering.inlining.return_target_label = prev_ret_label;
@@ -5365,6 +5617,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                 int call_res_temp = c->next_temp_id++;
                 ir_emit_mov_reg(call_res_temp, VREG_0);
+                zero_cc_emit_int_extend(c, call_res_temp, &call_ret_type);
                 return call_res_temp;
         }
 

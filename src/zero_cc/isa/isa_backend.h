@@ -123,7 +123,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_fp_cvtsi_asm)(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out);
     void (*emit_vla_alloc_asm)(ZeroCCCompiler *c, int dst, int size, FILE *out);
     void (*emit_param_save_int_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
-    void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out);
+    void (*emit_param_save_fp_asm)(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out);
     void (*emit_variadic_spill_asm)(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out);
     /* Like emit_call_asm: arg_temps are temp ids (number first), resolved
      * against the register allocation by the backend. */
@@ -290,7 +290,7 @@ typedef struct ZeroCCISABackend {
 
     /* Parameter spilling / function setup */
     void (*emit_param_save_int)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
-    void (*emit_param_save_fp)(ZeroCCCompiler *c, int reg_idx, int32_t offset);
+    void (*emit_param_save_fp)(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single);
     void (*emit_variadic_spill)(ZeroCCCompiler *c, int param_count, int32_t base_offset);
     void (*emit_variadic_al_setup)(ZeroCCCompiler *c, int num_fp_args);
 

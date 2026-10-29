@@ -499,6 +499,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ZeroCCASTNode *bn = zero_cc_ast_get(arena, block_ref);
         bn->line = line;
         bn->col = col;
+        uint32_t locals_at_entry = (uint32_t)c->local_count;
 
         ASTRef head = AST_NULL;
         ASTRef tail = AST_NULL;
@@ -549,10 +550,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         if (bn) {
             bn->left = head;
             /* Block-scope metadata for the lowering pass (C11 6.2.1):
-             * local_count at the block's closing brace, stored as +1 so 0
-             * means "unannotated".  The lowering caps name lookup at
-             * (aux.step - 1), so a name redeclared in a LATER sibling block
-             * (index >= bound) does not shadow this block's references. */
+             * aux.alt = locals at block entry + 1
+             * aux.step = locals at block exit + 1 (0 means unannotated).
+             * The lowering caps name lookup at (aux.step - 1) inside the block,
+             * and restores to (aux.alt - 1) on block exit so inner declarations
+             * do not leak into following outer statements. */
+            bn->aux.alt = locals_at_entry + 1;
             bn->aux.step = (uint32_t)(c->local_count + 1);
         }
         return block_ref;
@@ -881,6 +884,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
     bool is_volatile = false;
     bool is_atomic = false;
     bool is_static_local = false;   /* Sprint 37: block-scope `static` */
+    bool is_extern = false;
 
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_ALIGNAS ||
@@ -920,6 +924,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             }
         } else if (c->tokens[c->token_pos].type == TK_STATIC) {
             is_static_local = true;  /* Sprint 37 */
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_EXTERN) {
+            is_extern = true;
             c->token_pos++;
         } else {
             c->token_pos++;
@@ -985,11 +992,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 type_tok = c->tokens[c->token_pos].type;
                 type_start_pos = c->token_pos;
                 c->token_pos++;
-                if (type_tok == TK_LONG && c->token_pos < c->token_count &&
-                    c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+                if (type_tok == TK_SHORT && c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+                if (type_tok == TK_LONG) {
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++; /* long [long] int */
+                }
             } else {
                 type_tok = TK_INT;  /* bare `unsigned` / `signed` */
             }
+        } else if (type_tok == TK_LONG) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                decl_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+        } else if (type_tok == TK_SHORT) {
+            if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                decl_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         }
         if (type_tok == TK_STRUCT || type_tok == TK_UNION || type_tok == TK_ENUM) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
@@ -1195,10 +1219,25 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 /* Derive canonical TypeInfo* directly from decl_type */
                 TypeInfo *decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                int32_t prev_frame = c->current_stack_frame;
                 ZeroCCSym *sym = zero_cc_add_local(c, vname, decl_type);
                 if (!sym) {
                     diag_report_error_at_token(c, "out of memory allocating local variable '%s'", vname);
                     return AST_NULL;
+                }
+                if (is_extern) {
+                    sym->is_extern = true;
+                    sym->stack_offset = 0;
+                    c->current_stack_frame = prev_frame;
+                    if (!find_global_var(vname) && !zero_cc_find_function(c, vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *fn = &c->functions[c->function_count++];
+                        fn->text_offset = 0;
+                        snprintf(fn->name, sizeof(fn->name), "%s", vname);
+                        fn->return_type = decl_type;
+                        fn->is_external = true;
+                        fn->is_prototype = true;
+                        fn->is_object = true;
+                    }
                 }
 
                 /* Sprint 37: static local — the object lives in the data
@@ -1371,10 +1410,25 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     ASTRef nvla_dim_expr = zero_cc_declarator_vla_dim_expr(&next_decl);
 
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
+                    int32_t prev_next_frame = c->current_stack_frame;
                     ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);
                     if (!next_sym) {
                         diag_report_error_at_token(c, "out of memory allocating local variable '%s'", next_vname);
                         return AST_NULL;
+                    }
+                    if (is_extern) {
+                        next_sym->is_extern = true;
+                        next_sym->stack_offset = 0;
+                        c->current_stack_frame = prev_next_frame;
+                        if (!find_global_var(next_vname) && !zero_cc_find_function(c, next_vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                            ZeroCCFunction *fn = &c->functions[c->function_count++];
+                            fn->text_offset = 0;
+                            snprintf(fn->name, sizeof(fn->name), "%s", next_vname);
+                            fn->return_type = next_type;
+                            fn->is_external = true;
+                            fn->is_prototype = true;
+                            fn->is_object = true;
+                        }
                     }
 
                     ASTRef next_decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
@@ -1383,6 +1437,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     next_dn->col = col;
                     next_dn->s.str = next_vname;
                     next_dn->s_len = strlen(next_vname);
+                    if (next_sym) next_dn->aux.step = (uint32_t)((size_t)(next_sym - c->locals)) + 1;
                     if (nhas_any_vla) {
                         next_dn->flags |= NODE_DECL_IS_VLA;
                         next_dn->right = nvla_dim_expr; /* outermost runtime dimension expr */

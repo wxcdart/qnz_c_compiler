@@ -167,11 +167,28 @@ static inline void zero_cc_parse_param_list(
                 ptype_pos = c->token_pos;
                 param_type_tok = c->tokens[c->token_pos].type;
                 c->token_pos++;
-                if (param_type_tok == TK_LONG && c->token_pos < c->token_count &&
-                    c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+                if (param_type_tok == TK_SHORT && c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+                if (param_type_tok == TK_LONG) {
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+                }
             } else {
                 param_type_tok = TK_INT;
             }
+        } else if (param_type_tok == TK_LONG) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                param_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+        } else if (param_type_tok == TK_SHORT) {
+            if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                param_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                c->token_pos++;
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         }
         const char *param_tag_name = NULL;
         if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION || param_type_tok == TK_ENUM) &&
