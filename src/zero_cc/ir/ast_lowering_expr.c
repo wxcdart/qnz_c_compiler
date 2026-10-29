@@ -850,11 +850,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             int temp = c->next_temp_id++;
             if (node->s.str) {
                 size_t len = node->s_len; /* may contain embedded NULs */
-                size_t rodata_offset = c->rodata_section.length;
-                zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
-                uint8_t zero = 0;
-                zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
-                ir_emit_lea_rip(temp, rodata_offset);
+                if (node->flags & NODE_FLAG_WIDE) {
+                    while (c->rodata_section.length % 4 != 0) {
+                        zero_cc_emit_u8(&c->rodata_section, 0);
+                    }
+                    size_t rodata_offset = c->rodata_section.length;
+                    zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
+                    uint32_t zero = 0;
+                    zero_cc_buf_put_bytes(&c->rodata_section, &zero, 4);
+                    ir_emit_lea_rip(temp, rodata_offset);
+                } else {
+                    size_t rodata_offset = c->rodata_section.length;
+                    zero_cc_buf_put_bytes(&c->rodata_section, node->s.str, len);
+                    uint8_t zero = 0;
+                    zero_cc_buf_put_bytes(&c->rodata_section, &zero, 1);
+                    ir_emit_lea_rip(temp, rodata_offset);
+                }
             } else {
                 ir_emit_mov_imm(temp, 0);
             }
@@ -4236,6 +4247,45 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_fmov_imm((uint16_t)temp, (int64_t)rodata_offset);
                 c->last_expr_is_float = 1;
                 return temp;
+            }
+
+            /* llabs() / labs() / imaxabs() / abs() - integer absolute value */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_llabs") == 0 ||
+                 strcmp(callee->s.str, "llabs") == 0 ||
+                 strcmp(callee->s.str, "__builtin_labs") == 0 ||
+                 strcmp(callee->s.str, "labs") == 0 ||
+                 strcmp(callee->s.str, "__builtin_imaxabs") == 0 ||
+                 strcmp(callee->s.str, "imaxabs") == 0 ||
+                 strcmp(callee->s.str, "__builtin_abs") == 0 ||
+                 strcmp(callee->s.str, "abs") == 0)) {
+                bool is_32bit = (strcmp(callee->s.str, "__builtin_abs") == 0 ||
+                                 strcmp(callee->s.str, "abs") == 0);
+                int arg_temp = lower_expr(c, arena, node->right);
+                if (is_32bit) {
+                    ir_emit_sext(arg_temp, 4);
+                }
+                int zero_temp = c->next_temp_id++;
+                ir_emit_mov_imm(zero_temp, 0);
+                int cond_temp = c->next_temp_id++;
+                ir_emit_cmp(arg_temp, zero_temp);
+                ir_emit_cond_set(cond_temp, CC_LT);
+                uint16_t pos_label = c->ir_next_label++;
+                uint16_t end_label = c->ir_next_label++;
+                ir_emit_je((uint16_t)cond_temp, pos_label);
+                int neg_temp = c->next_temp_id++;
+                ir_emit_sub(neg_temp, zero_temp, arg_temp);
+                int res_temp = c->next_temp_id++;
+                ir_emit_mov_reg(res_temp, neg_temp);
+                ir_emit_jmp(end_label);
+                ir_emit_label(pos_label);
+                ir_emit_mov_reg(res_temp, arg_temp);
+                ir_emit_label(end_label);
+                if (is_32bit) {
+                    ir_emit_sext(res_temp, 4);
+                }
+                c->last_expr_is_float = 0;
+                return res_temp;
             }
 
             /* __builtin_fabs() / __builtin_fabsf() - absolute value.

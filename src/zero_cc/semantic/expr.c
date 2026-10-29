@@ -80,8 +80,9 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
             res = type_double(ctx->perm_arena);
             break;
         case NODE_STRING: {
-            TypeInfo *char_t = type_char(ctx->perm_arena);
-            res = type_pointer_to(ctx->perm_arena, char_t);
+            TypeInfo *elem_t = (node->flags & NODE_FLAG_WIDE) ?
+                type_int(ctx->perm_arena) : type_char(ctx->perm_arena);
+            res = type_pointer_to(ctx->perm_arena, elem_t);
             break;
         }
         case NODE_BOOL:

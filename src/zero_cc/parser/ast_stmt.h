@@ -146,11 +146,15 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     }
     if (c->token_pos >= c->token_count) return false;
     ZeroCCTokType t = c->tokens[c->token_pos].type;
-    /* Static-local string initializer: = "string" for char[] */
-    if (t == TK_STRING && sym->type.tag == TYPE_ARRAY && sym->type.base && (sym->type.base->tag == TYPE_INT8 || sym->type.base->tag == TYPE_UINT8)) {
+    /* Static-local string initializer: = "string" for char[] / wchar_t[] */
+    if (t == TK_STRING && sym->type.tag == TYPE_ARRAY && sym->type.base &&
+        ((sym->type.base->tag == TYPE_INT8 || sym->type.base->tag == TYPE_UINT8) ||
+         ((sym->type.base->tag == TYPE_INT32 || sym->type.base->tag == TYPE_UINT32) && c->tokens[c->token_pos].is_wide))) {
+        bool is_wide = c->tokens[c->token_pos].is_wide;
+        size_t term_sz = is_wide ? 4 : 1;
         c->token_pos++;
         const char *s = c->tokens[c->token_pos - 1].allocated_str ? c->tokens[c->token_pos - 1].allocated_str : c->tokens[c->token_pos - 1].str_val;
-        size_t len = zero_cc_token_str_len(&c->tokens[c->token_pos - 1]) + 1; /* content + null terminator */
+        size_t len = zero_cc_token_str_len(&c->tokens[c->token_pos - 1]) + term_sz; /* content + null terminator */
         /* C11 6.7.9p13: a fixed-size array smaller than the string is
          * truncated (excess chars AND the NUL are dropped).  Clamp the copy
          * to the array's capacity so a fixed-size array never overruns into
@@ -161,7 +165,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         if (len > capacity) {
             diag_report_warning_at_token(c,
                 "initializer-string for array of %s is too long",
-                sym->type.base->tag == TYPE_UINT8 ? "unsigned char" : "char");
+                is_wide ? "wchar_t" : (sym->type.base->tag == TYPE_UINT8 ? "unsigned char" : "char"));
         }
         size_t copy_len = (len < capacity) ? len : capacity;
         /* Ensure data section has enough capacity */
@@ -174,7 +178,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         memcpy(dst, s, copy_len);
         /* If array was unsized, update the type size and array_len */
         if (sym->type.array_len == 0) {
-            sym->type.array_len = len;
+            sym->type.array_len = esz > 0 ? (len / esz) : len;
             sym->type.size = len;
         }
         /* Update data section length */
@@ -354,6 +358,10 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
     bool elem_is_char = (elem->tag == TYPE_INT8 || elem->tag == TYPE_UINT8);
     ZeroCCTokType first = c->tokens[brace_pos].type;
     if (first == TK_STRING) {
+        if (c->tokens[brace_pos].is_wide) {
+            if (elem_sz != 4) return 0;
+            return zero_cc_token_str_len(&c->tokens[brace_pos]) + 4;
+        }
         if (!elem_is_char) return 0;
         return zero_cc_token_str_len(&c->tokens[brace_pos]) + 1;
     }

@@ -114,6 +114,7 @@ static inline int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     /* Prefixed character / string literals: L'...', L"...", u8"...", u"...", U"..." */
     if ((s[0] == 'L' || s[0] == 'u' || s[0] == 'U') && (s[1] == '\'' || s[1] == '"')) {
         int is_char = (s[1] == '\'');
+        out->is_wide = 1;
         s++; offset++; col++;
         lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
         int ret = is_char ? zero_cc_scan_char(lx, out) : zero_cc_scan_string(lx, out);
@@ -123,6 +124,7 @@ static inline int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
     }
     if (s[0] == 'u' && s[1] == '8' && (s[2] == '\'' || s[2] == '"')) {
         int is_char = (s[2] == '\'');
+        out->is_wide = 0;
         s += 2; offset += 2; col += 2;
         lx->cur = s; lx->line = line; lx->col = col; lx->offset = offset;
         int ret = is_char ? zero_cc_scan_char(lx, out) : zero_cc_scan_string(lx, out);
@@ -133,12 +135,14 @@ static inline int zero_cc_lexer_next(ZeroCCLexer *lx, ZeroCCToken *out) {
 
     /* Character literal */
     if (*s == '\'') {
+        out->is_wide = 0;
         int ret = zero_cc_scan_char(lx, out);
         return ret;
     }
 
     /* String literal */
     if (*s == '"') {
+        out->is_wide = 0;
         int ret = zero_cc_scan_string(lx, out);
         return ret;
     }

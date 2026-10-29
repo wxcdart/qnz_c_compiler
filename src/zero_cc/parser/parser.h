@@ -37,6 +37,7 @@ typedef enum {
 #define NODE_MEMBER_IS_ARROW    (1u << 0)
 #define NODE_MEMBER_IS_BITFIELD (1u << 1)
 #define NODE_FLAG_DESIGNATED    (1u << 15)  /* element has explicit designator (.field or [idx]) */
+#define NODE_FLAG_WIDE          (1u << 14)  /* wide character or string literal */
 /* Initializer elements carry their absolute placement in the HIGH BIT of
  * desig_idx (the flags field is only 16 bits):
  *   desig_idx = ZC_INIT_ABS_TAG | (offset << 3) | size_code

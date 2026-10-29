@@ -552,6 +552,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         bool has_array_suffix = false;
                         bool is_char_array = (ptr_depth == 0 &&
                                               (gtype.tag == TYPE_INT8 || gtype.tag == TYPE_UINT8));
+                        bool is_wchar_array = (ptr_depth == 0 &&
+                                               (gtype.tag == TYPE_INT32 || gtype.tag == TYPE_UINT32));
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                             has_array_suffix = true;
                             /* Multi-dimensional: T name[d1][d2]... (C99 6.7.9) */
@@ -763,7 +765,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         dr->target_global_idx = anon_idx;
                                     }
                                 }
-                            } else if (it == TK_STRING && !is_char_array) {
+                            } else if (it == TK_STRING && !has_array_suffix) {
                                 /* Pointer to string: store rodata address via data reloc */
                                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
@@ -820,10 +822,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     if (c->token_pos < c->token_count) c->token_pos++;
                                 }
                                 free(vbuf);
-                            } else if (it == TK_STRING && is_char_array) {
-                                /* char array directly initialized from a string literal
+                            } else if (it == TK_STRING && (is_char_array || (is_wchar_array && c->tokens[c->token_pos].is_wide))) {
+                                /* char / wchar_t array directly initialized from a string literal
                                  * (truncated to fit, NUL-terminated when there is room).
-                                 * Also handles size inference for `char g[] = "..."`. */
+                                 * Also handles size inference for `char g[] = "..."` or `wchar_t g[] = L"..."`. */
+                                bool tok_wide = c->tokens[c->token_pos].is_wide;
+                                size_t term_sz = tok_wide ? 4 : 1;
                                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                                 size_t sl = zero_cc_token_str_len(&c->tokens[c->token_pos]);
@@ -831,20 +835,20 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 /* C11 6.7.9p13: a fixed-size char array smaller than the
                                  * string is truncated (excess chars + the NUL) - warn
                                  * like GCC's "initializer-string ... is too long". */
-                                if (!array_unsized && sl + 1 > size) {
+                                if (!array_unsized && sl + term_sz > size) {
                                     diag_report_warning_at_token(c,
                                         "initializer-string for array of %s is too long",
-                                        gtype.tag == TYPE_UINT8 ? "unsigned char" : "char");
+                                        tok_wide ? "wchar_t" : (gtype.tag == TYPE_UINT8 ? "unsigned char" : "char"));
                                 }
                                 size_t total = size;
-                                if (array_len == 1 && sl + 1 > size) total = sl + 1;
+                                if (array_unsized || (array_len == 1 && sl + term_sz > size)) total = sl + term_sz;
                                 size_t copy = sl < total ? sl : total;
                                 zero_cc_buf_put_bytes(&c->data_section, sv, copy);
                                 for (size_t i = copy; i < total; i++) {
                                     zero_cc_emit_u8(&c->data_section, 0);
                                 }
                                 size = total;
-                                if (total != (size_t)array_len) array_len = (int64_t)total; /* char g[] = "..." */
+                                if (elem_size > 0 && total / elem_size != (size_t)array_len) array_len = (int64_t)(total / elem_size);
                             } else if (it == TK_AMP) {
                                 /* Address-of a previously declared global:
                                  * `int *p = &x;` -> 8-byte pointer patched

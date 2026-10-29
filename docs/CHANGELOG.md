@@ -1,5 +1,37 @@
 # ZeroCC Changelog
 
+## [Chunk M5 / Sprint 58] - 2026-10-29 - GCC `c-torture` MISCOMPILE Burn-Down (PASS reaches 2,170, MISCOMPILE down to 75)
+
+- **GNU Named Variadic Macros (`args...`) (`core/preprocessor.h`)**:
+  - In macro definitions, when an identifier is immediately followed by `...` (e.g. `test(ret, args...)`), recognize as a named variadic parameter (`is_var = true`, parameter name `pname`), avoiding spurious `__VA_ARGS__`.
+  - In macro expansion, bundle variadic arguments into the named variadic parameter; empty variadic argument sets expand to empty string. Resolves `execute/fprintf-1.c` and `execute/printf-1.c`.
+- **`sizeof` / `_Alignof` Identifier Parenthesis Consumption (`parser/ast_expr.h`, `parser/const_eval.h`)**:
+  - Added `bool has_paren` tracking in both expression and const-eval sizing paths so closing `TK_RPAREN` is only consumed when an opening `TK_LPAREN` was actually present. Prevents consuming outer argument list closing parentheses in expressions like `fn(sizeof c)`. Resolves `execute/memchr-1.c`.
+- **Standard Integer `abs` Builtins (`ir/ast_lowering_expr.c`)**:
+  - Lowering intercepts standard library calls to `llabs`, `labs`, `imaxabs`, `abs` (and `__builtin_*` variants) and emits inline absolute value comparison and negate logic, avoiding dummy `abort()` stubs in torture tests. Resolves `execute/20021127-1.c`.
+- **Wide Characters (`L'...'`) & Wide String Literals (`L"..."`) (`types/token.h`, `lexer/`, `parser/`, `ir/ast_lowering_expr.c`, `semantic/expr.c`)**:
+  - Added `uint8_t is_wide` to `ZeroCCToken` and `NODE_FLAG_WIDE` to `ZeroCCASTNode`.
+  - Decodes UTF-8 multi-byte sequences in `L'...'` to Unicode code points.
+  - Encodes wide strings (`L"..."`) into 4-byte little-endian words with 4-byte NUL termination.
+  - Sizing in `const_eval.h` returns `zero_cc_type_array(&int_type, (str_len / 4) + 1)`.
+  - Hex escapes (`\x...`) consume all hex digits per C99 6.4.4.4p7.
+  - .rodata emission 4-byte aligns wide string literals. Resolves `execute/wchar_t-1.c`.
+- **Wide Character Array Initialization & `<stddef.h>` (`jit/compile_unit.h`, `ir/ast_lowering_stmt.c`, `core/preprocessor.h`)**:
+  - Replaced `!is_char_array` with `!has_array_suffix` to avoid pointer relocation emission (`.quad .Lrodata`) for `wchar_t ws[] = L"..."`.
+  - Added `is_wchar_array` support for global, static-local, and stack-local array initialization.
+  - Added `typedef __WCHAR_TYPE__ wchar_t;` to virtual `<stddef.h>`. Resolves `execute/widechar-2.c`.
+- **Target Endianness & Wchar Preprocessor Macros (`core/preprocessor.h`)**:
+  - Defined `__ORDER_LITTLE_ENDIAN__`, `__ORDER_BIG_ENDIAN__`, `__ORDER_PDP_ENDIAN__`, `__BYTE_ORDER__`, and `__FLOAT_WORD_ORDER__`.
+  - Defined `__WCHAR_TYPE__`, `__WCHAR_WIDTH__`, `__SIZEOF_WCHAR_T__`, `__WCHAR_MAX__`, `__WCHAR_MIN__`, `__WINT_TYPE__`, `__WINT_WIDTH__`, `__SIZEOF_WINT_T__`. Resolves `execute/widechar-3.c`, `execute/pr34130.c`, `execute/pr42614.c`, `execute/pr65401.c`.
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **`PASS`**: Increased from 2,154 to **2,170** (+16).
+  - **`MISCOMPILE`**: Reduced from 81 to **75** (-6).
+  - **`REJECT`**: Reduced from 692 to **683** (-9).
+  - **0 regressions** against the previous ratcheted baseline.
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/sret_verifier.py` 6/6 · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK.
+
+---
+
 ## [Chunk M4 / Sprint 58] - 2026-10-29 - GCC `c-torture` MISCOMPILE Burn-Down (PASS reaches 2,154, MISCOMPILE down to 81)
 
 - **Array Dereference & String Literal `sizeof`/`_Alignof` (`parser/const_eval.h`)**:

@@ -357,11 +357,13 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         }
 
         case TK_STRING: {
+            bool is_wide = tok->is_wide;
             c->token_pos++;
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_STRING);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->line = (uint32_t)tok->line;
             n->col = (uint32_t)tok->col;
+            if (is_wide) n->flags |= NODE_FLAG_WIDE;
             const char *s = tok->allocated_str ? tok->allocated_str : tok->str_val;
             size_t sl = zero_cc_token_str_len(tok); /* may contain embedded NULs */
             /* Intern short strings (allocated_str is already stable heap); the
@@ -793,7 +795,11 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         case TK_SIZEOF: {
             size_t pos = c->token_pos;
             pos++; /* consume TK_SIZEOF */
-            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) pos++;
+            bool has_paren = false;
+            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) {
+                has_paren = true;
+                pos++;
+            }
             ZeroCCType ty;
             /* Type operand (incl. `*` suffix) needs the type parser; the
              * expression grammar treats `*` as multiplication. */
@@ -802,7 +808,7 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             } else {
                 size_t id_sz = zero_cc_sizeof_ident_size(c, &pos);
                 if (id_sz > 0) {
-                    if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+                    if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
                     c->token_pos = pos;
                     ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
                     ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
@@ -811,7 +817,7 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 }
                 ty = zero_cc_type_of_equality(c, &pos);
             }
-            if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+            if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
             c->token_pos = pos;
             size_t sz = ty.size;
 
@@ -823,14 +829,18 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         case TK_ALIGNOF: {
             size_t pos = c->token_pos;
             pos++; /* consume TK_ALIGNOF */
-            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) pos++;
+            bool has_paren = false;
+            if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) {
+                has_paren = true;
+                pos++;
+            }
             ZeroCCType ty;
             if (zero_cc_tok_is_type_start(c, pos)) {
                 ty = zero_cc_parse_type_name_at_pos(c, &pos);
             } else {
                 size_t id_al = zero_cc_sizeof_ident_align(c, &pos);
                 if (id_al > 0) {
-                    if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+                    if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
                     c->token_pos = pos;
                     ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
                     ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
@@ -839,7 +849,7 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 }
                 ty = zero_cc_type_of_equality(c, &pos);
             }
-            if (pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+            if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
             c->token_pos = pos;
             size_t align = ty.align ? ty.align : 1;
 

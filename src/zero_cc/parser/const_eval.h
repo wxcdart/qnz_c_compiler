@@ -166,7 +166,9 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
 static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
 {
     (*pos)++; /* consume TK_SIZEOF */
+    bool has_paren = false;
     if (c->tokens[*pos].type == TK_LPAREN) {
+        has_paren = true;
         (*pos)++; /* consume '(' */
     }
     ZeroCCType ty;
@@ -178,12 +180,12 @@ static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
     } else {
         size_t id_sz = zero_cc_sizeof_ident_size(c, pos);
         if (id_sz > 0) {
-            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            if (has_paren && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return (int64_t)id_sz;
         }
         ty = zero_cc_type_of_equality(c, pos);
     }
-    if (c->tokens[*pos].type == TK_RPAREN) {
+    if (has_paren && c->tokens[*pos].type == TK_RPAREN) {
         (*pos)++;
     }
     return ty.size;
@@ -192,7 +194,9 @@ static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
 static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos)
 {
     (*pos)++; /* consume TK_ALIGNOF */
+    bool has_paren = false;
     if (c->tokens[*pos].type == TK_LPAREN) {
+        has_paren = true;
         (*pos)++; /* consume '(' */
     }
     ZeroCCType ty;
@@ -201,12 +205,12 @@ static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos)
     } else {
         size_t id_al = zero_cc_sizeof_ident_align(c, pos);
         if (id_al > 0) {
-            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            if (has_paren && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return (int64_t)id_al;
         }
         ty = zero_cc_type_of_equality(c, pos);
     }
-    if (c->tokens[*pos].type == TK_RPAREN) {
+    if (has_paren && c->tokens[*pos].type == TK_RPAREN) {
         (*pos)++;
     }
     return ty.align ? ty.align : 1;
@@ -648,10 +652,18 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         return zero_cc_type_nullptr();
     }
     if (t == TK_STRING) {
-        size_t len = c->tokens[*pos].str_len + 1;
+        bool is_wide = c->tokens[*pos].is_wide;
+        size_t slen = zero_cc_token_str_len(&c->tokens[*pos]);
         (*pos)++;
-        ZeroCCType elem = zero_cc_type_char();
-        return zero_cc_type_array(&elem, (ssize_t)len);
+        if (is_wide) {
+            ZeroCCType elem = zero_cc_type_int();
+            size_t num_elems = (slen / 4) + 1;
+            return zero_cc_type_array(&elem, (ssize_t)num_elems);
+        } else {
+            size_t len = slen + 1;
+            ZeroCCType elem = zero_cc_type_char();
+            return zero_cc_type_array(&elem, (ssize_t)len);
+        }
     }
     /* Type keywords as primary (for sizeof(type)/_Alignof(type)) */
     if (t == TK_STRUCT || t == TK_UNION) {

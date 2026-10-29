@@ -275,12 +275,25 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__aarch64__", "1");
     zero_cc_cpp_define_obj(cpp, "__LP64__", "1");
 #endif
+    zero_cc_cpp_define_obj(cpp, "__ORDER_LITTLE_ENDIAN__", "1234");
+    zero_cc_cpp_define_obj(cpp, "__ORDER_BIG_ENDIAN__", "4321");
+    zero_cc_cpp_define_obj(cpp, "__ORDER_PDP_ENDIAN__", "3412");
+    zero_cc_cpp_define_obj(cpp, "__BYTE_ORDER__", "1234");
+    zero_cc_cpp_define_obj(cpp, "__FLOAT_WORD_ORDER__", "1234");
     zero_cc_cpp_define_obj(cpp, "__SIZE_TYPE__", "unsigned long");
     zero_cc_cpp_define_obj(cpp, "__PTRDIFF_TYPE__", "long");
     zero_cc_cpp_define_obj(cpp, "__INTPTR_TYPE__", "long");
     zero_cc_cpp_define_obj(cpp, "__UINTPTR_TYPE__", "unsigned long");
     zero_cc_cpp_define_obj(cpp, "__INTMAX_TYPE__", "long");
     zero_cc_cpp_define_obj(cpp, "__UINTMAX_TYPE__", "unsigned long");
+    zero_cc_cpp_define_obj(cpp, "__WCHAR_TYPE__", "int");
+    zero_cc_cpp_define_obj(cpp, "__WCHAR_WIDTH__", "32");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_WCHAR_T__", "4");
+    zero_cc_cpp_define_obj(cpp, "__WCHAR_MAX__", "2147483647");
+    zero_cc_cpp_define_obj(cpp, "__WCHAR_MIN__", "(-2147483647 - 1)");
+    zero_cc_cpp_define_obj(cpp, "__WINT_TYPE__", "unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__WINT_WIDTH__", "32");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_WINT_T__", "4");
     zero_cc_cpp_define_obj(cpp, "__INT8_TYPE__", "signed char");
     zero_cc_cpp_define_obj(cpp, "__INT16_TYPE__", "short");
     zero_cc_cpp_define_obj(cpp, "__INT32_TYPE__", "int");
@@ -325,6 +338,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _STDDEF_H\n#define _STDDEF_H 1\n"
             "typedef unsigned long size_t;\n"
             "typedef long ptrdiff_t;\n"
+            "typedef __WCHAR_TYPE__ wchar_t;\n"
             "#define NULL ((void*)0)\n"
             "#define offsetof(type, member) __builtin_offsetof(type, member)\n"
             "#endif\n"
@@ -1775,6 +1789,14 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             char pname[128]; size_t pl = 0;
                             while (*p && (isalnum((unsigned char)*p) || *p == '_') && pl < 127) pname[pl++] = *p++;
                             pname[pl] = '\0';
+                            if (*p == '.' && p[1] == '.' && p[2] == '.') {
+                                is_var = true;
+                                p += 3;
+                                if (pl > 0 && pcount < 32) {
+                                    params[pcount++] = strdup(pname);
+                                }
+                                break;
+                            }
                             if (pl > 0 && pcount < 32) {
                                 params[pcount++] = strdup(pname);
                             }
@@ -2194,21 +2216,26 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     }
                     if (*p == ')') p++;
 
-                    /* Bundle variadic arguments into __VA_ARGS__ */
-                    if (m->is_variadic && m->param_count > 0 && arg_count >= m->param_count) {
-                        size_t total_va_len = 0;
-                        for (int k = m->param_count - 1; k < arg_count; k++) {
-                            total_va_len += strlen(args[k]) + 4;
-                        }
-                        char *va_str = (char *)malloc(total_va_len + 1);
-                        if (va_str) {
-                            va_str[0] = '\0';
+                    /* Bundle variadic arguments into __VA_ARGS__ / named variadic param */
+                    if (m->is_variadic && m->param_count > 0) {
+                        if (arg_count >= m->param_count) {
+                            size_t total_va_len = 0;
                             for (int k = m->param_count - 1; k < arg_count; k++) {
-                                if (k > m->param_count - 1) strcat(va_str, ", ");
-                                strcat(va_str, args[k]);
-                                free(args[k]);
+                                total_va_len += strlen(args[k]) + 4;
                             }
-                            args[m->param_count - 1] = va_str;
+                            char *va_str = (char *)malloc(total_va_len + 1);
+                            if (va_str) {
+                                va_str[0] = '\0';
+                                for (int k = m->param_count - 1; k < arg_count; k++) {
+                                    if (k > m->param_count - 1) strcat(va_str, ", ");
+                                    strcat(va_str, args[k]);
+                                    free(args[k]);
+                                }
+                                args[m->param_count - 1] = va_str;
+                                arg_count = m->param_count;
+                            }
+                        } else if (arg_count == m->param_count - 1 && arg_count < 32) {
+                            args[m->param_count - 1] = strdup("");
                             arg_count = m->param_count;
                         }
                     }

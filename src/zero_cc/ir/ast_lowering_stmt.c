@@ -120,10 +120,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         ZeroCCSym *str_sym = lowering_local_sym(c, node, node->s.str);
         if (str_init_node && str_init_node->tag == NODE_STRING && str_init_node->s.str &&
             str_sym && str_sym->type.tag == TYPE_ARRAY && str_sym->type.base &&
-            (str_sym->type.base->tag == TYPE_INT8 || str_sym->type.base->tag == TYPE_UINT8)) {
+            ((str_sym->type.base->tag == TYPE_INT8 || str_sym->type.base->tag == TYPE_UINT8) ||
+             ((str_sym->type.base->tag == TYPE_INT32 || str_sym->type.base->tag == TYPE_UINT32) && (str_init_node->flags & NODE_FLAG_WIDE)))) {
+            bool is_wide = (str_init_node->flags & NODE_FLAG_WIDE) != 0;
+            size_t term_sz = is_wide ? 4 : 1;
             const char *lit = str_init_node->s.str;
             size_t total_size = str_sym->type.size;
-            size_t copy_len = str_init_node->s_len + 1; /* may contain embedded NULs */
+            size_t copy_len = str_init_node->s_len + term_sz; /* may contain embedded NULs */
             if (copy_len > total_size) copy_len = total_size; /* C11 6.7.9p12: truncate */
             int zero_temp = c->next_temp_id++;
             ir_emit_mov_imm(zero_temp, 0);
@@ -150,12 +153,24 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 }
                 zoff += chunk;
             }
-            for (size_t i = 0; i < copy_len; i++) {
-                int val_temp = c->next_temp_id++;
-                ir_emit_mov_imm(val_temp, (int32_t)(unsigned char)lit[i]);
-                int addr_temp = c->next_temp_id++;
-                ir_emit_lea(addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)i));
-                ir_emit_store_byte(val_temp, addr_temp);
+            if (is_wide) {
+                size_t n_words = str_init_node->s_len / 4;
+                const uint32_t *wlit = (const uint32_t *)lit;
+                for (size_t i = 0; i < n_words && (i + 1) * 4 <= total_size; i++) {
+                    int val_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(val_temp, (int32_t)wlit[i]);
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)(i * 4)));
+                    ir_emit_store_32(val_temp, addr_temp);
+                }
+            } else {
+                for (size_t i = 0; i < copy_len; i++) {
+                    int val_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(val_temp, (int32_t)(unsigned char)lit[i]);
+                    int addr_temp = c->next_temp_id++;
+                    ir_emit_lea(addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)i));
+                    ir_emit_store_byte(val_temp, addr_temp);
+                }
             }
             c->last_expr_is_float = 0;
             return;

@@ -55,6 +55,7 @@ typedef struct ZeroCCToken {
     int64_t num_val;
     double float_val;
     uint8_t int_suffix; /* bitflags: 1=U,2=L,4=LL */
+    uint8_t is_wide;    /* 1 for wide character/string literals (L'x', L"str") */
     char str_val[128];
     char *allocated_str; /* for long strings (> 127 chars) */
     size_t str_len;      /* string-literal content length in bytes (excl. NUL); 0 = use strlen */

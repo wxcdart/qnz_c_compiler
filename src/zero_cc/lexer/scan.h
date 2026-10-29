@@ -81,20 +81,20 @@ static int zero_cc_handle_escape(const char **s, size_t *offset, char *out_str, 
             break;
         }
         case 'x': {
-            /* Hex escape: \xhh */
+            /* Hex escape: \x... (longest sequence of hex digits) */
             const char *p = *s + 1;
-            int hex = 0;
+            uint64_t hex = 0;
             int digits = 0;
-            while (digits < 2 && isxdigit((unsigned char)*p)) {
+            while (isxdigit((unsigned char)*p)) {
                 char c = *p++;
-                hex = hex * 16 + (isdigit(c) ? c - '0' : (tolower(c) - 'a' + 10));
+                hex = (hex << 4) | (isdigit((unsigned char)c) ? c - '0' : (tolower((unsigned char)c) - 'a' + 10));
                 digits++;
             }
             if (digits == 0) {
                 handled = 0;
                 val = (unsigned char)'x';
             } else {
-                val = hex;
+                val = (int)hex;
                 *offset += digits;
                 *s = p - 1;
             }
@@ -155,11 +155,26 @@ static int zero_cc_scan_char(ZeroCCLexer *lx, ZeroCCToken *tok) {
             }
             col += (s - esc_start);
             s++; offset++; col++;
+        } else if (tok->is_wide && (unsigned char)*s >= 0x80) {
+            unsigned char c0 = (unsigned char)*s;
+            if ((c0 & 0xE0) == 0xC0 && (unsigned char)s[1] >= 0x80) {
+                ch = ((c0 & 0x1F) << 6) | ((unsigned char)s[1] & 0x3F);
+                s += 2; offset += 2; col += 2;
+            } else if ((c0 & 0xF0) == 0xE0 && (unsigned char)s[1] >= 0x80 && (unsigned char)s[2] >= 0x80) {
+                ch = ((c0 & 0x0F) << 12) | (((unsigned char)s[1] & 0x3F) << 6) | ((unsigned char)s[2] & 0x3F);
+                s += 3; offset += 3; col += 3;
+            } else if ((c0 & 0xF8) == 0xF0 && (unsigned char)s[1] >= 0x80 && (unsigned char)s[2] >= 0x80 && (unsigned char)s[3] >= 0x80) {
+                ch = ((c0 & 0x07) << 18) | (((unsigned char)s[1] & 0x3F) << 12) | (((unsigned char)s[2] & 0x3F) << 6) | ((unsigned char)s[3] & 0x3F);
+                s += 4; offset += 4; col += 4;
+            } else {
+                ch = c0;
+                s++; offset++; col++;
+            }
         } else {
             ch = (unsigned char)*s;
             s++; offset++; col++;
         }
-        val = (val << 8) | (ch & 0xFF);
+        val = tok->is_wide ? ch : ((val << 8) | (ch & 0xFF));
     }
 
     if (*s == '\'') {
@@ -193,33 +208,48 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
     char *buf = tok->str_val;
     tok->type = TK_STRING;
     tok->allocated_str = NULL;
+    int is_wide = tok->is_wide;
 
     const char *s = lx->cur;
 
     while (*s == '"') {
         s++; offset++; col++;  /* skip opening " */
         while (*s && *s != '"') {
-            char esc_ch = 0;
+            int char_val = 0;
             if (*s == '\\' && s[1]) {
                 s++; offset++; col++;
                 char esc = *s;
-                int char_val = 0;
                 const char *esc_start = s;
                 if (!zero_cc_handle_escape(&s, &offset, NULL, &char_val)) {
                     char_val = (unsigned char)esc;
                 }
                 col += (size_t)(s - esc_start);
-                esc_ch = (char)char_val;
                 s++; offset++; col++;
+            } else if (is_wide && (unsigned char)*s >= 0x80) {
+                unsigned char c0 = (unsigned char)*s;
+                if ((c0 & 0xE0) == 0xC0 && (unsigned char)s[1] >= 0x80) {
+                    char_val = ((c0 & 0x1F) << 6) | ((unsigned char)s[1] & 0x3F);
+                    s += 2; offset += 2; col += 2;
+                } else if ((c0 & 0xF0) == 0xE0 && (unsigned char)s[1] >= 0x80 && (unsigned char)s[2] >= 0x80) {
+                    char_val = ((c0 & 0x0F) << 12) | (((unsigned char)s[1] & 0x3F) << 6) | ((unsigned char)s[2] & 0x3F);
+                    s += 3; offset += 3; col += 3;
+                } else if ((c0 & 0xF8) == 0xF0 && (unsigned char)s[1] >= 0x80 && (unsigned char)s[2] >= 0x80 && (unsigned char)s[3] >= 0x80) {
+                    char_val = ((c0 & 0x07) << 18) | (((unsigned char)s[1] & 0x3F) << 12) | (((unsigned char)s[2] & 0x3F) << 6) | ((unsigned char)s[3] & 0x3F);
+                    s += 4; offset += 4; col += 4;
+                } else {
+                    char_val = c0;
+                    s++; offset++; col++;
+                }
             } else {
-                esc_ch = *s;
+                char_val = (unsigned char)*s;
                 if (*s == '\n') { line++; col = 1; }
                 else col++;
                 s++; offset++;
             }
 
             /* Append char, resizing dynamically if needed */
-            if (sl + 1 >= cap) {
+            size_t bytes_needed = (is_wide ? 4 : 1) + 4;
+            while (sl + bytes_needed >= cap) {
                 if (buf == tok->str_val) {
                     cap = 256;
                     buf = (char *)malloc(cap);
@@ -228,6 +258,7 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
                         tok->allocated_str = buf;
                     } else {
                         buf = tok->str_val; /* fallback */
+                        break;
                     }
                 } else {
                     cap *= 2;
@@ -235,11 +266,21 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
                     if (new_buf) {
                         buf = new_buf;
                         tok->allocated_str = buf;
+                    } else {
+                        break;
                     }
                 }
             }
-            if (buf != tok->str_val || sl < sizeof(tok->str_val) - 1) {
-                buf[sl++] = esc_ch;
+            if (is_wide) {
+                uint32_t w = (uint32_t)char_val;
+                buf[sl++] = (char)(w & 0xFF);
+                buf[sl++] = (char)((w >> 8) & 0xFF);
+                buf[sl++] = (char)((w >> 16) & 0xFF);
+                buf[sl++] = (char)((w >> 24) & 0xFF);
+            } else {
+                if (buf != tok->str_val || sl < sizeof(tok->str_val) - 1) {
+                    buf[sl++] = (char)char_val;
+                }
             }
         }
         if (*s == '"') {
@@ -253,7 +294,11 @@ static int zero_cc_scan_string(ZeroCCLexer *lx, ZeroCCToken *tok) {
         }
     }
 
-    buf[sl] = '\0';
+    if (is_wide) {
+        buf[sl] = '\0'; buf[sl + 1] = '\0'; buf[sl + 2] = '\0'; buf[sl + 3] = '\0';
+    } else {
+        buf[sl] = '\0';
+    }
     tok->str_len = sl;
     if (buf != tok->str_val) {
         /* Keep first 127 bytes in str_val for compatibility with functions accessing str_val directly */

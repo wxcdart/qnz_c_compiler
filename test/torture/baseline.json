@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-29T17:59:43Z",
+ "generated": "2026-10-29T20:44:59Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -12154,7 +12154,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr52073.c": {
    "class": "PASS",
@@ -12559,12 +12559,12 @@
    "note": "                                       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr55920.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr55921.c": {
    "class": "REJECT",
@@ -12599,12 +12599,12 @@
    "note": ""
   },
   "compile/pr56484.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr56539.c": {
    "class": "PASS",
@@ -14560,12 +14560,12 @@
    "note": ""
   },
   "compile/pr98407.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr98629.c": {
    "class": "PASS",
@@ -14948,7 +14948,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/sne.c": {
    "class": "PASS",
@@ -17131,18 +17131,18 @@
    "note": ""
   },
   "execute/20010325-1.c": {
-   "class": "PASS",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": ""
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20010329-1.c": {
    "class": "PASS",
@@ -18545,18 +18545,18 @@
    "note": ""
   },
   "execute/20021127-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20021204-1.c": {
    "class": "PASS",
@@ -20410,7 +20410,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050826-2.c": {
    "class": "PASS",
@@ -21326,7 +21326,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                          ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                       ^; Compile error: use of undeclared identifier 'a' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20090113-1.c": {
    "class": "PASS",
@@ -21648,7 +21648,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                           ^; Compile error: unknown identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                     ^; Compile error: unknown identifier 'u' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20111227-1.c": {
    "class": "PASS",
@@ -28110,18 +28110,18 @@
    "note": ""
   },
   "execute/fprintf-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='hellohellohello\\nhello\\naahellohellohello\\n') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/fprintf-2.c": {
    "class": "REJECT",
@@ -29833,18 +29833,18 @@
    "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memchr-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/memclr.c": {
    "class": "NO-REF",
@@ -31490,18 +31490,18 @@
    "note": "            ^; Compile error: 'case' statement not in switch statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr126501.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr126747.c": {
    "class": "PASS",
@@ -32807,18 +32807,18 @@
    "note": ""
   },
   "execute/pr34130.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr34154.c": {
    "class": "SKIP-C89",
@@ -33451,18 +33451,18 @@
    "note": "              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr39339.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr39501.c": {
    "class": "SKIP-REFSEM",
@@ -33568,18 +33568,18 @@
    "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr40668.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr40747.c": {
    "class": "PASS",
@@ -33848,18 +33848,18 @@
    "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr42614.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr42691.c": {
    "class": "MISCOMPILE",
@@ -34385,18 +34385,18 @@
    "note": "                             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr47538.c": {
-   "class": "REJECT",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr47925.c": {
    "class": "SKIP-C89",
@@ -36393,32 +36393,32 @@
    "note": ""
   },
   "execute/pr65369.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr65401.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr65418-1.c": {
    "class": "PASS",
@@ -38149,18 +38149,18 @@
    "note": "                                       ^; Compile error: use of undeclared identifier '__CHAR_BIT__' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr86528.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr86659-1.c": {
    "class": "PASS",
@@ -39195,18 +39195,18 @@
    "note": "           ^; Compile error: use of undeclared identifier 'ptr2'; did you mean 'ptr1'? [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/printf-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='hellohellohello\\nhello\\naahellohellohello\\n') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/printf-2.c": {
    "class": "SKIP-TARGET:unwrapped",
@@ -39765,18 +39765,18 @@
    "note": ""
   },
   "execute/string-opt-5.c": {
-   "class": "REJECT",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strlen-1.c": {
    "class": "REJECT",
@@ -39874,7 +39874,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                           ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strncmp-1.c": {
    "class": "REJECT",
@@ -40624,20 +40624,6 @@
    "note": "            ^; Compile error: use of undeclared identifier 't' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/wchar_t-1.c": {
-   "class": "MISCOMPILE",
-   "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
-   },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
-  },
-  "execute/widechar-1.c": {
    "class": "PASS",
    "configs": {
     "O0-aot": "OK",
@@ -40651,7 +40637,7 @@
    },
    "note": ""
   },
-  "execute/widechar-2.c": {
+  "execute/widechar-1.c": {
    "class": "MISCOMPILE",
    "configs": {
     "O0-aot": "MISCOMPILE",
@@ -40665,19 +40651,33 @@
    },
    "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
-  "execute/widechar-3.c": {
-   "class": "MISCOMPILE",
+  "execute/widechar-2.c": {
+   "class": "PASS",
    "configs": {
-    "O0-aot": "MISCOMPILE",
-    "O0-jit": "MISCOMPILE",
-    "O1-aot": "MISCOMPILE",
-    "O1-jit": "MISCOMPILE",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
+  },
+  "execute/widechar-3.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/zero-struct-1.c": {
    "class": "SKIP-C89",
@@ -40738,12 +40738,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 81,
+  "MISCOMPILE": 75,
   "NO-REF": 188,
-  "PASS": 2154,
-  "REJECT": 692,
+  "PASS": 2170,
+  "REJECT": 683,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 670,
+  "SKIP-C89": 669,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
