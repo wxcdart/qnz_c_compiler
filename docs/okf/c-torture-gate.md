@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-30T04:42:49Z
+timestamp: 2026-10-30T16:55:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 59 / Chunk M3 Part 0)
+## 2. Classification Buckets & Baseline (Sprint 62 / Chunk M3 Part 3)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,242** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+26 since the vector-attribute feature: `aligned(N)` support promoted 15 `compile/`+`execute/` tests from REJECT, and 11 correctness fixes (signed-const shift, float→int clamp, `va_arg` 16B structs, global float assign, stmt-expr scoping, `__builtin_{add,sub,mul}_overflow`, `ffs/ctz/clz`) promoted the rest) |
-| **`REJECT`** | **658** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-15 from `aligned(N)`; 2 VLA-goto-crossing tests now rejected cleanly instead of miscompiling: `20040811-1`, `vla-dealloc-1`) |
+| **`PASS`** | **2,252** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+10 since Sprint 61: the last ten true C99/C11 miscompiles — `920710-1`, `960801-1`, `20071202-1`, `bitfld-3`, `pr47538`, `pr53084`, `pr60017`, `pr66233`, `alias-3`, `alias-4`) |
+| **`REJECT`** | **658** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (unchanged since Sprint 61) |
 | **`SKIP-C89`** | **685** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **10** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` (all true C99/C11 correctness bugs, all-config failures: `alias-3/4` GNU `alias` attr, `920710-1`/`960801-1` stdarg, `20071202-1`, `bitfld-3`, `pr47538`, `pr53084`, `pr60017`, `pr66233`) |
+| **`MISCOMPILE`** | **0** | **Zero miscompiles remain in the corpus** (was 10: the last two — `alias-3/4` — needed the GNU `alias` attribute; the other eight were C99/C11 correctness bugs, all fixed in Sprint 62) |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
 | **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
@@ -196,7 +196,7 @@ Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`14
 | :--- | :--- | :--- |
 | **Chunk M1** | **10 `TIMEOUT`s ✅ COMPLETE**<br>(`0 TIMEOUT remaining`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): resolved by .bss ELF NOBITS/mmap threshold, open-addressing enum registry hash table, enum false/true keyword fix, function-like macro whitespace handling, and __INT_MAX__ predefined macro.<br>• **2 optimizer loop hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): resolved by CFG loop clean-entry LICM hoist guard and linear-scan register allocator VREG_0/VREG_2 fixed-interval conflict protection + active interval expire guard.<br>• **4 runtime loop hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): resolved by float NODE_UNOP ++/--, static local struct/union brace initialization, ELF prototype symbol deduplication, AST statement progress guard, and unsigned promotion/condition code extension. Result: 9 PASS, 1 SKIP-C89. |
 | **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s ✅ COMPLETE**<br>(`0 MISCOMPILE remaining / 74 resolved` incl. 7 re-exposed in Sprint 59) | • **Root causes resolved:** Missing external-call symbol registration, missing builtin lowerings, dereference assignment evaluation order & multi-chunk struct copying, extern registration side effects / `current_func_idx`, float condition lowering, IEEE-754 float negation unary `-`, LP64 type macros, division fixed intervals in regalloc, float array element assignment order, libc-`__builtin_*` return typing, JIT param specifier runs, and pointer width-mark exclusion (Sprint 59 final batch). Result: **zero partial-mode MISCOMPILEs remain** in the re-recorded baseline. |
-| **Chunk M3** | **41 All-Config `MISCOMPILE`s**<br>(Fail across all 8 `O0..O3 × JIT/AOT` configs; was 48, 7 nested-function cases moved to `SKIP-C89` in M3 Part 0) | • **Vector family (17)**: `__attribute__((__vector_size__(N)))` tests (`pr94524-*`, `pr94412`, `pr110817-*`, `scal-to-vec*`, `ieee/fp-cmp-cond-1`, ...) — the attribute is silently ignored, the "vector" typedef degrades to a scalar, and the tests segfault. Decision pending: clean reject vs. 128-bit vector feature (SSE2/NEON).<br>• **True C99/C11 bugs (24)**: assertion-failure (SIGABRT) logic miscompiles (`20010904-*`, `920625-1`, `pr60017`, `bitfld-3`, `stdarg-4`, ...) plus `pr115033` (gcc SIGFPE divergence).<br>• **Part A — Bitfields & Struct Layout**: bitfield signedness, multi-word straddling, nested struct/union assignment. **Part B — Integer Promotions, Casts & Pointer Arithmetic**. |
+| **Chunk M3** | **41 All-Config `MISCOMPILE`s ✅ COMPLETE**<br>(`0 MISCOMPILE remaining`; was 48, 7 nested-function cases moved to `SKIP-C89` in M3 Part 0) | • **Vector family (17)**: `__attribute__((__vector_size__(N)))` tests (`pr94524-*`, `pr94412`, `pr110817-*`, `scal-to-vec*`, `ieee/fp-cmp-cond-1`, ...) — implemented as first-class vector types (M3 Part 1).<br>• **True C99/C11 bugs (24)**: all resolved across M3 Parts 2–3 — `aligned(N)` attribute, real overflow builtins, bit-field result reduction (`bitfld-3`), nested member array types + whole-member initializer placement + global struct returns (`pr60017`), int→float assignment conversion (`pr47538`), struct-member value copies (`20071202-1`), string+offset pointer initializers (`pr53084`), and the GNU `alias` attribute (`alias-3/4`, M3 Part 3). **MISCOMPILE: 0 in the entire corpus.** |
 
 ### Tier 2: `REJECT` Burn-Down (954 tests → 4 Chunks)
 

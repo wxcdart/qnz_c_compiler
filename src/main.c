@@ -382,7 +382,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
     /* Emit .data / global variables if present */
     bool has_data = false;
     for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].name[0] && !global_vars[i].is_tls && !global_vars[i].is_bss) {
+        if (global_vars[i].name[0] && !global_vars[i].is_tls && !global_vars[i].is_bss &&
+            !global_vars[i].alias_target[0]) {
             has_data = true;
             break;
         }
@@ -396,6 +397,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
         for (size_t i = 0; i < global_var_count; i++) {
             ZeroCCGlobalVar *gv = &global_vars[i];
             if (!gv->name[0]) continue;
+            /* GNU alias entry: no storage of its own, no symbol to emit */
+            if (gv->alias_target[0]) continue;
             /* TLS variables live in .tdata/.tbss (emitted below), not .data */
             if (gv->is_tls) continue;
 
@@ -442,7 +445,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
 
                 if (matching_reloc && byte_pos + 8 <= var_end) {
                     if (matching_reloc->target_kind == 0) {
-                        fprintf(comp->asm_out, "\t.quad\t.Lrodata+%zu\n", matching_reloc->rodata_offset);
+                        fprintf(comp->asm_out, "\t.quad\t.Lrodata+%zu\n",
+                                matching_reloc->rodata_offset + matching_reloc->target_data_offset);
                     } else if (matching_reloc->target_kind == 1 &&
                                matching_reloc->target_global_idx >= 0 &&
                                matching_reloc->target_global_idx < (int)global_var_count) {
@@ -474,7 +478,8 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
     /* Emit .bss (zero-initialized globals above threshold) */
     bool has_bss = false;
     for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].name[0] && global_vars[i].is_bss && !global_vars[i].is_tls) {
+        if (global_vars[i].name[0] && global_vars[i].is_bss && !global_vars[i].is_tls &&
+            !global_vars[i].alias_target[0]) {
             has_bss = true;
             break;
         }
@@ -487,7 +492,7 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
         }
         for (size_t i = 0; i < global_var_count; i++) {
             ZeroCCGlobalVar *gv = &global_vars[i];
-            if (!gv->name[0] || gv->is_tls || !gv->is_bss) continue;
+            if (!gv->name[0] || gv->is_tls || !gv->is_bss || gv->alias_target[0]) continue;
 
             size_t align = gv->type.align ? gv->type.align : 8;
             if (comp->isa == ISA_AARCH64) {
@@ -1253,6 +1258,9 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     for (size_t i = 0; i < global_var_count; i++) {
         ZeroCCGlobalVar *gv = &global_vars[i];
         if (gv->name[0]) {
+            /* GNU alias entry: no storage, no ELF symbol (uses resolve to
+             * the target's symbol at lowering time). */
+            if (gv->alias_target[0]) continue;
             int binding = gv->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
             if (gv->is_tls) {
                 /* TLS variable: symbol lives in .tdata or .tbss at its
@@ -1463,10 +1471,11 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         for (size_t i = 0; i < comp->data_reloc_count; i++) {
             ZeroCCDataReloc *dr = &comp->data_relocs[i];
             if (dr->target_kind == 0) {
-                /* .rodata + rodata_offset: target the .rodata section symbol (idx 1) */
+                /* .rodata + rodata_offset + target_data_offset: target the .rodata section symbol (idx 1) */
                 if (comp->rodata_section.length > 0) {
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                              1, reloc_type_data_abs, (int64_t)dr->rodata_offset);
+                                              1, reloc_type_data_abs,
+                                              (int64_t)dr->rodata_offset + (int64_t)dr->target_data_offset);
                 }
             } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
                        dr->target_global_idx < (int)global_var_count) {

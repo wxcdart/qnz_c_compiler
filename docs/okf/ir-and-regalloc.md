@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-30T04:42:49Z
+timestamp: 2026-10-30T16:55:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -147,6 +147,20 @@ VLAs use a **hybrid model**: each `int x[n];` at function scope emits its own `O
 ## `__builtin_{add,sub,mul}_overflow` Real Overflow Detection (Sprint 61)
 
 In `src/zero_cc/ir/ast_lowering_expr.c` (replacing the old conservative "always returns 0"): operands are normalized to 64-bit temps (zero-extend unsigned, sign-extend signed); **add** = 64-bit carry (`res < a` unsigned) OR top-bits-above-target-width set; **sub** = 64-bit borrow (`a < b` unsigned) OR per-target-width/signedness range check; **mul** = division-based range check `a <= LIMIT / b` with a zero-divisor skip guard. Target width/signedness comes from the `*r` argument's pointee type (dereferences `TYPE_PTR` — handles both `&x` and bare pointer variable/parameter args). Signed 64-bit math is exact for operand widths ≤ 32; signed-64 targets add a `res/a != b` wrap guard on mul. Two IR invariants the helpers encode: `ir_emit_cmp` requires **temp IDs** (immediates must first be loaded into a temp — `zc_ovf_cmp_set_imm`), and the zero-divisor guard uses `ir_emit_jne` (jump over the division when the divisor is **non-zero**). `ir_emit_cond_set` reads the flags of the immediately preceding `OP_CMP` — any other instruction in between corrupts the condition.
+
+## Bit-Field Arithmetic Result Reduction & `++/--` RMW (Sprint 62)
+
+C11 6.5.7.3p2 converts the result of an arithmetic operation on a bit-field back to the bit-field type, but operands are **integer-promoted first** (6.3.1.1p2) — `zc_binop_bitfield_reduce()` (`src/zero_cc/ir/ast_lowering_expr.c`, hooked into `+ - * / %`) reproduces GCC's empirically-verified rules:
+
+- **Promotion exception (width ≤ 32 on LP64)**: the field is promoted to `int`/`unsigned int` before the operation, so the arithmetic is on plain integers and **no reduction applies** — the ordinary width-marking machinery handles the value (a 15-bit mask on `x.u15 - 2` would turn the int `-2` into `0x7FFF` — the `bf-sign-2` regression).
+- **Both operands bit-fields**: reduce only when they are the **same declared member** (same struct name + member offset); for different fields, to the **wider** field (`2⁴⁰` survives a 33×40 product but vanishes in a 40-bit one); equal width + mixed signedness → the unsigned field (as in the usual arithmetic conversions); equal width + equal signedness → **no** reduction (the common type is a plain integer).
+- **One operand a bit-field** (the other a plain integer, or `/`/`%` where only the dividend is examined): reduce to that field.
+- The reduction is a mask to the field width plus, for signed fields, a two's-complement wrap (`xor sb; sub sb`). The field geometry comes from `NODE_MEMBER`'s `aux.step` (bit_offset | bit_width<<8 | signed<<16).
+- **`++`/`--` on a bit-field member**: the lvalue address is the storage *unit*, not the bit position — a dedicated RMW (load unit → extract field → ±1 → mask → write unit back) returns the wrapped field pattern (GCC does this even for promoted fields: `--x.u15` from 0 yields `0x7FFF`, not `-1`).
+
+## Global-Struct By-Value Returns (`lower_stmt_return`, Sprint 62)
+
+`return x;` where `x` is a **file-scope** struct previously fell through to the generic return path (local-ident branch only) and returned just the first 8 bytes in `VREG_0` (c-torture `pr60017`). `lower_stmt_return` (`src/zero_cc/ir/ast_lowering_stmt.c`) now handles global struct/union returns directly: ≤ 16 B loads the full `VREG_0` (+`VREG_2` for 9–16 B) pair from the global; > 16 B does the sret chunk copy into the caller's hidden-pointer buffer. `ZeroCCGlobalVar`-based lookups elsewhere stay alias-transparent (see the frontend page for the GNU `alias` attribute).
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 

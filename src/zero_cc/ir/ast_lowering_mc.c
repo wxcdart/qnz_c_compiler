@@ -726,8 +726,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VCVT_SI2SS:
-                if (BE(c)->emit_vcvt_si2ss_asm) {
+                if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_cvtsi2ss) {
+                    BE(c)->emit_cvtsi2ss(c, phys_dst, phys_src1);
                 }
                 break;
 

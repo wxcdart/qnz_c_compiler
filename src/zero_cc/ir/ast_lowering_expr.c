@@ -218,6 +218,115 @@ static bool zero_cc_binop_is_unsigned(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     return (lu || ru);
 }
 
+/* C11 6.5.7.3p2 / 6.5.5p5: the result of an arithmetic operation on a
+ * bit-field is converted back to the bit-field type (bit pattern reduced
+ * to the field width; signed fields wrap in two's complement). Operands
+ * are integer-promoted first, so without this `a.u33 * a.u33` on a 33-bit
+ * field keeps the full 64-bit product (c-torture bitfld-3).  GCC's rule:
+ *  - one operand a bit-field, the other a plain integer -> reduce to the
+ *    bit-field type;
+ *  - both operands bit-fields -> reduce only when they are the SAME
+ *    declared field type (same struct + member), else the result keeps
+ *    the common integer type (33-bit + 40-bit fields do NOT reduce).
+ * Returns the (possibly new) result temp. */
+static int zc_binop_bitfield_reduce(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                    ASTRef left_ref, ASTRef right_ref, int result_temp) {
+    /* Extract (struct name, member offset, width, signedness) of a
+     * bit-field NODE_MEMBER operand; 0 when not a bit-field. */
+    struct BFKey { const char *st_name; int32_t offset; uint8_t width; bool signed_; } k[2];
+    for (int side = 0; side < 2; side++) {
+        k[side].st_name = NULL;
+        k[side].offset = 0;
+        k[side].width = 0;
+        k[side].signed_ = false;
+        ASTRef ref = side == 0 ? left_ref : right_ref;
+        if (ref == AST_NULL) continue;
+        ZeroCCASTNode *op = zero_cc_ast_get(arena, ref);
+        if (!op || op->tag != NODE_MEMBER || !(op->flags & NODE_MEMBER_IS_BITFIELD)) continue;
+        k[side].width = (uint8_t)((op->aux.step >> 8) & 0xFF);
+        k[side].signed_ = ((op->aux.step >> 16) & 1) != 0;
+        k[side].offset = (int32_t)op->aux.alt;
+        ZeroCCASTNode *base = zero_cc_ast_get(arena, op->left);
+        const ZeroCCType *bt = NULL;
+        if (base && base->tag == NODE_IDENT) {
+            ZeroCCSym *bs = zero_cc_find_local(c, base->s.str);
+            ZeroCCGlobalVar *bg = bs ? NULL : find_global_var(base->s.str);
+            const ZeroCCType *raw = bs ? &bs->type : (bg ? &bg->type : NULL);
+            if (raw) {
+                bt = (raw->tag == TYPE_PTR) ? raw->base : raw;
+            }
+        } else if (base && (base->tag == NODE_UNOP) &&
+                   (base->aux.op == '*' || base->aux.op == TK_STAR)) {
+            /* *p / *arr: the pointee struct's type is not recoverable
+             * here without lowering - conservatively leave st_name NULL
+             * (only blocks the both-bitfield-same-type reduction). */
+            bt = NULL;
+        }
+        if (bt && (bt->tag == TYPE_STRUCT || bt->tag == TYPE_UNION)) {
+            k[side].st_name = bt->struct_name;
+        }
+    }
+    bool l_bf = k[0].width != 0, r_bf = k[1].width != 0;
+    bool reduce = false;
+    int use_side = 0;
+    if (l_bf && r_bf) {
+        bool same_member = k[0].st_name && k[1].st_name &&
+            k[0].st_name[0] && k[0].offset == k[1].offset &&
+            strcmp(k[0].st_name, k[1].st_name) == 0 &&
+            k[0].width == k[1].width && k[0].signed_ == k[1].signed_;
+        if (same_member) {
+            reduce = true;
+            use_side = 0;
+        } else if (k[0].width != k[1].width) {
+            /* Different field types: GCC converts the result to the WIDER
+             * field type (2^40 stays in a 41-bit product, vanishes in a
+             * 40-bit one). */
+            reduce = true;
+            use_side = (k[0].width > k[1].width) ? 0 : 1;
+        } else if (k[0].signed_ != k[1].signed_) {
+            /* Equal width, mixed signedness: the unsigned field wins, as in
+             * the usual arithmetic conversions. */
+            reduce = true;
+            use_side = k[0].signed_ ? 1 : 0;
+        }
+        /* Equal width + equal signedness, different members: the common
+         * type is a plain integer type - no reduction (x40a + x40b). */
+    } else if (l_bf) {
+        reduce = true;
+        use_side = 0;
+    } else if (r_bf) {
+        reduce = true;
+        use_side = 1;
+    }
+    if (!reduce) return result_temp;
+    uint8_t bit_width = k[use_side].width;
+    bool is_signed = k[use_side].signed_;
+    /* C11 6.3.1.1p2: a bit-field whose values fit in int / unsigned int
+     * (width <= 32 on this LP64 platform) is INTEGER-PROMOTED before the
+     * operation - the arithmetic then happens on plain ints, so there is
+     * no bit-field result to convert (c-torture bf-sign-2: `x.u15 - 2`
+     * must be the int -2, not the 15-bit pattern 0x7FFF).  Only fields
+     * wider than unsigned int stay un-promoted and get the reduction. */
+    if (bit_width == 0 || bit_width <= 32 || bit_width >= 64) return result_temp;
+    uint64_t mask = (1ULL << bit_width) - 1;
+    int mask_t = c->next_temp_id++;
+    ir_emit_mov_imm(mask_t, (int64_t)mask);
+    int red = c->next_temp_id++;
+    ir_emit_and(red, result_temp, mask_t);
+    result_temp = red;
+    if (is_signed) {
+        int64_t sign_bit = (int64_t)(1ULL << (bit_width - 1));
+        int sign_t = c->next_temp_id++;
+        ir_emit_mov_imm(sign_t, sign_bit);
+        int x = c->next_temp_id++;
+        ir_emit_xor(x, result_temp, sign_t);
+        int e = c->next_temp_id++;
+        ir_emit_sub(e, x, sign_t);
+        result_temp = e;
+    }
+    return result_temp;
+}
+
 /* --- __builtin_{add,sub,mul}_overflow helpers ------------------------- */
 /* 0/1 temp holding (a <cc> b) over already-computed values. */
 static int zc_ovf_cmp_set(ZeroCCCompiler *c, int a, int b, int cc) {
@@ -549,6 +658,26 @@ static void lower_extend_narrow(ZeroCCCompiler *c, int temp, const TypeInfo *ti)
     if (sz != 1 && sz != 2 && sz != 4) return;
     if (type_is_unsigned(ti)) ir_emit_zext(temp, (int)sz);
     else ir_emit_sext(temp, (int)sz);
+}
+
+/* C99 6.5.16: the value of an assignment expression is the value converted
+ * to the (lvalue-converted) type of the left operand. The width-correct
+ * store truncates the bytes written, but unless the expression value is
+ * converted too, chained assignments (`ul = us = -1`, c-torture 960801-1)
+ * propagate the raw 64-bit RHS through the whole chain and the intermediate
+ * conversion is lost. ZeroCCType flavor of lower_extend_narrow for sites
+ * where the LHS type is only available as a ZeroCCType (plain locals and
+ * globals). No-op for float/pointer/aggregate/vector targets. */
+static void lower_assign_conv_zt(ZeroCCCompiler *c, int temp, const ZeroCCType *zt) {
+    (void)c;
+    if (!zt) return;
+    if (zt->tag == TYPE_STRUCT || zt->tag == TYPE_UNION) return;
+    if (zt->tag == TYPE_USER_0 && zero_cc_type_is_vector(zt)) return;
+    if (zt->size != 1 && zt->size != 2 && zt->size != 4) return;
+    if (zt->tag == TYPE_UINT8 || zt->tag == TYPE_UINT16 || zt->tag == TYPE_UINT32)
+        ir_emit_zext(temp, (int)zt->size);
+    else
+        ir_emit_sext(temp, (int)zt->size);
 }
 
 /* ---- C11/GCC atomic-builtin dispatch (C11 7.6 / GNU __sync + __atomic) ----
@@ -1444,18 +1573,47 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             bool right_is_float = c->last_expr_is_float;
 
             /* Mixed float/int operands (e.g. `double_member * 2`, `d + 1`):
-             * promote the integer operand to double (C usual arithmetic
-             * conversions) so the float op path is taken instead of an
-             * integer op on the raw bit pattern. */
+             * promote the integer operand to the FLOATING-POINT operand's
+             * type (C usual arithmetic conversions): double for a double
+             * operand, but FLOAT for a float operand. Converting straight
+             * with cvtsi2sd keeps integer precision that float cannot
+             * represent (16777217L == 16777216.0f must be TRUE - the long
+             * is first rounded to 16777216.0f, c-torture 920710-1). In the
+             * double-width FP model, round the int to single precision
+             * first (VCVT_SI2SS) then widen (CVTSS2SD). Only x86-64 has a
+             * VCVT_SI2SS emitter; other ISAs keep the (corner-case-wrong)
+             * direct cvtsi2sd until their emitters land. */
             if (left_is_float != right_is_float) {
+                const ZeroCCASTNode *fnode = right_is_float ?
+                    zero_cc_ast_get(arena, node->right) : zero_cc_ast_get(arena, node->left);
+                TypeInfo *f_ti = fnode ? ast_node_get_typeinfo(c, fnode) : NULL;
+                bool fp_is_float = (f_ti && f_ti->kind == TYPE_KIND_FLOAT) && c->isa == ISA_X86_64;
                 if (right_is_float) {
                     int conv_temp = c->next_temp_id++;
-                    ir_emit_cvtsi2sd((uint16_t)conv_temp, (uint16_t)left_temp);
+                    if (fp_is_float) {
+                        ir_emit((Instr){.op = OP_VCVT_SI2SS, .temp_dest = (uint16_t)conv_temp,
+                                        .temp_src1 = (uint16_t)left_temp, .temp_src2 = TEMP_NONE,
+                                        .imm = 0, .label_idx = 0});
+                        int wid = c->next_temp_id++;
+                        ir_emit_cvtss2sd((uint16_t)wid, (uint16_t)conv_temp);
+                        conv_temp = wid;
+                    } else {
+                        ir_emit_cvtsi2sd((uint16_t)conv_temp, (uint16_t)left_temp);
+                    }
                     left_temp = conv_temp;
                     left_is_float = 1;
                 } else {
                     int conv_temp = c->next_temp_id++;
-                    ir_emit_cvtsi2sd((uint16_t)conv_temp, (uint16_t)right_temp);
+                    if (fp_is_float) {
+                        ir_emit((Instr){.op = OP_VCVT_SI2SS, .temp_dest = (uint16_t)conv_temp,
+                                        .temp_src1 = (uint16_t)right_temp, .temp_src2 = TEMP_NONE,
+                                        .imm = 0, .label_idx = 0});
+                        int wid = c->next_temp_id++;
+                        ir_emit_cvtss2sd((uint16_t)wid, (uint16_t)conv_temp);
+                        conv_temp = wid;
+                    } else {
+                        ir_emit_cvtsi2sd((uint16_t)conv_temp, (uint16_t)right_temp);
+                    }
                     right_temp = conv_temp;
                     right_is_float = 1;
                 }
@@ -1563,12 +1721,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             switch (node->aux.op) {
                 case TK_PLUS:
                     ir_emit_add(result_temp, left_temp, right_temp);
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                     break;
                 case TK_MINUS:
                     ir_emit_sub(result_temp, left_temp, right_temp);
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                     break;
                 case TK_STAR:
                     ir_emit_mul(result_temp, left_temp, right_temp);
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                     break;
                 case TK_SLASH: {
                     int lu = 0, ru = 0;
@@ -1583,6 +1744,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_zext(right_temp, 4);
                     }
                     ir_emit_div(result_temp, left_temp, right_temp);
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
                         ir_mark_last_unsigned(1);
                     }
@@ -1599,6 +1761,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_zext(right_temp, 4);
                     }
                     ir_emit_mod(result_temp, left_temp, right_temp);
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                     if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
                         ir_mark_last_unsigned(1);
                     }
@@ -1938,6 +2101,85 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                     }
                     if (addr == TEMP_NONE) return TEMP_NONE;
+
+                    /* Bit-field member (`++c.u33`, `--c.u40`): the lvalue
+                     * address is the storage UNIT, not the field's bit
+                     * position - do the field RMW with read-modify-write,
+                     * and convert the result to the bit-field type (C11
+                     * 6.5.6 / 6.5.7.3p2; c-torture bitfld-3). */
+                    if (operand->tag == NODE_MEMBER &&
+                        (operand->flags & NODE_MEMBER_IS_BITFIELD)) {
+                        uint8_t bf_off = (uint8_t)(operand->aux.step & 0xFF);
+                        uint8_t bf_w = (uint8_t)((operand->aux.step >> 8) & 0xFF);
+                        bool bf_signed = ((operand->aux.step >> 16) & 1) != 0;
+                        TypeInfo *bti = ast_node_get_typeinfo(c, operand);
+                        size_t bm_size = bti ? type_size(bti) : 4;
+                        bool bf64 = (bm_size > 4 || (bf_off + bf_w > 32));
+                        uint64_t wmask = (bf_w >= 64) ? ~0ULL : ((1ULL << bf_w) - 1);
+                        int word_t = c->next_temp_id++;
+                        if (bf64) ir_emit_deref(word_t, addr);
+                        else ir_emit_load_32(word_t, addr);
+                        int fld = word_t;
+                        if (bf_off > 0) {
+                            int sh = c->next_temp_id++;
+                            ir_emit_mov_imm(sh, (int32_t)bf_off);
+                            int s2 = c->next_temp_id++;
+                            ir_emit_shr(s2, fld, sh);
+                            fld = s2;
+                        }
+                        int m1 = c->next_temp_id++;
+                        ir_emit_mov_imm(m1, (int64_t)wmask);
+                        int fm = c->next_temp_id++;
+                        ir_emit_and(fm, fld, m1);
+                        int old_val = fm;
+                        if (bf_signed && bf_w > 0 && bf_w < 64) {
+                            int64_t sb = (int64_t)(1ULL << (bf_w - 1));
+                            int st = c->next_temp_id++;
+                            ir_emit_mov_imm(st, sb);
+                            int x1 = c->next_temp_id++;
+                            ir_emit_xor(x1, old_val, st);
+                            int e1 = c->next_temp_id++;
+                            ir_emit_sub(e1, x1, st);
+                            old_val = e1;
+                        }
+                        int one_t = c->next_temp_id++;
+                        ir_emit_mov_imm(one_t, (node->aux.op == TK_INC) ? 1 : -1);
+                        int new_val = c->next_temp_id++;
+                        ir_emit_add(new_val, old_val, one_t);
+                        int m2 = c->next_temp_id++;
+                        ir_emit_mov_imm(m2, (int64_t)wmask);
+                        int red = c->next_temp_id++;
+                        ir_emit_and(red, new_val, m2);
+                        if (bf_signed && bf_w > 0 && bf_w < 64) {
+                            int64_t sb2 = (int64_t)(1ULL << (bf_w - 1));
+                            int st2 = c->next_temp_id++;
+                            ir_emit_mov_imm(st2, sb2);
+                            int x2 = c->next_temp_id++;
+                            ir_emit_xor(x2, red, st2);
+                            int e2 = c->next_temp_id++;
+                            ir_emit_sub(e2, x2, st2);
+                            red = e2;
+                        }
+                        uint64_t fmask = (bf_w >= 64) ? ~0ULL : (wmask << bf_off);
+                        int cm = c->next_temp_id++;
+                        ir_emit_mov_imm(cm, (int64_t)(~fmask));
+                        int cleared = c->next_temp_id++;
+                        ir_emit_and(cleared, word_t, cm);
+                        int mv = red;
+                        if (bf_off > 0) {
+                            int sh2 = c->next_temp_id++;
+                            ir_emit_mov_imm(sh2, (int32_t)bf_off);
+                            int s3 = c->next_temp_id++;
+                            ir_emit_shl(s3, mv, sh2);
+                            mv = s3;
+                        }
+                        int comb = c->next_temp_id++;
+                        ir_emit_or(comb, cleared, mv);
+                        if (bf64) ir_emit_store_64(comb, addr);
+                        else ir_emit_store_32(comb, addr);
+                        c->last_expr_is_float = 0;
+                        return (node->flags & 1) ? old_val : red;
+                    }
 
                     int step = 1;
                     if (lval_ti && type_is_pointer(lval_ti)) {
@@ -3050,6 +3292,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     final_val = op_res;
                 }
+                if (!c->last_expr_is_float && !is_compound &&
+                    target_ti && type_is_floating(target_ti)) {
+                    /* C11 6.5.16.1: `*p = <int>` into a float/double pointee
+                     * must convert before the FP store (c-torture pr47538). */
+                    int cvt_t = c->next_temp_id++;
+                    ir_emit_cvtsi2sd((uint16_t)cvt_t, (uint16_t)final_val);
+                    final_val = cvt_t;
+                    c->last_expr_is_float = 1;
+                }
                 if (c->last_expr_is_float) {
                     if (p_size == 4) ir_emit_vstoress((uint16_t)ptr_temp, (uint16_t)final_val);
                     else ir_emit_vstoresd((uint16_t)ptr_temp, (uint16_t)final_val);
@@ -3058,6 +3309,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* Vector target: the RHS is in address form (binop temp,
                      * compound literal, local decay, call result); copy the
                      * 8-byte chunk(s) through the address. */
+                    zero_cc_emit_struct_copy_to_addr(c, arena, ptr_temp, p_size, node->right, right_temp);
+                    c->last_expr_is_float = 0;
+                } else if (p_size <= 8 && !is_compound &&
+                           target_ti && (target_ti->kind == TYPE_KIND_STRUCT || target_ti->kind == TYPE_KIND_UNION) &&
+                           ast_expr_is_struct_addr(c, arena, node->right)) {
+                    /* Struct member RHS (`*tp = q->d`, d <= 8B) lowers to the
+                     * member's address - copy through it, don't store the
+                     * pointer value. */
                     zero_cc_emit_struct_copy_to_addr(c, arena, ptr_temp, p_size, node->right, right_temp);
                     c->last_expr_is_float = 0;
                 } else if (p_size <= 8) {
@@ -3099,6 +3358,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             if (left_node && left_node->tag == NODE_MEMBER) {
+                /* C11 6.5.16.1: the RHS of an assignment is converted to the
+                 * lvalue's type.  A float/double member with an integer RHS
+                 * must be converted BEFORE the store - a raw integer store
+                 * writes the integer bit pattern into the IEEE-754 slot
+                 * (c-torture pr47538: `x->a = y->a` style `y.a = 10`). */
+                {
+                    TypeInfo *lhs_ti = ast_node_get_typeinfo(c, left_node);
+                    if (!is_compound && !c->last_expr_is_float &&
+                        lhs_ti && type_is_floating(lhs_ti)) {
+                        int cvt_t = c->next_temp_id++;
+                        ir_emit_cvtsi2sd((uint16_t)cvt_t, (uint16_t)right_temp);
+                        right_temp = cvt_t;
+                        c->last_expr_is_float = 1;
+                        right_is_float = 1;
+                    }
+                }
                 /* Struct member assignment: traverse chain of member accesses */
                 int32_t member_offset = 0;
                 ZeroCCASTNode *curr = left_node;
@@ -3174,7 +3449,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             right_temp = op_res;
                         }
                     }
-                    if (m_size > 8 && !is_compound) {
+                    bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
+                        (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                        ast_expr_is_struct_addr(c, arena, node->right));
+                    if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -3223,7 +3501,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                    m_size,
                                                    (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
-                        if (m_size > 8 && !is_compound) {
+                        bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
+                            (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                            ast_expr_is_struct_addr(c, arena, node->right));
+                        if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                             zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                             c->last_expr_is_float = 0;
                             return right_temp;
@@ -3247,6 +3528,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             }
                             c->last_expr_is_float = 0;
                         }
+                        lower_extend_narrow(c, right_temp, member_ti);
                         return right_temp;
                     }
                     if (!sym) {
@@ -3274,7 +3556,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                    m_size,
                                                    (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
-                        if (m_size > 8 && !is_compound) {
+                        bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
+                            (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                            ast_expr_is_struct_addr(c, arena, node->right));
+                        if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                             zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                             c->last_expr_is_float = 0;
                             return right_temp;
@@ -3351,7 +3636,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                m_size,
                                                (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
-                    if (m_size > 8 && !is_compound) {
+                    bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
+                        (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                        ast_expr_is_struct_addr(c, arena, node->right));
+                    if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -3425,7 +3713,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     size_t mc_size2 = mc_ti2 ? type_size(mc_ti2) : 8;
                     int mc_addr2 = c->next_temp_id++;
                     ir_emit_lea(mc_addr2, TEMP_NONE, total_offset);
-                    if (mc_size2 > 8 && !is_compound) {
+                    bool mc_rhs_struct_addr = (mc_size2 <= 8 && mc_ti2 &&
+                        (mc_ti2->kind == TYPE_KIND_STRUCT || mc_ti2->kind == TYPE_KIND_UNION) &&
+                        ast_expr_is_struct_addr(c, arena, node->right));
+                    if ((mc_size2 > 8 || mc_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, mc_addr2, mc_size2, node->right, right_temp);
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -3435,6 +3726,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     else if (mc_size2 == 4) ir_emit_store_32((uint16_t)right_temp, (uint16_t)mc_addr2);
                     else ir_emit_store_64((uint16_t)right_temp, (uint16_t)mc_addr2);
                     c->last_expr_is_float = 0;
+                    lower_extend_narrow(c, right_temp, mc_ti2);
                     return right_temp;
                 }
             }
@@ -3483,6 +3775,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int addr_temp = c->next_temp_id++;
                 ir_emit_add(addr_temp, array_temp, scaled_index);
 
+                /* float/double RHS into a non-float element: truncate to the
+                 * element's integer type (C99 6.3.1.3) BEFORE the compound-op
+                 * math or the store - the raw IEEE-754 bit pattern in the FP
+                 * temp is not the value (c-torture pr66233: `v[i] = (float)i;`
+                 * into `unsigned int v[]`). right_is_float was captured right
+                 * after the RHS lowered; the LHS lowering below clobbers
+                 * c->last_expr_is_float. */
+                if (right_is_float && !(elem_ti && type_is_floating(elem_ti))) {
+                    int it = c->next_temp_id++;
+                    ir_emit_cvttsd2si((uint16_t)it, (uint16_t)right_temp);
+                    if (elem_size == 1 || elem_size == 2 || elem_size == 4) {
+                        if (elem_ti && type_is_unsigned(elem_ti)) ir_emit_zext(it, (int)elem_size);
+                        else ir_emit_sext(it, (int)elem_size);
+                    }
+                    right_temp = it;
+                    c->last_expr_is_float = 0;
+                }
                 if (is_compound) {
                     int curr_val = c->next_temp_id++;
                     if (elem_size == 1) {
@@ -3563,6 +3872,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     c->last_expr_is_float = 0;
                 }
+                lower_extend_narrow(c, right_temp, elem_ti);
                 return right_temp;
             }
 
@@ -3851,6 +4161,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
                                 }
                             } else {
+                                lower_assign_conv_zt(c, right_temp, &sym->type);
                                 ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
                                 if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
                                     /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
@@ -3974,6 +4285,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else ir_emit_deref(val_temp, final_val);
                         final_val = val_temp;
                     }
+                    lower_assign_conv_zt(c, final_val, &gv->type);
                     if (gv_sz == 1) ir_emit_store_byte(final_val, gaddr_temp);
                     else if (gv_sz == 2) ir_emit_store_16(final_val, gaddr_temp);
                     else if (gv_sz == 4) ir_emit_store_32(final_val, gaddr_temp);
@@ -4227,6 +4539,31 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         cur_ref = elem_node->next;
                         continue;
                     }
+                    /* Struct element whose RHS lowers to an address (a struct
+                     * member like `s->d` in `{ ..., s->d }`): copy the whole
+                     * element, not the 8-byte pointer (c-torture 20071202-1).
+                     * The ABS size code caps at 8, so recover the true member
+                     * size from the type layout when the target is a struct. */
+                    if (abs_sz >= 8 && ast_expr_is_struct_addr(c, arena, cur_ref)) {
+                        size_t real_sz = abs_sz;
+                        if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                            for (size_t mi = 0; mi < sym->type.member_count; mi++) {
+                                if (sym->type.members[mi].offset == abs_off) {
+                                    if (sym->type.members[mi].tag == TYPE_STRUCT ||
+                                        sym->type.members[mi].tag == TYPE_UNION) {
+                                        real_sz = sym->type.members[mi].size;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        int dst_t = c->next_temp_id++;
+                        ir_emit_lea(dst_t, TEMP_NONE, abs_store_off);
+                        zero_cc_emit_struct_copy_to_addr(c, arena, dst_t, real_sz, cur_ref, val_temp);
+                        c->last_expr_is_float = 0;
+                        cur_ref = elem_node->next;
+                        continue;
+                    }
                     bool abs_is_float = zc_type_offset_is_float(&sym->type, abs_off);
                     if (abs_is_float && !c->last_expr_is_float) {
                         int conv = c->next_temp_id++;
@@ -4358,6 +4695,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     elem_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                 }
                 int32_t store_offset = -(sym->stack_offset - (int32_t)elem_offset);
+                /* Struct element whose RHS lowers to an address (a struct
+                 * member like `s->d`): copy the whole element, not the
+                 * 8-byte pointer (c-torture 20071202-1). */
+                if (elem_size >= 8 && ast_expr_is_struct_addr(c, arena, cur_ref)) {
+                    int dst_t = c->next_temp_id++;
+                    ir_emit_lea(dst_t, TEMP_NONE, store_offset);
+                    zero_cc_emit_struct_copy_to_addr(c, arena, dst_t, elem_size, cur_ref, val_temp);
+                    c->last_expr_is_float = 0;
+                    idx++;
+                    cur_ref = elem_node->next;
+                    continue;
+                }
                 if (elem_is_float && !c->last_expr_is_float) {
                     int conv = c->next_temp_id++;
                     ir_emit_cvtsi2sd((uint16_t)conv, (uint16_t)val_temp);

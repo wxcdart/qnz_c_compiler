@@ -107,6 +107,25 @@ static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, siz
     return 1;
 }
 
+/* Parse a `__zc_alias__( "target" )` marker - emitted by the preprocessor
+ * in place of `__attribute__((alias("target")))` (GNU symbol aliasing).
+ * On success consumes the marker and returns 1 with *out_target pointing
+ * at the target name (a token string valid for the compilation); returns 0
+ * (leaving *pos untouched) when the current token is not the marker. */
+static inline int zero_cc_parse_alias_attr(ZeroCCCompiler *c, size_t *pos, const char **out_target) {
+    if (!c || !out_target || !pos || *pos >= c->token_count) return 0;
+    ZeroCCToken *t = &c->tokens[*pos];
+    const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
+    if (!id || strcmp(id, "__zc_alias__") != 0) return 0;
+    if (*pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_LPAREN) return 0;
+    if (*pos + 2 >= c->token_count || c->tokens[*pos + 2].type != TK_STRING) return 0;
+    if (*pos + 3 >= c->token_count || c->tokens[*pos + 3].type != TK_RPAREN) return 0;
+    const ZeroCCToken *st = &c->tokens[*pos + 2];
+    *out_target = st->allocated_str ? st->allocated_str : st->str_val;
+    *pos = *pos + 4;
+    return 1;
+}
+
 static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     ZeroCCTokType t = c->tokens[pos].type;
     if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||

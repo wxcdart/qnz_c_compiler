@@ -14,6 +14,7 @@ typedef struct {
     bool has_initializer;     /* Has = expression */
     bool is_tls;              /* _Thread_local (static TLS) */
     bool is_bss;              /* Zero-initialized, no explicit initializer -> .bss */
+    char alias_target[128];   /* GNU __attribute__((alias("tgt"))): storage lives at tgt */
 } ZeroCCGlobalVar;
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
@@ -68,14 +69,34 @@ static int add_global_var(const char *name, ZeroCCType type, size_t offset, size
     gv->has_initializer = has_init;
     gv->is_tls = false;
     gv->is_bss = (!has_init && size >= ZERO_CC_BSS_THRESHOLD);
+    gv->alias_target[0] = '\0';
     return global_var_count - 1;
 }
 
-/* Find global variable by name, return pointer or NULL */
+/* Find global variable by name, return pointer or NULL.  GNU
+ * __attribute__((alias("tgt"))) entries are resolved transparently to the
+ * target's entry so every use of the alias name (value load/store,
+ * address-of, data relocs) hits the target's storage and symbol.  The
+ * target must already be registered (file-scope globals are all
+ * registered before function bodies lower); if it is not yet, the alias's
+ * own entry is returned as a fallback. */
 static inline ZeroCCGlobalVar *find_global_var(const char *name) {
     for (size_t i = 0; i < global_var_count; i++) {
         if (strcmp(global_vars[i].name, name) == 0) {
-            return &global_vars[i];
+            ZeroCCGlobalVar *gv = &global_vars[i];
+            int guard = 0;
+            while (gv->alias_target[0] && guard++ < 8) {
+                ZeroCCGlobalVar *tg = NULL;
+                for (size_t j = 0; j < global_var_count; j++) {
+                    if (strcmp(global_vars[j].name, gv->alias_target) == 0) {
+                        tg = &global_vars[j];
+                        break;
+                    }
+                }
+                if (!tg) break;
+                gv = tg;
+            }
+            return gv;
         }
     }
     return NULL;

@@ -1227,6 +1227,16 @@ static void x86_emit_fp_cvtss2sd(ZeroCCCompiler *c, int fp_dst, int fp_src) {
     x86_modrm(c, 3, fp_dst & 7, fp_src & 7);
 }
 
+/* cvtsi2ss xmm, r: F3 0F 2A /r (dest <- (float)src, low 32/64-bit int).
+ * NOTE: the F2 prefix is CVTSI2SD (int -> double), NOT cvtsi2ss. */
+static void x86_emit_fp_cvtsi2ss(ZeroCCCompiler *c, int fp_dst, int int_src) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (fp_dst >> 3) & 1, 0, (int_src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x2A);
+    x86_modrm(c, 3, fp_dst & 7, int_src & 7);
+}
+
 /* cvtsd2ss xmm, xmm: F2 0F 5A /r (dest <- (float)src, low double).
  * NOTE: F3 0F 5A is cvtss2sd; the F2 prefix selects cvtsd2ss. */
 static void x86_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int fp_dst, int fp_src) {
@@ -1916,6 +1926,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vpmulld = x86_emit_vpmulld,
     .emit_vmovaps = x86_emit_vmovaps,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
+    .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,

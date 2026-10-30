@@ -668,6 +668,63 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             }
         }
 
+        /* Global struct/union return (`return x;` where x is a file-scope
+         * struct): the local-ident branch above only sees function-scope
+         * symbols, so a 9-16B global struct would fall through to the
+         * generic path and return only its first 8 bytes in VREG_0
+         * (c-torture pr60017). Load the full register pair / sret chunks
+         * directly from the global. */
+        ZeroCCGlobalVar *gsym = (ret_expr && ret_expr->tag == NODE_IDENT) ? find_global_var(ret_expr->s.str) : NULL;
+        if (gsym && (gsym->type.tag == TYPE_STRUCT || gsym->type.tag == TYPE_UNION) &&
+            gsym->type.size > 0) {
+            int gaddr = c->next_temp_id++;
+            if (gsym->is_tls && !c->jit_mode) ir_emit_tls_lea(gaddr, gsym->name);
+            else ir_emit_mov_global(gaddr, gsym->name);
+            if (gsym->type.size <= 16) {
+                ir_emit_deref(VREG_0, gaddr);
+                if (gsym->type.size > 8) {
+                    int off_t = c->next_temp_id++;
+                    ir_emit_mov_imm(off_t, 8);
+                    int a2 = c->next_temp_id++;
+                    ir_emit_add(a2, gaddr, off_t);
+                    ir_emit_deref(VREG_2, a2);
+                }
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
+            /* >16B: sret chunk copy into the caller's hidden-pointer buffer */
+            ZeroCCFunction *gf = zero_cc_get_current_fn(c);
+            int32_t gs_off = gf ? gf->sret_stack_offset : 0;
+            int g_chunks = (int)((gsym->type.size + 7) / 8);
+            for (int i = 0; i < g_chunks; i++) {
+                int s_base = gaddr;
+                if (i > 0) {
+                    int s_off = c->next_temp_id++;
+                    ir_emit_mov_imm(s_off, i * 8);
+                    s_base = c->next_temp_id++;
+                    ir_emit_add(s_base, gaddr, s_off);
+                }
+                int d_base = c->next_temp_id++;
+                ir_emit_load(d_base, BE(c)->fp_reg, -gs_off);
+                if (i > 0) {
+                    int d_off = c->next_temp_id++;
+                    ir_emit_mov_imm(d_off, i * 8);
+                    int d_addr = c->next_temp_id++;
+                    ir_emit_add(d_addr, d_base, d_off);
+                    int gchunk = c->next_temp_id++;
+                    ir_emit_deref(gchunk, s_base);
+                    ir_emit_store_64(gchunk, d_addr);
+                } else {
+                    int gchunk = c->next_temp_id++;
+                    ir_emit_deref(gchunk, s_base);
+                    ir_emit_store_64(gchunk, d_base);
+                }
+            }
+            ir_emit_load(VREG_0, BE(c)->fp_reg, -gs_off);
+            ir_emit_jmp(c->lowering.epilogue_label);
+            return;
+        }
+
         int result_temp = lower_expr(c, arena, node->left);
         ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
         {
@@ -1059,21 +1116,34 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 lower_stmt_block(c, arena, node->left);
                 break;
             }
-            /* Block scope (C11 6.2.1): cap local-name lookup at the symbol
-             * count recorded by the parser when this block was parsed
-             * (aux.step = local_count at the block's '}' + 1, so 0 means
-             * unannotated/unbounded).  Without this, a name redeclared in a
-             * later sibling block (latest-wins table) shadows this block's
-             * references and miscompiles them to the newer symbol's slot.
-             * On exit, restore to aux.alt - 1 (locals at block entry) so
-             * inner declarations do not leak into following outer statements. */
+            /* Block scope (C11 6.2.1): a statement in this list sees the
+             * declarations made before it in this block plus everything in
+             * enclosing scope - not the block's own declarations made after
+             * it (a name redeclared later in a nested sibling block would
+             * otherwise shadow earlier references in the flat latest-wins
+             * table).  Start the list at the entry bound (aux.alt - 1, or
+             * the enclosing bound when larger) and let each lowered
+             * declaration raise it; on exit restore the entry bound - the
+             * block's own declarations were marked scope-ended below, so
+             * later outer statements skip them. */
             int32_t saved_bound = c->local_lookup_bound;
-            if (node->aux.step != 0) c->local_lookup_bound = (int32_t)(node->aux.step - 1);
+            int32_t entry_bound = (node->aux.alt != 0) ? (int32_t)(node->aux.alt - 1) : saved_bound;
+            int32_t list_bound = (saved_bound < 0) ? entry_bound : ((entry_bound > saved_bound) ? entry_bound : saved_bound);
+            c->local_lookup_bound = list_bound;
             lower_stmt_block(c, arena, node->left);
-            if (node->aux.alt != 0) {
-                c->local_lookup_bound = (int32_t)(node->aux.alt - 1);
-            } else {
-                c->local_lookup_bound = saved_bound;
+            c->local_lookup_bound = list_bound;
+            /* C11 6.2.1 scope end: this block's own declarations (indices
+             * [aux.alt-1, aux.step-2]) go out of scope at the closing brace.
+             * The flat latest-wins table + single numeric bound cannot
+             * express that for shadowed names (an outer-scope reference
+             * before or after the block would still resolve to the inner
+             * declaration), so mark them and let zero_cc_find_local skip
+             * them.  Index-based access (lowering_local_sym, the prologue /
+             * epilogue static-local mirrors) is unaffected. */
+            if (node->aux.alt != 0 && node->aux.step != 0 && node->aux.step > node->aux.alt) {
+                for (size_t si = node->aux.alt - 1; si + 1 < node->aux.step && si < c->local_count; si++) {
+                    c->locals[si].scope_ended = true;
+                }
             }
             break;
         }

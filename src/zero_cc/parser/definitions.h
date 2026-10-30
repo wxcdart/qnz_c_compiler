@@ -17,6 +17,31 @@ static inline bool struct_member_room(ZeroCCCompiler *c, ZeroCCType *st) {
     return false;
 }
 
+/* C99 6.7.2.1: build the element type of a multi-dimensional array member
+ * from the scalar/inner element and the per-dimension counts (dims[0] is
+ * the OUTERMOST, written first in source).  `char m[2][2]` must have element
+ * type `char[2]`, not a flattened `char` - flattening makes `m[1]` a single
+ * byte instead of a 2-byte row (c-torture pr60017).  One-dimensional
+ * members (ndims <= 1) are returned unchanged. */
+static inline ZeroCCType zero_cc_member_nest_array_elem(ZeroCCType elem, const size_t *dims, int ndims) {
+    for (int di = ndims - 1; di >= 1; di--) {
+        if (dims[di] == 0) continue;
+        ZeroCCType arr;
+        memset(&arr, 0, sizeof(arr));
+        arr.tag = TYPE_ARRAY;
+        arr.base = zero_cc_type_alloc_base(&elem);
+        arr.size = elem.size * dims[di];
+        arr.align = elem.align;
+        arr.array_len = dims[di];
+        arr.is_const = elem.is_const;
+        arr.is_volatile = elem.is_volatile;
+        arr.is_restrict = elem.is_restrict;
+        arr.is_atomic = elem.is_atomic;
+        elem = arr;
+    }
+    return elem;
+}
+
 /* Parse one enum body `c->token_pos` at the first member (LBRACE consumed);
  * consumes through RBRACE. M1: two fixes vs the old per-site loops —
  *   (1) `false`/`true` are accepted as member names: in C they are plain
@@ -255,6 +280,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 c->token_pos++;
             }
             size_t elem_count = 1;
+            size_t dims[8] = {0};
+            int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
@@ -272,6 +299,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
                 elem_count *= dim;
+                if (ndims < 8) dims[ndims++] = dim;
             }
 
             bool is_bitfield = false;
@@ -323,6 +351,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->base = zero_cc_type_alloc_base(&inner_type);
                     if (!is_ptr && !is_bitfield && (is_array || is_flexible)) {
                         m->tag = TYPE_ARRAY; /* array-of-struct member in union */
+                        if (ndims > 1) {
+                            ZeroCCType et = inner_type;
+                            et = zero_cc_member_nest_array_elem(et, dims, ndims);
+                            m->base = zero_cc_type_alloc_base(&et);
+                        }
                     }
                     if (m->size > max_size) max_size = m->size;
                 }
@@ -394,6 +427,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                          * `o.arr[i]` resolves. m->base already points to the
                          * element (inner_type); only the tag changes. */
                         m->tag = TYPE_ARRAY;
+                        if (ndims > 1) {
+                            ZeroCCType et = inner_type;
+                            et = zero_cc_member_nest_array_elem(et, dims, ndims);
+                            m->base = zero_cc_type_alloc_base(&et);
+                        }
                     }
                     if (!is_flexible) {
                         current_offset += m->size;
@@ -602,6 +640,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
 
             size_t elem_count = 1;
+            size_t dims[8] = {0};
+            int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
@@ -620,6 +660,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
                 elem_count *= dim;
+                if (ndims < 8) dims[ndims++] = dim;
             }
 
             bool is_bitfield = false;
@@ -703,6 +744,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         }
                         elem_t.is_const = member_is_const;
                         elem_t.is_volatile = member_is_volatile;
+                        elem_t = zero_cc_member_nest_array_elem(elem_t, dims, ndims);
                         m->tag = TYPE_ARRAY;
                         m->base = zero_cc_type_alloc_base(&elem_t);
                     }
@@ -873,6 +915,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                             elem_t.is_const = member_is_const;
                             elem_t.is_volatile = member_is_volatile;
+                            elem_t = zero_cc_member_nest_array_elem(elem_t, dims, ndims);
                             m->tag = TYPE_ARRAY;
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }
@@ -913,6 +956,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 }
 
                 size_t c_elem_count = 1;
+                size_t c_dims[8] = {0};
+                int c_ndims = 0;
                 bool c_is_flexible = false;
                 bool c_is_array = false;
                 /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
@@ -930,6 +975,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                     if (c_is_flexible) break;
                     c_elem_count *= dim;
+                    if (c_ndims < 8) c_dims[c_ndims++] = dim;
                 }
 
                 bool c_is_bitfield = false;
@@ -1008,6 +1054,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                             elem_t.is_const = member_is_const;
                             elem_t.is_volatile = member_is_volatile;
+                            elem_t = zero_cc_member_nest_array_elem(elem_t, c_dims, c_ndims);
                             m->tag = TYPE_ARRAY;
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }
@@ -1140,6 +1187,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                             elem_t.is_const = member_is_const;
                             elem_t.is_volatile = member_is_volatile;
+                            elem_t = zero_cc_member_nest_array_elem(elem_t, c_dims, c_ndims);
                             m->tag = TYPE_ARRAY;
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }

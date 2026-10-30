@@ -381,6 +381,22 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         fn->is_prototype = true;
                         fn->is_object = true; /* extern variable, not a function */
                     }
+                    /* GNU alias: `extern int b __attribute__((alias("a")));`
+                     * - b is a synonym for a's storage.  Register a shadow
+                     * entry in the global table (no storage of its own) so
+                     * the lowering's find_global_var resolves b -> a and
+                     * emits the target's symbol (c-torture alias-3/4). */
+                    const char *alias_tgt = NULL;
+                    while (zero_cc_parse_alias_attr(c, &c->token_pos, &alias_tgt)) {
+                        size_t avsz = cur_ext_type.size > 0 ? cur_ext_type.size : 8;
+                        int gi = add_global_var(ext_name, cur_ext_type, 0, avsz, false, false);
+                        if (gi >= 0) {
+                            ZeroCCGlobalVar *agv = &global_vars[gi];
+                            snprintf(agv->alias_target, sizeof(agv->alias_target), "%s", alias_tgt);
+                            ZeroCCGlobalVar *tg = find_global_var(alias_tgt);
+                            if (tg) agv->data_offset = tg->data_offset;
+                        }
+                    }
                     if (c->tokens[c->token_pos].type == TK_COMMA) {
                         c->token_pos++;
                         int ptr_d = 0;

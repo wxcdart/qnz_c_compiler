@@ -2379,7 +2379,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                              * of several attributes). */
                             const char *ex = NULL;
                             size_t el = 0;
-                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned */
+                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias */
                             int depth = 0;
                             for (const char *q = it; q < it + il; q++) {
                                 if (*q == '(') {
@@ -2396,7 +2396,9 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                                      (namelen == 15 && strncmp(nam, "__vector_size__", 15) == 0);
                                         bool is_al = (namelen == 7 && strncmp(nam, "aligned", 7) == 0) ||
                                                      (namelen == 11 && strncmp(nam, "__aligned__", 11) == 0);
-                                        if (is_vs || is_al) {
+                                        bool is_as = (namelen == 5 && strncmp(nam, "alias", 5) == 0) ||
+                                                     (namelen == 9 && strncmp(nam, "__alias__", 9) == 0);
+                                        if (is_vs || is_al || is_as) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -2407,7 +2409,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : 2;
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : 3);
                                             }
                                             break;
                                         }
@@ -2430,7 +2432,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : "__zc_aligned__";
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : "__zc_alias__");
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
                             snprintf(marker, sizeof(marker), "%s(%.*s)", mk, (int)el2, et2);
                             zero_cc_buf_free(&expr_buf);

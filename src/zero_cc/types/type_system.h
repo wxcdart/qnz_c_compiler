@@ -140,6 +140,13 @@ typedef struct {
     size_t static_data_offset;            /* Offset in data_section */
     char static_global_name[128];         /* Mangled name in the global table */
     bool is_extern;                       /* Block-scope extern declaration */
+    /* C11 6.2.1: the block scope of this declaration has ended during
+     * lowering (its enclosing NODE_BLOCK finished). The flat latest-wins
+     * local table cannot express "out of scope" with the single numeric
+     * local_lookup_bound - a shadowed name declared in a nested block
+     * would otherwise be selected by outer-scope references before or
+     * after the block. zero_cc_find_local skips scope-ended symbols. */
+    bool scope_ended;
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.

@@ -212,6 +212,7 @@ typedef struct ZeroCCISABackend {
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_cvtsi2ss)(ZeroCCCompiler *c, int dst, int src);
     void (*emit_cvtsd2ss)(ZeroCCCompiler *c, int dst, int src);
 
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);

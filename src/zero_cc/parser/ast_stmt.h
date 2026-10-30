@@ -221,6 +221,17 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
                 size_t slen = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1; /* content + NUL */
                 c->token_pos++;
+                /* C99 6.6 pointer constant expression ("foo" + 1, c-torture
+                 * pr53084): a plain integer offset after the string shifts
+                 * the rodata address the reloc patches. */
+                int64_t str_off = 0;
+                if (c->token_pos + 1 < c->token_count &&
+                    (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS) &&
+                    c->tokens[c->token_pos + 1].type == TK_NUM) {
+                    str_off = c->tokens[c->token_pos + 1].num_val;
+                    if (c->tokens[c->token_pos].type == TK_MINUS) str_off = -str_off;
+                    c->token_pos += 2;
+                }
                 if (elem_is_ptr) {
                     /* Pointer-to-string: emit literal to .rodata, patch the
                      * 8-byte data slot via a data relocation. */
@@ -231,7 +242,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                         dr->data_patch_offset = sym->static_data_offset + off;
                         dr->target_kind = 0; /* .rodata target */
                         dr->rodata_offset = ro_off;
-                        dr->target_data_offset = 0;
+                        dr->target_data_offset = (size_t)str_off;
                         dr->target_global_idx = -1;
                     }
                     off += 8;

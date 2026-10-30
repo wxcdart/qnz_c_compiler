@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-30T04:42:49Z
+timestamp: 2026-10-30T16:55:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -269,6 +269,23 @@ Function **definitions** inside a block (the GNU nested-function/trampoline exte
 - **Type effect**: for scalars the local `ZeroCCType` gets `align = N` and `size` padded up to N; for struct/union types the **canonical registry entry** (`zero_cc_find_struct`) is mutated so every later use of the tag sees the padded size/alignment.
 - **Pointer-star parsing**: the star loops in `zero_cc_parse_type_name` also skip type qualifiers (`const`/`volatile`/`restrict`) and `__zc_aligned__` markers between chunks — `int *const *p;` (previously a parse error at file scope) now works.
 - **Status**: `20010904-1/2`, `pr108064`, `pr122000`, `pr65369`, `pr91597`, `strct-pack-1/2`, `struct-cpy-1`, `960117-1`, `pr43188` all pass on every config (2026-10-31).
+
+## GNU `__attribute__((alias("target")))` Symbol Aliasing
+
+`extern int b __attribute__((alias("a")));` — `b` is a synonym for `a`'s storage (c-torture `alias-3/4`):
+
+- **Preprocessor marker** (`src/zero_cc/core/preprocessor.h`): `alias("tgt")` / `__alias__("tgt")` in an attribute list is preserved as the pseudo-keyword `__zc_alias__("tgt")` (third case in the `__attribute__` special-case scan, alongside `__zc_vector_size__` / `__zc_aligned__`); all other attribute text is still erased.
+- **Parser** (`zero_cc_parse_alias_attr()` in `src/zero_cc/parser/const_eval.h` + the extern branch of `src/zero_cc/jit/compile_unit.h`): the alias name is registered as the usual extern symbol **and** gets a shadow entry in the global table (`add_global_var`, no data-section storage of its own) with `alias_target = "tgt"` and the target's `data_offset` when the target is already registered.
+- **Resolution** (`find_global_var()` in `src/zero_cc/types/global_vars.h`): alias-transparent — it follows `alias_target` (chained aliases guarded; falls back to the alias's own entry while the target is still unregistered) so every use of the alias name (value load/store, `&b`, `b++`, data relocs) lowers through the **target's** entry and emits the target's symbol. Alias entries are skipped by AOT asm/ELF data+symbol emission (`src/main.c`) — no bytes, no symbol.
+- **Status**: `execute/alias-3.c` and `execute/alias-4.c` pass on every `(-O0..-O3 × JIT/AOT)` config (2026-11-01) — the last two MISCOMPILEs in the c-torture corpus.
+
+## Multi-Dimensional Struct-Union Members (Nested, Not Flattened)
+
+`struct S { char m1[2][2]; };` records a **nested** array member type, not a flattened `char[4]`:
+
+- **Parser** (`src/zero_cc/parser/definitions.h`): all three member-declaration sites (scalar first declarator, comma declarators, struct/union/enum-typed members + their union variants) record the per-dimension counts (`dims[]`) instead of only the product, and the array-member branches build the element type from the inside out with `zero_cc_member_nest_array_elem()` — for `char m1[2][2]` the member's `base` is `char[2]` (size 2), so `m1[1]` is a 2-byte row. Flat 1-D members (and flexible array members) are unchanged.
+- **Consumer invariants**: `zc_object_count_scalar_leaves()` / `zero_cc_base_leaf_count()` / `zc_object_resolve_scalar_leaf_bf()` already recurse through `TYPE_ARRAY` bases, so leaf counting, elided-brace scalar placement, and designator resolution all see the nested shape for free.
+- **Aggregate-initializer placement** (`zc_init_resolve_positional()` in `src/zero_cc/parser/init_common.h`): a positional array member with **aggregate elements** resolves to the **whole member** (matching the designator path) rather than a single element — `{{2,3},{4,5}}` iterates rows exactly like a top-level 2-D array does; elided scalars address leaves by index within the member. (Before the fix, only the first row was initialized and the rest were flagged "excess elements" — `pr60017`.)
 
 ## Parameter Representation & C99/C11 Translation Limits (`ZERO_CC_MAX_PARAMS`)
 

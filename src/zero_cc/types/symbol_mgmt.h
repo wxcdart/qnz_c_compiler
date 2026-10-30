@@ -30,7 +30,8 @@ static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name)
         size_t b_idx = (size_t)(h & (c->local_hash_bucket_count - 1));
         int32_t idx = c->local_hash_buckets[b_idx];
         while (idx >= 0) {
-            if ((size_t)idx < bound && strcmp(c->locals[idx].name, name) == 0) {
+            if ((size_t)idx < bound && !c->locals[idx].scope_ended &&
+                strcmp(c->locals[idx].name, name) == 0) {
                 return &c->locals[idx];
             }
             idx = c->local_hash_next[idx];
@@ -38,7 +39,7 @@ static inline ZeroCCSym* zero_cc_find_local(ZeroCCCompiler *c, const char *name)
         return NULL;
     }
     for (size_t i = bound; i > 0; i--) {
-        if (strcmp(c->locals[i - 1].name, name) == 0) {
+        if (!c->locals[i - 1].scope_ended && strcmp(c->locals[i - 1].name, name) == 0) {
             return &c->locals[i - 1];
         }
     }

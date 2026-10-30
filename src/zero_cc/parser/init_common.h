@@ -128,17 +128,26 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
                             out->arr_ctx_size = el->size;
                         }
                     } else {
-                        size_t ei = local / per;
-                        out->abs_off = base_off + m->offset + ei * el->size;
-                        out->val_type = *el;
+                        /* Array member with aggregate elements (`char m[2][2]`,
+                         * `struct S0 m2[2]`): the value target is the WHOLE
+                         * member, so a nested brace list ({ {row0}, {row1} })
+                         * iterates the elements exactly like a top-level array
+                         * does (c-torture pr60017).  Scalar values (elided
+                         * braces) address leaves by `local` within the member. */
+                        ZeroCCType full = zc_init_member_value_type(m);
+                        out->abs_off = base_off + m->offset;
+                        out->val_type = full;
                         out->is_scalar = false;
                         out->scalar_sz = 0;
-                        out->local_leaf = local % per;
-                        out->advance = per;
-                        if (el->tag == TYPE_ARRAY && el->base &&
-                            (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
-                            out->arr_ctx_off = base_off + m->offset + ei * el->size;
-                            out->arr_ctx_size = el->size;
+                        out->local_leaf = local;
+                        out->advance = leaves_m;
+                        if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) {
+                            out->arr_ctx_off = base_off + m->offset;
+                            out->arr_ctx_size = m->size;
+                        } else if (el->tag == TYPE_ARRAY && el->base &&
+                                   (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                            out->arr_ctx_off = base_off + m->offset;
+                            out->arr_ctx_size = m->size;
                         }
                     }
                 } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) &&
@@ -579,7 +588,10 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 }
             }
         } else if (c->token_pos < c->token_count &&
-                   c->tokens[c->token_pos].type == TK_STRING) {
+                   c->tokens[c->token_pos].type == TK_STRING &&
+                   !(c->token_pos + 2 < c->token_count &&
+                     c->tokens[c->token_pos + 1].type == TK_PLUS &&
+                     c->tokens[c->token_pos + 2].type == TK_NUM)) {
             if (tgt.arr_ctx_size > 0) {
                 /* String into a char array: copy (NUL-terminated when it
                  * fits), starting at the value target. */
@@ -648,6 +660,44 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                     }
                 }
             }
+        } else if (c->token_pos + 2 < c->token_count &&
+               c->tokens[c->token_pos + 1].type == TK_PLUS &&
+               ((c->tokens[c->token_pos].type == TK_STRING &&
+                 c->tokens[c->token_pos + 2].type == TK_NUM) ||
+                (c->tokens[c->token_pos].type == TK_NUM &&
+                 c->tokens[c->token_pos + 2].type == TK_STRING)) &&
+               (tgt.val_type.tag == TYPE_PTR ||
+                (tgt.is_scalar && tgt.val_type.tag == TYPE_INT64 &&
+                 obj_type.tag == TYPE_ARRAY &&
+                 obj_type.base && obj_type.base->tag == TYPE_PTR))) {
+        /* C99 6.6 pointer constant expression with an integer offset
+         * ("foo" + 1, c-torture pr53084): the string's rodata address
+         * is only known at emit time, so emit it as a data reloc with
+         * target_data_offset carrying the offset. */
+        size_t str_idx = (c->tokens[c->token_pos].type == TK_STRING) ?
+            c->token_pos : c->token_pos + 2;
+        int64_t off = c->tokens[c->token_pos + ((str_idx == c->token_pos) ? 2 : 0)].num_val;
+        const char *sv = c->tokens[str_idx].allocated_str ?
+            c->tokens[str_idx].allocated_str : c->tokens[str_idx].str_val;
+        size_t ro_off = c->rodata_section.length;
+        zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(&c->tokens[str_idx]) + 1);
+        c->token_pos += 3; /* N + "str" | "str" + N */
+        if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+            ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+            dr->data_patch_offset = data_patch_off + tgt.abs_off;
+            dr->target_kind = 0; /* .rodata target */
+            dr->rodata_offset = ro_off;
+            dr->target_data_offset = (size_t)off;
+            dr->target_global_idx = -1;
+        }
+        if (cursor) {
+            if (has_desig) {
+                size_t nc = tgt.leaf_idx + 1;
+                if (nc > *cursor) *cursor = nc;
+            } else {
+                *cursor += tgt.advance;
+            }
+        }
         } else {
             /* Scalar constant value (int/char/float/enum/sizeof). */
             bool is_f = (c->tokens[c->token_pos].type == TK_FLOAT ||

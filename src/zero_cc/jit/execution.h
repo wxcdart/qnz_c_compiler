@@ -135,7 +135,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             target = eg ? (uintptr_t)((char *)mem +
                 (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
         } else {
-            target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset);
+            target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset + dr->target_data_offset);
         }
         memcpy((char *)mem + data_offset + dr->data_patch_offset, &target, 8);
     }
