@@ -1,5 +1,30 @@
 # ZeroCC Changelog
 
+## [Chunk M3 Part 2 / Sprint 61] - 2026-10-31 - `aligned(N)` Attribute, Real Overflow Builtins, VLA-Goto Safety, 11 Correctness Fixes (MISCOMPILE 20 → 10, PASS reaches 2,242)
+
+- **Feature: GNU `__attribute__((aligned(N)))`** (all declaration contexts):
+  - **Preprocessor** (`core/preprocessor.h`): `aligned(N)` / `__aligned__(N)` in attribute lists is preserved as the pseudo-keyword `__zc_aligned__(N)` (same pattern as `__zc_vector_size__`).
+  - **Parser**: new `zero_cc_parse_aligned_attr()` (`parser/const_eval.h`, max 4096 B) consumed in every declaration context: leading typedef (`typedef __attribute__((aligned(32))) int x;`), trailing base specifier, struct/union tag (`struct __attribute__((aligned(4))) S { ... };`), trailing declarator (`short a[4] __attribute__((aligned(16)));`), **between pointer chunks** (`int *__attribute__((aligned(16))) *p;` — `pr43188`), file-scope globals (`jit/compile_unit.h` legacy parser), struct members, and `zero_cc_parse_type_name()` (file-scope + const-eval paths).
+  - **Type effect**: scalars get raised `align` + padded `size`; struct/union types mutate the canonical registry entry (`zero_cc_find_struct`) so all later uses see the padded size/align. The pointer-star loops in both `zero_cc_parse_type_name` variants now also skip type qualifiers (`int *const *p;`) between chunks — a latent parse bug fixed along the way.
+- **Correctness fixes** (all verified AOT + JIT, all 8 torture configs):
+  - `execute/20060110-2.c` — signed constant right shift in `parse_shift()` is arithmetic by default.
+  - `execute/20031003-1.c` — out-of-range float→int casts clamp to the target range before `cvttsd2si` (avoids #UD).
+  - `execute/920625-1.c` — `va_arg` 16-byte struct results: per-chunk argument-exhaustion check.
+  - `execute/stdarg-4.c` — global integer assignment from a float RHS emits `cvttsd2si` before the store.
+  - `execute/ccmp-tree-1.c` — `NODE_STMT_EXPR` (GNU `({ ... })`) now caps `local_lookup_bound` via `block->aux.step` (same scoping metadata as `NODE_BLOCK`), so volatile locals inside the statement expression resolve to the right slot.
+  - `__builtin_{add,sub,mul}_overflow` — replaced the conservative "always no-overflow" return with **real 64-bit overflow detection** (`ir/ast_lowering_expr.c`): operands normalized to 64 bits (zero-extend unsigned / sign-extend signed); add = carry64 + top-bits check; sub = borrow + per-width range check; mul = division-based `a <= LIMIT / b` with a zero-divisor skip (`ir_emit_jne`); target width/signedness from the `*r` pointee (handles `&x` and bare pointer args). New `zc_ovf_cmp_set[_imm]` helpers — `ir_emit_cmp` requires temp IDs, so immediates are loaded into temps first.
+  - `__builtin_ffs[l/ll]` / `__builtin_ctz` / `__builtin_clz` — the `t_res_zero = (result == 0)` `OP_COND_SET` was missing its preceding `ir_emit_cmp(result, 0)`; added, and the `ffs` matcher now also accepts `ffsl`/`ffsll` (`pr97325`).
+- **VLA safety** (`ir/ast_lowering_stmt.c`):
+  - **VLA-after-block allocation bug**: a VLA declared after any nested block (`{ int k = 1; } int x[n];`) **silently lost its `OP_VLA_ALLOC`** — `lower_stmt_decl` resolved the VLA's own symbol by name while `local_lookup_bound` was still capped at the preceding block's entry count (which excludes the not-yet-declared VLA symbol), so the allocation was skipped and first use segfaulted. Fixed by resolving via the declaration's stashed symbol (`lowering_local_sym`, `node->aux.step`) instead of `zero_cc_find_local`.
+  - **VLA + crossing-goto rejection** (C99 6.7.2.2p4): the hybrid VLA model (per-declaration `OP_VLA_ALLOC`, unwound only at function exit) cannot rebalance the stack on a goto whose control path crosses a VLA's allocation point — each jump leaked the VLA's stack (segfault after ~1000 iterations at 4 KB). A top-level statement-position scan in `lower_stmt_block` now detects both crossing directions (backward goto to a label before the VLA; forward goto jumping over the allocation into its scope) and rejects cleanly: `goto 'lab' crosses a VLA declaration: ...` — honest rejection beats a segfault. Labels/gotos nested in compound statements take the position of their top-level containing statement. `execute/20040811-1.c` and `execute/vla-dealloc-1.c` are now clean REJECTs (previously latent segfaults); `execute/pr67037.c` (goto to a label *after* the array — no crossing) still PASSes.
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **`MISCOMPILE`**: 20 → **10** (ccmp-tree-1, pr85095, pr91450-1, pr97325 fixed; 20040811-1 + vla-dealloc-1 reclassified REJECT; 4 more fixed via the `aligned(N)`/shift/clamp work). Remaining 10 are all true C99/C11 bugs: `alias-3/4` (GNU `alias` attr), `920710-1`/`960801-1` (stdarg), `20071202-1`, `bitfld-3`, `pr47538`, `pr53084`, `pr60017`, `pr66233`.
+  - **`PASS`**: 2,216 → **2,242** (+26: `20010904-1/2`, `pr108064`, `pr122000`, `pr65369`, `pr91597`, `strct-pack-1/2`, `struct-cpy-1`, `960117-1`, `pr43188`, plus the correctness fixes). **`REJECT`**: 671 → **658**.
+  - Baseline re-recorded (`--update-baseline`): **668 bad** (was 691).
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/diag_battery.py` baseline OK · `tools/style_check.py` 0 errors · `python3 tools/torture_run.py` gate OK (no regressions vs new baseline).
+
+---
+
 ## [Chunk M3 Part 1 / Sprint 60] - 2026-10-30 - GNU `__attribute__((__vector_size__(N)))` SIMD Vector Types (MISCOMPILE 41 → 23, PASS reaches 2,216)
 
 - **Feature: first-class vector types** (preprocessor + parser + semantic + IR + all three ISA backends):

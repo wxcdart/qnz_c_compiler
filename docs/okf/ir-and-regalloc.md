@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-30T03:23:39Z
+timestamp: 2026-10-30T04:42:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -134,6 +134,19 @@ The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`O
 - **`__builtin_shuffle(v1, v2, {idx...})`** lowers to a per-lane branchless select: `m = idx & (n-1)`, `from_a = (idx & n) == 0` (via `ir_emit_cond_set(CC_EQ)`), result = `(sel & a[m]) | (~sel & b[m])` with `~sel = xor(sel, -1)` (`ir_emit_not` does not exist).
 - **Compound assignment** (`v += x`, `*w += v`) is per-lane in place, int lanes via load/arith/store with width-correct extension, float lanes via the double FP model; the RHS is read per-lane (vector) or broadcast (scalar).
 - **Raw emitters**: `VLOADSS`/`VSTORESS`/`VLOADSD`/`VSTORESD`/`CVTSS2SD`/`CVTSD2SS` exist in both the asm and raw paths of all three ISAs. x86 encodings: `CVTSS2SD = F3 0F 5A /r`, `CVTSD2SS = F2 0F 5A /r` (`F3 0F 2A` is `CVTSI2SS` — an earlier mix-up silently converted int→float). The cvt emitters must **not** early-return on `dst == src`.
+
+## VLA Hybrid Rules, Goto-Crossing Rejection & Block-Scope Symbol Resolution (Sprint 61)
+
+VLAs use a **hybrid model**: each `int x[n];` at function scope emits its own `OP_VLA_ALLOC` (dynamic `sub rsp, aligned_size; mov ptr, rsp`) and the pointer is stored in the variable's stack slot; the epilogue (`leave`) unwinds them all. Consequences and guards, all in `src/zero_cc/ir/ast_lowering_stmt.c`:
+
+- **Hybrid rules** (enforced in `lower_stmt_decl`): VLA must be at function scope (`block_depth == 1`) and not inside for/while/do-while loops (`loop_depth == 0`).
+- **Goto-crossing rejection** (C99 6.7.2.2p4): a goto whose control path crosses a VLA's allocation point cannot be rebalanced (every jump would leak the VLA's stack → segfault after ~1000 iterations at 4 KB). A top-level statement-position scan in `lower_stmt_block` (via `zc_stmt_collect_gotos` / `zc_stmt_collect_labels`, which take the position of the top-level *containing* statement for nested gotos/labels) rejects both crossing directions: (a) backward goto to a label positioned before the VLA declaration; (b) forward goto positioned before the VLA whose label lands at/after it (jumping over the allocation into its scope). Diagnostics: `goto 'lab' crosses a VLA declaration: stack rebalancing on jumps is not supported`. Gotos to labels *after* the VLA (e.g. `pr67037`'s `goto done`) do not cross and still pass. Note: `zero_cc_intern_string` does **not** deduplicate (it copies into a chunk and returns a fresh pointer each call), so label-name matching in the scan must use `strcmp`, not pointer equality.
+- **VLA symbol resolution must use the stashed symbol**: `lower_stmt_decl` resolves the VLA's symbol via `lowering_local_sym(c, node, name)` (`node->aux.step` = symbol index + 1), **not** `zero_cc_find_local`. After a preceding nested block, `local_lookup_bound` is capped at the block-entry symbol count (restored as `aux.alt - 1` on block exit), which excludes the not-yet-declared VLA's own symbol; a by-name lookup then returns NULL and the `OP_VLA_ALLOC` is silently dropped (first use segfaults — `{ int k = 1; } int x[n];`).
+- **Statement-expression scoping**: `NODE_STMT_EXPR` (GNU `({ ... })`) lowers the block statements directly without going through `lower_node(NODE_BLOCK)`, so it must cap `local_lookup_bound` itself using `block->aux.step` (same parser-stamped metadata as `NODE_BLOCK`) and restore it afterwards — otherwise volatile locals inside `({ ... })` resolve to the wrong slot (`ccmp-tree-1`).
+
+## `__builtin_{add,sub,mul}_overflow` Real Overflow Detection (Sprint 61)
+
+In `src/zero_cc/ir/ast_lowering_expr.c` (replacing the old conservative "always returns 0"): operands are normalized to 64-bit temps (zero-extend unsigned, sign-extend signed); **add** = 64-bit carry (`res < a` unsigned) OR top-bits-above-target-width set; **sub** = 64-bit borrow (`a < b` unsigned) OR per-target-width/signedness range check; **mul** = division-based range check `a <= LIMIT / b` with a zero-divisor skip guard. Target width/signedness comes from the `*r` argument's pointee type (dereferences `TYPE_PTR` — handles both `&x` and bare pointer variable/parameter args). Signed 64-bit math is exact for operand widths ≤ 32; signed-64 targets add a `res/a != b` wrap guard on mul. Two IR invariants the helpers encode: `ir_emit_cmp` requires **temp IDs** (immediates must first be loaded into a temp — `zc_ovf_cmp_set_imm`), and the zero-divisor guard uses `ir_emit_jne` (jump over the division when the divisor is **non-zero**). `ir_emit_cond_set` reads the flags of the immediately preceding `OP_CMP` — any other instruction in between corrupts the condition.
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 

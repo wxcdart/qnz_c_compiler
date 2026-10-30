@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-30T03:23:39Z
+timestamp: 2026-10-30T04:42:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -557,3 +557,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-30 — Updated `ir-and-regalloc.md`
 - Sprint 60: vector lowering section (per-lane expansion, ABI, FP model, 136 opcodes)
+
+## 2026-10-30 — Updated `c-torture-gate.md`
+- Sprint 61: aligned(N) attribute, real overflow builtins, ffs/ctz/clz, VLA-goto crossing rejection + VLA-after-block alloc fix, 11 correctness fixes; PASS 2216->2242, MISCOMPILE 20->10, REJECT 671->658
+
+## 2026-10-30 — Updated `frontend-and-types.md`
+- Sprint 61: aligned(N) attribute support in all declaration contexts; pointer-star qualifier/marker parsing
+
+## 2026-10-30 — Updated `ir-and-regalloc.md`
+- Sprint 61: VLA hybrid rules + goto-crossing rejection, stashed-symbol VLA resolution, stmt-expr scoping, real __builtin_*_overflow detection

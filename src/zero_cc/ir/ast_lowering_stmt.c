@@ -27,9 +27,178 @@
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
+/* C99 6.7.2.2p4: a VLA's storage must be released when control jumps to a
+ * point before its declaration (backward goto loop), or when a forward
+ * goto lands inside the VLA's scope without passing through its
+ * allocation. ZeroCC's hybrid VLA model allocates each VLA with its own
+ * OP_VLA_ALLOC and unwinds them only at function exit, so any goto whose
+ * control path crosses a VLA's allocation point is unsound (stack leak
+ * per jump -> segfault). Detect such crossings at the top-level function
+ * block using statement-position analysis and reject them cleanly (honest
+ * rejection beats a segfault). Gotos nested in compound statements take
+ * the position of their top-level containing statement, which is a sound
+ * approximation for crossing analysis. */
+#define ZC_VLA_GOTO_MAX 256
+
+static void zc_stmt_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                  const char **gotos, int *gpos, int *ngoto);
+
+static void zc_stmt_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                   const char **names, int *pos_arr, int *nnames);
+
+static void zc_list_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                   const char **names, int *pos_arr, int *nnames) {
+    ASTRef s = ref;
+    while (s != AST_NULL && *nnames < ZC_VLA_GOTO_MAX) {
+        zc_stmt_collect_labels(arena, s, pos, names, pos_arr, nnames);
+        ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
+        if (!n) break;
+        s = n->next;
+    }
+}
+
+static void zc_stmt_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                   const char **names, int *pos_arr, int *nnames) {
+    if (ref == AST_NULL || *nnames >= ZC_VLA_GOTO_MAX) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return;
+    switch (n->tag) {
+        case NODE_LABEL:
+            if (n->s.str) {
+                names[*nnames] = n->s.str;
+                pos_arr[*nnames] = pos;
+                (*nnames)++;
+            }
+            /* Also scan the labeled statement (a label may directly precede
+             * another label: `a: b:;`). */
+            zc_stmt_collect_labels(arena, n->left, pos, names, pos_arr, nnames);
+            break;
+        case NODE_BLOCK:
+            zc_list_collect_labels(arena, n->left, pos, names, pos_arr, nnames);
+            break;
+        case NODE_IF:
+            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
+            zc_stmt_collect_labels(arena, n->aux.alt, pos, names, pos_arr, nnames);
+            break;
+        case NODE_WHILE:
+        case NODE_DO_WHILE:
+            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
+            break;
+        case NODE_FOR:
+            zc_stmt_collect_labels(arena, n->aux.alt, pos, names, pos_arr, nnames);
+            break;
+        case NODE_SWITCH:
+            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
+            break;
+        default:
+            break;
+    }
+}
+
+static void zc_list_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                  const char **gotos, int *gpos, int *ngoto) {
+    ASTRef s = ref;
+    while (s != AST_NULL && *ngoto < ZC_VLA_GOTO_MAX) {
+        zc_stmt_collect_gotos(arena, s, pos, gotos, gpos, ngoto);
+        ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
+        if (!n) break;
+        s = n->next;
+    }
+}
+
+static void zc_stmt_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
+                                  const char **gotos, int *gpos, int *ngoto) {
+    if (ref == AST_NULL || *ngoto >= ZC_VLA_GOTO_MAX) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return;
+    switch (n->tag) {
+        case NODE_GOTO:
+            if (n->s.str) {
+                gotos[*ngoto] = n->s.str;
+                gpos[*ngoto] = pos;
+                (*ngoto)++;
+            }
+            break;
+        case NODE_BLOCK:
+            zc_list_collect_gotos(arena, n->left, pos, gotos, gpos, ngoto);
+            break;
+        case NODE_IF:
+            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
+            zc_stmt_collect_gotos(arena, n->aux.alt, pos, gotos, gpos, ngoto);
+            break;
+        case NODE_WHILE:
+        case NODE_DO_WHILE:
+            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
+            break;
+        case NODE_FOR:
+            zc_stmt_collect_gotos(arena, n->aux.alt, pos, gotos, gpos, ngoto);
+            break;
+        case NODE_SWITCH:
+            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
+            break;
+        case NODE_LABEL:
+            zc_stmt_collect_gotos(arena, n->left, pos, gotos, gpos, ngoto);
+            break;
+        default:
+            break;
+    }
+}
+
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     /* Track block depth for VLA hybrid rule enforcement */
     c->lowering.vla.block_depth++;
+
+    if (c->lowering.vla.block_depth == 1) {
+        const char *gotos[ZC_VLA_GOTO_MAX];
+        int gpos[ZC_VLA_GOTO_MAX];
+        int ngoto = 0;
+        const char *label_names[ZC_VLA_GOTO_MAX];
+        int label_idx[ZC_VLA_GOTO_MAX];
+        int nlabels = 0;
+        int vla_idx[ZC_VLA_GOTO_MAX];
+        int nvla = 0;
+
+        int total = 0;
+        int i = 0;
+        ASTRef s = ref;
+        while (s != AST_NULL) {
+            ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
+            if (!n) break;
+            if (n->tag == NODE_DECL && (n->flags & NODE_DECL_IS_VLA) &&
+                nvla < ZC_VLA_GOTO_MAX) {
+                vla_idx[nvla++] = i;
+            }
+            zc_stmt_collect_gotos(arena, s, i, gotos, gpos, &ngoto);
+            zc_stmt_collect_labels(arena, s, i, label_names, label_idx, &nlabels);
+            s = n->next;
+            i++;
+        }
+        total = i;
+
+        for (int g = 0; g < ngoto && g < ZC_VLA_GOTO_MAX; g++) {
+            int t = -1;
+            for (int l = 0; l < nlabels; l++) {
+                if (strcmp(label_names[l], gotos[g]) == 0) { t = label_idx[l]; break; }
+            }
+            if (t < 0) {
+                /* Label not found in the top-level list (should not happen
+                 * for valid C); be conservative. */
+                t = total; /* past the end: only forward-crossings possible */
+            }
+            int gi = gpos[g];
+            for (int v = 0; v < nvla; v++) {
+                if ((t < vla_idx[v] && gi >= vla_idx[v]) ||
+                    (gi < vla_idx[v] && t >= vla_idx[v])) {
+                    ZeroCCASTNode *bn = zero_cc_ast_get(arena, ref);
+                    diag_report_error(&c->diag_buf,
+                                      bn ? bn->line : 1, bn ? bn->col : 1,
+                                      NULL,
+                                      "goto '%s' crosses a VLA declaration: stack rebalancing on jumps is not supported (VLA must be in a scope without crossing gotos)",
+                                      gotos[g]);
+                }
+            }
+        }
+    }
 
     ASTRef stmt = ref;
     while (stmt != AST_NULL) {
@@ -73,7 +242,13 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         }
 
         const char *var = node->s.str;
-        ZeroCCSym *sym = zero_cc_find_local(c, var);
+        /* Use the declaration's own stashed symbol (aux.step) rather than a
+         * by-name lookup: after a preceding nested block, local_lookup_bound
+         * is capped at the block-entry symbol count, which excludes this
+         * declaration's own (later) symbol and silently drops the VLA
+         * allocation (vt5: `{ int k = 1; } int x[n];` -> x never allocated,
+         * segfault on first use). */
+        ZeroCCSym *sym = lowering_local_sym(c, node, var);
         if (sym && node->right != AST_NULL) {
             /* 1. Evaluate dimension expression */
             int count_temp = lower_expr(c, arena, node->right);

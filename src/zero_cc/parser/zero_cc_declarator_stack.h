@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "zero_cc/types/types.h"
+#include "zero_cc/parser/const_eval.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/ast_expr.h"
 #include "zero_cc/parser/ast_arena.h"
@@ -387,6 +388,14 @@ static inline bool zero_cc_parse_declarator_internal(
             else if (c->tokens[c->token_pos].type == TK_RESTRICT) ptr_chunk.is_restrict = true;
             else if (c->tokens[c->token_pos].type == TK_ATOMIC) ptr_chunk.is_atomic = true;
             c->token_pos++;
+        }
+        /* GNU aligned(N) marker between pointer chunks:
+         * `int *__attribute__((aligned(16))) *p;` - alignment applies to
+         * the object, not the pointer; consume and discard here (the
+         * declaration-level probes already handled the usual positions). */
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
         }
         if (lvl->prefix_count < ZERO_CC_DECLARATOR_MAX_ITEMS) {
             lvl->prefixes[lvl->prefix_count++] = ptr_chunk;

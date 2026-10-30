@@ -31,6 +31,28 @@ static inline void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint
     }
 }
 
+/* Is there a `__zc_aligned__(...) [NAME] {` struct/union definition starting
+ * at token idx+1 (idx = the struct/union keyword position)? Gates accept
+ * `struct __attribute__((aligned(N))) S { ... };` at file scope. */
+static inline bool zero_cc_tk_def_via_aligned_marker(const ZeroCCCompiler *c, size_t idx) {
+    if (idx + 3 >= c->token_count) return false;
+    if (c->tokens[idx + 1].type != TK_IDENT || !c->tokens[idx + 1].str_val ||
+        strcmp(c->tokens[idx + 1].str_val, "__zc_aligned__") != 0) return false;
+    if (c->tokens[idx + 2].type != TK_LPAREN) return false;
+    size_t p = idx + 3;
+    int depth = 1;
+    while (p < c->token_count && depth > 0) {
+        if (c->tokens[p].type == TK_LPAREN) depth++;
+        else if (c->tokens[p].type == TK_RPAREN) depth--;
+        p++;
+    }
+    if (depth != 0 || p >= c->token_count) return false;
+    if (c->tokens[p].type == TK_LBRACE) return true;
+    if (c->tokens[p].type == TK_IDENT && p + 1 < c->token_count &&
+        c->tokens[p + 1].type == TK_LBRACE) return true;
+    return false;
+}
+
 /* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
 /* Returns true if a top-level declaration was consumed, false otherwise */
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
@@ -69,10 +91,29 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
 
     /* Struct/Union definition */
     if (t == TK_STRUCT || t == TK_UNION) {
+        /* Allow a GNU aligned(N) marker between the tag keyword and the
+         * name/body: struct __attribute__((aligned(4))) S { ... }; */
+        size_t tag_off = 1;
         if (c->token_pos + 1 < c->token_count &&
-            (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
-             (c->tokens[c->token_pos + 1].type == TK_IDENT &&
-              c->token_pos + 2 < c->token_count && c->tokens[c->token_pos + 2].type == TK_LBRACE))) {
+            c->tokens[c->token_pos + 1].type == TK_IDENT &&
+            c->tokens[c->token_pos + 1].str_val &&
+            strcmp(c->tokens[c->token_pos + 1].str_val, "__zc_aligned__") == 0) {
+            size_t p = c->token_pos + 2;
+            if (p < c->token_count && c->tokens[p].type == TK_LPAREN) {
+                int d = 1;
+                p++;
+                while (p < c->token_count && d > 0) {
+                    if (c->tokens[p].type == TK_LPAREN) d++;
+                    else if (c->tokens[p].type == TK_RPAREN) d--;
+                    p++;
+                }
+            }
+            tag_off = (size_t)(p - c->token_pos);
+        }
+        if (c->token_pos + tag_off < c->token_count &&
+            (c->tokens[c->token_pos + tag_off].type == TK_LBRACE ||
+             (c->tokens[c->token_pos + tag_off].type == TK_IDENT &&
+              c->token_pos + tag_off + 1 < c->token_count && c->tokens[c->token_pos + tag_off + 1].type == TK_LBRACE))) {
             zero_cc_stmt_typedef_struct(c);
             return true;
         }
@@ -293,7 +334,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
             ((c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) &&
              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
-              (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE)))) {
+              (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE) ||
+              zero_cc_tk_def_via_aligned_marker(c, c->token_pos)))) {
             zero_cc_compile_top_level_decl(c);
             continue;
         }
@@ -383,6 +425,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->tokens[probe].type == TK_IDENT &&
                 c->tokens[probe + 1].type == TK_LPAREN &&
                 strcmp(c->tokens[probe].str_val, "__zc_vector_size__") != 0 &&
+                strcmp(c->tokens[probe].str_val, "__zc_aligned__") != 0 &&
                 !zero_cc_find_typedef(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_struct(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_enum(c, c->tokens[probe].str_val));
@@ -428,6 +471,30 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 zero_cc_decl_thread_local(c, &shared_ctx, perm, is_static);
                 continue;
             }
+            /* GNU aligned(N) leading a global: `__attribute__((aligned(8)))
+             * unsigned long long ll;` - consume the marker now (otherwise the
+             * marker identifier is read as the type name) and remember the
+             * value; it is applied to the base type once parsed. */
+            size_t global_align = 0;
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > global_align) global_align = probe;
+                }
+            }
+            if (global_align > 0 &&
+                (c->tokens[c->token_pos].type != TK_INT && c->tokens[c->token_pos].type != TK_CHAR &&
+                 c->tokens[c->token_pos].type != TK_SHORT && c->tokens[c->token_pos].type != TK_LONG &&
+                 c->tokens[c->token_pos].type != TK_SIGNED && c->tokens[c->token_pos].type != TK_UNSIGNED &&
+                 c->tokens[c->token_pos].type != TK_FLOAT_KW && c->tokens[c->token_pos].type != TK_DOUBLE_KW &&
+                 c->tokens[c->token_pos].type != TK_STRUCT && c->tokens[c->token_pos].type != TK_UNION &&
+                 c->tokens[c->token_pos].type != TK_ENUM && c->tokens[c->token_pos].type != TK_IDENT &&
+                 c->tokens[c->token_pos].type != TK_TYPEOF && c->tokens[c->token_pos].type != TK_TYPEOF_UNQUAL)) {
+                /* Marker not followed by a type: skip past it to recover. */
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                continue;
+            }
             /* Tag-only forward declaration: `struct A;` / `union B;` /
              * `enum C;`.  Legal C, ubiquitous in shared headers; nothing to
              * register (the tag is created by the later definition). */
@@ -442,6 +509,26 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
             /* Parse type */
             ZeroCCType gtype = zero_cc_parse_type_name(c);
+            if (global_align > 0) {
+                if (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION) {
+                    ZeroCCType *st = zero_cc_find_struct(c, gtype.struct_name);
+                    if (!st) st = zero_cc_find_typedef(c, gtype.struct_name);
+                    if (st && global_align > st->align) {
+                        st->align = global_align;
+                        if (st->size < global_align) st->size = global_align;
+                        if ((st->size % global_align) != 0) {
+                            st->size = (st->size + global_align - 1) / global_align * global_align;
+                        }
+                        gtype = *st;
+                    }
+                } else if (global_align > gtype.align) {
+                    gtype.align = global_align;
+                    if (gtype.size < global_align) gtype.size = global_align;
+                    if ((gtype.size % global_align) != 0) {
+                        gtype.size = (gtype.size + global_align - 1) / global_align * global_align;
+                    }
+                }
+            }
             /* Pointer declarators: int *p;  char **pp;  (qualifiers after stars are skipped) */
             int ptr_depth = 0;
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
@@ -450,6 +537,12 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 while (c->token_pos < c->token_count &&
                        (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
                     c->token_pos++;
+                }
+                /* GNU aligned(N) marker between pointer chunks:
+                 * `int *__attribute__((aligned(16))) *p;` */
+                {
+                    size_t probe = 0;
+                    while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
                 }
             }
             for (int pd = 0; pd < ptr_depth; pd++) {
@@ -574,6 +667,20 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 if (dim < 0) dim = 0;
                                 array_len *= dim;
                                 if (dim_count < 8) dims[dim_count++] = dim;
+                            }
+                        }
+                        /* GNU aligned(N) trailing the declarator:
+                         * `unsigned char buf[N] __attribute__((aligned(16)));` */
+                        {
+                            size_t probe = 0;
+                            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                                if (probe > gtype.align) {
+                                    gtype.align = probe;
+                                    if (gtype.size < probe) gtype.size = probe;
+                                    if ((gtype.size % probe) != 0) {
+                                        gtype.size = (gtype.size + probe - 1) / probe * probe;
+                                    }
+                                }
                             }
                         }
                         if (array_unsized &&

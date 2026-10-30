@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-30T03:23:39Z
+timestamp: 2026-10-30T04:42:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -259,6 +259,16 @@ Function **definitions** inside a block (the GNU nested-function/trampoline exte
 - **Semantics** (both `semantic/expr.c` and `semantic/visitor.c`): element-wise arithmetic/bitwise/shift with a scalar operand (broadcast) or same-size vector yields the vector type; comparisons yield a same-size **integer-element** vector (float→int, double→long) via `type_vector_cmp_result`; same-size vector→vector casts are bitwise reinterprets; vector→scalar casts require matching sizes (GCC's `"different size"` rule); same-size vector→vector assignment is allowed (`type_compatible_assign`). `__builtin_shuffle(v1, v2, {idx...})` is typed as the first argument's vector type.
 - **Lowering & ABI**: see [IR & Register Allocation → Vector Lowering](./ir-and-regalloc.md#gnu-__vector_size__-vector-lowering-per-lane-scalar-expansion) — per-lane scalar expansion to stack temps, vector call ABI in `VREG_0`/`VREG_2` (≤ 16 B) or `sret` (> 16 B), double-width FP model for float lanes.
 - **Status**: all 17 `__vector_size__` c-torture tests pass on every `(-O0..-O3 × JIT/AOT)` config (2026-10-30).
+
+## GNU `__attribute__((aligned(N)))` Explicit Alignment
+
+`__attribute__((aligned(N)))` (and `__aligned__(N)`) is **supported** in every declaration context:
+
+- **Preprocessor marker** (`src/zero_cc/core/preprocessor.h`): the attribute is rewritten to the pseudo-keyword `__zc_aligned__(N)` (same pattern as `__zc_vector_size__`); N ≤ 4096.
+- **Parser** (`zero_cc_parse_aligned_attr()` in `src/zero_cc/parser/const_eval.h`): consumed in leading typedef position, after struct/union/enum bodies, after the base specifier, after the declarator (trailing), **between pointer chunks** (`int *__attribute__((aligned(16))) *p;` — `pr43188`), for file-scope globals (`src/zero_cc/jit/compile_unit.h`), struct members (`definitions.h`), and in `zero_cc_parse_type_name()` (both the main and `at_pos` variants, used by file-scope + const-eval).
+- **Type effect**: for scalars the local `ZeroCCType` gets `align = N` and `size` padded up to N; for struct/union types the **canonical registry entry** (`zero_cc_find_struct`) is mutated so every later use of the tag sees the padded size/alignment.
+- **Pointer-star parsing**: the star loops in `zero_cc_parse_type_name` also skip type qualifiers (`const`/`volatile`/`restrict`) and `__zc_aligned__` markers between chunks — `int *const *p;` (previously a parse error at file scope) now works.
+- **Status**: `20010904-1/2`, `pr108064`, `pr122000`, `pr65369`, `pr91597`, `strct-pack-1/2`, `struct-cpy-1`, `960117-1`, `pr43188` all pass on every config (2026-10-31).
 
 ## Parameter Representation & C99/C11 Translation Limits (`ZERO_CC_MAX_PARAMS`)
 

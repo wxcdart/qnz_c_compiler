@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-30T03:23:39Z
+timestamp: 2026-10-30T04:42:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,10 +46,11 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,216** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+20 from the `__vector_size__` feature: 18 `execute/` tests promoted from MISCOMPILE, 2 `compile/` tests from REJECT) |
-| **`REJECT`** | **673** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) |
-| **`SKIP-C89`** | **688** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (+20: 13 `compile/` + 7 `execute/` nested-function tests — `gcc -pedantic-errors` rejects nested definitions, "ISO C forbids nested functions") |
-| **`MISCOMPILE`** | **23** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` (-18: all 17 `__vector_size__` tests plus `pr71626-2` now pass — see the vector-attribute feature entry below. The 23 remaining are all true C99/C11 correctness bugs, all-config failures) |
+| **`PASS`** | **2,242** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+26 since the vector-attribute feature: `aligned(N)` support promoted 15 `compile/`+`execute/` tests from REJECT, and 11 correctness fixes (signed-const shift, float→int clamp, `va_arg` 16B structs, global float assign, stmt-expr scoping, `__builtin_{add,sub,mul}_overflow`, `ffs/ctz/clz`) promoted the rest) |
+| **`REJECT`** | **658** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-15 from `aligned(N)`; 2 VLA-goto-crossing tests now rejected cleanly instead of miscompiling: `20040811-1`, `vla-dealloc-1`) |
+| **`SKIP-C89`** | **685** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **10** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` (all true C99/C11 correctness bugs, all-config failures: `alias-3/4` GNU `alias` attr, `920710-1`/`960801-1` stdarg, `20071202-1`, `bitfld-3`, `pr47538`, `pr53084`, `pr60017`, `pr66233`) |
+| **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
 | **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |

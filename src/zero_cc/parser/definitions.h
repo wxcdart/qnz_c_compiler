@@ -282,6 +282,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 int64_t bw = zero_cc_eval_const_expr(c);
                 bit_width = (bw > 0) ? (uint8_t)bw : 0;
             }
+            /* GNU aligned(N) trailing the member declarator:
+             * `short s __attribute__((aligned(2), packed));` */
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > member_align) member_align = probe;
+                }
+            }
 
             if (in_bitfield && !is_bitfield) {
                 current_offset = bitfield_storage_offset + bitfield_storage_size;
@@ -622,6 +630,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 int64_t bw = zero_cc_eval_const_expr(c);
                 bit_width = (bw > 0) ? (uint8_t)bw : 0;
             }
+            /* GNU aligned(N) trailing the member declarator:
+             * `short s __attribute__((aligned(2), packed));` */
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > member_align) member_align = probe;
+                }
+            }
 
             if (is_union) {
                 if (struct_member_room(c, &st) && mname[0] != '\0') {
@@ -924,6 +940,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     int64_t bw = zero_cc_eval_const_expr(c);
                     c_bit_width = (bw > 0) ? (uint8_t)bw : 0;
                 }
+                /* GNU aligned(N) trailing the member declarator:
+                 * `short s __attribute__((aligned(2), packed));` */
+                {
+                    size_t probe = 0;
+                    while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                        if (probe > member_align) member_align = probe;
+                    }
+                }
 
                 if (is_union) {
                     if (struct_member_room(c, &st) && c_mname[0] != '\0') {
@@ -1176,6 +1200,13 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
     bool is_union = (c->tokens[c->token_pos].type == TK_UNION);
     if (c->tokens[c->token_pos].type == TK_STRUCT || is_union) {
         c->token_pos++;
+        /* GNU aligned(N) between the tag keyword and the tag name:
+         * `struct __attribute__((aligned(4))) S { ... };` (the alignment
+         * usually matches the natural alignment; consume the marker). */
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
+        }
         char st_name[128] = "";
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             snprintf(st_name, sizeof(st_name), "%s", c->tokens[c->token_pos].str_val);
@@ -1183,6 +1214,21 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
         }
         if (c->tokens[c->token_pos].type == TK_LBRACE) {
             ZeroCCType st = zero_cc_parse_struct_body(c, is_union);
+            /* GNU aligned(N) trailing the struct body:
+             * `struct x { ... } __attribute__((aligned(32))) X;`
+             * (preprocessor marker __zc_aligned__(N)). Raise the struct's
+             * alignment and pad its size to a multiple of N before the
+             * tag/alias/typedef registrations so every later use sees it. */
+            {
+                size_t probe = 0;
+                if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > st.align) {
+                        st.align = probe;
+                        if (st.size < probe) st.size = probe;
+                        if ((st.size % probe) != 0) st.size = (st.size + probe - 1) / probe * probe;
+                    }
+                }
+            }
             if (st_name[0] != '\0') {
                 snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
                 zero_cc_register_struct(c, st_name, st);
@@ -1365,6 +1411,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     /* GNU vector attribute leading the typedef base:
      * `typedef __attribute__((__vector_size__(16))) short V;` */
     size_t vec_attr_size = 0;
+    size_t align_attr_val = 0;
     {
         size_t save = c->token_pos;
         size_t probe = 0;
@@ -1377,6 +1424,20 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
                 t = nt;
             } else {
                 c->token_pos = save;
+            }
+        }
+        if (vec_attr_size == 0) {
+            size_t save2 = c->token_pos;
+            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                ZeroCCTokType nt = c->token_pos < c->token_count ? c->tokens[c->token_pos].type : TK_EOF;
+                if (nt == TK_INT || nt == TK_CHAR || nt == TK_SHORT || nt == TK_LONG ||
+                    nt == TK_SIGNED || nt == TK_UNSIGNED || nt == TK_FLOAT_KW ||
+                    nt == TK_DOUBLE_KW || nt == TK_BOOL_KW || nt == TK_VOID) {
+                    align_attr_val = probe;
+                    t = nt;
+                } else {
+                    c->token_pos = save2;
+                }
             }
         }
     }
@@ -1429,9 +1490,19 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         if (vec_attr_size == 0 && zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
             vec_attr_size = probe;
         }
+        if (align_attr_val == 0 && zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+            align_attr_val = probe;
+        }
     }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ttype)) {
         ttype = zero_cc_type_vector(&ttype, vec_attr_size);
+    }
+    if (align_attr_val > 0 && align_attr_val > ttype.align) {
+        ttype.align = align_attr_val;
+        if (ttype.size < align_attr_val) ttype.size = align_attr_val;
+        if ((ttype.size % align_attr_val) != 0) {
+            ttype.size = (ttype.size + align_attr_val - 1) / align_attr_val * align_attr_val;
+        }
     }
     bool is_ptr = false;
     while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }

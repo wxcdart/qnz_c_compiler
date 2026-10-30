@@ -944,6 +944,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
      * below sees the real base type. It may also trail the base specifier
      * (consumed just before the declarator below). */
     size_t vec_attr_size = 0;
+    size_t align_attr_val = 0;
     {
         size_t save = c->token_pos;
         size_t probe = 0;
@@ -953,6 +954,17 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 t = c->tokens[c->token_pos].type;
             } else {
                 c->token_pos = save; /* not a declaration; leave tokens alone */
+            }
+        }
+        if (vec_attr_size == 0) {
+            size_t save2 = c->token_pos;
+            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                    align_attr_val = probe;
+                    t = c->tokens[c->token_pos].type;
+                } else {
+                    c->token_pos = save2;
+                }
             }
         }
     }
@@ -1036,6 +1048,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         }
         if (type_tok == TK_STRUCT || type_tok == TK_UNION || type_tok == TK_ENUM) {
+            /* GNU aligned(N) between the tag keyword and the tag name:
+             * `struct __attribute__((aligned(4))) S { ... };` - consume the
+             * marker so the real tag name follows. */
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
+            }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 type_start_pos = c->token_pos;
                 c->token_pos++;
@@ -1074,13 +1093,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ZeroCCDeclarator decl;
         zero_cc_declarator_init(&decl);
         /* Vector attribute trailing the base specifier: `signed char
-         * __attribute__((__vector_size__(16))) V;` */
+         * __attribute__((__vector_size__(16))) V;` - and aligned(N):
+         * `struct x { ... } __attribute__((aligned(32))) X;` */
         if (vec_attr_size == 0) {
             size_t probe = 0;
             if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) vec_attr_size = probe;
         }
+        if (align_attr_val == 0) {
+            size_t probe = 0;
+            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) align_attr_val = probe;
+        }
         if (!zero_cc_parse_declarator(c, arena, ctx, &decl)) {
             return AST_NULL;
+        }
+        /* GNU aligned(N) trailing the declarator:
+         * `short a[4] __attribute__((aligned(16)));` - the marker follows
+         * the full declarator; pick it up here so the application below
+         * (and the ';' / initializer that follows) parses cleanly. */
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                if (probe > align_attr_val) align_attr_val = probe;
+            }
         }
 
         if (decl.name) {
@@ -1193,6 +1227,31 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 base_decl.is_atomic = is_atomic;
                 if (vec_attr_size > 0) {
                     base_decl = zero_cc_type_vector(&base_decl, vec_attr_size);
+                }
+                if (align_attr_val > 0) {
+                    /* GNU aligned(N): raise the type's alignment to N (C:
+                     * sizeof must then be a multiple of N). For struct/union
+                     * types the canonical size/align live in the registry
+                     * entry, so mutate it there (all later uses of the type
+                     * see the padded size) and refresh the local copy. */
+                    if (base_decl.tag == TYPE_STRUCT || base_decl.tag == TYPE_UNION) {
+                        ZeroCCType *st = zero_cc_find_struct(c, base_decl.struct_name);
+                        if (!st) st = zero_cc_find_typedef(c, base_decl.struct_name);
+                        if (st && align_attr_val > st->align) {
+                            st->align = align_attr_val;
+                            if (st->size < align_attr_val) st->size = align_attr_val;
+                            if ((st->size % align_attr_val) != 0) {
+                                st->size = (st->size + align_attr_val - 1) / align_attr_val * align_attr_val;
+                            }
+                            base_decl = *st;
+                        }
+                    } else if (align_attr_val > base_decl.align) {
+                        base_decl.align = align_attr_val;
+                        if (base_decl.size < align_attr_val) base_decl.size = align_attr_val;
+                        if ((base_decl.size % align_attr_val) != 0) {
+                            base_decl.size = (base_decl.size + align_attr_val - 1) / align_attr_val * align_attr_val;
+                        }
+                    }
                 }
 
                 ZeroCCType decl_type = zero_cc_declarator_apply(&decl, base_decl);

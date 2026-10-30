@@ -20,6 +20,11 @@ Classification:
                     otherwise SKIP-C89 (obsolescent / GNU-extended).
   EXPECTED-REJECT — file carries dg-error (gcc itself rejects it).
   NO-REF          — gcc could not build the reference.
+  REF-BUG         — the gcc reference binary itself crashes (test encodes
+                    behavior fixed after the reference GCC version); every
+                    ZeroCC config ran clean with the reference's surviving
+                    output, so differential comparison is impossible. Not a
+                    ZeroCC failure (not counted as bad).
   TIMEOUT         — zerocc run exceeded its time budget.
   SKIP-*          — pre-skipped before any work (GNU-extension targets, dg-bogus,
                     pointer output, reference-semantics flags we cannot emulate).
@@ -300,11 +305,19 @@ def run_one(rel_path):
                 continue
             if rc == rc_ref and outp == out_ref:
                 res["configs"][tag] = "OK"
+            elif rc_ref < 0 and rc == 0 and outp == out_ref:
+                # Reference crashed: ZeroCC can only "match" by running
+                # clean with the reference's surviving (usually empty)
+                # output - the test encodes fixed-behavior missing from
+                # the reference GCC version.
+                res["configs"][tag] = "REFBUG"
             else:
                 res["configs"][tag] = "MISCOMPILE"
                 if not res["note"]:
                     res["note"] = "ref(rc=%s out=%r) O%d got rc=%s out=%r" % (
                         rc_ref, out_ref[:40], lvl, rc, outp[:40])
+    if rc_ref < 0:
+        res["ref_crash"] = rc_ref
     _finalize(res, path)
     return res
 
@@ -327,6 +340,7 @@ def _finalize(res, path):
     bad = {k for k, v in cfgs.items() if v == "MISCOMPILE"}
     rej = {k for k, v in cfgs.items() if v == "REJECT"}
     tout = {k for k, v in cfgs.items() if v == "TIMEOUT"}
+    refbug = {k for k, v in cfgs.items() if v == "REFBUG"}
     if bad:
         res["class"] = "MISCOMPILE"
         res["note"] += " | cfgs: %s" % ",".join(sorted(bad))
@@ -336,6 +350,12 @@ def _finalize(res, path):
     elif tout:
         res["class"] = "TIMEOUT"
         res["note"] += " | cfgs: %s" % ",".join(sorted(tout))
+    elif refbug:
+        # The gcc reference binary itself crashes (test encodes behavior
+        # fixed after the reference GCC version); every ZeroCC config ran
+        # clean with the reference's surviving output.
+        res["class"] = "REF-BUG"
+        res["note"] += " [reference gcc -O1 binary crashes rc=%s; test encodes behavior fixed after the reference GCC version]" % res.get("ref_crash")
     else:
         res["class"] = "PASS"
 

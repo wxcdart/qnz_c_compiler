@@ -218,6 +218,43 @@ static bool zero_cc_binop_is_unsigned(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     return (lu || ru);
 }
 
+/* --- __builtin_{add,sub,mul}_overflow helpers ------------------------- */
+/* 0/1 temp holding (a <cc> b) over already-computed values. */
+static int zc_ovf_cmp_set(ZeroCCCompiler *c, int a, int b, int cc) {
+    int t = c->next_temp_id++;
+    ir_emit_cmp(a, b);
+    ir_emit_cond_set(t, cc);
+    return t;
+}
+
+/* 0/1 temp holding (a <cc> imm). */
+static int zc_ovf_cmp_set_imm(ZeroCCCompiler *c, int a, int64_t imm, int cc) {
+    int b = c->next_temp_id++;
+    ir_emit_mov_imm(b, imm);
+    return zc_ovf_cmp_set(c, a, b, cc);
+}
+
+static int zc_ovf_or(ZeroCCCompiler *c, int a, int b) {
+    int t = c->next_temp_id++;
+    ir_emit_or(t, a, b);
+    return t;
+}
+
+static int zc_ovf_and(ZeroCCCompiler *c, int a, int b) {
+    int t = c->next_temp_id++;
+    ir_emit_and(t, a, b);
+    return t;
+}
+
+/* 1 - a for a 0/1 temp (logical NOT). */
+static int zc_ovf_not1(ZeroCCCompiler *c, int a) {
+    int one = c->next_temp_id++;
+    ir_emit_mov_imm(one, 1);
+    int t = c->next_temp_id++;
+    ir_emit_xor(t, a, one);
+    return t;
+}
+
 /* Compute the address of the final member of a multi-segment member
  * chain (o.p->v, a.b.c, p->a->b, ...) - C5. The flat "sum all offsets"
  * model cannot dereference intermediate pointer members, so the segments
@@ -2459,6 +2496,52 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return int_res_temp;
                 }
                 int int_res_temp = c->next_temp_id++;
+                /* Out-of-range float -> int: clamp to the target's range
+                 * (GCC -fno-trapping-math semantics; C99 6.3.1.4 leaves it
+                 * undefined): (int)2147483648.0f must be INT_MAX,
+                 * (unsigned)(-1.0) must be 0. Two FP compares and
+                 * conditional FP replaces keep the value in the FP model. */
+                if (cast_ti) {
+                    size_t w = type_size(cast_ti);
+                    bool uns = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                    if (w == 1 || w == 2 || w == 4 || w == 8) {
+                        double upper_b, lower_b, upper_c, lower_c;
+                        if (uns) {
+                            upper_b = (w == 1) ? 256.0 : (w == 2) ? 65536.0 : (w == 4) ? 4294967296.0 : 18446744073709551616.0;
+                            upper_c = (w == 1) ? 255.0 : (w == 2) ? 65535.0 : (w == 4) ? 4294967295.0 : 18446744073709551615.0;
+                            lower_b = 0.0;
+                            lower_c = 0.0;
+                        } else {
+                            upper_b = (w == 1) ? 128.0 : (w == 2) ? 32768.0 : (w == 4) ? 2147483648.0 : 9223372036854775808.0;
+                            upper_c = (w == 1) ? 127.0 : (w == 2) ? 32767.0 : (w == 4) ? 2147483647.0 : 9223372036854775807.0;
+                            lower_b = (w == 1) ? -128.0 : (w == 2) ? -32768.0 : (w == 4) ? -2147483648.0 : -9223372036854775808.0;
+                            lower_c = (w == 1) ? -128.0 : (w == 2) ? -32768.0 : (w == 4) ? -2147483648.0 : -9223372036854775808.0;
+                        }
+                        int n_bounds = (w == 8) ? 1 : 2;
+                        double bnd[2] = { upper_b, lower_b };
+                        double clp[2] = { upper_c, lower_c };
+                        size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+                        if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
+                        size_t ro = c->rodata_section.length;
+                        for (int k = 0; k < n_bounds; k++) {
+                            zero_cc_buf_put_bytes(&c->rodata_section, &bnd[k], sizeof(double));
+                            zero_cc_buf_put_bytes(&c->rodata_section, &clp[k], sizeof(double));
+                        }
+                        for (int k = 0; k < n_bounds; k++) {
+                            int bt = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)bt, (int64_t)(ro + 16 * k));
+                            int ct = c->next_temp_id++;
+                            ir_emit_cmp(result, bt);
+                            ir_emit_cond_set(ct, k == 0 ? CC_GE : CC_LT);
+                            uint16_t skip = c->ir_next_label++;
+                            ir_emit_je((uint16_t)ct, skip);
+                            int cv = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)cv, (int64_t)(ro + 16 * k + 8));
+                            ir_emit_fmov((uint16_t)result, (uint16_t)cv);
+                            ir_emit_label(skip);
+                        }
+                    }
+                }
                 ir_emit_cvttsd2si((uint16_t)int_res_temp, (uint16_t)result);
                 c->last_expr_is_float = 0;
                 /* cvttsd2si yields a 64-bit int; extend to the cast target
@@ -2658,6 +2741,45 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int addr_ovf_field = c->next_temp_id++;
                 ir_emit_add(addr_ovf_field, ap_addr, off_ovf);
 
+                size_t struct_sz = (t_t && (t_t->kind == TYPE_KIND_STRUCT || t_t->kind == TYPE_KIND_UNION)) ? type_size(t_t) : 0;
+                bool is_struct2 = (!is_fp && struct_sz > 8 && struct_sz <= 16);
+                if (is_struct2) {
+                    /* 16B (or 9-16B) struct va_arg: two 8-byte chunks, but
+                     * each chunk needs its OWN GP-exhaustion check - the
+                     * chunks can straddle the register-stack boundary (the
+                     * last register chunk and the first stack chunk, e.g.
+                     * 4 x 16B structs passed variadically: chunks 0-4 in
+                     * registers, chunks 5-7 on the caller's stack). */
+                    for (int ch = 0; ch < 2; ch++) {
+                        int cp = c->next_temp_id++;
+                        ir_emit_deref(cp, addr_ptr_field);    /* fresh stream ptr */
+                        int ce = c->next_temp_id++;
+                        ir_emit_deref(ce, addr_end_field);    /* fresh end sentinel */
+                        int cd = c->next_temp_id++;
+                        ir_emit_sub(cd, cp, ce);
+                        uint16_t o_lbl = c->ir_next_label++;
+                        uint16_t a_lbl = c->ir_next_label++;
+                        ir_emit_je((uint16_t)cd, o_lbl);
+                        int dst = (ch == 0) ? result_temp : VREG_2;
+                        ir_emit_deref(dst, cp);
+                        int n8 = c->next_temp_id++;
+                        ir_emit_mov_imm(n8, -8);
+                        int cp2 = c->next_temp_id++;
+                        ir_emit_add(cp2, cp, n8);
+                        ir_emit_store_64(cp2, addr_ptr_field);
+                        ir_emit_jmp(a_lbl);
+                        ir_emit_label(o_lbl);
+                        int co = c->next_temp_id++;
+                        ir_emit_deref(co, addr_ovf_field);
+                        ir_emit_deref(dst, co);
+                        int p8 = c->next_temp_id++;
+                        ir_emit_mov_imm(p8, 8);
+                        int co2 = c->next_temp_id++;
+                        ir_emit_add(co2, co, p8);
+                        ir_emit_store_64(co2, addr_ovf_field);
+                        ir_emit_label(a_lbl);
+                    }
+                } else {
                 int t_ptr = c->next_temp_id++;
                 ir_emit_deref(t_ptr, addr_ptr_field);
                 int t_end = c->next_temp_id++;
@@ -2665,8 +2787,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int t_diff = c->next_temp_id++;
                 ir_emit_sub(t_diff, t_ptr, t_end);
                 ir_emit_je((uint16_t)t_diff, ovf_label);
-
-                size_t struct_sz = (t_t && (t_t->kind == TYPE_KIND_STRUCT || t_t->kind == TYPE_KIND_UNION)) ? type_size(t_t) : 0;
 
                 /* Save-area path. The save slots extend toward MORE
                  * negative offsets (slot i at -(base + i*8)), so the
@@ -2680,18 +2800,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int t_ptr2 = c->next_temp_id++;
                     ir_emit_add(t_ptr2, t_ptr, t_neg8);
                     ir_emit_store_64(t_ptr2, addr_ptr_field);
-                } else if (struct_sz > 8 && struct_sz <= 16) {
-                    ir_emit_deref(result_temp, t_ptr);
-                    int t_neg8 = c->next_temp_id++;
-                    ir_emit_mov_imm(t_neg8, -8);
-                    int t_ptr2 = c->next_temp_id++;
-                    ir_emit_add(t_ptr2, t_ptr, t_neg8);
-                    ir_emit_deref(VREG_2, t_ptr2);
-                    int t_neg16 = c->next_temp_id++;
-                    ir_emit_mov_imm(t_neg16, -16);
-                    int t_ptr3 = c->next_temp_id++;
-                    ir_emit_add(t_ptr3, t_ptr, t_neg16);
-                    ir_emit_store_64(t_ptr3, addr_ptr_field);
                 } else {
                     ir_emit_deref(result_temp, t_ptr);
                     int t_neg8 = c->next_temp_id++;
@@ -2715,18 +2823,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int t_ovf2 = c->next_temp_id++;
                     ir_emit_add(t_ovf2, t_ovf, t_pos8);
                     ir_emit_store_64(t_ovf2, addr_ovf_field);
-                } else if (struct_sz > 8 && struct_sz <= 16) {
-                    ir_emit_deref(result_temp, t_ovf);
-                    int t_pos8 = c->next_temp_id++;
-                    ir_emit_mov_imm(t_pos8, 8);
-                    int t_ovf2 = c->next_temp_id++;
-                    ir_emit_add(t_ovf2, t_ovf, t_pos8);
-                    ir_emit_deref(VREG_2, t_ovf2);
-                    int t_pos16 = c->next_temp_id++;
-                    ir_emit_mov_imm(t_pos16, 16);
-                    int t_ovf3 = c->next_temp_id++;
-                    ir_emit_add(t_ovf3, t_ovf, t_pos16);
-                    ir_emit_store_64(t_ovf3, addr_ovf_field);
                 } else {
                     ir_emit_deref(result_temp, t_ovf);
                     int t_pos8 = c->next_temp_id++;
@@ -2736,6 +2832,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_store_64(t_ovf2, addr_ovf_field);
                 }
                 ir_emit_label(end_label);
+                }
 
                 /* Narrow/widen integer targets to their true C width
                  * (values arrived int-promoted / zero-extended). */
@@ -3820,6 +3917,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 1;
                         return flt_temp;
                     }
+                    if (c->last_expr_is_float) {
+                        /* float/double RHS -> integer global: truncate to the
+                         * global's integer type (C99 6.3.1.3) BEFORE the
+                         * integer store - the raw IEEE-754 bit pattern is not
+                         * the value. Mirrors the local-variable path. */
+                        int int_temp = c->next_temp_id++;
+                        ir_emit_cvttsd2si((uint16_t)int_temp, (uint16_t)right_temp);
+                        if (gv_sz == 1 || gv_sz == 2 || gv_sz == 4) {
+                            bool gu = (gv->type.tag == TYPE_UINT8 || gv->type.tag == TYPE_UINT16 ||
+                                       gv->type.tag == TYPE_UINT32);
+                            if (gu) ir_emit_zext(int_temp, (int)gv_sz);
+                            else ir_emit_sext(int_temp, (int)gv_sz);
+                        }
+                        right_temp = int_temp;
+                        final_val = int_temp;
+                        c->last_expr_is_float = 0;
+                    }
                     if (is_compound) {
                         int curr_val = c->next_temp_id++;
                         if (gv_sz == 1) ir_emit_load_byte(curr_val, gaddr_temp);
@@ -4350,6 +4464,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             c->lowering.vla.block_depth++;
 
+            /* Statement-expression scope (C11 6.9.1.6): the block's
+             * declarations are invisible to later sibling statement
+             * expressions redeclaring the same name. The parser recorded
+             * the block's local-count range in aux.alt/aux.step (same
+             * metadata as NODE_BLOCK); cap the lookup here because this
+             * path lowers the block's statements directly instead of going
+             * through lower_node(NODE_BLOCK). */
+            int32_t saved_se_bound = c->local_lookup_bound;
+            if (block->aux.step != 0) c->local_lookup_bound = (int32_t)(block->aux.step - 1);
+
             int res_temp = TEMP_NONE;
             ASTRef stmt = block->left;
             while (stmt != AST_NULL) {
@@ -4363,6 +4487,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 stmt = snode->next;
             }
 
+            c->local_lookup_bound = saved_se_bound;
             c->lowering.vla.block_depth--;
             return res_temp;
         }
@@ -5039,6 +5164,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
                         .cond=CC_NE});
                     int t_res_zero = c->next_temp_id++;
+                    ir_emit_cmp(t_result, t_zero);
                     ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
                         .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
                         .cond=CC_EQ});
@@ -5082,6 +5208,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
                         .cond=CC_NE});
                     int t_res_zero = c->next_temp_id++;
+                    ir_emit_cmp(t_result, t_zero);
                     ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
                         .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
                         .cond=CC_EQ});
@@ -5231,7 +5358,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
              * result = 0; for i in 0..31: if ((x>>i)&1) && result==0:
              * result = i+1 */
             if (callee_is_ident && callee->s.str &&
-                strcmp(callee->s.str, "__builtin_ffs") == 0) {
+                (strcmp(callee->s.str, "__builtin_ffs") == 0 ||
+                 strcmp(callee->s.str, "__builtin_ffsl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_ffsll") == 0)) {
                 ASTRef f_arg = node->right;
                 int t_x = lower_expr(c, arena, f_arg);
                 /* t_one = 1 */
@@ -5258,6 +5387,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         .cond=CC_NE});
                     /* t_res_zero = (result == 0) */
                     int t_res_zero = c->next_temp_id++;
+                    ir_emit_cmp(t_result, t_zero);
                     ir_emit((Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
                         .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
                         .cond=CC_EQ});
@@ -5657,8 +5787,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
              * 1. Value predicates: __builtin_{add,sub,mul}_overflow_p(a, b, (type)0)
              *    Evaluates arguments and returns 0 (conservative: no overflow).
              * 2. Store variants: __builtin_{add,sub,mul}_overflow(a, b, &r)
-             *    Computes a OP b, stores result to *r according to target width,
-             *    and returns 0 in a fresh temp register (conservative: no overflow). */
+             *    Computes a OP b (operands normalized to 64 bits), stores the
+             *    truncated result to *r, and returns 1 when the mathematical
+             *    result does not fit in the type of *r. */
             if (callee_is_ident && callee->s.str &&
                 (strstr(callee->s.str, "overflow_p") != NULL ||
                  strstr(callee->s.str, "add_overflow") != NULL ||
@@ -5679,49 +5810,217 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                 int is_add = (strstr(callee->s.str, "add_overflow") != NULL);
                 int is_sub = (strstr(callee->s.str, "sub_overflow") != NULL);
+                int is_mul = !(is_add || is_sub);
                 ASTRef mo_arg = node->right;
+                ASTRef arg_a_ref = mo_arg;
                 int t_a = lower_expr(c, arena, mo_arg);
                 ZeroCCASTNode *an0 = zero_cc_ast_get(arena, mo_arg);
                 mo_arg = (an0 && an0->next != AST_NULL) ? an0->next : AST_NULL;
+                ASTRef arg_b_ref = mo_arg;
                 int t_b = lower_expr(c, arena, mo_arg);
                 ZeroCCASTNode *an1 = zero_cc_ast_get(arena, mo_arg);
                 mo_arg = (an1 && an1->next != AST_NULL) ? an1->next : AST_NULL;
                 int t_ptr = lower_expr(c, arena, mo_arg);
                 ZeroCCASTNode *an2 = zero_cc_ast_get(arena, mo_arg);
                 int width = an2 ? zc_atomic_access_width(c, an2) : 4;
+                int t_signed = 1;
+                /* *r target width/signedness: the argument may be `&x`
+                 * (address-of) or a bare pointer variable/parameter. */
+                ZeroCCASTNode *target = NULL;
                 if (an2 && an2->tag == NODE_UNOP && an2->aux.op == TK_AMP) {
-                    ZeroCCASTNode *target = zero_cc_ast_get(arena, an2->left);
-                    if (target && target->tag == NODE_IDENT) {
-                        ZeroCCSym *sym = zero_cc_find_local(c, target->s.str);
-                        if (sym && (sym->type.size == 1 || sym->type.size == 2 ||
-                                    sym->type.size == 4 || sym->type.size == 8)) {
-                            width = (int)sym->type.size;
-                        } else {
-                            ZeroCCGlobalVar *gv = find_global_var(target->s.str);
-                            if (gv && (gv->type.size == 1 || gv->type.size == 2 ||
-                                        gv->type.size == 4 || gv->type.size == 8)) {
-                                width = (int)gv->type.size;
-                            }
+                    target = zero_cc_ast_get(arena, an2->left);
+                } else if (an2 && an2->tag == NODE_IDENT) {
+                    target = an2;
+                }
+                if (target && target->tag == NODE_IDENT) {
+                    ZeroCCSym *sym = zero_cc_find_local(c, target->s.str);
+                    const ZeroCCType *zt = NULL;
+                    if (sym) zt = &sym->type;
+                    if (!zt) {
+                        ZeroCCGlobalVar *gv = find_global_var(target->s.str);
+                        if (gv) zt = &gv->type;
+                    }
+                    if (zt) {
+                        const ZeroCCType *pt = zt;
+                        if (pt->tag == TYPE_PTR && pt->base) pt = pt->base; /* bare pointer arg: look at the pointee */
+                        if (pt->size == 1 || pt->size == 2 || pt->size == 4 || pt->size == 8) {
+                            width = (int)pt->size;
+                            t_signed = !(pt->tag == TYPE_UINT8 || pt->tag == TYPE_UINT16 ||
+                                          pt->tag == TYPE_UINT32 || pt->tag == TYPE_UINT64);
                         }
+                    }
+                }
+                /* Real overflow detection (replaces the old conservative 0).
+                 * Each operand is normalized to 64 bits - zero-extended when
+                 * unsigned, sign-extended when signed - and the mathematical
+                 * a OP b is formed with 64-bit wrap; the overflow flag is 1
+                 * when that value cannot be represented in the type of *r
+                 * (width bytes, signedness t_signed). Mixed signed/unsigned
+                 * operand pairs use signed 64-bit math (exact for the operand
+                 * widths that occur in practice). */
+                int au = 0, bu = 0;
+                int aw = zero_cc_expr_int_info(c, arena, arg_a_ref, &au);
+                int bw = zero_cc_expr_int_info(c, arena, arg_b_ref, &bu);
+                int use_unsigned_math = (au && bu);
+                int t_a64 = c->next_temp_id++;
+                ir_emit_mov_reg(t_a64, t_a);
+                if (aw < 8) {
+                    if (au) {
+                        int m = c->next_temp_id++;
+                        ir_emit_mov_imm(m, (int64_t)((1ULL << (aw * 8)) - 1));
+                        ir_emit_and(t_a64, t_a64, m);
+                    } else {
+                        ir_emit_sext(t_a64, aw);
+                    }
+                }
+                int t_b64 = c->next_temp_id++;
+                ir_emit_mov_reg(t_b64, t_b);
+                if (bw < 8) {
+                    if (bu) {
+                        int m = c->next_temp_id++;
+                        ir_emit_mov_imm(m, (int64_t)((1ULL << (bw * 8)) - 1));
+                        ir_emit_and(t_b64, t_b64, m);
+                    } else {
+                        ir_emit_sext(t_b64, bw);
                     }
                 }
                 int t_res = c->next_temp_id++;
                 if (is_add) {
                     ir_emit((Instr){.op=OP_ADD,.temp_dest=(uint16_t)t_res,
-                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                        .temp_src1=(uint16_t)t_a64,.temp_src2=(uint16_t)t_b64});
                 } else if (is_sub) {
                     ir_emit((Instr){.op=OP_SUB,.temp_dest=(uint16_t)t_res,
-                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                        .temp_src1=(uint16_t)t_a64,.temp_src2=(uint16_t)t_b64});
                 } else {
                     ir_emit((Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_res,
-                        .temp_src1=(uint16_t)t_a,.temp_src2=(uint16_t)t_b});
+                        .temp_src1=(uint16_t)t_a64,.temp_src2=(uint16_t)t_b64});
                 }
                 if (width == 1) ir_emit_store_byte(t_res, t_ptr);
                 else if (width == 2) ir_emit_store_16(t_res, t_ptr);
                 else if (width == 8) ir_emit_store_64(t_res, t_ptr);
                 else ir_emit_store_32(t_res, t_ptr);
-                int t_ovf = c->next_temp_id++;
-                ir_emit_mov_imm(t_ovf, 0);
+                int t_ovf;
+                if (use_unsigned_math) {
+                    uint64_t target_hi = (width == 8)
+                        ? (t_signed ? (uint64_t)1 << 63 : UINT64_MAX)
+                        : ((uint64_t)1 << (t_signed ? (width * 8 - 1) : (width * 8)));
+                    uint64_t target_lo = t_signed
+                        ? ((width == 8) ? (uint64_t)1 << 63 : (uint64_t)(UINT64_MAX - (((uint64_t)1 << (width * 8 - 1)) - 1)))
+                        : 0;
+                    if (is_mul) {
+                        /* P = a*b (a,b >= 0) fits the target iff
+                         * (b == 0) || (a <= LIMIT / b); the division is
+                         * branch-guarded against a zero divisor. */
+                        uint64_t limit = t_signed ? (target_hi - 1)
+                                                  : (width == 8 ? UINT64_MAX : ((uint64_t)1 << (width * 8)) - 1);
+                        int t_lim = c->next_temp_id++;
+                        ir_emit_mov_imm(t_lim, (int64_t)limit);
+                        int t_bz = zc_ovf_cmp_set_imm(c, t_b64, 0, CC_EQ);
+                        int lab_no = c->ir_next_label++;
+                        ir_emit_jne((uint16_t)t_bz, (uint16_t)lab_no);
+                        int t_q = c->next_temp_id++;
+                        ir_emit_div(t_q, t_lim, t_b64);
+                        ir_mark_last_unsigned(1);
+                        int t_gt = zc_ovf_cmp_set(c, t_a64, t_q, CC_FLT_GT);
+                        ir_emit_label(lab_no);
+                        t_ovf = zc_ovf_and(c, zc_ovf_not1(c, t_bz), t_gt);
+                    } else if (is_add) {
+                        /* carry64 = (res < a) unsigned; the mathematical sum
+                         * exceeds the target when carry64 or the top bits
+                         * (above the target width) are set. */
+                        int t_carry = zc_ovf_cmp_set(c, t_res, t_a64, CC_FLT_LT);
+                        if (width < 8) {
+                            int t_hi = zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_GE);
+                            t_ovf = zc_ovf_or(c, t_carry, t_hi);
+                        } else {
+                            t_ovf = (t_signed ? zc_ovf_or(c, t_carry, zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_GE)) : t_carry);
+                        }
+                    } else {
+                        /* borrow = (a < b) unsigned; the mathematical
+                         * difference a-b (negative when borrow) fits the
+                         * target per the target's range. */
+                        int t_borrow = zc_ovf_cmp_set(c, t_a64, t_b64, CC_FLT_LT);
+                        if (!t_signed) {
+                            if (width < 8) {
+                                t_ovf = zc_ovf_or(c, t_borrow, zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_GE));
+                            } else {
+                                t_ovf = t_borrow;
+                            }
+                        } else if (width < 8) {
+                            /* -2^(W-1) <= a-b < 2^(W-1): with borrow, res
+                             * must be >= 2^64 - 2^(W-1); without, < 2^(W-1). */
+                            int t_ge = zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_GE);
+                            int t_lt = zc_ovf_cmp_set_imm(c, t_res, target_lo, CC_FLT_LT);
+                            t_ovf = zc_ovf_or(c, zc_ovf_and(c, t_borrow, t_lt),
+                                              zc_ovf_and(c, zc_ovf_not1(c, t_borrow), t_ge));
+                        } else {
+                            int t_ge = zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_GE);
+                            int t_lt = zc_ovf_cmp_set_imm(c, t_res, target_hi, CC_FLT_LT);
+                            t_ovf = zc_ovf_or(c, zc_ovf_and(c, t_borrow, t_lt),
+                                              zc_ovf_and(c, zc_ovf_not1(c, t_borrow), t_ge));
+                        }
+                    }
+                } else {
+                    /* Signed 64-bit math: t_res is the exact a OP b for the
+                     * operand widths in use (|a|,|b| <= 2^32). */
+                    if (is_mul) {
+                        /* Extra wrap guard: if the true product exceeded
+                         * 64 bits, res/a != b catches it (division guarded). */
+                        int t_az = zc_ovf_cmp_set_imm(c, t_a64, 0, CC_EQ);
+                        int lab_no = c->ir_next_label++;
+                        ir_emit_jne((uint16_t)t_az, (uint16_t)lab_no);
+                        int t_q = c->next_temp_id++;
+                        ir_emit_div(t_q, t_res, t_a64);
+                        int t_ne = zc_ovf_cmp_set(c, t_q, t_b64, CC_NE);
+                        ir_emit_label(lab_no);
+                        int t_wrap = zc_ovf_and(c, zc_ovf_not1(c, t_az), t_ne);
+                        if (!t_signed) {
+                            int t_neg = zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT);
+                            t_ovf = zc_ovf_or(c, t_neg, t_wrap);
+                            if (width < 8) {
+                                t_ovf = zc_ovf_or(c, t_ovf, zc_ovf_cmp_set_imm(c, t_res, ((uint64_t)1 << (width * 8)), CC_FLT_GE));
+                            }
+                        } else if (width < 8) {
+                            int t_lo = zc_ovf_cmp_set_imm(c, t_res, (-((uint64_t)1 << (width * 8 - 1))), CC_LT);
+                            int t_hi = zc_ovf_cmp_set_imm(c, t_res, (((uint64_t)1 << (width * 8 - 1)) - 1), CC_GT);
+                            t_ovf = zc_ovf_or(c, zc_ovf_or(c, t_lo, t_hi), t_wrap);
+                        } else {
+                            t_ovf = t_wrap;
+                        }
+                    } else {
+                        if (!t_signed) {
+                            int t_neg = zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT);
+                            t_ovf = t_neg;
+                            if (width < 8) {
+                                t_ovf = zc_ovf_or(c, t_ovf, zc_ovf_cmp_set_imm(c, t_res, ((uint64_t)1 << (width * 8)), CC_FLT_GE));
+                            }
+                        } else if (width < 8) {
+                            int t_lo = zc_ovf_cmp_set_imm(c, t_res, (-((uint64_t)1 << (width * 8 - 1))), CC_LT);
+                            int t_hi = zc_ovf_cmp_set_imm(c, t_res, (((uint64_t)1 << (width * 8 - 1)) - 1), CC_GT);
+                            t_ovf = zc_ovf_or(c, t_lo, t_hi);
+                        } else {
+                            /* 64-bit target: the exact sum/diff fits unless
+                             * both operands share the sign that res lost. */
+                            if (is_add) {
+                                int t1 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GT),
+                                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GT));
+                                t1 = zc_ovf_and(c, t1, zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT));
+                                int t2 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT),
+                                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT));
+                                t2 = zc_ovf_and(c, t2, zc_ovf_cmp_set(c, t_res, 0, CC_GE));
+                                t_ovf = zc_ovf_or(c, t1, t2);
+                            } else {
+                                int t1 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GT),
+                                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT));
+                                t1 = zc_ovf_and(c, t1, zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT));
+                                int t2 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT),
+                                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GT));
+                                t2 = zc_ovf_and(c, t2, zc_ovf_cmp_set(c, t_res, 0, CC_GE));
+                                t_ovf = zc_ovf_or(c, t1, t2);
+                            }
+                        }
+                    }
+                }
                 c->last_expr_is_float = 0;
                 return t_ovf;
             }

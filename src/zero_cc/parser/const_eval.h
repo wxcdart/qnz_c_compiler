@@ -75,6 +75,38 @@ static inline int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size
     return 1;
 }
 
+/* Parse a `__zc_aligned__( <const-expr> )` marker - emitted by the
+ * preprocessor in place of `__attribute__((aligned(N)))` / `__aligned__(N)`
+ * (see the __attribute__ special case in core/preprocessor.h). Same
+ * shape as zero_cc_parse_vector_attr: on success consumes the marker and
+ * returns 1 with *out_align = N (bytes); returns 0 (leaving *pos
+ * untouched) when the current token is not the marker. N must be positive
+ * and <= 4096 bytes. */
+static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align) {
+    if (!c || !out_align || !pos || *pos >= c->token_count) return 0;
+    ZeroCCToken *t = &c->tokens[*pos];
+    const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
+    if (!id || strcmp(id, "__zc_aligned__") != 0) return 0;
+    if (*pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_LPAREN) return 0;
+    size_t save = *pos;
+    size_t save_tp = c->token_pos;
+    c->token_pos = save + 2; /* consume ident + '(' */
+    int64_t n = zero_cc_eval_const_expr(c);
+    size_t after = c->token_pos;
+    c->token_pos = save_tp; /* restore: advance *pos on success below */
+    if (after >= c->token_count || c->tokens[after].type != TK_RPAREN) {
+        *pos = save;
+        return 0;
+    }
+    *pos = after + 1; /* consume ')' */
+    if (n <= 0 || n > 4096) {
+        *pos = save;
+        return 0;
+    }
+    *out_align = (size_t)n;
+    return 1;
+}
+
 static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     ZeroCCTokType t = c->tokens[pos].type;
     if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
@@ -326,6 +358,7 @@ static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos)
 
 static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
 {
+    size_t left_begin = *pos;
     int64_t left = parse_additive(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
@@ -335,8 +368,23 @@ static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
             unsigned long ul = (unsigned long)left;
             unsigned long ur = (unsigned long)right;
             if (ur >= 64) ur = 0; /* avoid UB; C99 leaves it undefined anyway */
-            if (op == TK_SHL) left = (int64_t)(ul << ur);
-            else left = (int64_t)(ul >> ur);
+            if (op == TK_SHL) {
+                left = (int64_t)(ul << ur);
+            } else {
+                /* C99 6.5.7: >> on a SIGNED operand is an arithmetic (sign-
+                 * extending) shift; on unsigned it is logical. The evaluator
+                 * has no operand types, so use the literal's suffix when the
+                 * left operand is a bare integer literal (bit0 of
+                 * int_suffix = U) and default to arithmetic - the signed
+                 * case, matching GCC for `0x...LL >> n` initializers. */
+                bool l_unsigned = (c->tokens[left_begin].type == TK_INT) &&
+                    (c->tokens[left_begin].int_suffix & 0x1);
+                if (l_unsigned) {
+                    left = (int64_t)(ul >> ur);
+                } else {
+                    left = (int64_t)left >> ur;
+                }
+            }
         } else {
             break;
         }
@@ -1156,6 +1204,14 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
         (*pos)++;
+        while (*pos < c->token_count &&
+               (c->tokens[*pos].type == TK_CONST ||
+                c->tokens[*pos].type == TK_VOLATILE ||
+                c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, pos, &probe)) { /* skip */ }
+        }
     }
     while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
         (*pos)++;
@@ -1197,6 +1253,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
      * either leading (`__attribute__(...) short g;`) or trailing the base
      * specifier (`short __attribute__(...) g;`). */
     size_t vec_attr_size = 0;
+    size_t align_attr_val = 0;
     {
         size_t save = c->token_pos;
         size_t probe = 0;
@@ -1205,6 +1262,16 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
                 vec_attr_size = probe;
             } else {
                 c->token_pos = save;
+            }
+        }
+        if (vec_attr_size == 0) {
+            size_t save2 = c->token_pos;
+            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                if (c->token_pos < c->token_count && zero_cc_tok_is_type_start(c, c->token_pos)) {
+                    align_attr_val = probe;
+                } else {
+                    c->token_pos = save2;
+                }
             }
         }
     }
@@ -1341,13 +1408,38 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     }
     /* Vector attribute trailing the base specifier: consume it (otherwise
      * the marker identifier would be read as the variable name) and wrap
-     * the base type in a vector. */
+     * the base type in a vector. Same for aligned(N): raise the type's
+     * alignment (and pad struct sizes) to the given value. */
     if (vec_attr_size == 0) {
         size_t probe = 0;
         if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) vec_attr_size = probe;
     }
+    if (align_attr_val == 0) {
+        size_t probe = 0;
+        if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) align_attr_val = probe;
+    }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
         ty = zero_cc_type_vector(&ty, vec_attr_size);
+    }
+    if (align_attr_val > 0) {
+        if (ty.tag == TYPE_STRUCT || ty.tag == TYPE_UNION) {
+            ZeroCCType *st = zero_cc_find_struct(c, ty.struct_name);
+            if (!st) st = zero_cc_find_typedef(c, ty.struct_name);
+            if (st && align_attr_val > st->align) {
+                st->align = align_attr_val;
+                if (st->size < align_attr_val) st->size = align_attr_val;
+                if ((st->size % align_attr_val) != 0) {
+                    st->size = (st->size + align_attr_val - 1) / align_attr_val * align_attr_val;
+                }
+                ty = *st;
+            }
+        } else if (align_attr_val > ty.align) {
+            ty.align = align_attr_val;
+            if (ty.size < align_attr_val) ty.size = align_attr_val;
+            if ((ty.size % align_attr_val) != 0) {
+                ty.size = (ty.size + align_attr_val - 1) / align_attr_val * align_attr_val;
+            }
+        }
     }
     /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float).
      * A parenthesized declarator that contains an identifier (`(*fp)(void)`)
@@ -1419,10 +1511,18 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         }
         }
     }
-    // Parse pointer stars
+    // Parse pointer stars (qualifiers and GNU aligned(N) markers may sit
+    // between chunks: `int *const *p;`, `int *__attr__((aligned(16))) *p;`)
     while (c->tokens[c->token_pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
         c->token_pos++;
+        while (c->tokens[c->token_pos].type == TK_CONST ||
+               c->tokens[c->token_pos].type == TK_VOLATILE ||
+               c->tokens[c->token_pos].type == TK_RESTRICT) c->token_pos++;
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
+        }
     }
     // Parse array brackets: we ignore size for alignment
     while (c->tokens[c->token_pos].type == TK_LBRACKET) {
