@@ -1,5 +1,18 @@
 # ZeroCC Changelog
 
+## [Chunk M3 Part 0 / Sprint 59] - 2026-10-30 - Nested-Function GNU Extension: Clean Diagnostic (MISCOMPILE 48 → 41, +20 SKIP-C89)
+
+- **Nested Function Definition Diagnostic (`parser/ast_stmt.h`)**:
+  - The statement parser silently accepted function *definitions* inside a block (the GNU nested-function/trampoline extension): AOT emitted `call Foo` to a symbol that was never defined (link failure — `execute/pr103405.c`) and JIT compiled them with register-file aliasing and no closure capture (SIGSEGV — `execute/nestfunc-7.c`).
+  - The definition path (function declarator + `TK_LBRACE` in statement context; file-scope definitions go through `zero_cc_compile_top_level_decl`, untouched) now reports `error: nested function definition of '<name>' is not supported (GNU extension)` and skips the body with brace-depth counting so the enclosing function keeps parsing. Local function *prototypes* remain legal C (C99 6.9p15 forbids only definitions in blocks).
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **7 `execute/` MISCOMPILEs → `SKIP-C89`**: `nestfunc-7`, `pr103405`, `20010209-1`, `20030501-1` (the one runtime hang), `20040520-1`, `20090219-1`, `nest-stdar-1` — all were nested-function tests. `gcc -std=c11 -pedantic-errors` rejects nested definitions ("ISO C forbids nested functions"), so the gate triages them as `SKIP-C89` (same bucket as the other GNU-extension tests).
+  - **13 `compile/` tests PASS → `SKIP-C89`** (`20011023-1`, `20020309-1`, `20030418-1`, `20030716-1`, `20031011-1`, `20040310-1`, `20040317-3`, `20040323-1`, `20050119-1`, `951116-1`, `nested-2`, `nested-3`, `pr35006`): they only "passed" because compile-only mode never links/executes the unimplemented extension; now honestly classified.
+  - **`MISCOMPILE`**: 48 → **41** (remaining: 17 `__vector_size__` GNU-extension tests — pending clean-reject vs. 128-bit-vector feature decision — + 24 true C99/C11 correctness bugs). **`SKIP-C89`**: 668 → **688** (+20). **`PASS`**: 2,209 → **2,196**. Baseline re-recorded (`--update-baseline`, 714 bad).
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/diag_battery.py` baseline OK (8/8 categories) · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK.
+
+---
+
 ## [Chunk M2 Final / Sprint 59] - 2026-10-30 - Partial-Mode MISCOMPILE Burn-Down (PASS reaches 2,209, MISCOMPILE down to 48, partial-mode MISCOMPILEs → 0)
 
 - **Libc-Mapped `__builtin_*` Return Typing (`semantic/type.h`, `semantic/expr.c`, `semantic/visitor.c`)**:

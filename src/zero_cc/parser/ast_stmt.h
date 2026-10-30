@@ -1091,54 +1091,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 /* Function definition or prototype */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
-                    /* Function definition with body */
-                    c->token_pos++; // consume '{'
-                    ASTRef head = AST_NULL;
-                    ASTRef tail = AST_NULL;
-                    while (c->token_pos < c->token_count &&
-                           c->tokens[c->token_pos].type != TK_RBRACE &&
-                           c->tokens[c->token_pos].type != TK_EOF) {
-                        size_t entry_pos = c->token_pos;
-                        ASTRef s = zero_cc_parse_stmt_ast(c, arena, ctx);
-                        if (s != AST_NULL) {
-                            if (head == AST_NULL) {
-                                head = s;
-                                tail = s;
-                            } else {
-                                ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, tail);
-                                if (tail_node) tail_node->next = s;
-                                tail = s;
-                            }
-                            while (tail != AST_NULL) {
-                                ZeroCCASTNode *cur_node = zero_cc_ast_get(arena, tail);
-                                if (cur_node && cur_node->next != AST_NULL) {
-                                    tail = cur_node->next;
-                                } else {
-                                    break;
-                                }
-                            }
-                        } else if (c->token_pos == entry_pos) {
-                            diag_report_error_at_token(c, "unexpected token '%s' in statement",
-                                                       c->tokens[c->token_pos].str_val[0] ? c->tokens[c->token_pos].str_val : "unknown");
-                            zero_cc_synchronize_ast(c);
-                        }
+                    /* C99 6.9p15: function definitions may only appear at
+                     * file scope. A definition inside a block is the GNU
+                     * nested-function (trampoline) extension: ZeroCC does
+                     * not implement closure capture, AOT would emit a call
+                     * to a symbol that is never defined (link error) while
+                     * JIT silently aliases the register file. Reject it
+                     * cleanly and skip the body (brace-depth counted) so
+                     * the enclosing function keeps parsing. Local function
+                     * *prototypes* (the else branch below) remain legal C.
+                     * `gcc -pedantic-errors` rejects nested definitions
+                     * too, so the c-torture gate triages these as SKIP-C89
+                     * (execute/nestfunc-7.c, execute/pr103405.c). */
+                    diag_report_error_at_token(c,
+                        "nested function definition of '%s' is not supported (GNU extension)", vname);
+                    c->token_pos++; /* consume '{' */
+                    int bdepth = 1;
+                    while (c->token_pos < c->token_count && bdepth > 0) {
+                        if (c->tokens[c->token_pos].type == TK_LBRACE) bdepth++;
+                        else if (c->tokens[c->token_pos].type == TK_RBRACE) bdepth--;
+                        c->token_pos++;
                     }
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {
-                        c->token_pos++; // consume '}'
-                    }
-                    ASTRef body_ref = head;
-
-                    /* Create function node */
-                    ASTRef func_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
-                    ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
-                    func_node->line = line;
-                    func_node->col = col;
-                    func_node->s.str = zero_cc_intern_string(c, vname);
-                    func_node->s_len = strlen(func_node->s.str);
-                    func_node->left = param_list;   // parameter list
-                    func_node->right = body_ref;    // body
-                    decl_node_set_type(ctx, func_node, fn_ti);
-                    return func_ref;
+                    return AST_NULL;
                 } else {
                     /* Function prototype */
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {

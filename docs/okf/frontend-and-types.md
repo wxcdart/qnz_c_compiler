@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-30T00:52:20Z
+timestamp: 2026-10-30T01:09:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -245,6 +245,10 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
   - Semantic analysis in `src/zero_cc/semantic/visitor.c` and `src/zero_cc/semantic/expr.c` visits the block scope and propagates the type of the terminal expression statement (or `type_void()` if empty or terminating in non-expression statements).
   - Lowering in `src/zero_cc/ir/ast_lowering_expr.c` executes all leading statements and evaluates the last expression statement into the result virtual register.
   - Supports loops, nested statement expressions, and complex macros (e.g. `max(a, b)` with `__typeof__`).
+
+## GNU Nested Functions — Clean Rejection (C99 6.9p15)
+
+Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) are **rejected** with `error: nested function definition of '<name>' is not supported (GNU extension)`, emitted in the statement parser's function-definition path (`src/zero_cc/parser/ast_stmt.h`) and followed by a brace-depth-counted skip of the body so the enclosing function keeps parsing. The extension was previously *silently accepted* — AOT emitted `call` to a symbol that was never defined (link failure) and JIT aliased the register file without closure capture (crashes: c-torture `execute/nestfunc-7.c`, `execute/pr103405.c`). Local function **prototypes** remain legal C (declarations are allowed in blocks; C99 6.9p15 forbids only definitions). `gcc -std=c11 -pedantic-errors` rejects nested definitions too, so the c-torture gate triages these tests as `SKIP-C89`.
 
 ## Parameter Representation & C99/C11 Translation Limits (`ZERO_CC_MAX_PARAMS`)
 

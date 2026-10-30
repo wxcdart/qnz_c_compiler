@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-30T00:52:20Z
+timestamp: 2026-10-30T01:09:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -542,3 +542,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-30 — Updated `ir-and-regalloc.md`
 - Documented the Instr.width C99 narrow-int mark field and the pointer-result exclusion (no SEXT32 on pointer arithmetic)
+
+## 2026-10-30 — Updated `c-torture-gate.md`
+- Chunk M3 Part 0: nested-function definition diagnostic (GNU extension) — 7 execute MISCOMPILEs + 13 compile tests move to SKIP-C89; MISCOMPILE 48->41 (17 vector_size + 24 true bugs remain)
+
+## 2026-10-30 — Updated `frontend-and-types.md`
+- Documented GNU nested-function clean rejection (C99 6.9p15): definition path in statement parser errors and brace-skips; local prototypes remain legal
