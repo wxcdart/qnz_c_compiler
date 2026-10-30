@@ -1183,6 +1183,20 @@ static void x86_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE *o
     fprintf(out, "\tcvtss2si\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* Convert scalar single to scalar double - cvtss2sd */
+static void x86_emit_cvtss2sd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tcvtss2sd\t%%%s,%%%s\n", src_name, dst_name);
+}
+
+/* Convert scalar double to scalar single - cvtsd2ss */
+static void x86_emit_cvtsd2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tcvtsd2ss\t%%%s,%%%s\n", src_name, dst_name);
+}
+
 /* Vector compare scalar single - cmpss */
 static void x86_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int, int src2, int pred, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -1285,6 +1299,8 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vshufps_asm = x86_emit_vshufps_asm;
     be->emit_vcvt_si2ss_asm = x86_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = x86_emit_vcvt_ss2si_asm;
+    be->emit_cvtss2sd_asm = x86_emit_cvtss2sd_asm;
+    be->emit_cvtsd2ss_asm = x86_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = x86_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = x86_emit_vcmpsd_asm;
     be->emit_vpaddd_asm = x86_emit_vpaddd_asm;

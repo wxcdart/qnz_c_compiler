@@ -108,6 +108,14 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     mt.size = t.members[i].size ? t.members[i].size : 8;
                     mt.align = t.members[i].align ? t.members[i].align : 8;
                     mt.base = t.members[i].base;
+                } else if (t.members[i].tag == TYPE_USER_0) {
+                    /* GNU vector member: the member's own type is the vector
+                     * (base = the element type, size = total width). */
+                    memset(&mt, 0, sizeof(mt));
+                    mt.tag = t.members[i].tag;
+                    mt.size = t.members[i].size;
+                    mt.align = t.members[i].align;
+                    mt.base = t.members[i].base;
                 } else if (t.members[i].base) {
                     mt = *t.members[i].base;
                 } else {
@@ -146,6 +154,15 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             }
             ti->details.record.size = 4;
             ti->details.record.align = 4;
+            break;
+        }
+        case TYPE_USER_0: {  /* GNU vector type: base = element type */
+            if (t.base) {
+                TypeInfo *elem = zero_cc_type_to_typeinfo(perm, *t.base);
+                ti = type_vector(perm, elem ? elem : type_int(perm), t.size);
+            } else {
+                ti = type_vector(perm, type_int(perm), t.size);
+            }
             break;
         }
         default: ti = type_int(perm); break;
@@ -198,6 +215,11 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
                 t.size = 8;
                 t.align = 8;
             }
+            break;
+        }
+        case TYPE_KIND_VECTOR: {
+            ZeroCCType base_t = typeinfo_to_zero_cc_type(ti->details.array.base);
+            t = zero_cc_type_vector(&base_t, type_size(ti));
             break;
         }
         case TYPE_KIND_STRUCT:

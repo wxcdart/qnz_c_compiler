@@ -150,6 +150,22 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     return false;
 }
 
+/* Check if an AST reference evaluates to a GNU vector object in memory
+ * (an address temp). Vector-typed expressions lower to the vector's
+ * address: binops/unops produce a per-lane stack temp, idents decay
+ * (LEA), compound literals initialize in place. By-value vector call
+ * results are materialized into an aligned stack temp (9-16B from the
+ * VREG_0/VREG_2 pair, <=8B from VREG_0) and >16B (sret) results are the
+ * hidden buffer address - so a NODE_CALL always yields an address. */
+static inline bool ast_expr_is_vector_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
+    if (!node) return false;
+    TypeInfo *ti = ast_node_get_typeinfo(c, node);
+    if (!ti || !type_is_vector(ti)) return false;
+    return true;
+}
+
 int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                       int dst_addr, size_t struct_sz,

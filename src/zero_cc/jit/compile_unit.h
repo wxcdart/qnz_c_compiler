@@ -382,6 +382,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             bare_fn_ident = (probe + 1 < c->token_count &&
                 c->tokens[probe].type == TK_IDENT &&
                 c->tokens[probe + 1].type == TK_LPAREN &&
+                strcmp(c->tokens[probe].str_val, "__zc_vector_size__") != 0 &&
                 !zero_cc_find_typedef(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_struct(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_enum(c, c->tokens[probe].str_val));

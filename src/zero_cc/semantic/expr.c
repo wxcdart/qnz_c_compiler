@@ -204,12 +204,16 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
         case TK_PLUS:
         case '-':
         case TK_MINUS: {
-            /* Unary plus and minus: operand must be arithmetic */
-            if (!type_is_arithmetic(op_type)) {
+            /* Unary plus and minus: arithmetic operand, or a GNU vector
+             * (element-wise; the result keeps the vector type). */
+            if (type_is_vector(op_type)) {
+                res = (TypeInfo *)op_type;
+            } else if (type_is_arithmetic(op_type)) {
+                res = type_promote(ctx->perm_arena, op_type);
+            } else {
                 expr_error(ctx, node, "unary arithmetic operator requires arithmetic operand");
                 return NULL;
             }
-            res = type_promote(ctx->perm_arena, op_type);
             break;
         }
         case '!':
@@ -224,12 +228,16 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case '~':
         case TK_TILDE: {
-            /* Bitwise NOT: operand must be integer */
-            if (!type_is_integer(op_type)) {
+            /* Bitwise NOT: integer operand, or a GNU vector (element-wise;
+             * the result keeps the vector type). */
+            if (type_is_vector(op_type)) {
+                res = (TypeInfo *)op_type;
+            } else if (type_is_integer(op_type)) {
+                res = type_promote(ctx->perm_arena, op_type);
+            } else {
                 expr_error(ctx, node, "bitwise NOT requires integer operand");
                 return NULL;
             }
-            res = type_promote(ctx->perm_arena, op_type);
             break;
         }
         case TK_INC:
@@ -387,6 +395,7 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* Analyze and count arguments */
     size_t arg_count = 0;
+    TypeInfo *first_arg_t = NULL;
     ASTRef arg_ref = node->right;
     while (arg_ref != AST_NULL) {
         ZeroCCASTNode *arg_node = expr_get_node(ctx, arg_ref);
@@ -395,6 +404,9 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         TypeInfo *arg_t = expr_handle_expression(ctx, arg_node);
         if (!arg_t) {
             return NULL;
+        }
+        if (arg_count == 0) {
+            first_arg_t = arg_t;
         }
 
         /* Check parameter type match if within declared parameter count */
@@ -431,6 +443,14 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
     TypeInfo *res = fn_t->details.function.ret;
     if (!res) {
         res = type_void(ctx->perm_arena);
+    }
+
+    /* __builtin_shuffle(a, b) selects lanes from a/b by the index vector
+     * b: the result has a's (vector) type, not the implicit int. */
+    if (arg_count == 2 && first_arg_t && type_is_vector(first_arg_t) &&
+        callee && callee->tag == NODE_IDENT && callee->s.str &&
+        strcmp(callee->s.str, "__builtin_shuffle") == 0) {
+        res = first_arg_t;
     }
 
     expr_node_set_type(ctx, node, res);
@@ -670,14 +690,16 @@ TypeInfo *expr_handle_index(SemContext *ctx, ZeroCCASTNode *node) {
         return NULL;
     }
 
-    /* In C, one operand must be pointer/array, the other integer */
+    /* In C, one operand must be pointer/array, the other integer.
+     * A vector (GNU __attribute__((vector_size(N)))) behaves like a
+     * fixed-length array: `v[i]` is element i, not pointer arithmetic. */
     TypeInfo *ptr_side = NULL;
     TypeInfo *idx_side = NULL;
 
-    if (type_is_pointer(arr_t) || type_is_array(arr_t)) {
+    if (type_is_pointer(arr_t) || type_is_array(arr_t) || type_is_vector(arr_t)) {
         ptr_side = arr_t;
         idx_side = idx_t;
-    } else if (type_is_pointer(idx_t) || type_is_array(idx_t)) {
+    } else if (type_is_pointer(idx_t) || type_is_array(idx_t) || type_is_vector(idx_t)) {
         ptr_side = idx_t;
         idx_side = arr_t;
     } else {
@@ -694,6 +716,7 @@ TypeInfo *expr_handle_index(SemContext *ctx, ZeroCCASTNode *node) {
     if (type_is_pointer(ptr_side)) {
         elem_t = ptr_side->details.pointer.base;
     } else {
+        /* array or vector: element type in details.array.base */
         elem_t = ptr_side->details.array.base;
     }
 

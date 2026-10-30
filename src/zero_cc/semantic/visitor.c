@@ -264,7 +264,17 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 /* Comparison operators (<, <=, >, >=, ==, !=) always return int */
                 bool is_comparison = (op == '<' || op == '>' || op == TK_LT || op == TK_GT ||
                                       op == TK_LE || op == TK_GE || op == TK_EQ || op == TK_NE);
-                if (is_comparison) {
+                /* GNU vector: element-wise; the result keeps the vector
+                 * type. Comparisons of floating-point element vectors yield
+                 * a same-size integer-element vector (GCC semantics). */
+                if (type_is_vector(lt) || type_is_vector(rt)) {
+                    const TypeInfo *vec = type_is_vector(lt) ? lt : rt;
+                    if (is_comparison) {
+                        TypeInfo *cr = type_vector_cmp_result(ctx->perm_arena, vec);
+                        if (cr) res = cr;
+                    }
+                    if (!res) res = (TypeInfo *)vec;
+                } else if (is_comparison) {
                     res = type_int(ctx->perm_arena);
                 } else if (lt->kind == TYPE_KIND_DOUBLE || rt->kind == TYPE_KIND_DOUBLE) {
                     res = type_double(ctx->perm_arena);
@@ -306,7 +316,33 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 if ((lt->modifiers & TYPE_MOD_CONST) != 0) {
                     sem_node_error(ctx, node, "cannot assign to const-qualified variable");
                 }
-                if (!type_compatible_assign(lt, rt)) {
+                /* Compound assignment (x %= 3): compatibility is judged on
+                 * the UNDERLYING binary result (vector %= scalar keeps the
+                 * vector type), not the raw RHS type. */
+                uint32_t asg_op = node->aux.op;
+                bool is_simple_assign = (asg_op == '=' || asg_op == TK_ASSIGN || asg_op == EXPR_TK_ASSIGN);
+                TypeInfo *check_t = rt;
+                if (!is_simple_assign) {
+                    uint32_t underlying = 0;
+                    switch (asg_op) {
+                        case TK_ADD_ASSIGN: underlying = '+'; break;
+                        case TK_SUB_ASSIGN: underlying = '-'; break;
+                        case TK_MUL_ASSIGN: underlying = '*'; break;
+                        case TK_DIV_ASSIGN: underlying = '/'; break;
+                        case TK_MOD_ASSIGN: underlying = '%'; break;
+                        case TK_AND_ASSIGN: underlying = '&'; break;
+                        case TK_OR_ASSIGN:  underlying = '|'; break;
+                        case TK_XOR_ASSIGN: underlying = '^'; break;
+                        case TK_SHL_ASSIGN: underlying = TK_SHL; break;
+                        case TK_SHR_ASSIGN: underlying = TK_SHR; break;
+                        default: underlying = 0; break;
+                    }
+                    if (underlying != 0) {
+                        TypeInfo *ur = promote_binary(underlying, lt, rt, ctx->perm_arena, NULL);
+                        if (ur) check_t = ur;
+                    }
+                }
+                if (!type_compatible_assign(lt, check_t)) {
                     sem_node_error(ctx, node, "incompatible types in assignment");
                 }
             }
@@ -340,6 +376,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = arr_t->details.pointer.base;
                 } else if (type_is_array(arr_t)) {
                     res = arr_t->details.array.base;
+                } else if (type_is_vector(arr_t)) {
+                    /* GNU vector: v[i] yields the i-th lane (element type). */
+                    res = arr_t->details.array.base;
                 }
             }
             break;
@@ -347,11 +386,13 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         case NODE_CALL: {
             TypeInfo *fn_t = sem_analyze_ref(ctx, node->left);
             size_t arg_count = 0;
+            TypeInfo *first_arg_t = NULL;
             ASTRef arg_ref = node->right;
             while (arg_ref != AST_NULL) {
                 ZeroCCASTNode *arg_node = sem_get_node(ctx, arg_ref);
                 if (arg_node) {
-                    (void)sem_analyze_node(ctx, arg_node);
+                    TypeInfo *at = sem_analyze_node(ctx, arg_node);
+                    if (arg_count == 0) first_arg_t = at;
                     arg_count++;
                     arg_ref = arg_node->next;
                 } else {
@@ -399,6 +440,18 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 }
             }
             expr_node_set_type(ctx, node, res);
+            /* __builtin_shuffle(a, b) selects lanes from a/b by the index
+             * vector b: the result has a's (vector) type, not the implicit
+             * int of the undeclared callee. */
+            if (arg_count == 2 && res && !type_is_vector(res) &&
+                first_arg_t && type_is_vector(first_arg_t)) {
+                ZeroCCASTNode *cn = sem_get_node(ctx, node->left);
+                if (cn && cn->tag == NODE_IDENT && cn->s.str &&
+                    strcmp(cn->s.str, "__builtin_shuffle") == 0) {
+                    res = first_arg_t;
+                    expr_node_set_type(ctx, node, res);
+                }
+            }
             break;
         }
         case NODE_COMPOUND_LIT: {

@@ -354,6 +354,9 @@ void ir_dump(FILE *f) {
             case OP_VCVT_SI2SD: fprintf(f, "VCVT_SI2SD xmm%u, r%u", instr->temp_dest, instr->temp_src1);
                                 break;
             case OP_VCVT_SD2SI: fprintf(f, "VCVT_SD2SI r%u, xmm%u", instr->temp_dest, instr->temp_src1);
+            case OP_CVTSS2SD: fprintf(f, "CVTSS2SD xmm%u, xmm%u", instr->temp_dest, instr->temp_src1);
+                                break;
+            case OP_CVTSD2SS: fprintf(f, "CVTSD2SS xmm%u, xmm%u", instr->temp_dest, instr->temp_src1);
                                 break;
             case OP_VCMPSS: fprintf(f, "VCMPSS xmm%u, xmm%u, cc=%u", instr->temp_src1, instr->temp_src2, instr->cond);
                             break;

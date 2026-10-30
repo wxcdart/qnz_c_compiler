@@ -178,6 +178,13 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
             return t1->details.array.count == t2->details.array.count;
         }
 
+        case TYPE_KIND_VECTOR: {
+            /* GNU vector: same element type and same lane count */
+            if (!t1->details.array.base || !t2->details.array.base) return false;
+            if (!type_is_compatible(t1->details.array.base, t2->details.array.base)) return false;
+            return t1->details.array.count == t2->details.array.count;
+        }
+
         case TYPE_KIND_FUNCTION: {
             if (!type_is_compatible(t1->details.function.ret, t2->details.function.ret)) {
                 return false;
@@ -238,6 +245,23 @@ bool type_can_cast(const TypeInfo *src, const TypeInfo *dst) {
     bool src_scalar = type_is_arithmetic(src) || type_is_pointer(src);
     bool dst_scalar = type_is_arithmetic(dst) || type_is_pointer(dst);
 
+    /* GNU vector casts: casts between same-size vectors (identical or
+     * different element types - a bitwise reinterpret, as in GCC), and
+     * scalar -> vector (the scalar value is broadcast across all lanes at
+     * lowering). */
+    if (type_is_vector(dst) && type_is_vector(src)) {
+        return type_size(src) == type_size(dst);
+    }
+    if (type_is_vector(dst) && type_is_arithmetic(src)) {
+        return true;
+    }
+    /* Vector -> scalar: GCC requires matching sizes ("cannot convert a
+     * vector ... to type which has different size"); the whole vector is
+     * reinterpreted as one scalar of the target width. */
+    if (type_is_vector(src) && type_is_arithmetic(dst)) {
+        return type_size(src) == type_size(dst);
+    }
+
     if (src_scalar && dst_scalar) {
         /*
          * Note: In C, float/double cannot be cast directly to pointer,
@@ -258,6 +282,14 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
     /* Both are arithmetic types */
     if (type_is_arithmetic(dst) && type_is_arithmetic(src)) {
         return true;
+    }
+
+    /* GNU vector: assignable between same-size vector types (GCC permits
+     * implicit conversion between vector types of equal size, e.g. a
+     * float-element predicate vector into an int-element vector). */
+    if (type_is_vector(dst) && type_is_vector(src)) {
+        if (type_size(dst) == type_size(src)) return true;
+        return type_is_compatible(dst, src);
     }
 
     /* Both are compatible structure or union types */
@@ -358,6 +390,26 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
     bool is_mod = (op == '%' || op == TOK_PERCENT || op == PROMOTE_OP_MOD);
     bool is_mult_div = (op == '*' || op == '/' || op == TOK_STAR || op == TOK_SLASH ||
                         op == PROMOTE_OP_MUL || op == PROMOTE_OP_DIV);
+
+    /* 0. GNU vector arithmetic (element-wise): any arithmetic/bitwise/
+     * shift operator with at least one vector operand yields the vector
+     * type; the scalar operand is broadcast across all lanes at lowering.
+     * Comparisons (<,<=,>,>=,==,!=) yield a same-size integer-element
+     * vector (GCC semantics) with per-lane -1/0 predicate lanes. */
+    if (type_is_vector(l) || type_is_vector(r)) {
+        bool is_cmp = (is_relational || is_equality);
+        bool is_arith = (is_plus || is_minus || is_mult_div || is_mod || is_bitwise || is_shift);
+        if ((is_arith || is_cmp) && !type_is_pointer(lp) && !type_is_pointer(rp)) {
+            const TypeInfo *vec = type_is_vector(l) ? l : r;
+            if (is_cmp) {
+                TypeInfo *cr = type_vector_cmp_result(perm, vec);
+                if (cr) return cr;
+            }
+            return (TypeInfo *)(vec);
+        }
+        if (diag) diag_report(diag, 0, 0, "invalid operands to binary vector operator");
+        return NULL;
+    }
 
     /* 1. Pointer arithmetic cases */
     if (type_is_pointer(lp) || type_is_pointer(rp)) {

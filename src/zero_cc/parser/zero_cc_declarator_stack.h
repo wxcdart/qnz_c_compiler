@@ -124,6 +124,18 @@ static inline void zero_cc_parse_param_list(
             if (c->tokens[c->token_pos].type == TK_VOLATILE) param_is_volatile = true;
             c->token_pos++;
         }
+        size_t param_vec_size = 0;
+        {
+            size_t save = c->token_pos;
+            size_t probe = 0;
+            if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+                if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                    param_vec_size = probe;
+                } else {
+                    c->token_pos = save;
+                }
+            }
+        }
         size_t ptype_pos = c->token_pos;
         ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
         if (!is_type_specifier(c, param_type_tok)) {
@@ -214,6 +226,11 @@ static inline void zero_cc_parse_param_list(
         }
         param_base.is_const = param_is_const;
         param_base.is_volatile = param_is_volatile;
+        /* GNU vector parameter: the marker probed above wraps the scalar
+         * element type in a vector type (pointers, if any, apply on top). */
+        if (param_vec_size > 0) {
+            param_base = zero_cc_type_vector(&param_base, param_vec_size);
+        }
 
         int param_ptr_depth = 0;
         ASTRef param_dim_expr = AST_NULL; /* VLA parameter dimension expr (C99 6.7.6.2) */

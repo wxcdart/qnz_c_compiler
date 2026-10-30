@@ -80,6 +80,7 @@ static inline ZeroCCType zero_cc_type_user(int user_idx, size_t size, size_t ali
     t.align = align ? align : 16;
     return t;
 }
+
 typedef struct ZeroCCTypeNode {
     struct ZeroCCTypeNode *next;
     ZeroCCType type;
@@ -103,6 +104,31 @@ static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
         t.base = zero_cc_type_alloc_base(base);
     } else {
         t.base = NULL;
+    }
+    return t;
+}
+
+/* GNU vector type (`__attribute__((__vector_size__(N)))`). Reuses the
+ * reserved TYPE_USER_0 tag with `base` pointing at the heap-allocated
+ * element type and `array_len` holding the lane count (N / elem_size).
+ * The type behaves like an opaque N-byte object for layout, but lowering
+ * intercepts arithmetic, comparison, casts, and subscripting (see
+ * semantic/promote.c and ir/ast_lowering_expr.c) so it keeps vector
+ * semantics instead of decaying to a pointer like a plain array. */
+static inline bool zero_cc_type_is_vector(const ZeroCCType *t) {
+    return t && t->tag == TYPE_USER_0;
+}
+static inline ZeroCCType zero_cc_type_vector(const ZeroCCType *elem, size_t n_bytes) {
+    ZeroCCType t; memset(&t, 0, sizeof(t));
+    t.tag = TYPE_USER_0;
+    t.size = n_bytes;
+    t.align = (n_bytes >= 16) ? 16 : ((elem && elem->align) ? elem->align : 1);
+    if (elem) {
+        t.base = zero_cc_type_alloc_base(elem);
+        t.array_len = (elem->size > 0) ? n_bytes / elem->size : 0;
+    } else {
+        t.base = NULL;
+        t.array_len = 0;
     }
     return t;
 }
@@ -203,6 +229,11 @@ static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
         if (!t->base || t->array_len == 0) return 0;
         return t->array_len * zc_object_count_scalar_leaves(t->base);
     }
+    if (t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) {
+        /* GNU vector: N scalar lanes (element in base, count in array_len) */
+        if (!t->base || t->array_len == 0) return 0;
+        return t->array_len * zc_object_count_scalar_leaves(t->base);
+    }
     if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
         if (!t->members) return 0;
         size_t n = 0;
@@ -231,6 +262,16 @@ static inline bool zc_object_resolve_scalar_leaf_bf(const ZeroCCType *t, size_t 
     if (out_bw) *out_bw = 0;
     if (out_is_float) *out_is_float = false;
     if (!t) return false;
+    if (t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) {
+        /* GNU vector: lane i lives at i * elem_size */
+        const ZeroCCType *el = t->base;
+        if (!el || el->size == 0 || t->array_len == 0) return false;
+        if (target_idx >= t->array_len) return false;
+        *out_off = target_idx * el->size;
+        *out_sz = el->size;
+        if (out_is_float) *out_is_float = (el->tag == TYPE_FLOAT || el->tag == TYPE_DOUBLE);
+        return true;
+    }
     if (t->tag == TYPE_ARRAY) {
         const ZeroCCType *el = t->base;
         if (!el || el->size == 0 || t->array_len == 0) return false;

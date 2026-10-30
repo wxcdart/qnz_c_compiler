@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-30T00:52:20Z
+timestamp: 2026-10-30T03:23:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 129 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP, and 128-bit SIMD vector ops).
+- `op` (`Opcode`): One of 136 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, and 128-bit SIMD vector ops).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
@@ -121,6 +121,19 @@ The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`O
 - **Caching & invalidation**: `ZeroCCCFG cfg_cache` + `uint64_t cfg_version` on `ZeroCCCompiler`; `cfg_build()` rebuilds only on version mismatch. The version is bumped in `ir_reset()` (per function), after **every** optimizer pass (`opt_pass.c` — passes may rewrite the IR in place), and after the in-place lowering mutations (callee-save append, x86 float-CC remap). Not built at `-O0` unless requested (`-dump-cfg`).
 - **`-dump-cfg`**: stable plain-text dump — `fn main` / `bb1: [4..10] succ=bb8,bb2 pred=bb0,bb7 loop_header=1` / `loops:` section / `N blocks, M reachable, K loops` summary. Verified by `tools/cfg_verifier.py` (independent Python recomputation of blocks/loops from `-dump-ir`, cross-checked against the C report; see [Build & Verification](./build-and-verification.md)).
 - **Phase 3 (done, 2026-10-20)**: the three known-fragile passes now derive loop structure from the CFG instead of private re-derivations — LICM `detect_loops` iterates `cfg->loops[]` (no `label_to_idx` left); mem2reg `opt_promote_loop_carried` uses CFG pred/succ edges for entry-cleanness and first-exit (unconditional-`OP_JMP` backedges only, as before); the vectorizer's mid-body-conditional check is a per-CFG-block test (plus a verified-constant-loop-bound prerequisite, since the transform has no remainder handling — see [Optimization Passes](./optimization-passes.md)). Full plan & phases: [Development Plan §10](../ZEROCC_Development_Plan.md).
+
+## GNU `__vector_size__` Vector Lowering (Per-Lane Scalar Expansion)
+
+`__attribute__((__vector_size__(N)))` types are first-class `TYPE_USER_0`/`TYPE_KIND_VECTOR` types (element type + lane count implicit in `size`). The lowering in `ir/ast_lowering_expr.c` **expands every vector operation lane-by-lane into scalar IR** — no packed SIMD codegen:
+
+- **Address-form invariant**: a vector *expression* lowers to the stack address of a temp holding the lanes (per-lane binop/unop result, decayed ident, compound literal, sret buffer, materialized by-value call result). Consumers load through the address; `ast_expr_is_vector_addr` therefore reduces to `type_is_vector`.
+- **Float lanes in the double-width FP model**: `float` lanes widen on load (`VLOADSS`) and narrow on store (`VSTORESS`); scalar float↔int conversions inside a lane use `CVTSS2SD`/`CVTSD2SS`/`CVTSI2SD` as needed. Lane math itself runs in `double` (fadd/fsub/fmul/fdiv).
+- **Comparison results** follow GCC semantics: a comparison of a float-element vector yields an int-element vector, double-element yields a long-element vector (`type_vector_cmp_result`).
+- **Casts**: vector→vector is a same-size bitwise reinterpret (raw 8-byte chunk copy into a fresh temp); vector→scalar requires matching sizes and reads the whole vector with a width-correct load (float targets use the widening FP load); scalar→vector broadcasts.
+- **ABI**: vectors ≤ 8 B travel in `VREG_0`; 9–16 B in `VREG_0`+`VREG_2` (`label_idx = 0x0100 | size` signals the 9–16 B return width); > 16 B use the hidden `sret` pointer (`callee_uses_sret` extended to vectors). All vectors block parameter promotion (no AL→FP moves).
+- **`__builtin_shuffle(v1, v2, {idx...})`** lowers to a per-lane branchless select: `m = idx & (n-1)`, `from_a = (idx & n) == 0` (via `ir_emit_cond_set(CC_EQ)`), result = `(sel & a[m]) | (~sel & b[m])` with `~sel = xor(sel, -1)` (`ir_emit_not` does not exist).
+- **Compound assignment** (`v += x`, `*w += v`) is per-lane in place, int lanes via load/arith/store with width-correct extension, float lanes via the double FP model; the RHS is read per-lane (vector) or broadcast (scalar).
+- **Raw emitters**: `VLOADSS`/`VSTORESS`/`VLOADSD`/`VSTORESD`/`CVTSS2SD`/`CVTSD2SS` exist in both the asm and raw paths of all three ISAs. x86 encodings: `CVTSS2SD = F3 0F 5A /r`, `CVTSD2SS = F2 0F 5A /r` (`F3 0F 2A` is `CVTSI2SS` — an earlier mix-up silently converted int→float). The cvt emitters must **not** early-return on `dst == src`.
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 

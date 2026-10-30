@@ -24,7 +24,8 @@ typedef enum TypeKind {
     TYPE_KIND_FUNCTION,
     TYPE_KIND_STRUCT,
     TYPE_KIND_UNION,
-    TYPE_KIND_ENUM
+    TYPE_KIND_ENUM,
+    TYPE_KIND_VECTOR
 } TypeKind;
 
 /* Forward declaration */
@@ -125,6 +126,17 @@ TypeInfo *type_int_literal(Arena *perm, uint8_t suffix, int64_t value);
 TypeInfo *type_pointer_to(Arena *perm, TypeInfo *base);
 TypeInfo *type_array_of(Arena *perm, TypeInfo *base, size_t count);
 TypeInfo *type_function(Arena *perm, TypeInfo *ret, TypeInfo **params, size_t param_cnt, bool is_variadic);
+/* GNU vector type (`__attribute__((__vector_size__(N)))`): `details.array.base`
+ * holds the element type and `details.array.count` the lane count, so the
+ * vector's size is count * sizeof(element). Vectors never decay to
+ * pointers; arithmetic/comparison/casts are handled vector-wise in
+ * promote_binary (see semantic/promote.c). */
+TypeInfo *type_vector(Arena *perm, TypeInfo *elem, size_t size_bytes);
+/* Result type of a vector comparison (GCC semantics): for floating-point
+ * element vectors the result is a same-size vector of the matching integer
+ * element type (float -> int, double -> long, ...); integer element vectors
+ * keep their own type. Per-lane lanes are the -1/0 predicate. */
+TypeInfo *type_vector_cmp_result(Arena *perm, const TypeInfo *vec);
 
 /* Return type of a `__builtin_<name>` that the lowering lowers to a direct
  * call of the libc function `<name>` (mirrors the __builtin_ mapping in
@@ -177,6 +189,7 @@ bool type_is_arithmetic(const TypeInfo *t);
 bool type_is_pointer(const TypeInfo *t);
 bool type_is_array(const TypeInfo *t);
 bool type_is_function(const TypeInfo *t);
+bool type_is_vector(const TypeInfo *t);
 bool type_is_unsigned(const TypeInfo *t);
 
 /* Comparison and metrics */

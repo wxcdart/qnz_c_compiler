@@ -989,6 +989,19 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* Scalar single<->double conversions (GNU vector per-lane lowering) */
+        case OP_CVTSS2SD:
+            if (BE(c)->emit_cvtss2sd_asm) {
+                BE(c)->emit_cvtss2sd_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+
+        case OP_CVTSD2SS:
+            if (BE(c)->emit_cvtsd2ss_asm) {
+                BE(c)->emit_cvtsd2ss_asm(c, phys_dst, phys_src1, out);
+            }
+            return;
+
         /* SIMD/Vector Comparison */
         case OP_VCMPSS:
             if (BE(c)->emit_vcmpss_asm) {

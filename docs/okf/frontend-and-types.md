@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-30T01:09:56Z
+timestamp: 2026-10-30T03:23:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -249,6 +249,16 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
 ## GNU Nested Functions — Clean Rejection (C99 6.9p15)
 
 Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) are **rejected** with `error: nested function definition of '<name>' is not supported (GNU extension)`, emitted in the statement parser's function-definition path (`src/zero_cc/parser/ast_stmt.h`) and followed by a brace-depth-counted skip of the body so the enclosing function keeps parsing. The extension was previously *silently accepted* — AOT emitted `call` to a symbol that was never defined (link failure) and JIT aliased the register file without closure capture (crashes: c-torture `execute/nestfunc-7.c`, `execute/pr103405.c`). Local function **prototypes** remain legal C (declarations are allowed in blocks; C99 6.9p15 forbids only definitions). `gcc -std=c11 -pedantic-errors` rejects nested definitions too, so the c-torture gate triages these tests as `SKIP-C89`.
+
+## GNU `__attribute__((__vector_size__(N)))` Vector Types
+
+`__attribute__((__vector_size__(N)))` (GCC's SIMD vector extension) is **supported** as a first-class type:
+
+- **Preprocessor marker** (`src/zero_cc/core/preprocessor.h`): the attribute — including when one of several comma-separated attributes, e.g. `__attribute__((__vector_size__(16), __may_alias__))` — is rewritten to the pseudo-keyword `__zc_vector_size__(expr)`; detection scans the top-level attribute list at paren depth 0. All other attribute text is still stripped.
+- **Type formation** (`type_vector` in `src/zero_cc/semantic/type.c`, `zero_cc_type_vector` for the `ZeroCCType` mirror): `TYPE_USER_0` with `TYPE_KIND_VECTOR`, `size = N`, `align = 16` when `N >= 16`, `base` = element type. The parser probes for the marker in every type position — typedefs, locals/globals, parameters (`zero_cc_declarator_stack.h`, `jit/compile.h`), return types, struct members (`definitions.h`), pointer targets, and comma declarators. The JIT legacy param parser and `bare_fn_ident` (`jit/compile_unit.h`) treat the marker as a type, not an identifier.
+- **Semantics** (both `semantic/expr.c` and `semantic/visitor.c`): element-wise arithmetic/bitwise/shift with a scalar operand (broadcast) or same-size vector yields the vector type; comparisons yield a same-size **integer-element** vector (float→int, double→long) via `type_vector_cmp_result`; same-size vector→vector casts are bitwise reinterprets; vector→scalar casts require matching sizes (GCC's `"different size"` rule); same-size vector→vector assignment is allowed (`type_compatible_assign`). `__builtin_shuffle(v1, v2, {idx...})` is typed as the first argument's vector type.
+- **Lowering & ABI**: see [IR & Register Allocation → Vector Lowering](./ir-and-regalloc.md#gnu-__vector_size__-vector-lowering-per-lane-scalar-expansion) — per-lane scalar expansion to stack temps, vector call ABI in `VREG_0`/`VREG_2` (≤ 16 B) or `sret` (> 16 B), double-width FP model for float lanes.
+- **Status**: all 17 `__vector_size__` c-torture tests pass on every `(-O0..-O3 × JIT/AOT)` config (2026-10-30).
 
 ## Parameter Representation & C99/C11 Translation Limits (`ZERO_CC_MAX_PARAMS`)
 

@@ -678,6 +678,16 @@ static void riscv64_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
     riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 0x11, 0));
 }
 
+static void riscv64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
+    /* fcvt.d.s fd, fs (rm=0) - widen single to double (GNU vector per-lane) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 0, 0x21, 0));
+}
+
+static void riscv64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
+    /* fcvt.s.d fd, fs (rm=0) - narrow double to single (GNU vector per-lane) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 0, 0x29, 0));
+}
+
 static void riscv64_emit_const(ZeroCCCompiler *c, int64_t value) {
     riscv64_emit_mov_imm(c, 10, value);  /* a0 */
 }
@@ -1576,6 +1586,10 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vshufps_asm = NULL,
     .emit_vcvt_si2ss_asm = NULL,
     .emit_vcvt_ss2si_asm = NULL,
+    .emit_cvtss2sd_asm = NULL,
+    .emit_cvtsd2ss_asm = NULL,
+    .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
+    .emit_cvtsd2ss = riscv64_emit_fp_cvtsd2ss,
     .emit_vcmpss_asm = NULL,
     .emit_vcmpsd_asm = NULL,
 };

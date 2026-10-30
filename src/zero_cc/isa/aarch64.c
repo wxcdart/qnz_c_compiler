@@ -896,6 +896,16 @@ static void aarch64_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
     arm64_emit_u32(c, 0x1E614000 | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
+static void aarch64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
+    /* fcvt d<dst>, s<src> - widen single to double (GNU vector per-lane) */
+    arm64_emit_u32(c, 0x1E22C000 | ((dst & 0x1F) << 5) | (src & 0x1F));
+}
+
+static void aarch64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
+    /* fcvt s<dst>, d<src> - narrow double to single (GNU vector per-lane) */
+    arm64_emit_u32(c, 0x1E624000 | ((dst & 0x1F) << 5) | (src & 0x1F));
+}
+
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
@@ -1165,6 +1175,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_mul = aarch64_emit_fp_mul,
     .emit_fp_div = aarch64_emit_fp_div,
     .emit_fp_neg = aarch64_emit_fp_neg,
+    .emit_cvtss2sd = aarch64_emit_fp_cvtss2sd,
+    .emit_cvtsd2ss = aarch64_emit_fp_cvtsd2ss,
     .emit_fp_cmp = aarch64_emit_fp_cmp,
     .emit_fp_cvtsi = aarch64_emit_fp_cvtsi,
     .emit_fp_cvtsf = aarch64_emit_fp_cvtsf,

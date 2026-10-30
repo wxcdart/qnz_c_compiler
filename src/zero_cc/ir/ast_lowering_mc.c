@@ -737,6 +737,22 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_CVTSS2SD:
+                if (c->emit_asm && BE(c)->emit_cvtss2sd_asm) {
+                    BE(c)->emit_cvtss2sd_asm(c, phys_dst, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_cvtss2sd) {
+                    BE(c)->emit_cvtss2sd(c, phys_dst, phys_src1);
+                }
+                break;
+
+            case OP_CVTSD2SS:
+                if (c->emit_asm && BE(c)->emit_cvtsd2ss_asm) {
+                    BE(c)->emit_cvtsd2ss_asm(c, phys_dst, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_cvtsd2ss) {
+                    BE(c)->emit_cvtsd2ss(c, phys_dst, phys_src1);
+                }
+                break;
+
             case OP_VCMPSS:
                 if (BE(c)->emit_vcmpss_asm) {
                     BE(c)->emit_vcmpss_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);

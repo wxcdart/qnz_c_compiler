@@ -937,6 +937,26 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         t = c->tokens[c->token_pos].type;
     }
 
+    /* GNU vector attribute marker (`__zc_vector_size__(N)`, emitted by the
+     * preprocessor from `__attribute__((__vector_size__(N)))`). It may lead
+     * the declaration (before the base type specifier) - probe and consume
+     * it when the next token is a type specifier so the declaration gate
+     * below sees the real base type. It may also trail the base specifier
+     * (consumed just before the declarator below). */
+    size_t vec_attr_size = 0;
+    {
+        size_t save = c->token_pos;
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                vec_attr_size = probe;
+                t = c->tokens[c->token_pos].type;
+            } else {
+                c->token_pos = save; /* not a declaration; leave tokens alone */
+            }
+        }
+    }
+
     /* Block-scoped enum definition / declaration */
     if (t == TK_ENUM && c->token_pos + 1 < c->token_count &&
         (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
@@ -1053,6 +1073,12 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
         ZeroCCDeclarator decl;
         zero_cc_declarator_init(&decl);
+        /* Vector attribute trailing the base specifier: `signed char
+         * __attribute__((__vector_size__(16))) V;` */
+        if (vec_attr_size == 0) {
+            size_t probe = 0;
+            if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) vec_attr_size = probe;
+        }
         if (!zero_cc_parse_declarator(c, arena, ctx, &decl)) {
             return AST_NULL;
         }
@@ -1073,6 +1099,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 base_ret.is_const = is_const;
                 base_ret.is_volatile = is_volatile;
                 base_ret.is_atomic = is_atomic;
+                if (vec_attr_size > 0) {
+                    base_ret = zero_cc_type_vector(&base_ret, vec_attr_size);
+                }
 
                 ZeroCCType ret_type = zero_cc_declarator_apply_return(&decl, base_ret);
                 /* C99 6.7.5.3: a function cannot return a function type
@@ -1135,7 +1164,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         snprintf(fn->name, sizeof(fn->name), "%s", vname);
                         fn->text_offset = 0;
                         fn->return_type = ret_type;
-                        fn->returns_struct = (ret_type.tag == TYPE_STRUCT || ret_type.tag == TYPE_UNION);
+                        fn->returns_struct = (ret_type.tag == TYPE_STRUCT || ret_type.tag == TYPE_UNION ||
+                                               (ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ret_type)));
                         fn->ret_struct_sz = ret_type.size;
                         fn->is_prototype = true;
                     }
@@ -1161,6 +1191,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 base_decl.is_const = is_const;
                 base_decl.is_volatile = is_volatile;
                 base_decl.is_atomic = is_atomic;
+                if (vec_attr_size > 0) {
+                    base_decl = zero_cc_type_vector(&base_decl, vec_attr_size);
+                }
 
                 ZeroCCType decl_type = zero_cc_declarator_apply(&decl, base_decl);
                 /* C99 6.7.2.1: objects cannot have function type
@@ -1378,6 +1411,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     next_base.is_const = is_const;
                     next_base.is_volatile = is_volatile;
                     next_base.is_atomic = is_atomic;
+                    if (vec_attr_size > 0) {
+                        next_base = zero_cc_type_vector(&next_base, vec_attr_size);
+                    }
 
                     ZeroCCType next_type = zero_cc_declarator_apply(&next_decl, next_base);
                     bool nhas_any_vla = zero_cc_declarator_has_vla(&next_decl);

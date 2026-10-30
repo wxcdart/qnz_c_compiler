@@ -1,5 +1,22 @@
 # ZeroCC Changelog
 
+## [Chunk M3 Part 1 / Sprint 60] - 2026-10-30 - GNU `__attribute__((__vector_size__(N)))` SIMD Vector Types (MISCOMPILE 41 → 23, PASS reaches 2,216)
+
+- **Feature: first-class vector types** (preprocessor + parser + semantic + IR + all three ISA backends):
+  - **Preprocessor** (`core/preprocessor.h`): `__attribute__((__vector_size__(expr)))` — including among multiple comma-separated attributes — is preserved as the pseudo-keyword `__zc_vector_size__(expr)` (top-level attribute-list scan at paren depth 0); all other attribute text still stripped.
+  - **Parser**: the marker wraps the element type in a `TYPE_USER_0` vector in every type position — typedefs, locals/globals, parameters (`zero_cc_declarator_stack.h` + `jit/compile.h` legacy parser), return types, struct members (`definitions.h`), pointer targets, comma declarators; `bare_fn_ident` no longer mistakes the marker for a function name.
+  - **Semantic** (both `expr.c` and `visitor.c`): element-wise binop/unop (scalar operand broadcasts), comparison → same-size int/long-element vector (`type_vector_cmp_result`), same-size vector→vector casts (bitwise), vector→scalar casts only at matching sizes (GCC's "different size" rule), same-size vector assignment; `__builtin_shuffle(v1, v2, {idx...})` typed as the first argument's vector type.
+  - **IR lowering** (`ir/ast_lowering_expr.c`): per-lane scalar expansion into stack temps (address-form invariant — `ast_expr_is_vector_addr` reduces to `type_is_vector`); double-width FP model for float lanes (`VLOADSS`/`VSTORESS` widen/narrow; new `OP_CVTSS2SD`/`OP_CVTSD2SS` opcodes with asm + raw emitters on x86-64, AArch64, RISC-V; x86 encoding fixed: `CVTSS2SD = F3 0F 5A`, `CVTSD2SS = F2 0F 5A`); per-lane `__builtin_shuffle` (branchless lane select); per-lane compound assignment (`+=` etc.) for int and float element lanes, on locals and through pointers; vector→vector cast as raw 8-byte chunk copy; vector→scalar cast via width-correct load (FP load for float targets).
+  - **ABI**: vectors ≤ 8 B in `VREG_0`, 9–16 B in `VREG_0`+`VREG_2` (9–16 B return width signal `label_idx = 0x0100 | size`), > 16 B via `sret` (`callee_uses_sret` extended); by-value vector call results materialized to stack temps; all vectors block parameter promotion.
+- **Bugs found & fixed along the way**:
+  - x86 `CVTSS2SD`/`CVTSD2SS` raw encodings were swapped/wrong (`F3 0F 2A` is `CVTSI2SS`); AArch64/RISC-V cvt emitters early-returned on `dst == src`; pointer-exclusion width analysis, vector call ABI, ≤ 8 B vector assignment from address-form RHS (stored the pointer instead of loading it — c-torture `simd-6`/`pr60960`), float-vector compound assignment (lane 0 corrupted — `20060420-1`), vector comparison results in declaration initializers, oversized (> 16 B) vector sret, vector struct members/params/return types, multi-attribute detection (`pr92618`'s `(__vector_size__(16), __may_alias__)`), `TOK_SHL`/`TOK_SHR` undeclared in `semantic/visitor.c`.
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **All 17 `__vector_size__` tests → PASS**: `scal-to-vec1..3`, `pr94524-1/2`, `pr94412`, `pr110817-1/2`, `pr85169`, `pr71626-1/2`, `pr123625-2`, `pr126405-3`, `pr85331`, `pr94591`, `pr92618`, `ieee/fp-cmp-cond-1`, `ieee/pr72824-2`, `simd-6`; plus regression fixes `20060420-1`, `pr60960`.
+  - **`MISCOMPILE`**: 41 → **23** (all 23 remaining are true C99/C11 correctness bugs). **`PASS`**: 2,196 → **2,216** (+18 execute + 2 compile). **`REJECT`**: 673 → **671** (`compile/vector-1/2/3`-family). Baseline re-recorded (`--update-baseline`, 694 bad).
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/diag_battery.py` baseline OK · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK (no regressions).
+
+---
+
 ## [Chunk M3 Part 0 / Sprint 59] - 2026-10-30 - Nested-Function GNU Extension: Clean Diagnostic (MISCOMPILE 48 → 41, +20 SKIP-C89)
 
 - **Nested Function Definition Diagnostic (`parser/ast_stmt.h`)**:

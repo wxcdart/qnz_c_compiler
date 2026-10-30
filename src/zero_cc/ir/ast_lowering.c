@@ -148,7 +148,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         if (chk_fp >= BE(c)->conv->fp_arg_reg_count) { can_promote_params = false; break; }
                         chk_fp++;
                     } else {
-                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8) {
+                        if (((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8) ||
+                            (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) {
+                            /* Structs >8B and vectors of any size: the value
+                             * in a register has no addressable object; the
+                             * per-lane / copy machinery needs the frame slot. */
                             can_promote_params = false; break;
                         }
                         if (chk_int >= max_int_params) { can_promote_params = false; break; }
@@ -215,7 +219,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             ZeroCCSym *sym = &c->locals[p];
             if (!sym->is_param) continue;
             bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
-            bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8;
+            bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
+                                          (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) && sym->type.size > 8;
 
             if (is_multi_chunk_struct) {
                 int num_chunks = (int)((sym->type.size + 7) / 8);

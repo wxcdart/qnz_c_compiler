@@ -208,6 +208,33 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
         }
         return true;
     }
+    if (t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) {
+        /* GNU vector: behave like a fixed-length array of lanes. */
+        const ZeroCCType *el = t->base;
+        if (!el || el->size == 0) return false;
+        size_t per = zc_object_count_scalar_leaves(el);
+        if (per <= 1) {
+            if (t->array_len > 0 && *cursor >= t->array_len) return false;
+            out->abs_off = base_off + (*cursor) * el->size;
+            out->val_type.tag = el->tag;
+            out->val_type.size = el->size;
+            out->val_type.align = el->align;
+            out->val_type.base = el->base;
+            out->is_scalar = true;
+            out->scalar_sz = (el->size > 8) ? 8 : (el->size ? el->size : 4);
+            out->advance = 1;
+        } else {
+            size_t ei = *cursor / per;
+            if (t->array_len > 0 && ei >= t->array_len) return false;
+            out->abs_off = base_off + ei * el->size;
+            out->val_type = *el;
+            out->is_scalar = false;
+            out->scalar_sz = 0;
+            out->local_leaf = *cursor % per;
+            out->advance = per;
+        }
+        return true;
+    }
     if (*cursor == 0) {
         out->abs_off = base_off;
         out->val_type = *t;

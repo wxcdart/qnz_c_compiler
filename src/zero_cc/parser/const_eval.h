@@ -37,6 +37,44 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
 static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
 
+static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c);
+
+/* Parse a `__zc_vector_size__( <const-expr> )` marker - emitted by the
+ * preprocessor in place of `__attribute__((__vector_size__(N)))` (see the
+ * __attribute__ special case in core/preprocessor.h). Operates on the
+ * caller's token position *pos (either &c->token_pos or a local). On
+ * success consumes the marker and returns 1 with *out_size = N (bytes);
+ * returns 0 (and leaves *pos untouched) when the current token is not the
+ * marker. Called both BEFORE the base type specifier (the attribute may
+ * lead: `__attribute__((__vector_size__(16))) short`) and AFTER it
+ * (`signed char __attribute__((__vector_size__(16))) V`). N is evaluated
+ * as a C constant expression (so `2 * sizeof(long long)` works); N must
+ * be positive and <= 512 bytes. */
+static inline int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_size) {
+    if (!c || !out_size || !pos || *pos >= c->token_count) return 0;
+    ZeroCCToken *t = &c->tokens[*pos];
+    const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
+    if (!id || strcmp(id, "__zc_vector_size__") != 0) return 0;
+    if (*pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_LPAREN) return 0;
+    size_t save = *pos;
+    size_t save_tp = c->token_pos;
+    c->token_pos = save + 2; /* consume ident + '(' */
+    int64_t n = zero_cc_eval_const_expr(c);
+    size_t after = c->token_pos;
+    c->token_pos = save_tp; /* restore: advance *pos on success below */
+    if (after >= c->token_count || c->tokens[after].type != TK_RPAREN) {
+        *pos = save;
+        return 0;
+    }
+    *pos = after + 1; /* consume ')' */
+    if (n <= 0 || n > 512) {
+        *pos = save;
+        return 0;
+    }
+    *out_size = (size_t)n;
+    return 1;
+}
+
 static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     ZeroCCTokType t = c->tokens[pos].type;
     if (t == TK_INT || t == TK_CHAR || t == TK_VOID || t == TK_STRUCT ||
@@ -929,6 +967,14 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         else q_restrict = true;
         (*pos)++;
     }
+    /* GNU vector attribute marker (`__attribute__((__vector_size__(N)))`,
+     * preprocessed into `__zc_vector_size__(N)`) may lead the type name:
+     * `sizeof(__attribute__((__vector_size__(16))) short)`. */
+    size_t vec_attr_size = 0;
+    {
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, pos, &probe)) vec_attr_size = probe;
+    }
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_STRUCT || t == TK_UNION) {
         (*pos)++;
@@ -1039,6 +1085,17 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else {
         ty = zero_cc_type_int();
     }
+    /* Vector attribute trailing the base specifier:
+     * `short __attribute__((__vector_size__(16)))` / `V __zc_vector_size__(16)`.
+     * Wraps the base type in a 128-bit vector before any pointer/array
+     * declarator suffixes are applied. */
+    if (vec_attr_size == 0) {
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, pos, &probe)) vec_attr_size = probe;
+    }
+    if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
+        ty = zero_cc_type_vector(&ty, vec_attr_size);
+    }
     /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float) */
     if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
         *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR) {
@@ -1135,6 +1192,21 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         else if (c->tokens[c->token_pos].type == TK_VOLATILE) q_volatile = true;
         else q_restrict = true;
         c->token_pos++;
+    }
+    /* GNU vector attribute marker (`__attribute__((__vector_size__(N)))`),
+     * either leading (`__attribute__(...) short g;`) or trailing the base
+     * specifier (`short __attribute__(...) g;`). */
+    size_t vec_attr_size = 0;
+    {
+        size_t save = c->token_pos;
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            if (c->token_pos < c->token_count && zero_cc_tok_is_type_start(c, c->token_pos)) {
+                vec_attr_size = probe;
+            } else {
+                c->token_pos = save;
+            }
+        }
     }
     ZeroCCType ty;
     if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
@@ -1266,6 +1338,16 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     } else {
         // default
         ty = zero_cc_type_int64();
+    }
+    /* Vector attribute trailing the base specifier: consume it (otherwise
+     * the marker identifier would be read as the variable name) and wrap
+     * the base type in a vector. */
+    if (vec_attr_size == 0) {
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) vec_attr_size = probe;
+    }
+    if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
+        ty = zero_cc_type_vector(&ty, vec_attr_size);
     }
     /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float).
      * A parenthesized declarator that contains an identifier (`(*fp)(void)`)

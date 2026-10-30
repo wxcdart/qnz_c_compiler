@@ -161,6 +161,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    /* Scalar single<->double conversions (GNU vector per-lane lowering) */
+    void (*emit_cvtss2sd_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
+    void (*emit_cvtsd2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcmpss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
     void (*emit_vcmpsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
 
@@ -206,6 +209,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_vpsubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
+    /* Scalar single<->double conversions (GNU vector per-lane lowering),
+     * raw byte-emitter form (JIT / raw AOT). */
+    void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_cvtsd2ss)(ZeroCCCompiler *c, int dst, int src);
 
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */

@@ -447,6 +447,8 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     ZeroCCASTNode *rnode = zero_cc_ast_get(arena, rhs_ref);
     ZeroCCSym *src_sym = (rnode && rnode->tag == NODE_IDENT) ? zero_cc_find_local(c, rnode->s.str) : NULL;
     bool rhs_is_struct_addr = ast_expr_is_struct_addr(c, arena, rhs_ref);
+    bool rhs_is_vec_addr = ast_expr_is_vector_addr(c, arena, rhs_ref);
+    bool src_is_vec = src_sym && src_sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&src_sym->type);
 
     for (int i = 0; i < num_chunks; i++) {
         size_t rem = struct_sz - (size_t)(i * 8);
@@ -460,7 +462,10 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
         if (src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION)) {
             ir_emit_load(ch_val, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
-        } else if (rhs_is_struct_addr) {
+        } else if (src_is_vec) {
+            /* GNU vector local: 8-byte chunks from its frame slot */
+            ir_emit_load(ch_val, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
+        } else if (rhs_is_struct_addr || rhs_is_vec_addr) {
             int cur_src = rhs_temp;
             if (i > 0) {
                 int off_t = c->next_temp_id++;
@@ -826,6 +831,11 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
 static bool zc_type_offset_is_float(const ZeroCCType *t, size_t off) {
     if (!t) return false;
     if (t->tag == TYPE_FLOAT || t->tag == TYPE_DOUBLE) return true;
+    if (t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) {
+        if (!t->base) return false;
+        size_t el_sz = t->base->size ? t->base->size : 4;
+        return zc_type_offset_is_float(t->base, el_sz ? (off % el_sz) : 0);
+    }
     if (t->tag == TYPE_ARRAY) {
         if (!t->base) return false;
         size_t el_sz = t->base->size ? t->base->size : 4;
@@ -976,6 +986,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
                     c->last_expr_is_float = 0;
                     return temp;
+                } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                    /* GNU vector: decays to its address, like an array.
+                     * Consumers needing the by-value vector (arithmetic,
+                     * assignment, call args, returns) load it from this
+                     * address (see the vector cases in the NODE_INDEX /
+                     * NODE_ASSIGN / NODE_CALL / NODE_RETURN lowering). */
+                    int temp = c->next_temp_id++;
+                    ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return temp;
                 } else if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
                     /* By-value struct rvalue.  <=16B follows the ABI
                      * secondary-register convention used by struct returns
@@ -1025,8 +1045,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (gv) {
                     int addr_temp = c->next_temp_id++;
                     ir_emit_global_addr(c, addr_temp, gv);
-                    /* Arrays and structs decay/return address, scalars load value */
-                    if (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) {
+                    /* Arrays, structs and vectors decay/return address, scalars load value */
+                    if (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION ||
+                        (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type))) {
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -1097,6 +1118,242 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_BINOP: {
+            /* GNU vector arithmetic: per-lane scalar expansion. A
+             * vector-typed operand lowers to the ADDRESS of the vector
+             * object (ident decay, the per-lane temp of an inner vector
+             * expression); a scalar operand is broadcast across all
+             * lanes. The result is a fresh aligned stack temp, returned
+             * as its ADDRESS - consumers (assignment, call args, returns,
+             * nested vector ops) load through it. Integer lanes use
+             * width-correct loads/sign-extension and the scalar int ops
+             * (C div/mod semantics); float lanes run in the double-width
+             * FP model (cvtss2sd/cvtsd2ss) so 4-byte float vectors reuse
+             * the double ops. Comparisons yield per-lane -1/0 predicate
+             * lanes (GCC vector-compare semantics). */
+            {
+                ZeroCCASTNode *l_node = zero_cc_ast_get(arena, node->left);
+                ZeroCCASTNode *r_node = zero_cc_ast_get(arena, node->right);
+                TypeInfo *res_ti = ast_node_get_typeinfo(c, node);
+                TypeInfo *l_ti = ast_node_get_typeinfo(c, l_node);
+                TypeInfo *r_ti = ast_node_get_typeinfo(c, r_node);
+                if (res_ti && type_is_vector(res_ti) &&
+                    ((l_ti && type_is_vector(l_ti)) || (r_ti && type_is_vector(r_ti)))) {
+                    const TypeInfo *vec_ti = (l_ti && type_is_vector(l_ti)) ? l_ti : r_ti;
+                    const TypeInfo *el_ti = vec_ti->details.array.base;
+                    size_t esz = el_ti ? type_size(el_ti) : 0;
+                    size_t lanes = (esz > 0 && type_size(vec_ti) > 0) ? type_size(vec_ti) / esz : 0;
+                    if (esz < 1 || esz > 8 || lanes < 1 || lanes > 32) {
+                        diag_report_error_at_token(c, "unsupported vector operand size");
+                        int zt = c->next_temp_id++;
+                        ir_emit_mov_imm(zt, 0);
+                        c->last_expr_is_float = 0;
+                        return zt;
+                    }
+                    bool elem_float = type_is_floating(el_ti);
+                    bool elem_unsigned = type_is_unsigned(el_ti);
+                    uint32_t vop = node->aux.op;
+                    bool is_cmp = (vop == TK_LT || vop == TK_GT || vop == TK_LE || vop == TK_GE ||
+                                   vop == TK_EQ || vop == TK_NE);
+
+                    /* Result temp object in the current frame (16-byte
+                     * aligned for <=16B vectors, like SSE objects). */
+                    size_t vsize = lanes * esz;
+                    if (vsize > 16) c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)vsize + 7) & ~7;
+                    int32_t res_off = c->current_stack_frame;
+
+                    int left_temp = lower_expr(c, arena, node->left);
+                    bool left_vec = (l_ti && type_is_vector(l_ti));
+                    bool left_flt = c->last_expr_is_float;
+                    int right_temp = lower_expr(c, arena, node->right);
+                    bool right_vec = (r_ti && type_is_vector(r_ti));
+                    bool right_flt = c->last_expr_is_float;
+
+                    /* C integer conversions: a scalar operand is converted
+                     * to the vector element type before the operation. For
+                     * div/mod this is observable (64-bit residue != 32-bit
+                     * value), so truncate/extend the scalar to lane width. */
+                    if (!elem_float && esz < 8) {
+                        if (!left_vec) {
+                            if (esz == 4) { if (elem_unsigned) ir_emit_zext(left_temp, 4); else ir_emit_sext(left_temp, 4); }
+                            else if (esz == 2) { if (elem_unsigned) ir_emit_zext(left_temp, 2); else ir_emit_sext(left_temp, 2); }
+                            else if (esz == 1) { if (elem_unsigned) ir_emit_zext(left_temp, 1); else ir_emit_sext(left_temp, 1); }
+                        }
+                        if (!right_vec) {
+                            if (esz == 4) { if (elem_unsigned) ir_emit_zext(right_temp, 4); else ir_emit_sext(right_temp, 4); }
+                            else if (esz == 2) { if (elem_unsigned) ir_emit_zext(right_temp, 2); else ir_emit_sext(right_temp, 2); }
+                            else if (esz == 1) { if (elem_unsigned) ir_emit_zext(right_temp, 1); else ir_emit_sext(right_temp, 1); }
+                        }
+                    }
+
+                    int cmp_cc = CC_EQ;
+                    if (vop == TK_LT) cmp_cc = CC_LT;
+                    else if (vop == TK_GT) cmp_cc = CC_GT;
+                    else if (vop == TK_LE) cmp_cc = CC_LE;
+                    else if (vop == TK_GE) cmp_cc = CC_GE;
+                    else if (vop == TK_NE) cmp_cc = CC_NE;
+
+                    for (size_t i = 0; i < lanes; i++) {
+                        /* Load lane i of each vector operand (or take the
+                         * scalar-broadcast value). */
+                        int lv = left_temp, rv = right_temp;
+                        bool lv_flt = left_flt, rv_flt = right_flt;
+                        if (left_vec) {
+                            int a = left_temp;
+                            if (i > 0) {
+                                int o = c->next_temp_id++;
+                                ir_emit_mov_imm(o, (int32_t)(i * esz));
+                                a = c->next_temp_id++;
+                                ir_emit_add(a, left_temp, o);
+                            }
+                            lv = c->next_temp_id++;
+                            if (elem_float) {
+                                if (esz == 4) ir_emit_vloadss((uint16_t)lv, (uint16_t)a);
+                                else ir_emit_vloadsd((uint16_t)lv, (uint16_t)a);
+                                lv_flt = 1;
+                            } else if (esz == 1) {
+                                ir_emit_load_byte(lv, a);
+                                if (elem_unsigned) ir_emit_zext(lv, 1); else ir_emit_sext(lv, 1);
+                            } else if (esz == 2) {
+                                ir_emit_load_16(lv, a);
+                                if (elem_unsigned) ir_emit_zext(lv, 2); else ir_emit_sext(lv, 2);
+                            } else if (esz == 4) {
+                                ir_emit_load_32(lv, a);
+                                if (elem_unsigned) ir_emit_zext(lv, 4); else ir_emit_sext(lv, 4);
+                            } else {
+                                ir_emit_deref(lv, a);
+                            }
+                        }
+                        if (right_vec) {
+                            int a = right_temp;
+                            if (i > 0) {
+                                int o = c->next_temp_id++;
+                                ir_emit_mov_imm(o, (int32_t)(i * esz));
+                                a = c->next_temp_id++;
+                                ir_emit_add(a, right_temp, o);
+                            }
+                            rv = c->next_temp_id++;
+                            if (elem_float) {
+                                if (esz == 4) ir_emit_vloadss((uint16_t)rv, (uint16_t)a);
+                                else ir_emit_vloadsd((uint16_t)rv, (uint16_t)a);
+                                rv_flt = 1;
+                            } else if (esz == 1) {
+                                ir_emit_load_byte(rv, a);
+                                if (elem_unsigned) ir_emit_zext(rv, 1); else ir_emit_sext(rv, 1);
+                            } else if (esz == 2) {
+                                ir_emit_load_16(rv, a);
+                                if (elem_unsigned) ir_emit_zext(rv, 2); else ir_emit_sext(rv, 2);
+                            } else if (esz == 4) {
+                                ir_emit_load_32(rv, a);
+                                if (elem_unsigned) ir_emit_zext(rv, 4); else ir_emit_sext(rv, 4);
+                            } else {
+                                ir_emit_deref(rv, a);
+                            }
+                        }
+
+                        int ov = c->next_temp_id++;
+                        bool ov_flt = false;
+                        if (is_cmp) {
+                            if (elem_float) {
+                                /* Double FP model: VLOADSS already widened the
+                                 * lane single to double; a double scalar with
+                                 * float lanes is first narrowed to the element
+                                 * type (C: scalar converts to the vector
+                                 * element type) then re-widened; int scalars
+                                 * widen with cvtsi2sd. */
+                                if (esz == 4) {
+                                    if (!left_vec && left_flt) { int t = c->next_temp_id++; ir_emit_cvtsd2ss((uint16_t)t, (uint16_t)lv); lv = t; int t2 = c->next_temp_id++; ir_emit_cvtss2sd((uint16_t)t2, (uint16_t)lv); lv = t2; }
+                                    if (!right_vec && right_flt) { int t = c->next_temp_id++; ir_emit_cvtsd2ss((uint16_t)t, (uint16_t)rv); rv = t; int t2 = c->next_temp_id++; ir_emit_cvtss2sd((uint16_t)t2, (uint16_t)rv); rv = t2; }
+                                }
+                                if (!left_vec && !left_flt) { int t = c->next_temp_id++; ir_emit_cvtsi2sd((uint16_t)t, (uint16_t)lv); lv = t; }
+                                if (!right_vec && !right_flt) { int t = c->next_temp_id++; ir_emit_cvtsi2sd((uint16_t)t, (uint16_t)rv); rv = t; }
+                                ir_emit_cmp((uint16_t)lv, (uint16_t)rv);
+                            } else {
+                                ir_emit_cmp((uint16_t)lv, (uint16_t)rv);
+                            }
+                            ir_emit_cond_set((uint16_t)ov, cmp_cc);
+                            /* Predicate lane: full -1 mask / 0 (GCC). The
+                             * result vector has an integer element type
+                             * (see type_vector_cmp_result); the mask stores
+                             * as int lanes of the result element width. */
+                            int m = c->next_temp_id++;
+                            ir_emit_mov_imm(m, -1);
+                            int ov2 = c->next_temp_id++;
+                            ir_emit_mul(ov2, ov, m);
+                            ov = ov2;
+                        } else if (elem_float) {
+                            int ls = lv, rs = rv;
+                            /* Double FP model: VLOADSS/VLOADSD lane values
+                             * are already double. A double scalar with float
+                             * lanes narrows to the element type first (C
+                             * semantics) then re-widens; int scalars widen
+                             * with cvtsi2sd. */
+                            if (esz == 4) {
+                                if (!left_vec && left_flt) { int t = c->next_temp_id++; ir_emit_cvtsd2ss((uint16_t)t, (uint16_t)lv); lv = t; int t2 = c->next_temp_id++; ir_emit_cvtss2sd((uint16_t)t2, (uint16_t)lv); ls = t2; }
+                                if (!right_vec && right_flt) { int t = c->next_temp_id++; ir_emit_cvtsd2ss((uint16_t)t, (uint16_t)rv); rv = t; int t2 = c->next_temp_id++; ir_emit_cvtss2sd((uint16_t)t2, (uint16_t)rv); rs = t2; }
+                            }
+                            if (!left_vec && !left_flt) { int t = c->next_temp_id++; ir_emit_cvtsi2sd((uint16_t)t, (uint16_t)lv); ls = t; }
+                            if (!right_vec && !right_flt) { int t = c->next_temp_id++; ir_emit_cvtsi2sd((uint16_t)t, (uint16_t)rv); rs = t; }
+                            switch (vop) {
+                                case TK_PLUS:  ir_emit_fadd((uint16_t)ov, (uint16_t)ls, (uint16_t)rs); break;
+                                case TK_MINUS: ir_emit_fsub((uint16_t)ov, (uint16_t)ls, (uint16_t)rs); break;
+                                case TK_STAR:  ir_emit_fmul((uint16_t)ov, (uint16_t)ls, (uint16_t)rs); break;
+                                default:       ir_emit_fdiv((uint16_t)ov, (uint16_t)ls, (uint16_t)rs); break;
+                            }
+                            ov_flt = 1;
+                        } else {
+                            switch (vop) {
+                                case TK_PLUS:  ir_emit_add(ov, lv, rv); break;
+                                case TK_MINUS: ir_emit_sub(ov, lv, rv); break;
+                                case TK_STAR:  ir_emit_mul(ov, lv, rv); break;
+                                case TK_SLASH: ir_emit_div(ov, lv, rv); if (elem_unsigned) ir_mark_last_unsigned(1); break;
+                                case TK_PERCENT: ir_emit_mod(ov, lv, rv); if (elem_unsigned) ir_mark_last_unsigned(1); break;
+                                case TK_AMP:  ir_emit_and(ov, lv, rv); break;
+                                case TK_PIPE: ir_emit_or(ov, lv, rv); break;
+                                case TK_CARET: ir_emit_xor(ov, lv, rv); break;
+                                case TK_SHL:  ir_emit_shl(ov, lv, rv); break;
+                                case TK_SHR:  ir_emit_shr(ov, lv, rv); break;
+                                default: ir_emit_mov_reg(ov, lv); break;
+                            }
+                        }
+
+                        /* Store lane i of the result. Comparison results
+                         * have an integer element type; arithmetic results
+                         * keep the operand element type. */
+                        int32_t lane_off = -(res_off - (int32_t)(i * esz));
+                        int lane_addr = c->next_temp_id++;
+                        ir_emit_lea(lane_addr, BE(c)->fp_reg, lane_off);
+                        if (is_cmp) {
+                            if (esz == 1) ir_emit_store_byte(ov, lane_addr);
+                            else if (esz == 2) ir_emit_store_16(ov, lane_addr);
+                            else if (esz == 4) ir_emit_store_32(ov, lane_addr);
+                            else ir_emit_store_64(ov, lane_addr);
+                        } else if (elem_float) {
+                            if (esz == 4) {
+                                if (!ov_flt) { int t = c->next_temp_id++; ir_emit_cvtsi2sd((uint16_t)t, (uint16_t)ov); ov = t; ov_flt = 1; }
+                                /* Double FP model: VSTORESS narrows the
+                                 * double to single internally. */
+                                ir_emit_vstoress((uint16_t)lane_addr, (uint16_t)ov);
+                            } else {
+                                ir_emit_vstoresd((uint16_t)lane_addr, (uint16_t)ov);
+                            }
+                        } else if (esz == 1) {
+                            ir_emit_store_byte(ov, lane_addr);
+                        } else if (esz == 2) {
+                            ir_emit_store_16(ov, lane_addr);
+                        } else if (esz == 4) {
+                            ir_emit_store_32(ov, lane_addr);
+                        } else {
+                            ir_emit_store_64(ov, lane_addr);
+                        }
+                    }
+                    int res_addr = c->next_temp_id++;
+                    ir_emit_lea(res_addr, BE(c)->fp_reg, -res_off);
+                    c->last_expr_is_float = 0;
+                    return res_addr;
+                }
+            }
+
             /* Logical AND (&&) / OR (||): C99 6.5.13/6.5.14 short-circuit
              * evaluation. The right operand is evaluated ONLY if the left
              * operand does not determine the result (`p && *p` must not
@@ -1695,6 +1952,105 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
             }
 
+            /* GNU vector: per-lane unary +/-/~. The operand lowers to the
+             * address of the vector object; the result is a fresh stack
+             * temp returned as its address (like the vector binops). */
+            {
+                TypeInfo *un_ti = ast_node_get_typeinfo(c, node);
+                if (un_ti && type_is_vector(un_ti) &&
+                    (node->aux.op == TK_MINUS || node->aux.op == TK_TILDE ||
+                     node->aux.op == TK_PLUS || node->aux.op == '+')) {
+                    const TypeInfo *el_ti = un_ti->details.array.base;
+                    size_t esz = el_ti ? type_size(el_ti) : 0;
+                    size_t lanes = (esz > 0 && type_size(un_ti) > 0) ? type_size(un_ti) / esz : 0;
+                    if (esz < 1 || esz > 8 || lanes < 1 || lanes > 32) {
+                        diag_report_error_at_token(c, "unsupported vector operand size");
+                        int zt = c->next_temp_id++;
+                        ir_emit_mov_imm(zt, 0);
+                        c->last_expr_is_float = 0;
+                        return zt;
+                    }
+                    bool elem_float = type_is_floating(el_ti);
+                    bool elem_unsigned = type_is_unsigned(el_ti);
+                    size_t vsize = lanes * esz;
+                    if (vsize > 16) c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)vsize + 7) & ~7;
+                    int32_t res_off = c->current_stack_frame;
+                    int op_addr = lower_expr(c, arena, node->left);
+                    for (size_t i = 0; i < lanes; i++) {
+                        int a = op_addr;
+                        if (i > 0) {
+                            int o = c->next_temp_id++;
+                            ir_emit_mov_imm(o, (int32_t)(i * esz));
+                            a = c->next_temp_id++;
+                            ir_emit_add(a, op_addr, o);
+                        }
+                        int lv = c->next_temp_id++;
+                        if (elem_float) {
+                            if (esz == 4) ir_emit_vloadss((uint16_t)lv, (uint16_t)a);
+                            else ir_emit_vloadsd((uint16_t)lv, (uint16_t)a);
+                        } else if (esz == 1) {
+                            ir_emit_load_byte(lv, a);
+                            if (elem_unsigned) ir_emit_zext(lv, 1); else ir_emit_sext(lv, 1);
+                        } else if (esz == 2) {
+                            ir_emit_load_16(lv, a);
+                            if (elem_unsigned) ir_emit_zext(lv, 2); else ir_emit_sext(lv, 2);
+                        } else if (esz == 4) {
+                            ir_emit_load_32(lv, a);
+                            if (elem_unsigned) ir_emit_zext(lv, 4); else ir_emit_sext(lv, 4);
+                        } else {
+                            ir_emit_deref(lv, a);
+                        }
+                        int ov = c->next_temp_id++;
+                        bool ov_flt = false;
+                        if (elem_float) {
+                            int ls = lv;
+                            if (esz == 4) { int t = c->next_temp_id++; ir_emit_cvtss2sd((uint16_t)t, (uint16_t)lv); ls = t; }
+                            if (node->aux.op == TK_MINUS || node->aux.op == '-') {
+                                int zero_i = c->next_temp_id++;
+                                ir_emit_mov_imm(zero_i, 0);
+                                int zero_f = c->next_temp_id++;
+                                ir_emit_cvtsi2sd((uint16_t)zero_f, (uint16_t)zero_i);
+                                ir_emit_fsub((uint16_t)ov, (uint16_t)zero_f, (uint16_t)ls);
+                            } else {
+                                /* Unary + (and ~, undefined for floats): identity */
+                                ir_emit_fmov((uint16_t)ov, (uint16_t)ls);
+                            }
+                            ov_flt = 1;
+                        } else if (node->aux.op == TK_TILDE || node->aux.op == '~') {
+                            ir_emit_not(ov, lv);
+                        } else if (node->aux.op == TK_MINUS || node->aux.op == '-') {
+                            ir_emit_neg(ov, lv);
+                        } else {
+                            ir_emit_mov_reg(ov, lv);
+                        }
+                        int32_t lane_off = -(res_off - (int32_t)(i * esz));
+                        int lane_addr = c->next_temp_id++;
+                        ir_emit_lea(lane_addr, BE(c)->fp_reg, lane_off);
+                        if (elem_float) {
+                            if (esz == 4) {
+                                if (ov_flt) { int t = c->next_temp_id++; ir_emit_cvtsd2ss((uint16_t)t, (uint16_t)ov); ov = t; }
+                                ir_emit_vstoress((uint16_t)lane_addr, (uint16_t)ov);
+                            } else {
+                                ir_emit_vstoresd((uint16_t)lane_addr, (uint16_t)ov);
+                            }
+                        } else if (esz == 1) {
+                            ir_emit_store_byte(ov, lane_addr);
+                        } else if (esz == 2) {
+                            ir_emit_store_16(ov, lane_addr);
+                        } else if (esz == 4) {
+                            ir_emit_store_32(ov, lane_addr);
+                        } else {
+                            ir_emit_store_64(ov, lane_addr);
+                        }
+                    }
+                    int res_addr = c->next_temp_id++;
+                    ir_emit_lea(res_addr, BE(c)->fp_reg, -res_off);
+                    c->last_expr_is_float = 0;
+                    return res_addr;
+                }
+            }
+
             int operand_temp = lower_expr(c, arena, node->left);
             int result_temp = c->next_temp_id++;
 
@@ -1707,6 +2063,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                      * pointer value with no load. */
                     TypeInfo *op_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
                     TypeInfo *ti = ast_node_get_typeinfo(c, node);
+                    if (ti && type_is_vector(ti)) {
+                        /* Dereference of a pointer-to-vector: the vector value
+                         * is in address form - the pointer itself is the value
+                         * (consumers read lanes through it). */
+                        c->last_expr_is_float = 0;
+                        return operand_temp;
+                    }
                     if ((ti && ti->kind == TYPE_KIND_ARRAY) ||
                         (op_ti && op_ti->kind == TYPE_KIND_POINTER && op_ti->details.pointer.base &&
                          (op_ti->details.pointer.base->kind == TYPE_KIND_ARRAY ||
@@ -1907,6 +2270,29 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return int_res_temp;
             }
             int result = lower_expr(c, arena, node->left);
+            /* Vector -> same-size scalar cast (GCC requires matching sizes):
+             * the vector lowers to the ADDRESS of the vector object; read
+             * the whole vector as one scalar value of the target width.
+             * Float targets use the FP load (widening in the double model). */
+            {
+                ZeroCCASTNode *csrc = zero_cc_ast_get(arena, node->left);
+                TypeInfo *cst = csrc ? ast_node_get_typeinfo(c, csrc) : NULL;
+                if (cst && type_is_vector(cst) && cast_ti && !type_is_vector(cast_ti)) {
+                    size_t wsz = type_size(cast_ti);
+                    int wv = c->next_temp_id++;
+                    if (target_is_float) {
+                        if (wsz == 8) { ir_emit_vloadsd((uint16_t)wv, (uint16_t)result); c->last_expr_is_float = 1; }
+                        else { ir_emit_vloadss((uint16_t)wv, (uint16_t)result); c->last_expr_is_float = 1; }
+                    } else {
+                        if (wsz == 1) ir_emit_load_byte(wv, result);
+                        else if (wsz == 2) ir_emit_load_16(wv, result);
+                        else if (wsz == 4) ir_emit_load_32(wv, result);
+                        else ir_emit_deref(wv, result);
+                        c->last_expr_is_float = 0;
+                    }
+                    result = wv;
+                }
+            }
             if (target_is_float) {
                 if (!c->last_expr_is_float) {
                     /* int/pointer -> float/double: convert (C9). Previously
@@ -2086,6 +2472,49 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
                 return int_res_temp;
+            }
+            /* Vector->vector cast: same-size bit reinterpret (GCC allows
+             * casts between vectors of different element types, e.g.
+             * `(vector float)(vector int)x`). The source lowers to the
+             * address of the vector object; copy its raw bytes into a
+             * fresh temp object of the target vector type. */
+            if (cast_ti && type_is_vector(cast_ti)) {
+                ZeroCCASTNode *cs = zero_cc_ast_get(arena, node->left);
+                TypeInfo *cst = cs ? ast_node_get_typeinfo(c, cs) : NULL;
+                if (cst && type_is_vector(cst)) {
+                size_t ctsz = type_size(cast_ti);
+                if (ctsz >= 1 && ctsz <= 128) {
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)ctsz + 7) & ~7;
+                    int32_t vres_off = c->current_stack_frame;
+                    int saddr = result; /* source vector in address form */
+                    for (size_t off = 0; off < ctsz; off += 8) {
+                        size_t rem = ctsz - off;
+                        int ca = c->next_temp_id++;
+                        if (off == 0) { ir_emit_mov_reg(ca, saddr); }
+                        else {
+                            int o = c->next_temp_id++;
+                            ir_emit_mov_imm(o, (int32_t)off);
+                            ir_emit_add(ca, saddr, o);
+                        }
+                        int cv = c->next_temp_id++;
+                        if (rem >= 8) ir_emit_deref(cv, ca);
+                        else if (rem >= 4) ir_emit_load_32(cv, ca);
+                        else if (rem >= 2) ir_emit_load_16(cv, ca);
+                        else ir_emit_load_byte(cv, ca);
+                        int da = c->next_temp_id++;
+                        if (off == 0) { ir_emit_lea(da, BE(c)->fp_reg, -vres_off); }
+                        else { ir_emit_lea(da, BE(c)->fp_reg, -(int32_t)(vres_off - (int32_t)off)); }
+                        if (rem >= 8) ir_emit_store_64(cv, da);
+                        else if (rem >= 4) ir_emit_store_32(cv, da);
+                        else if (rem >= 2) ir_emit_store_16(cv, da);
+                        else ir_emit_store_byte(cv, da);
+                    }
+                    int vaddr = c->next_temp_id++;
+                    ir_emit_lea(vaddr, BE(c)->fp_reg, -vres_off);
+                    c->last_expr_is_float = 0;
+                    return vaddr;
+                }
+                }
             }
             /* int->int narrowing cast ((int)longv, (short)x): extend the
              * 64-bit value to the target width so it carries true N-bit
@@ -2412,6 +2841,95 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 int final_val = right_temp;
+                if (is_compound && target_ti && type_is_vector(target_ti)) {
+                    /* Per-lane compound assignment through a pointer-to-vector
+                     * (*w += v, *w %= n, ...): the target is in address form
+                     * (ptr_temp); the RHS is either a vector in address form
+                     * (per-lane read) or a scalar broadcast to every lane. */
+                    TypeInfo *lt = target_ti->details.array.base;
+                    size_t elsz = lt ? type_size(lt) : 1;
+                    size_t lanes = p_size / (elsz ? elsz : 1);
+                    bool lt_float = lt && type_is_floating(lt);
+                    ZeroCCASTNode *rhs_node_c = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                    TypeInfo *rhs_ti_c = rhs_node_c ? ast_node_get_typeinfo(c, rhs_node_c) : NULL;
+                    bool rhs_is_scalar_c = !(rhs_ti_c && type_is_vector(rhs_ti_c));
+                    for (size_t i = 0; i < lanes; i++) {
+                        int laddr = c->next_temp_id++;
+                        if (i == 0) { ir_emit_mov_reg(laddr, ptr_temp); }
+                        else {
+                            int off = c->next_temp_id++;
+                            ir_emit_mov_imm(off, (int32_t)(i * elsz));
+                            ir_emit_add(laddr, ptr_temp, off);
+                        }
+                        int cur = c->next_temp_id++;
+                        int rvl = c->next_temp_id++;
+                        if (lt_float) {
+                            /* Float element: double-width FP model */
+                            if (elsz == 4) ir_emit_vloadss((uint16_t)cur, (uint16_t)laddr);
+                            else ir_emit_vloadsd((uint16_t)cur, (uint16_t)laddr);
+                            if (!rhs_is_scalar_c) {
+                                int raddr = c->next_temp_id++;
+                                if (i == 0) { ir_emit_mov_reg(raddr, right_temp); }
+                                else { int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int32_t)(i * elsz));
+                                       ir_emit_add(raddr, right_temp, o2); }
+                                if (elsz == 4) ir_emit_vloadss((uint16_t)rvl, (uint16_t)raddr);
+                                else ir_emit_vloadsd((uint16_t)rvl, (uint16_t)raddr);
+                            } else if (c->last_expr_is_float) {
+                                ir_emit_mov_reg(rvl, right_temp);
+                            } else {
+                                ir_emit_cvtsi2sd((uint16_t)rvl, (uint16_t)right_temp);
+                            }
+                            int res = c->next_temp_id++;
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)res, (uint16_t)cur, (uint16_t)rvl); break;
+                                case TK_SUB_ASSIGN: ir_emit_fsub((uint16_t)res, (uint16_t)cur, (uint16_t)rvl); break;
+                                case TK_MUL_ASSIGN: ir_emit_fmul((uint16_t)res, (uint16_t)cur, (uint16_t)rvl); break;
+                                default:            ir_emit_fdiv((uint16_t)res, (uint16_t)cur, (uint16_t)rvl); break;
+                            }
+                            if (elsz == 4) ir_emit_vstoress(laddr, (uint16_t)res);
+                            else ir_emit_vstoresd(laddr, (uint16_t)res);
+                            continue;
+                        }
+                        if (elsz == 1) { ir_emit_load_byte(cur, laddr); ir_emit_load_byte(rvl, laddr); }
+                        else if (elsz == 2) { ir_emit_load_16(cur, laddr); ir_emit_load_16(rvl, laddr); }
+                        else if (elsz == 4) { ir_emit_load_32(cur, laddr); ir_emit_load_32(rvl, laddr); }
+                        else { ir_emit_deref(cur, laddr); ir_emit_deref(rvl, laddr); }
+                        if (!rhs_is_scalar_c) {
+                            int raddr = c->next_temp_id++;
+                            if (i == 0) { ir_emit_mov_reg(raddr, right_temp); }
+                            else { int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int32_t)(i * elsz));
+                                   ir_emit_add(raddr, right_temp, o2); }
+                            if (elsz == 1) ir_emit_load_byte(rvl, raddr);
+                            else if (elsz == 2) ir_emit_load_16(rvl, raddr);
+                            else if (elsz == 4) ir_emit_load_32(rvl, raddr);
+                            else ir_emit_deref(rvl, raddr);
+                        } else {
+                            ir_emit_mov_reg(rvl, right_temp);
+                        }
+                        int res = c->next_temp_id++;
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN: ir_emit_add(res, cur, rvl); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(res, cur, rvl); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(res, cur, rvl); break;
+                            case TK_DIV_ASSIGN: ir_emit_div(res, cur, rvl); break;
+                            case TK_MOD_ASSIGN: ir_emit_mod(res, cur, rvl); break;
+                            case TK_AND_ASSIGN: ir_emit_and(res, cur, rvl); break;
+                            case TK_OR_ASSIGN:  ir_emit_or(res, cur, rvl); break;
+                            case TK_XOR_ASSIGN: ir_emit_xor(res, cur, rvl); break;
+                            case TK_SHL_ASSIGN: ir_emit_shl(res, cur, rvl); break;
+                            case TK_SHR_ASSIGN: ir_emit_shr(res, cur, rvl); break;
+                            default: res = rvl; break;
+                        }
+                        if (elsz == 1) ir_emit_store_byte(res, laddr);
+                        else if (elsz == 2) ir_emit_store_16(res, laddr);
+                        else if (elsz == 4) ir_emit_store_32(res, laddr);
+                        else ir_emit_store_64(res, laddr);
+                    }
+                    final_val = c->next_temp_id++;
+                    ir_emit_mov_imm(final_val, 0);
+                    c->last_expr_is_float = 0;
+                    return final_val;
+                }
                 if (is_compound) {
                     int curr_val = c->next_temp_id++;
                     if (p_size == 1) ir_emit_load_byte(curr_val, ptr_temp);
@@ -2439,6 +2957,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (p_size == 4) ir_emit_vstoress((uint16_t)ptr_temp, (uint16_t)final_val);
                     else ir_emit_vstoresd((uint16_t)ptr_temp, (uint16_t)final_val);
                     c->last_expr_is_float = 1;
+                } else if (target_ti && type_is_vector(target_ti)) {
+                    /* Vector target: the RHS is in address form (binop temp,
+                     * compound literal, local decay, call result); copy the
+                     * 8-byte chunk(s) through the address. */
+                    zero_cc_emit_struct_copy_to_addr(c, arena, ptr_temp, p_size, node->right, right_temp);
+                    c->last_expr_is_float = 0;
                 } else if (p_size <= 8) {
                     if (p_size == 1) ir_emit_store_byte(final_val, ptr_temp);
                     else if (p_size == 2) ir_emit_store_16(final_val, ptr_temp);
@@ -2953,6 +3477,123 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     return TEMP_NONE;
                 }
                 bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+                if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                    /* GNU vector target: the RHS is the address of a vector
+                     * object (per-lane binop/unop temp, decaying ident,
+                     * compound literal, sret call buffer) or - for a <=16B
+                     * by-value call result - the VREG_0/VREG_2 pair. */
+                    size_t vsize = sym->type.size ? sym->type.size : 16;
+                    const ZeroCCType *vel = sym->type.base;
+                    size_t vesz = (vel && vel->size > 0) ? vel->size : 4;
+                    size_t vlanes = (vesz > 0) ? (vsize / vesz) : 0;
+                    bool vel_float = (vel && (vel->tag == TYPE_FLOAT || vel->tag == TYPE_DOUBLE));
+                    bool vel_unsigned = (vel && (vel->tag == TYPE_UINT8 || vel->tag == TYPE_UINT16 ||
+                                                  vel->tag == TYPE_UINT32 || vel->tag == TYPE_UINT64));
+                    if (is_compound && vsize >= 8 && !vel_float && vlanes > 0 && vlanes <= 32) {
+                        /* Element-wise in-place compound (v %= 3, v += 2, ...):
+                         * the scalar RHS value broadcasts to every lane. */
+                        for (size_t i = 0; i < vlanes; i++) {
+                            int32_t lane_off = -(sym->stack_offset - (int32_t)(i * vesz));
+                            int la = c->next_temp_id++;
+                            ir_emit_lea(la, BE(c)->fp_reg, lane_off);
+                            int lv = c->next_temp_id++;
+                            if (vesz == 1) { ir_emit_load_byte(lv, la); if (vel_unsigned) ir_emit_zext(lv, 1); else ir_emit_sext(lv, 1); }
+                            else if (vesz == 2) { ir_emit_load_16(lv, la); if (vel_unsigned) ir_emit_zext(lv, 2); else ir_emit_sext(lv, 2); }
+                            else if (vesz == 4) { ir_emit_load_32(lv, la); if (vel_unsigned) ir_emit_zext(lv, 4); else ir_emit_sext(lv, 4); }
+                            else ir_emit_deref(lv, la);
+                            int ov = c->next_temp_id++;
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_add(ov, lv, right_temp); break;
+                                case TK_SUB_ASSIGN: ir_emit_sub(ov, lv, right_temp); break;
+                                case TK_MUL_ASSIGN: ir_emit_mul(ov, lv, right_temp); break;
+                                case TK_DIV_ASSIGN: ir_emit_div(ov, lv, right_temp); if (vel_unsigned) ir_mark_last_unsigned(1); break;
+                                case TK_MOD_ASSIGN: ir_emit_mod(ov, lv, right_temp); if (vel_unsigned) ir_mark_last_unsigned(1); break;
+                                case TK_AND_ASSIGN: ir_emit_and(ov, lv, right_temp); break;
+                                case TK_OR_ASSIGN:  ir_emit_or(ov, lv, right_temp); break;
+                                case TK_XOR_ASSIGN: ir_emit_xor(ov, lv, right_temp); break;
+                                case TK_SHL_ASSIGN: ir_emit_shl(ov, lv, right_temp); break;
+                                case TK_SHR_ASSIGN: ir_emit_shr(ov, lv, right_temp); break;
+                                default: ir_emit_mov_reg(ov, lv); break;
+                            }
+                            if (vesz == 1) ir_emit_store_byte(ov, la);
+                            else if (vesz == 2) ir_emit_store_16(ov, la);
+                            else if (vesz == 4) ir_emit_store_32(ov, la);
+                            else ir_emit_store_64(ov, la);
+                        }
+                        c->last_expr_is_float = 0;
+                        return right_temp;
+                    }
+                    if (is_compound && vel_float && vsize >= 8 && vlanes > 0 && vlanes <= 32) {
+                        /* Element-wise in-place compound on a float-element
+                         * vector (v4flt t; t += v, t *= 2.0, ...): the RHS is
+                         * either a vector in address form (per-lane read) or a
+                         * scalar broadcast to every lane. Lane math runs in the
+                         * double-width FP model (VLOADSS/VSTORESS widen/narrow). */
+                        ZeroCCASTNode *rhs_node_f = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                        TypeInfo *rhs_ti_f = rhs_node_f ? ast_node_get_typeinfo(c, rhs_node_f) : NULL;
+                        bool rhs_is_vec_f = !!(rhs_ti_f && type_is_vector(rhs_ti_f));
+                        bool rv_flt = c->last_expr_is_float;
+                        for (size_t i = 0; i < vlanes; i++) {
+                            int32_t lane_off = -(sym->stack_offset - (int32_t)(i * vesz));
+                            int la = c->next_temp_id++;
+                            ir_emit_lea(la, BE(c)->fp_reg, lane_off);
+                            int lv = c->next_temp_id++;
+                            if (vesz == 4) ir_emit_vloadss((uint16_t)lv, (uint16_t)la);
+                            else ir_emit_vloadsd((uint16_t)lv, (uint16_t)la);
+                            int rv = c->next_temp_id++;
+                            if (rhs_is_vec_f) {
+                                int ra = c->next_temp_id++;
+                                if (i == 0) { ir_emit_mov_reg(ra, right_temp); }
+                                else {
+                                    int o2 = c->next_temp_id++;
+                                    ir_emit_mov_imm(o2, (int32_t)(i * vesz));
+                                    ir_emit_add(ra, right_temp, o2);
+                                }
+                                if (vesz == 4) ir_emit_vloadss((uint16_t)rv, (uint16_t)ra);
+                                else ir_emit_vloadsd((uint16_t)rv, (uint16_t)ra);
+                            } else if (rv_flt) {
+                                ir_emit_mov_reg(rv, right_temp);
+                            } else {
+                                ir_emit_cvtsi2sd((uint16_t)rv, (uint16_t)right_temp);
+                            }
+                            int ov = c->next_temp_id++;
+                            switch (node->aux.op) {
+                                case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                                case TK_SUB_ASSIGN: ir_emit_fsub((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                                case TK_MUL_ASSIGN: ir_emit_fmul((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                                default:            ir_emit_fdiv((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                            }
+                            if (vesz == 4) ir_emit_vstoress(la, (uint16_t)ov);
+                            else ir_emit_vstoresd(la, (uint16_t)ov);
+                        }
+                        c->last_expr_is_float = 0;
+                        return right_temp;
+                    }
+                    if (vsize > 8 && !is_compound) {
+                        int dst_addr = c->next_temp_id++;
+                        ir_emit_lea(dst_addr, TEMP_NONE, -sym->stack_offset);
+                        zero_cc_emit_struct_copy_to_addr(c, arena, dst_addr, vsize, node->right, right_temp);
+                        c->last_expr_is_float = 0;
+                        return right_temp;
+                    }
+                    /* <=8B vector: the RHS vector expression lowers to the
+                     * ADDRESS of the vector object (decayed ident, per-lane
+                     * temp, call buffer) - load width-correct, then store. */
+                    if (vsize == 8) {
+                        int vv = c->next_temp_id++;
+                        ir_emit_deref(vv, right_temp);
+                        ir_emit_store(vv, BE(c)->fp_reg, -sym->stack_offset);
+                    } else {
+                        int va = c->next_temp_id++;
+                        ir_emit_lea(va, BE(c)->fp_reg, -sym->stack_offset);
+                        int vv = c->next_temp_id++;
+                        if (vsize == 1) { ir_emit_load_byte(vv, right_temp); ir_emit_store_byte(vv, va); }
+                        else if (vsize == 2) { ir_emit_load_16(vv, right_temp); ir_emit_store_16(vv, va); }
+                        else { ir_emit_load_32(vv, right_temp); ir_emit_store_32(vv, va); }
+                    }
+                    c->last_expr_is_float = 0;
+                    return right_temp;
+                }
                 if (target_is_float) {
                     int float_temp = right_temp;
                     if (!right_is_float) {
@@ -3202,7 +3843,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                         final_val = op_res;
                     }
-                    if ((gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) && gv_sz > 8 && !is_compound) {
+                    if (((gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) ||
+                         (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type))) &&
+                        gv_sz > 8 && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, gaddr_temp, gv_sz, node->right, right_temp);
                         c->last_expr_is_float = 0;
                         return right_temp;
@@ -3589,6 +4232,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         elem_size = unit_sz;
                         elem_is_float = (sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE));
                     }
+                } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                    /* GNU vector: lanes at idx * elem_size */
+                    size_t unit_sz = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
+                    elem_offset = idx * unit_sz;
+                    elem_size = unit_sz;
+                    elem_is_float = (sym->type.base && (sym->type.base->tag == TYPE_FLOAT || sym->type.base->tag == TYPE_DOUBLE));
                 } else {
                     elem_offset = 0;
                     elem_size = sym->type.size ? sym->type.size : 4;
@@ -3640,6 +4289,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 cur_ref = elem_node->next;
             }
             if (sym->type.tag == TYPE_ARRAY) {
+                int ptr_temp = c->next_temp_id++;
+                ir_emit_lea(ptr_temp, BE(c)->fp_reg, -sym->stack_offset);
+                c->last_expr_is_float = 0;
+                return ptr_temp;
+            } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                /* GNU vector compound literal: the value is in place; consumers
+                 * (binops, calls, assignments) read lanes through the address. */
                 int ptr_temp = c->next_temp_id++;
                 ir_emit_lea(ptr_temp, BE(c)->fp_reg, -sym->stack_offset);
                 c->last_expr_is_float = 0;
@@ -4193,6 +4849,156 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 c->last_expr_is_float = 0;
                 return VREG_0;
+            }
+
+            /* __builtin_shuffle(a, b) - lane selection: result[i] =
+             * (b[i] < n) ? a[b[i]] : b[b[i]-n], n = lanes of a (power of
+             * two). Both operands are n-lane vectors (address form); b is
+             * the index vector (any integer element width). GCC tolerates
+             * out-of-range index values (folded through the low log2(2n)
+             * bits), so lower branchlessly per lane on the raw index bits:
+             *   m = b[i] & (n-1)              shared element offset
+             *   from_a = ((b[i] & n) == 0)
+             *   res = (sel & a[m]) | (~sel & b[m])  bit-level select (valid
+             *   for integer and float lanes alike). */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_shuffle") == 0) {
+                ASTRef sh_a_ref = node->right;
+                ZeroCCASTNode *sh_a = sh_a_ref ? zero_cc_ast_get(arena, sh_a_ref) : NULL;
+                ZeroCCASTNode *sh_b = (sh_a && sh_a->next != AST_NULL) ?
+                    zero_cc_ast_get(arena, sh_a->next) : NULL;
+                if (sh_a && sh_b) {
+                    ZeroCCType sh_a_t;
+                    memset(&sh_a_t, 0, sizeof(sh_a_t));
+                    bool have_a_t = false;
+                    TypeInfo *a_ti = ast_node_get_typeinfo(c, sh_a);
+                    ZeroCCType sh_el_t;
+                    if (a_ti && type_is_vector(a_ti)) {
+                        sh_a_t.tag = TYPE_USER_0;
+                        sh_a_t.size = (int32_t)type_size(a_ti);
+                        if (a_ti->details.array.base) {
+                            sh_el_t = typeinfo_to_zero_cc_type(a_ti->details.array.base);
+                            sh_a_t.base = &sh_el_t;
+                        }
+                        have_a_t = true;
+                    } else if (sh_a->tag == NODE_IDENT) {
+                        ZeroCCSym *as = zero_cc_find_local(c, sh_a->s.str);
+                        ZeroCCGlobalVar *ag = as ? NULL : find_global_var(sh_a->s.str);
+                        if (as && as->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&as->type)) {
+                            sh_a_t = as->type; have_a_t = true;
+                        } else if (ag && ag->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ag->type)) {
+                            sh_a_t = ag->type; have_a_t = true;
+                        }
+                    }
+                    if (have_a_t && sh_a_t.size >= 1 && sh_a_t.size <= 128) {
+                        size_t a_sz = (size_t)sh_a_t.size;
+                        const ZeroCCType *ael = sh_a_t.base;
+                        size_t elsz = (ael && ael->size > 0) ? ael->size : 4;
+                        size_t n = a_sz / (elsz ? elsz : 1);
+                        /* index element size from b */
+                        size_t idsz = 4;
+                        TypeInfo *b_ti = ast_node_get_typeinfo(c, sh_b);
+                        if (b_ti && type_is_vector(b_ti) && b_ti->details.array.base) {
+                            idsz = type_size(b_ti->details.array.base);
+                        } else if (sh_b->tag == NODE_IDENT) {
+                            ZeroCCSym *bs = zero_cc_find_local(c, sh_b->s.str);
+                            if (bs && bs->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&bs->type) &&
+                                bs->type.base && bs->type.base->size > 0) {
+                                idsz = bs->type.base->size;
+                            }
+                        }
+                        if (n >= 1 && (n & (n - 1)) == 0 && n <= 16) {
+                            int a_addr = lower_expr(c, arena, sh_a_ref);
+                            int b_addr = lower_expr(c, arena, sh_a->next);
+                            c->current_stack_frame = (c->current_stack_frame + (int32_t)a_sz + 7) & ~7;
+                            int32_t res_off = c->current_stack_frame;
+                            int64_t bit_n = (int64_t)n;              /* k-th bit */
+                            int64_t mask_nm1 = (int64_t)(n - 1);
+                            for (size_t i = 0; i < n; i++) {
+                                /* idx = b[i] (raw bits, width-correct load) */
+                                int bi_off = c->next_temp_id++;
+                                if (i == 0) { ir_emit_mov_reg(bi_off, b_addr); }
+                                else {
+                                    int bo = c->next_temp_id++;
+                                    ir_emit_mov_imm(bo, (int32_t)(i * idsz));
+                                    ir_emit_add(bi_off, b_addr, bo);
+                                }
+                                int idx = c->next_temp_id++;
+                                if (idsz == 1) { ir_emit_load_byte(idx, bi_off); ir_emit_zext(idx, 1); }
+                                else if (idsz == 2) { ir_emit_load_16(idx, bi_off); ir_emit_zext(idx, 2); }
+                                else if (idsz == 4) { ir_emit_load_32(idx, bi_off); ir_emit_zext(idx, 4); }
+                                else { ir_emit_deref(idx, bi_off); }
+                                /* m = idx & (n-1) */
+                                int m_mask = c->next_temp_id++;
+                                ir_emit_mov_imm(m_mask, mask_nm1);
+                                int m = c->next_temp_id++;
+                                ir_emit_and(m, idx, m_mask);
+                                /* off = m * elsz */
+                                int off = c->next_temp_id++;
+                                if (elsz > 1) {
+                                    int es = c->next_temp_id++;
+                                    ir_emit_mov_imm(es, (int32_t)elsz);
+                                    ir_emit_mul(off, m, es);
+                                } else {
+                                    ir_emit_mov_reg(off, m);
+                                }
+                                int aa = c->next_temp_id++;
+                                ir_emit_add(aa, a_addr, off);
+                                int ba = c->next_temp_id++;
+                                ir_emit_add(ba, b_addr, off);
+                                int av = c->next_temp_id++;
+                                if (elsz == 1) { ir_emit_load_byte(av, aa); ir_emit_zext(av, 1); }
+                                else if (elsz == 2) { ir_emit_load_16(av, aa); ir_emit_zext(av, 2); }
+                                else if (elsz == 4) { ir_emit_load_32(av, aa); ir_emit_zext(av, 4); }
+                                else { ir_emit_deref(av, aa); }
+                                int bv = c->next_temp_id++;
+                                if (elsz == 1) { ir_emit_load_byte(bv, ba); ir_emit_zext(bv, 1); }
+                                else if (elsz == 2) { ir_emit_load_16(bv, ba); ir_emit_zext(bv, 2); }
+                                else if (elsz == 4) { ir_emit_load_32(bv, ba); ir_emit_zext(bv, 4); }
+                                else { ir_emit_deref(bv, ba); }
+                                /* sel = (idx & n) == 0  ->  0/1 */
+                                int n_bit = c->next_temp_id++;
+                                ir_emit_mov_imm(n_bit, bit_n);
+                                int ib = c->next_temp_id++;
+                                ir_emit_and(ib, idx, n_bit);
+                                int zero_t = c->next_temp_id++;
+                                ir_emit_mov_imm(zero_t, 0);
+                                ir_emit_cmp((uint16_t)ib, (uint16_t)zero_t);
+                                int cmp_t = c->next_temp_id++;
+                                ir_emit_cond_set((uint16_t)cmp_t, CC_EQ);
+                                int sel = c->next_temp_id++;
+                                ir_emit_mov_imm(sel, -1);
+                                int selm = c->next_temp_id++;
+                                ir_emit_mul(selm, cmp_t, sel);
+                                int nv = c->next_temp_id++;
+                                int all_ones = c->next_temp_id++;
+                                ir_emit_mov_imm(all_ones, -1);
+                                ir_emit_xor(nv, selm, all_ones);
+                                int s1 = c->next_temp_id++;
+                                ir_emit_and(s1, selm, av);
+                                int s2 = c->next_temp_id++;
+                                ir_emit_and(s2, nv, bv);
+                                int lv = c->next_temp_id++;
+                                ir_emit_or(lv, s1, s2);
+                                /* store lane i into the result temp */
+                                int ra = c->next_temp_id++;
+                                if (i == 0) {
+                                    ir_emit_lea(ra, BE(c)->fp_reg, -res_off);
+                                } else {
+                                    ir_emit_lea(ra, BE(c)->fp_reg, -(int32_t)(res_off - (int32_t)(i * elsz)));
+                                }
+                                if (elsz == 1) ir_emit_store_byte(lv, ra);
+                                else if (elsz == 2) ir_emit_store_16(lv, ra);
+                                else if (elsz == 4) ir_emit_store_32(lv, ra);
+                                else ir_emit_store_64(lv, ra);
+                            }
+                            int addr = c->next_temp_id++;
+                            ir_emit_lea(addr, BE(c)->fp_reg, -res_off);
+                            c->last_expr_is_float = 0;
+                            return addr;
+                        }
+                    }
+                }
             }
 
             /* __builtin_unreachable() / __builtin_trap() - no value, no libc
@@ -5325,7 +6131,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int gp_regs_avail = BE(c)->conv->int_arg_reg_count;
                 int fp_regs_avail = BE(c)->conv->fp_arg_reg_count;
                 int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;
-                bool callee_uses_sret = (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) && (call_ret_type.size > 16);
+                bool callee_uses_sret = ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) ||
+                    (call_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&call_ret_type))) &&
+                    (call_ret_type.size > 16);
                 if (callee_uses_sret && c->isa != ISA_AARCH64) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
 
                 while (arg != AST_NULL) {
@@ -5390,22 +6198,31 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         if (arg_node && arg_node->tag == NODE_IDENT) {
                             arg_struct_sym = zero_cc_find_local(c, arg_node->s.str);
                             if (arg_struct_sym && (arg_struct_sym->type.tag == TYPE_STRUCT ||
-                                                   arg_struct_sym->type.tag == TYPE_UNION)) {
+                                                   arg_struct_sym->type.tag == TYPE_UNION ||
+                                                   (arg_struct_sym->type.tag == TYPE_USER_0 &&
+                                                    zero_cc_type_is_vector(&arg_struct_sym->type)))) {
                                 arg_struct_sz = arg_struct_sym->type.size;
                             } else if (!arg_struct_sym) {
                                 ZeroCCGlobalVar *gv = find_global_var(arg_node->s.str);
-                                if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION)) {
+                                if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION ||
+                                           (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type)))) {
                                     arg_struct_sz = gv->type.size;
                                 }
                             }
                         } else if (arg_node) {
                             TypeInfo *arg_ti = ast_node_get_typeinfo(c, arg_node);
-                            if (arg_ti && (arg_ti->kind == TYPE_KIND_STRUCT || arg_ti->kind == TYPE_KIND_UNION)) {
+                            if (arg_ti && (arg_ti->kind == TYPE_KIND_STRUCT || arg_ti->kind == TYPE_KIND_UNION ||
+                                           type_is_vector(arg_ti))) {
                                 arg_struct_sz = type_size(arg_ti);
                             }
                         }
+                        /* A vector argument <=16B passes as 8-byte chunk(s),
+                         * exactly like a 9-16B struct; the vector IDENT /
+                         * binop temp / compound literal all yield an address
+                         * the chunks are read from. */
                         bool is_mem_struct = (arg_struct_sz > 0 &&
-                                              ast_expr_is_struct_addr(c, arena, arg));
+                                              (ast_expr_is_struct_addr(c, arena, arg) ||
+                                               ast_expr_is_vector_addr(c, arena, arg)));
                         int mem_struct_addr = is_mem_struct ? temp : TEMP_NONE;
                         if (is_mem_struct) {
                             int val0 = c->next_temp_id++;
@@ -5597,6 +6414,42 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
 
                 c->last_expr_is_float = 0;
+
+                /* Vector return: materialize into an aligned stack temp
+                 * object and hand back its ADDRESS (consumers - subscript,
+                 * assignment, nested ops - load through it). 9-16B vectors
+                 * arrive in the VREG_0/VREG_2 pair; <=8B in VREG_0 alone. */
+                if (call_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&call_ret_type) &&
+                    call_ret_type.size >= 1 && call_ret_type.size <= 16) {
+                    size_t vsz = call_ret_type.size;
+                    if (vsz > 16) c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)vsz + 7) & ~7;
+                    int32_t res_off = c->current_stack_frame;
+                    if (vsz > 8) {
+                        if (ir_get_count() > 0) {
+                            Instr *li = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                            li->label_idx = 0x0100 | (call_ret_type.size & 0xFF);
+                        }
+                        int t0 = c->next_temp_id++;
+                        ir_emit_mov_reg(t0, VREG_0);
+                        ir_emit_store(t0, BE(c)->fp_reg, -res_off);
+                        int t1 = c->next_temp_id++;
+                        ir_emit_mov_reg(t1, VREG_2);
+                        ir_emit_store(t1, BE(c)->fp_reg, -res_off + 8);
+                    } else {
+                        int t0 = c->next_temp_id++;
+                        ir_emit_mov_reg(t0, VREG_0);
+                        int a0 = c->next_temp_id++;
+                        ir_emit_lea(a0, BE(c)->fp_reg, -res_off);
+                        if (vsz == 1) ir_emit_store_byte(t0, a0);
+                        else if (vsz == 2) ir_emit_store_16(t0, a0);
+                        else if (vsz == 4) ir_emit_store_32(t0, a0);
+                        else ir_emit_store_64(t0, a0);
+                    }
+                    int addr = c->next_temp_id++;
+                    ir_emit_lea(addr, BE(c)->fp_reg, -res_off);
+                    return addr;
+                }
 
                 /* Check if function returns a 9-16 byte struct/union */
                 if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&

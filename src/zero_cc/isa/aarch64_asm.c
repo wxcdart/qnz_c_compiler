@@ -1017,6 +1017,20 @@ static void aarch64_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FIL
     fprintf(out, "\tfcvtzs\t%s, s%s\n", dst_name, src_name + 1);
 }
 
+/* Convert scalar single to scalar double - fcvt d, s */
+static void aarch64_emit_cvtss2sd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tfcvt\td%s, s%s\n", dst_name + 1, src_name + 1);
+}
+
+/* Convert scalar double to scalar single - fcvt s, d */
+static void aarch64_emit_cvtsd2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    fprintf(out, "\tfcvt\ts%s, d%s\n", dst_name + 1, src_name + 1);
+}
+
 /* Vector compare scalar single - fcmp */
 static void aarch64_emit_vcmpss_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out) {
     (void)dst; (void)pred;
@@ -1123,6 +1137,8 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vshufps_asm = aarch64_emit_vshufps_asm;
     be->emit_vcvt_si2ss_asm = aarch64_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = aarch64_emit_vcvt_ss2si_asm;
+    be->emit_cvtss2sd_asm = aarch64_emit_cvtss2sd_asm;
+    be->emit_cvtsd2ss_asm = aarch64_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = aarch64_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = aarch64_emit_vcmpsd_asm;
 }

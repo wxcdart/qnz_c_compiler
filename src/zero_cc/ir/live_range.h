@@ -431,7 +431,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
                     instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
-                } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV) {
+                } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV ||
+                    instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */

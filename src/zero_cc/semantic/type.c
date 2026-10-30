@@ -93,6 +93,35 @@ TypeInfo *type_array_of(Arena *perm, TypeInfo *base, size_t count) {
     return t;
 }
 
+/* GNU vector type. `size_bytes` is the full vector width (the
+ * __vector_size__ argument); the lane count is derived from the element
+ * size. Reuses the `array` union member (base = element type, count =
+ * lane count) so the vector's size stays count * sizeof(element). */
+TypeInfo *type_vector(Arena *perm, TypeInfo *elem, size_t size_bytes) {
+    TypeInfo *t = make_basic(perm, TYPE_KIND_VECTOR, TYPE_MOD_NONE);
+    if (!t) return NULL;
+    t->details.array.base = elem;
+    size_t esz = type_size(elem);
+    t->details.array.count = (esz > 0 && size_bytes >= esz) ? (size_bytes / esz) : 0;
+    return t;
+}
+
+TypeInfo *type_vector_cmp_result(Arena *perm, const TypeInfo *vec) {
+    if (!vec || !type_is_vector(vec)) return (TypeInfo *)vec;
+    const TypeInfo *el = vec->details.array.base;
+    if (!el || !type_is_floating(el)) return (TypeInfo *)vec;
+    size_t esz = type_size(el);
+    /* Matching signed integer element of the same width (float -> int,
+     * double -> long on LP64). */
+    TypeInfo *iel;
+    if (esz == 1) iel = type_char(perm);
+    else if (esz == 2) iel = type_short(perm);
+    else if (esz == 4) iel = type_int(perm);
+    else iel = type_long(perm);
+    if (!iel) return (TypeInfo *)vec;
+    return type_vector(perm, (TypeInfo *)iel, type_size(vec));
+}
+
 TypeInfo *type_function(Arena *perm, TypeInfo *ret, TypeInfo **params, size_t param_cnt, bool is_variadic) {
     TypeInfo *t = make_basic(perm, TYPE_KIND_FUNCTION, TYPE_MOD_NONE);
     if (!t) return NULL;
@@ -157,6 +186,10 @@ bool type_is_array(const TypeInfo *t) {
 
 bool type_is_function(const TypeInfo *t) {
     return t && t->kind == TYPE_KIND_FUNCTION;
+}
+
+bool type_is_vector(const TypeInfo *t) {
+    return t && t->kind == TYPE_KIND_VECTOR;
 }
 
 bool type_is_unsigned(const TypeInfo *t) {
@@ -242,6 +275,8 @@ size_t type_size(const TypeInfo *t) {
             return 8; // x86_64 target
         case TYPE_KIND_ARRAY:
             return t->details.array.count * type_size(t->details.array.base);
+        case TYPE_KIND_VECTOR:
+            return t->details.array.count * type_size(t->details.array.base);
         case TYPE_KIND_FUNCTION:
             return 0;
         case TYPE_KIND_STRUCT:
@@ -277,6 +312,16 @@ size_t type_align(const TypeInfo *t) {
             return 8;
         case TYPE_KIND_ARRAY:
             return type_align(t->details.array.base);
+        case TYPE_KIND_VECTOR: {
+            size_t esz = type_size(t->details.array.base);
+            /* Vectors align to their element width, capped at 16 bytes
+             * (matches GCC for register-sized vectors; oversized vectors
+             * also get 16, which is all the codegen needs). */
+            size_t ea = type_align(t->details.array.base);
+            size_t sz = esz * t->details.array.count;
+            if (sz >= 16) return 16;
+            return ea > esz ? ea : esz;
+        }
         case TYPE_KIND_FUNCTION:
             return 1;
         case TYPE_KIND_STRUCT:

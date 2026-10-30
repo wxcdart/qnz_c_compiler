@@ -574,19 +574,16 @@ static void x86_emit_idiv(ZeroCCCompiler *c, int src) {
 }
 
 /* Shared signed division: quotient (want_rem=0) or remainder (want_rem=1) of src1/src2 into dst.
- * Clobbers rax, rdx and r11. */
+ * Clobbers rax, rdx and r11.  No stack scratch: LRA reserves VREG_0/VREG_2
+ * (rax/rdx) at every OP_DIV/OP_MOD, so no user temp is live in rax/rdx here
+ * (a push/pop save would write into the red zone and corrupt frame slots in
+ * frameless -O0 functions - c-torture pr94412.c). */
 static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_rem) {
     int divisor = src2;
     if (divisor == X86_RAX || divisor == X86_RDX) {
         x86_mov_rr(c, X86_R11, divisor);  /* keep divisor out of rax/rdx */
         divisor = X86_R11;
     }
-    /* Save rdx if it holds a live temp that is not the result register. */
-    bool save_rdx = (dst != X86_RDX && src1 != X86_RDX && src2 != X86_RDX && divisor != X86_RDX);
-    bool save_rax = (dst != X86_RAX && src1 != X86_RAX && src2 != X86_RAX && divisor != X86_RAX);
-
-    if (save_rdx) me_emit_u8(c, 0x52);  /* push rdx */
-    if (save_rax) me_emit_u8(c, 0x50);  /* push rax */
 
     x86_mov_rr(c, X86_RAX, src1);
     if (c->lowering.div_is_unsigned) {
@@ -610,9 +607,6 @@ static void x86_divmod(ZeroCCCompiler *c, int dst, int src1, int src2, int want_
     if (dst != result_reg) {
         x86_mov_rr(c, dst, result_reg);
     }
-
-    if (save_rax) me_emit_u8(c, 0x58);  /* pop rax */
-    if (save_rdx) me_emit_u8(c, 0x5A);  /* pop rdx */
 }
 
 static void x86_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1221,6 +1215,26 @@ static void x86_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
     me_emit_u8(c, 0x0F);
     me_emit_u8(c, 0x10);  /* movsd */
     x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+/* cvtss2sd xmm, xmm: F3 0F 5A /r (dest <- (double)src, low single).
+ * NOTE: F3 0F 2A /r is CVTSI2SS (integer -> single), NOT cvtss2sd. */
+static void x86_emit_fp_cvtss2sd(ZeroCCCompiler *c, int fp_dst, int fp_src) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (fp_dst >> 3) & 1, 0, (fp_src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5A);
+    x86_modrm(c, 3, fp_dst & 7, fp_src & 7);
+}
+
+/* cvtsd2ss xmm, xmm: F2 0F 5A /r (dest <- (float)src, low double).
+ * NOTE: F3 0F 5A is cvtss2sd; the F2 prefix selects cvtsd2ss. */
+static void x86_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int fp_dst, int fp_src) {
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (fp_dst >> 3) & 1, 0, (fp_src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5A);
+    x86_modrm(c, 3, fp_dst & 7, fp_src & 7);
 }
 
 static void x86_emit_const(ZeroCCCompiler *c, int64_t value) {
@@ -1901,6 +1915,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vpsubd = x86_emit_vpsubd,
     .emit_vpmulld = x86_emit_vpmulld,
     .emit_vmovaps = x86_emit_vmovaps,
+    .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
+    .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
 

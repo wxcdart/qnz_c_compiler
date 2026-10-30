@@ -226,6 +226,15 @@ typedef enum {
                         * emits the same idiom. JIT mode never emits this
                         * op - TLS variables are plain globals (OP_MOV_GLOBAL)
                         * in the data section. */
+
+    /* Scalar single<->double conversion (appended so existing enum values
+     * are stable). Needed by the per-lane GNU vector lowering: a 4-byte
+     * float lane is promoted to the compiler's double-width FP model for
+     * the lane op, then demoted before the width-correct store.
+     * x86-64: cvtss2sd / cvtsd2ss; AArch64: fcvt d,s / fcvt s,d;
+     * RISC-V: fcvt.d.s / fcvt.s.d. */
+    OP_CVTSS2SD,       /* dest (sd) = (double) src (ss) */
+    OP_CVTSD2SS,       /* dest (ss) = (float) src (sd) */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -352,6 +361,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VCVT_SS2SI: return "VCVT_SS2SI";
         case OP_VCVT_SI2SD: return "VCVT_SI2SD";
         case OP_VCVT_SD2SI: return "VCVT_SD2SI";
+        case OP_CVTSS2SD: return "CVTSS2SD";
+        case OP_CVTSD2SS: return "CVTSD2SS";
         case OP_VCMPSS: return "VCMPSS";
         case OP_VCMPSD: return "VCMPSD";
         case OP_VAND: return "VAND";
@@ -392,6 +403,8 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_FMOV:
         case OP_CVTSI2SD:  /* int -> float conversion */
         case OP_CVTTSD2SI: /* float -> int conversion (truncate) */
+        case OP_CVTSS2SD:  /* single -> double (vector float-lane lowering) */
+        case OP_CVTSD2SS:  /* double -> single (vector float-lane lowering) */
         case OP_VLOADSS:   /* scalar 4-byte load: result is a float temp (XMM pool) */
         case OP_VLOADSD:   /* scalar 8-byte load: result is a float temp (XMM pool) */
             return true;
@@ -596,6 +609,16 @@ static inline void ir_emit_cvttsd2si(uint16_t temp_dest, uint16_t temp_src) {
 /* Int to float conversion (cvtsi2sd) */
 static inline void ir_emit_cvtsi2sd(uint16_t temp_dest, uint16_t temp_src) {
     ir_emit((Instr){.op = OP_CVTSI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+}
+
+/* Scalar single -> double (cvtss2sd; GNU vector float-lane lowering) */
+static inline void ir_emit_cvtss2sd(uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit((Instr){.op = OP_CVTSS2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+}
+
+/* Scalar double -> single (cvtsd2ss; GNU vector float-lane lowering) */
+static inline void ir_emit_cvtsd2ss(uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit((Instr){.op = OP_CVTSD2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 static inline void ir_emit_load_16(uint16_t temp_dest, uint16_t temp_src) {

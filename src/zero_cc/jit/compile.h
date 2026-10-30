@@ -57,6 +57,28 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     /* Return type */
     ZeroCCType fn_ret_type = zero_cc_type_int();
     bool fn_ret_unsigned = false;
+    /* GNU vector return type: `__attribute__((__vector_size__(N))) float g(void)`
+     * - probe the preprocessor marker before the base specifier. */
+    size_t fn_ret_vec_size = 0;
+    {
+        size_t save = c->token_pos;
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            if (c->token_pos < c->token_count &&
+                (c->tokens[c->token_pos].type == TK_INT ||
+                 c->tokens[c->token_pos].type == TK_CHAR ||
+                 c->tokens[c->token_pos].type == TK_SHORT ||
+                 c->tokens[c->token_pos].type == TK_LONG ||
+                 c->tokens[c->token_pos].type == TK_SIGNED ||
+                 c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                 c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+                 c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
+                fn_ret_vec_size = probe;
+            } else {
+                c->token_pos = save;
+            }
+        }
+    }
     if (c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED) {
         fn_ret_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
         c->token_pos++;
@@ -152,6 +174,9 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         else if (fn_ret_type.tag == TYPE_INT16) fn_ret_type.tag = TYPE_UINT16;
         else if (fn_ret_type.tag == TYPE_INT32) fn_ret_type.tag = TYPE_UINT32;
         else if (fn_ret_type.tag == TYPE_INT64) fn_ret_type.tag = TYPE_UINT64;
+    }
+    if (fn_ret_vec_size > 0 && !zero_cc_type_is_vector(&fn_ret_type)) {
+        fn_ret_type = zero_cc_type_vector(&fn_ret_type, fn_ret_vec_size);
     }
     /* Skip _Noreturn that may appear after return type */
     while (c->tokens[c->token_pos].type == TK_NORETURN) {
@@ -249,6 +274,28 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
                 if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
                 c->token_pos++;
+            }
+            /* GNU vector parameter: probe the `__zc_vector_size__(N)`
+             * marker emitted by the preprocessor (`vector int t`). */
+            size_t p_vec_size = 0;
+            {
+                size_t save = c->token_pos;
+                size_t probe = 0;
+                if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+                    if (c->token_pos < c->token_count &&
+                        (c->tokens[c->token_pos].type == TK_INT ||
+                         c->tokens[c->token_pos].type == TK_CHAR ||
+                         c->tokens[c->token_pos].type == TK_SHORT ||
+                         c->tokens[c->token_pos].type == TK_LONG ||
+                         c->tokens[c->token_pos].type == TK_SIGNED ||
+                         c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                         c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+                         c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
+                        p_vec_size = probe;
+                    } else {
+                        c->token_pos = save;
+                    }
+                }
             }
             ZeroCCType typeof_pt;
             bool is_typeof_param = false;
@@ -417,6 +464,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 }
                 pt.is_const = p_is_const;
                 pt.is_volatile = p_is_volatile;
+                /* Vector marker: wrap the scalar element in the vector type
+                 * (pointer suffixes, if any, apply on top). */
+                if (p_vec_size > 0) {
+                    pt = zero_cc_type_vector(&pt, p_vec_size);
+                }
                 for (int pd = 0; pd < ptr_depth; pd++) {
                     pt = zero_cc_type_ptr(&pt);
                     if (pd == ptr_depth - 1) {
@@ -543,7 +595,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->text_offset = 0;
             fn->param_count = param_count;
             fn->return_type = fn_ret_type;
-            fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION);
+            fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||
+                                  (fn_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret_type)));
             fn->ret_struct_sz = fn_ret_type.size;
             fn->is_variadic = is_variadic_fn;
             fn->noreturn = fn_noreturn;
@@ -575,7 +628,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->text_offset = c->text_section.length;
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;
-        fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION);
+        fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||
+                              (fn_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret_type)));
         fn->ret_struct_sz = fn_ret_type.size;
         fn->is_variadic = is_variadic_fn;
         fn->noreturn = fn_noreturn;

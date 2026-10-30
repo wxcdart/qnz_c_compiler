@@ -2347,6 +2347,97 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     bool pending_paste = false;
                     paste_buf[0] = '\0';
 
+                    /* GNU vector attribute: `__attribute__((__vector_size__(N)))`
+                     * would normally be erased wholesale (the predefined macro
+                     * expands to empty). Keep the width visible to the parser by
+                     * emitting a `__zc_vector_size__(N)` marker - an identifier
+                     * followed by a parenthesized constant expression - that the
+                     * declaration paths recognize and turn into a vector type
+                     * (see zero_cc_parse_vector_attr). Other attributes keep the
+                     * erase behavior. */
+                    bool vec_marker_done = false;
+                    if (arg_count > 0 &&
+                        (strcmp(m->name, "__attribute__") == 0 || strcmp(m->name, "__attribute") == 0)) {
+                        for (int k = 0; k < arg_count && !vec_marker_done; k++) {
+                            const char *a = args[k];
+                            size_t al = strlen(a);
+                            while (al > 0 && (a[al - 1] == ' ' || a[al - 1] == '\t')) al--;
+                            const char *it = a;
+                            size_t il = al;
+                            /* Peel one level of redundant surrounding parens */
+                            if (il >= 2 && it[0] == '(' && it[il - 1] == ')') {
+                                it++;
+                                il -= 2;
+                                while (il > 0 && (it[il - 1] == ' ' || it[il - 1] == '\t')) il--;
+                                while (il > 0 && (it[0] == ' ' || it[0] == '\t')) { it++; il--; }
+                            }
+                            if (il < 2) continue;
+                            /* Scan the top level of the attribute list for a
+                             * vector_size(N) / __vector_size__(N) element
+                             * (GCC: `__attribute__((__vector_size__(16),
+                             * __may_alias__))` - the vector entry may be one
+                             * of several attributes). */
+                            const char *ex = NULL;
+                            size_t el = 0;
+                            int depth = 0;
+                            for (const char *q = it; q < it + il; q++) {
+                                if (*q == '(') {
+                                    if (depth == 0) {
+                                        /* name immediately before this '('? */
+                                        size_t pre = (size_t)(q - it);
+                                        size_t end = pre;
+                                        while (end > 0 && (it[end - 1] == ' ' || it[end - 1] == '\t')) end--;
+                                        size_t start = end;
+                                        while (start > 0 && (isalnum((unsigned char)it[start - 1]) || it[start - 1] == '_')) start--;
+                                        size_t namelen = end - start;
+                                        const char *nam = it + start;
+                                        bool is_vs = (namelen == 11 && strncmp(nam, "vector_size", 11) == 0) ||
+                                                     (namelen == 15 && strncmp(nam, "__vector_size__", 15) == 0);
+                                        if (is_vs) {
+                                            /* find the matching ')' */
+                                            int nest = 0;
+                                            const char *close = NULL;
+                                            for (const char *r = q; r < it + il; r++) {
+                                                if (*r == '(') nest++;
+                                                else if (*r == ')' && --nest == 0) { close = r; break; }
+                                            }
+                                            if (close) {
+                                                ex = q + 1;
+                                                el = (size_t)(close - ex);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    depth++;
+                                } else if (*q == ')') {
+                                    if (depth > 0) depth--;
+                                }
+                            }
+                            if (!ex) continue;
+                            char expr_text[512];
+                            if (el > sizeof(expr_text) - 1) el = sizeof(expr_text) - 1;
+                            memcpy(expr_text, ex, el);
+                            expr_text[el] = '\0';
+                            /* Expand macros inside the size expression
+                             * (e.g. __vector_size__(sizeof(__INTPTR_TYPE__))). */
+                            ZeroCCBuffer expr_buf;
+                            zero_cc_buf_init(&expr_buf, el + 16);
+                            zero_cc_cpp_process_text(cpp, expr_text, &expr_buf);
+                            size_t el2 = expr_buf.length;
+                            char *et2 = expr_buf.data;
+                            char marker[600];
+                            if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
+                            snprintf(marker, sizeof(marker), "__zc_vector_size__(%.*s)", (int)el2, et2);
+                            zero_cc_buf_free(&expr_buf);
+                            zero_cc_buf_puts(out, marker);
+                            vec_marker_done = true;
+                        }
+                    }
+                    if (vec_marker_done) {
+                        for (int k = 0; k < arg_count; k++) free(args[k]);
+                        continue;
+                    }
+
                     const char *b = m->replacement;
                     ZeroCCBuffer temp_buf;
                     zero_cc_buf_init(&temp_buf, 256);

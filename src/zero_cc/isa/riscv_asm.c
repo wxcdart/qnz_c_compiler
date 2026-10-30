@@ -989,6 +989,20 @@ static void riscv_emit_vcvt_ss2si_asm(ZeroCCCompiler *c, int dst, int src, FILE 
     fprintf(out, "\tfcvt.w.s\t%s, %s\n", dst_name, src_name);
 }
 
+/* Convert scalar single to scalar double - fcvt.d.s */
+static void riscv_emit_cvtss2sd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = (dst >= 0 && dst < 32) ? BE(c)->regs->fp_regs[dst] : "fa0";
+    const char *src_name = (src >= 0 && src < 32) ? BE(c)->regs->fp_regs[src] : "fa1";
+    fprintf(out, "\tfcvt.d.s\t%s, %s\n", dst_name, src_name);
+}
+
+/* Convert scalar double to scalar single - fcvt.s.d */
+static void riscv_emit_cvtsd2ss_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
+    const char *dst_name = (dst >= 0 && dst < 32) ? BE(c)->regs->fp_regs[dst] : "fa0";
+    const char *src_name = (src >= 0 && src < 32) ? BE(c)->regs->fp_regs[src] : "fa1";
+    fprintf(out, "\tfcvt.s.d\t%s, %s\n", dst_name, src_name);
+}
+
 /* Vector compare - feq.s */
 static void riscv_emit_vcmpss_asm(ZeroCCCompiler *c, int, int src1, int src2, int, FILE *out) {
     const char *src1_name = (src1 >= 0 && src1 < 32) ? BE(c)->regs->fp_regs[src1] : "fa0";
@@ -1091,6 +1105,8 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vshufps_asm = riscv_emit_vshufps_asm;
     be->emit_vcvt_si2ss_asm = riscv_emit_vcvt_si2ss_asm;
     be->emit_vcvt_ss2si_asm = riscv_emit_vcvt_ss2si_asm;
+    be->emit_cvtss2sd_asm = riscv_emit_cvtss2sd_asm;
+    be->emit_cvtsd2ss_asm = riscv_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = riscv_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = riscv_emit_vcmpsd_asm;
 }

@@ -115,6 +115,23 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
             }
         }
+        /* GNU vector member: `__attribute__((__vector_size__(N))) float mVec;`
+         * - probe the preprocessor marker before the element type. */
+        size_t member_vec_size = 0;
+        {
+            size_t save = c->token_pos;
+            size_t probe = 0;
+            if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+                ZeroCCTokType nt = c->token_pos < c->token_count ? c->tokens[c->token_pos].type : TK_EOF;
+                if (nt == TK_INT || nt == TK_CHAR || nt == TK_SHORT || nt == TK_LONG ||
+                    nt == TK_SIGNED || nt == TK_UNSIGNED || nt == TK_FLOAT_KW ||
+                    nt == TK_DOUBLE_KW || nt == TK_BOOL_KW) {
+                    member_vec_size = probe;
+                } else {
+                    c->token_pos = save;
+                }
+            }
+        }
         ZeroCCTokType mt = c->tokens[c->token_pos].type;
         if (mt == TK_STATIC_ASSERT) {
             c->token_pos++;
@@ -798,6 +815,22 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             }
                         }
                         else m->tag = TYPE_INT32;
+                        if (member_vec_size > 0 && !is_ptr && m->base == NULL &&
+                            !is_array && !is_flexible && !is_bitfield) {
+                            ZeroCCType elem;
+                            memset(&elem, 0, sizeof(elem));
+                            elem.tag = m->tag;
+                            elem.size = base_size;
+                            elem.align = base_align;
+                            elem.is_const = member_is_const;
+                            elem.is_volatile = member_is_volatile;
+                            ZeroCCType vt = zero_cc_type_vector(&elem, member_vec_size);
+                            m->tag = vt.tag;
+                            m->size = vt.size;
+                            m->align = vt.align;
+                            m->base = vt.base;
+                            if (m->align > st.align) st.align = m->align;
+                        }
                         if (is_ptr) {
                             if (!m->base) {
                                 ZeroCCType dummy;
@@ -954,6 +987,21 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->tag = TYPE_ARRAY;
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }
+                        if (member_vec_size > 0 && !c_is_ptr && m->base == NULL &&
+                            !c_is_array && !c_is_flexible && !c_is_bitfield) {
+                            ZeroCCType elem;
+                            memset(&elem, 0, sizeof(elem));
+                            elem.tag = m->tag;
+                            elem.size = base_size;
+                            elem.align = base_align;
+                            elem.is_const = member_is_const;
+                            elem.is_volatile = member_is_volatile;
+                            ZeroCCType vt = zero_cc_type_vector(&elem, member_vec_size);
+                            m->tag = vt.tag;
+                            m->size = vt.size;
+                            m->align = vt.align;
+                            m->base = vt.base;
+                        }
                         if (m->size > max_size) max_size = m->size;
                     }
                 } else if (c_is_bitfield) {
@@ -1070,6 +1118,21 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             elem_t.is_volatile = member_is_volatile;
                             m->tag = TYPE_ARRAY;
                             m->base = zero_cc_type_alloc_base(&elem_t);
+                        }
+                        if (member_vec_size > 0 && !c_is_ptr && m->base == NULL &&
+                            !c_is_array && !c_is_flexible && !c_is_bitfield) {
+                            ZeroCCType elem;
+                            memset(&elem, 0, sizeof(elem));
+                            elem.tag = m->tag;
+                            elem.size = base_size;
+                            elem.align = base_align;
+                            elem.is_const = member_is_const;
+                            elem.is_volatile = member_is_volatile;
+                            ZeroCCType vt = zero_cc_type_vector(&elem, member_vec_size);
+                            m->tag = vt.tag;
+                            m->size = vt.size;
+                            m->align = vt.align;
+                            m->base = vt.base;
                         }
                         if (!c_is_flexible) {
                             current_offset += m->size;
@@ -1299,6 +1362,25 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         t = c->tokens[c->token_pos].type;
     }
 
+    /* GNU vector attribute leading the typedef base:
+     * `typedef __attribute__((__vector_size__(16))) short V;` */
+    size_t vec_attr_size = 0;
+    {
+        size_t save = c->token_pos;
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            ZeroCCTokType nt = c->token_pos < c->token_count ? c->tokens[c->token_pos].type : TK_EOF;
+            if (nt == TK_INT || nt == TK_CHAR || nt == TK_SHORT || nt == TK_LONG ||
+                nt == TK_SIGNED || nt == TK_UNSIGNED || nt == TK_FLOAT_KW ||
+                nt == TK_DOUBLE_KW || nt == TK_BOOL_KW || nt == TK_VOID) {
+                vec_attr_size = probe;
+                t = nt;
+            } else {
+                c->token_pos = save;
+            }
+        }
+    }
+
     if (t == TK_UNSIGNED) { is_unsigned = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
     else if (t == TK_SIGNED) { is_signed = true; c->token_pos++; t = c->tokens[c->token_pos].type; }
 
@@ -1339,6 +1421,18 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     }
     (void)is_signed;
     if (is_atomic) ttype.is_atomic = true;
+    /* GNU vector attribute trailing the base: `typedef signed char V
+     * __attribute__((__vector_size__(16)));` - wraps the element type in a
+     * vector ZeroCCType (TYPE_USER_0) with the given total width. */
+    {
+        size_t probe = 0;
+        if (vec_attr_size == 0 && zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            vec_attr_size = probe;
+        }
+    }
+    if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ttype)) {
+        ttype = zero_cc_type_vector(&ttype, vec_attr_size);
+    }
     bool is_ptr = false;
     while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
     if (is_ptr) { ttype = zero_cc_type_ptr(&ttype); }
@@ -1375,6 +1469,16 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         char alias[128];
         snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
+        /* GNU vector attribute trailing the typedef name (a declarator
+         * attribute): `typedef signed char V __attribute__((__vector_size__(16)));`
+         * Must be consumed before the function-typedef check below so the
+         * marker's `(` is not read as a parameter list. */
+        {
+            size_t probe = 0;
+            if (vec_attr_size == 0 && zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+                vec_attr_size = probe;
+            }
+        }
         /* Function-type typedef (C99 6.7): `typedef int f(void);` or
          * `typedef int binop(int, int);`.  Consume the balanced parameter
          * list so the declarator is not left dangling at file scope, and
@@ -1389,6 +1493,9 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
                 c->token_pos++;
             }
             ttype.is_func = true;
+        }
+        if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ttype)) {
+            ttype = zero_cc_type_vector(&ttype, vec_attr_size);
         }
         zero_cc_register_typedef(c, alias, ttype);
     }

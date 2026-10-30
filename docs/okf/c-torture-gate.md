@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-30T01:09:56Z
+timestamp: 2026-10-30T03:23:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,10 +46,10 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,196** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (-13 from the nested-function diagnostic: 13 `compile/` tests that only "passed" because compile-only mode never links/executes the unimplemented GNU extension are now honestly classified) |
+| **`PASS`** | **2,216** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+20 from the `__vector_size__` feature: 18 `execute/` tests promoted from MISCOMPILE, 2 `compile/` tests from REJECT) |
 | **`REJECT`** | **673** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) |
 | **`SKIP-C89`** | **688** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (+20: 13 `compile/` + 7 `execute/` nested-function tests — `gcc -pedantic-errors` rejects nested definitions, "ISO C forbids nested functions") |
-| **`MISCOMPILE`** | **41** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` (-7: the entire nested-function crash family — `nestfunc-7`, `pr103405`, `20010209-1`, `20030501-1`, `20040520-1`, `20090219-1`, `nest-stdar-1` — now cleanly rejected. The 41 remaining: 17 use the `__vector_size__` GNU extension (unsupported → segfault, pending feature/reject decision) + 24 true C99/C11 correctness bugs) |
+| **`MISCOMPILE`** | **23** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` (-18: all 17 `__vector_size__` tests plus `pr71626-2` now pass — see the vector-attribute feature entry below. The 23 remaining are all true C99/C11 correctness bugs, all-config failures) |
 | **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |
@@ -172,6 +172,16 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - The statement parser accepted function **definitions** inside a block (the GNU nested-function / trampoline extension) as local `NODE_DECL`s: JIT silently compiled them with register-file aliasing (crashing on capture semantics — `execute/nestfunc-7.c`), and AOT emitted `call Foo` to a symbol never emitted (`undefined reference` link failure — `execute/pr103405.c`). The extension was simply unimplemented but silently accepted.
     - The definition path (function declarator + `TK_LBRACE` in statement context; file-scope definitions go through `zero_cc_compile_top_level_decl` and are untouched) now reports `error: nested function definition of '<name>' is not supported (GNU extension)` and skips the body with brace-depth counting so the enclosing function keeps parsing. Local function **prototypes** remain legal C (C99 allows declarations in blocks, only definitions are forbidden by 6.9p15).
     - `gcc -std=c11 -pedantic-errors` rejects nested definitions ("ISO C forbids nested functions"), so the gate triages all of them as `SKIP-C89`. Result: **7 `execute/` MISCOMPILEs** (`nestfunc-7`, `pr103405`, `20010209-1`, `20030501-1` (the runtime hang), `20040520-1`, `20090219-1`, `nest-stdar-1`) and **13 `compile/` tests** that only "passed" because compile-only mode never links/executes the extension all move to `SKIP-C89`. MISCOMPILE **48 → 41** (17 `__vector_size__` tests + 24 true C99/C11 bugs remain).
+
+12. **`__attribute__((__vector_size__(N)))` SIMD Vector Types** (preprocessor + parser + semantic + IR lowering + all ISA backends):
+    - **Preprocessor marker**: `__attribute__((__vector_size__(expr)))` (also among multiple comma-separated attributes, e.g. `(__vector_size__(16), __may_alias__)`) is preserved as the pseudo-keyword `__zc_vector_size__(expr)`; the preprocessor scans the top-level attribute list at paren depth 0. All other attribute handling unchanged.
+    - **Types**: the marker wraps the element type in a `TYPE_USER_0` vector (`type_vector`): first-class type with `size = N`, `align = 16` when `N >= 16`. Vectors appear in every position GCC allows them: typedefs, locals, globals, parameters, return types, struct members, pointer targets, compound literals.
+    - **Lowering model (per-lane scalar expansion)**: a vector *expression* always lowers to the **address** of a stack temp holding the lanes; consumers load through it. Element-wise binops/unops/comparisons expand lane-by-lane (`vlanes <= 32`), scalar operands broadcast. Float lanes run in the **double-width FP model** (`VLOADSS`/`VSTORESS` widen/narrow; `CVTSS2SD`/`CVTSD2SS` opcodes added to all three ISAs with both asm and raw emitters). Comparison results follow GCC semantics (float→int, double→long element vectors).
+    - **ABI**: vectors ≤ 8 B pass/return in `VREG_0`; 9–16 B in the `VREG_0`/`VREG_2` pair; > 16 B use the `sret` hidden-pointer convention (`callee_uses_sret` extended). By-value vector **call results are materialized to a stack temp** (address form), which is why `ast_expr_is_vector_addr` reduces to `type_is_vector`.
+    - **Casts**: vector→vector is a same-size bitwise reinterpret (raw-byte copy); vector→scalar requires matching sizes (GCC's "different size" rule) and extracts via a width-correct load; scalar→vector broadcasts.
+    - **`__builtin_shuffle(v1, v2, {idx...})`**: per-lane branchless lane select on the raw index bits (`m = idx & (n-1)`, `from_a = (idx & n) == 0`, bit-level select); the semantic layer types the call as the first argument's vector type.
+    - **Compound assignment**: per-lane in-place `+=`/`-=`/`*=`/`/=` for both int and float element lanes, on local variables and through pointers (`*w += v`), vector RHS read per-lane or scalar RHS broadcast.
+    - **Result**: all **17 `__vector_size__` c-torture tests** pass on every `(-O0..-O3 × JIT/AOT)` config (`scal-to-vec1..3`, `pr94524-1/2`, `pr94412`, `pr110817-1/2`, `pr85169`, `pr71626-1/2`, `pr123625-2`, `pr126405-3`, `pr85331`, `pr94591`, `pr92618`, `fp-cmp-cond-1`, `pr72824-2`, `simd-6`), plus `20060420-1` and `pr60960` regression fixes (float-vector compound assignment; ≤ 8 B vector assignment from address-form RHS). Overall PASS **2,196 → 2,216**, MISCOMPILE **41 → 23** (all 23 remaining are true C99/C11 correctness bugs). Baseline re-recorded (`--update-baseline`).
 
 ---
 

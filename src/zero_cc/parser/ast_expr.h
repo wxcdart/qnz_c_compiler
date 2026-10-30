@@ -597,8 +597,29 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             return se_ref;
         }
         size_t cast_start = c->token_pos;
-        if (c->token_pos + 1 < c->token_count &&
-            is_type_specifier_at(c, c->token_pos + 1, c->tokens[c->token_pos + 1].type)) {
+        int cast_type_at = (c->token_pos + 1 < c->token_count) ? (c->token_pos + 1) : -1;
+        if (cast_type_at >= 0 && c->tokens[cast_type_at].type == TK_IDENT &&
+            strcmp(c->tokens[cast_type_at].str_val, "__zc_vector_size__") == 0) {
+            /* ( __zc_vector_size__(N) type ){...} - vector marker cast: skip
+             * the marker's balanced paren group, then check the specifier. */
+            int mp = 0;
+            cast_type_at++;
+            if (cast_type_at >= c->token_count || c->tokens[cast_type_at].type != TK_LPAREN) {
+                cast_type_at = -1;
+            } else {
+                while (cast_type_at < c->token_count) {
+                    if (c->tokens[cast_type_at].type == TK_LPAREN) mp++;
+                    else if (c->tokens[cast_type_at].type == TK_RPAREN) { mp--; if (mp == 0) break; }
+                    cast_type_at++;
+                }
+                if (cast_type_at >= c->token_count) cast_type_at = -1;
+                else cast_type_at++;  /* token after the marker's ')' */
+            }
+            while (cast_type_at >= 0 && cast_type_at < c->token_count &&
+                   c->tokens[cast_type_at].type == TK_STAR) cast_type_at++;
+        }
+        if (cast_type_at >= 0 && cast_type_at < (int)c->token_count &&
+            is_type_specifier_at(c, cast_type_at, c->tokens[cast_type_at].type)) {
             size_t type_pos = cast_start + 1;
             ZeroCCType lit_type = zero_cc_parse_type_name_at_pos(c, &type_pos);
             if (type_pos < c->token_count && c->tokens[type_pos].type == TK_RPAREN) {

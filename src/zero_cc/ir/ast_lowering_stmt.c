@@ -271,6 +271,48 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
                                    is_inplace_brace_init) {
                             /* Struct/union already initialized in-place by brace initializer */
+                        } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                            /* GNU vector declaration initializer. The RHS form:
+                             *  - NODE_CALL: value in the VREG_0/VREG_2 pair;
+                             *  - vector local ident: value in its frame slot;
+                             *  - anything else (in-place brace init, binop
+                             *    temp, compound literal, deref): ADDRESS of
+                             *    a vector object. Copy 8-byte chunks into
+                             *    the new slot. */
+                            if (is_inplace_brace_init) {
+                                /* Already initialized in place. */
+                            } else {
+                                int num_chunks = (int)((sym->type.size + 7) / 8);
+                                ZeroCCASTNode *lnode = zero_cc_ast_get(arena, node->left);
+                                ZeroCCSym *src_sym = (lnode && lnode->tag == NODE_IDENT) ? zero_cc_find_local(c, lnode->s.str) : NULL;
+                                bool src_is_vec_ident = src_sym && src_sym->type.tag == TYPE_USER_0 &&
+                                                        zero_cc_type_is_vector(&src_sym->type);
+                                /* A by-value call result is already
+                                 * materialized into a stack object; its
+                                 * result_temp is the object's ADDRESS, so
+                                 * it falls into the generic address form. */
+                                for (int i = 0; i < num_chunks; i++) {
+                                    int ch_val = c->next_temp_id++;
+                                    if (src_is_vec_ident) {
+                                        if (src_sym->is_promoted) {
+                                            ch_val = src_sym->promoted_vreg;  /* 8B single-reg */
+                                        } else {
+                                            ir_emit_load(ch_val, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
+                                        }
+                                    } else {
+                                        if (i == 0) {
+                                            ir_emit_deref(ch_val, result_temp);
+                                        } else {
+                                            int o8 = c->next_temp_id++;
+                                            ir_emit_mov_imm(o8, i * 8);
+                                            int a2 = c->next_temp_id++;
+                                            ir_emit_add(a2, result_temp, o8);
+                                            ir_emit_deref(ch_val, a2);
+                                        }
+                                    }
+                                    ir_emit_store(ch_val, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                                }
+                            }
                         } else {
                             /* Integer or small struct assignment: use IR store */
                             bool rhs_is_struct_addr = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
@@ -360,7 +402,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
-        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
+        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
+                    (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)))) {
             if (sym->is_promoted) {
                 ir_emit_mov_reg(VREG_0, sym->promoted_vreg);
                 ir_emit_jmp(c->lowering.epilogue_label);
@@ -452,6 +495,33 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
 
         int result_temp = lower_expr(c, arena, node->left);
         ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
+        {
+            ZeroCCType fn_ret = zero_cc_get_current_fn_ret_type(c);
+            if ((fn_ret.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret)) &&
+                fn_ret.size <= 16 && !c->last_expr_is_float) {
+                if (ret_expr->tag == NODE_CALL) {
+                    /* Nested call returning a vector: the result is already
+                     * in the VREG_0/VREG_2 register pair. */
+                    ir_emit_jmp(c->lowering.epilogue_label);
+                    return;
+                }
+                /* Vector return value (cast / binop / compound literal): the
+                 * expression lowered to the address of a 16/8B stack object;
+                 * load the 8-byte chunks into the register pair. */
+                ir_emit_deref(VREG_0, result_temp);
+                if (fn_ret.size > 8) {
+                    int off = c->next_temp_id++;
+                    ir_emit_mov_imm(off, 8);
+                    int a2 = c->next_temp_id++;
+                    ir_emit_add(a2, result_temp, off);
+                    int ch2 = c->next_temp_id++;
+                    ir_emit_deref(ch2, a2);
+                    ir_emit_mov_reg(VREG_2, ch2);
+                }
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
+        }
         if (cur_fn && cur_fn->ret_struct_sz > 16) {
             /* Return expression (e.g., NODE_CALL or NODE_COMPOUND_LIT) evaluated to a pointer to a >16B struct buffer.
              * Copy chunks from [result_temp + i*8] to caller's sret buffer at -sret_off. */

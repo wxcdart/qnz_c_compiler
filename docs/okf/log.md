@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-30T01:09:56Z
+timestamp: 2026-10-30T03:23:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -548,3 +548,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-30 — Updated `frontend-and-types.md`
 - Documented GNU nested-function clean rejection (C99 6.9p15): definition path in statement parser errors and brace-skips; local prototypes remain legal
+
+## 2026-10-30 — Updated `c-torture-gate.md`
+- Sprint 60: __vector_size__ vector feature — all 17 vector c-torture tests pass; MISCOMPILE 41→23
+
+## 2026-10-30 — Updated `frontend-and-types.md`
+- Sprint 60: __vector_size__ vector type semantics documented
+
+## 2026-10-30 — Updated `ir-and-regalloc.md`
+- Sprint 60: vector lowering section (per-lane expansion, ABI, FP model, 136 opcodes)
