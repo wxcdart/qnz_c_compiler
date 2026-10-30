@@ -126,6 +126,48 @@ TypeInfo *type_pointer_to(Arena *perm, TypeInfo *base);
 TypeInfo *type_array_of(Arena *perm, TypeInfo *base, size_t count);
 TypeInfo *type_function(Arena *perm, TypeInfo *ret, TypeInfo **params, size_t param_cnt, bool is_variadic);
 
+/* Return type of a `__builtin_<name>` that the lowering lowers to a direct
+ * call of the libc function `<name>` (mirrors the __builtin_ mapping in
+ * ir/ast_lowering_expr.c).  Without the real signature the generic
+ * implicit-declaration rule would type these as returning `int`, and the
+ * lowering would then sign-extend the call result to 32 bits - corrupting
+ * pointer returns (e.g. `__builtin_malloc` on a 48-bit JIT heap).
+ * Returns NULL for builtins not in the libc-mapped set (they keep the
+ * legacy `int` return, which the directly-lowered intrinsics never use). */
+static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) {
+    if (!name || strncmp(name, "__builtin_", 10) != 0) return NULL;
+    const char *base = name + 10;
+    if (strcmp(base, "malloc") == 0 || strcmp(base, "calloc") == 0 ||
+        strcmp(base, "realloc") == 0 || strcmp(base, "memcpy") == 0 ||
+        strcmp(base, "memmove") == 0 || strcmp(base, "memchr") == 0 ||
+        strcmp(base, "memset") == 0) {
+        return type_pointer_to(perm, type_void(perm));
+    }
+    if (strcmp(base, "strlen") == 0) {
+        return type_ulong(perm); /* size_t on LP64 */
+    }
+    if (strcmp(base, "strcpy") == 0 || strcmp(base, "strncpy") == 0 ||
+        strcmp(base, "strcat") == 0 || strcmp(base, "strchr") == 0 ||
+        strcmp(base, "strrchr") == 0 || strcmp(base, "strstr") == 0) {
+        return type_pointer_to(perm, type_char(perm));
+    }
+    if (strcmp(base, "abort") == 0 || strcmp(base, "exit") == 0 ||
+        strcmp(base, "free") == 0) {
+        return type_void(perm);
+    }
+    if (strcmp(base, "sqrtf") == 0) return type_float(perm);
+    if (strcmp(base, "sqrt") == 0) return type_double(perm);
+    if (strcmp(base, "memcmp") == 0 || strcmp(base, "strcmp") == 0 ||
+        strcmp(base, "strncmp") == 0 || strcmp(base, "printf") == 0 ||
+        strcmp(base, "fprintf") == 0 || strcmp(base, "sprintf") == 0 ||
+        strcmp(base, "snprintf") == 0 || strcmp(base, "puts") == 0 ||
+        strcmp(base, "putchar") == 0 || strcmp(base, "fputc") == 0 ||
+        strcmp(base, "fputs") == 0) {
+        return type_int(perm);
+    }
+    return NULL;
+}
+
 /* Predicates */
 bool type_is_void(const TypeInfo *t);
 bool type_is_bool(const TypeInfo *t);

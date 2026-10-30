@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-29T23:06:51Z
+timestamp: 2026-10-30T00:52:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -533,3 +533,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-29 — Updated `c-torture-gate.md`
 - Torture baseline improved: 758 -> 758 bad (44 MISCOMPILE, 0 REJECT, 0 SKIP-C89). AArch64 IEEE-754 FP compare fix.
+
+## 2026-10-30 — Updated `c-torture-gate.md`
+- Sprint 59 / Chunk M2 Final: resolved the last 7 partial-mode MISCOMPILEs (libc-builtin return typing, JIT param specifier runs, pointer width-mark exclusion); baseline re-recorded to PASS 2209 / MISCOMPILE 48 / 0 partial-mode
+
+## 2026-10-30 — Updated `frontend-and-types.md`
+- Documented libc-mapped __builtin_* return typing (type_builtin_libc_return), full specifier-run param parsing in jit/compile.h, and the pointer (&) exclusion from C99 width-mark analysis
+
+## 2026-10-30 — Updated `ir-and-regalloc.md`
+- Documented the Instr.width C99 narrow-int mark field and the pointer-result exclusion (no SEXT32 on pointer arithmetic)

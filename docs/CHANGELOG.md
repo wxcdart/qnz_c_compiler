@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Chunk M2 Final / Sprint 59] - 2026-10-30 - Partial-Mode MISCOMPILE Burn-Down (PASS reaches 2,209, MISCOMPILE down to 48, partial-mode MISCOMPILEs → 0)
+
+- **Libc-Mapped `__builtin_*` Return Typing (`semantic/type.h`, `semantic/expr.c`, `semantic/visitor.c`)**:
+  - Unrecognized `__builtin_*` / `__sync_*` / `__atomic_*` / `__zerocc_*` identifiers were K&R-typed as returning `int`; the lowering then `SEXT32`-ed call results, truncating 64-bit pointer returns (`__builtin_malloc`, `__builtin_memchr`, `__builtin_strlen`, ...). Benign in non-PIE AOT (heap < 4 GiB), guaranteed SIGSEGV under 48-bit JIT addresses.
+  - Added `type_builtin_libc_return()` in `semantic/type.h` mirroring the `__builtin_<name>` → libc `<name>` lowering map in `ir/ast_lowering_expr.c` (`void *` for malloc/mem* family, `unsigned long` for strlen, `char *` for str* family, `void` for abort/exit/free, `float`/`double` for sqrtf/sqrt, `int` for compare/printf family); both identifier-typing sites (`expr_handle_identifier`, `sem_analyze_node` NODE_IDENT) use it. Resolves `execute/pr15262-1.c`, `execute/pr36765.c`, `execute/pr43008.c`, `execute/pr84339.c`.
+- **JIT Param Parser Full Specifier-Run Consumption (`jit/compile.h`)**:
+  - `zero_cc_compile_function`'s parameter parser consumed `unsigned`/`signed` + at most one following keyword; in `unsigned long long int *v` the trailing `int` was re-parsed as a second unnamed parameter and the pointer param was recorded as `int *` (32-bit loads/stores on 64-bit values).
+  - The specifier block now consumes the full run of `signed`/`unsigned`/`char`/`short`/`long`/`int` keywords in any order and resolves the base type (char > short > long > int). Resolves `execute/961213-1.c`.
+- **Pointer Exclusion from C99 Width-Mark Analysis (`ir/ast_lowering_expr.c`)**:
+  - `zero_cc_operand_int_width` / `zero_cc_expr_int_info` recursed through `NODE_UNOP` for every unary op, so `&expr` reported the pointed-to value's narrow width. `&arr[0] + i` was marked as 32-bit int math and the MC layer's post-op width extension emitted an in-place `SEXT32` on the 64-bit pointer sum, truncating JIT data addresses (AOT at `0x400000` masked the bug).
+  - Both helpers now treat `TK_AMP` as 8-byte (no width mark / width-8 unsigned). Resolves `execute/memchr-1.c`, `execute/strlen-3.c`; also promotes `execute/pr103405.c` O0-jit to OK (its O1–O3 JIT crash and AOT link failure — nested functions/trampolines — remain open, pre-existing).
+- **Results** (c-torture, all -O0..-O3, JIT + AOT):
+  - **`PASS`**: Increased from 2,170 to **2,209** (+8: 7 partial-mode MISCOMPILEs + `compile/limits-structnest.c` newly referenced).
+  - **`MISCOMPILE`**: Reduced from 75 to **48** (-7). All 48 remaining are all-config failures (Chunk M3 scope); **partial-mode MISCOMPILEs: 0 remaining** — Chunk M2 complete.
+  - **`REJECT`**: 672 → **673** (+1 `compile/20001226-1.c`), **`SKIP-C89`**: 667 → **668** (+1 `compile/limits-externdecl.c`), **`NO-REF`**: 190 → **187** (-3) — the three `compile/limits-*`/`20001226-1` files previously had `NO-REF` because the gcc reference compile timed out; now referenced, exposing two pre-existing frontend gaps (label-scope in macro-generated gotos; K&R `extern int x ();` lists) and one newly-passing test.
+  - Baseline re-recorded via `python3 tools/torture_run.py --update-baseline` (727 → 721 bad; gate OK).
+- **Verification**: `make test` 156/156 · `make test-opt` 117/117 · `tools/diag_battery.py` baseline OK (8/8 categories) · `tools/style_check.py` 0 errors · `tools/okf.py lint` PASS · `python3 tools/torture_run.py` gate OK.
+
+---
+
 ## [Chunk M5 / Sprint 58] - 2026-10-29 - GCC `c-torture` MISCOMPILE Burn-Down (PASS reaches 2,170, MISCOMPILE down to 75)
 
 - **GNU Named Variadic Macros (`args...`) (`core/preprocessor.h`)**:

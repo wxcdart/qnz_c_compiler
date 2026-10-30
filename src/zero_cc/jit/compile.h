@@ -270,22 +270,45 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 if (!pfound && !is_typeof_param) pfound = zero_cc_find_struct(c, ptname);
                 if (!pfound && !is_typeof_param) pfound = zero_cc_find_enum(c, ptname);
                 if (!is_typeof_param) c->token_pos++;
-                /* signed/unsigned qualifier (C11 6.7.5): consume and remember */
+                /* Type-specifier run (C11 6.7.5): keywords may appear in any
+                 * order and `long long` is two tokens — consume the whole
+                 * run so e.g. `unsigned long long int *v` does not leave the
+                 * trailing `int` behind: the next loop iteration would then
+                 * re-parse it as a fresh unnamed parameter and the pointer
+                 * param would be recorded as `int *`, mis-sizing every
+                 * dereference (c-torture execute/961213-1). */
                 bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
-                if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED)) {
+                if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED ||
+                                         ptt == TK_SHORT || ptt == TK_LONG ||
+                                         ptt == TK_CHAR)) {
                     pfound = NULL;
-                    if (c->token_pos < c->token_count &&
-                        (c->tokens[c->token_pos].type == TK_INT ||
-                         c->tokens[c->token_pos].type == TK_CHAR ||
-                         c->tokens[c->token_pos].type == TK_SHORT ||
-                         c->tokens[c->token_pos].type == TK_LONG)) {
-                        ptt = c->tokens[c->token_pos].type;
+                    bool p_has_unsigned = (ptt == TK_UNSIGNED);
+                    bool p_has_char = (ptt == TK_CHAR);
+                    bool p_has_short = (ptt == TK_SHORT);
+                    int p_longs = (ptt == TK_LONG) ? 1 : 0;
+                    while (c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_SIGNED ||
+                            c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                            c->tokens[c->token_pos].type == TK_SHORT ||
+                            c->tokens[c->token_pos].type == TK_LONG ||
+                            c->tokens[c->token_pos].type == TK_INT ||
+                            c->tokens[c->token_pos].type == TK_CHAR)) {
+                        switch (c->tokens[c->token_pos].type) {
+                            case TK_SIGNED: break;
+                            case TK_UNSIGNED: p_has_unsigned = true; break;
+                            case TK_CHAR: p_has_char = true; break;
+                            case TK_SHORT: p_has_short = true; break;
+                            case TK_LONG: p_longs++; break;
+                            case TK_INT: break;
+                            default: break;
+                        }
                         c->token_pos++;
-                        if (ptt == TK_LONG && c->token_pos < c->token_count &&
-                            c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
-                    } else {
-                        ptt = TK_INT;
                     }
+                    if (p_has_char) ptt = TK_CHAR;
+                    else if (p_has_short) ptt = TK_SHORT;
+                    else if (p_longs > 0) ptt = TK_LONG;
+                    else ptt = TK_INT;
+                    p_is_unsigned = p_has_unsigned;
                 }
                 if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
                     ptname = c->tokens[c->token_pos].str_val;

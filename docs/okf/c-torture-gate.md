@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-29T23:06:51Z
+timestamp: 2026-10-30T00:52:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,17 +40,17 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 58 / Chunk M5)
+## 2. Classification Buckets & Baseline (Sprint 59 / Chunk M2 Final)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,170** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+16 from Chunk M4 fixes) |
-| **`REJECT`** | **683** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (-9 from Chunk M4: 692 → 683) |
-| **`SKIP-C89`** | **670** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **75** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-6 net miscompiles: 81 → 75) |
-| **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
+| **`PASS`** | **2,209** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+8 from the Chunk M2 final fixes: 7 partial-mode MISCOMPILEs + `compile/limits-structnest.c` newly referenced) |
+| **`REJECT`** | **673** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (+1: `compile/20001226-1.c` moved from `NO-REF` — its gcc reference previously timed out — exposing a pre-existing label-scope gap) |
+| **`SKIP-C89`** | **668** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (+1: `compile/limits-externdecl.c` newly referenced, same NO-REF transition) |
+| **`MISCOMPILE`** | **48** | ZeroCC compiled the test, but at least one `(-O0..-O3 × JIT/AOT)` run differed from GCC's `(rc, stdout)` or failed AOT linking (-7: all partial-mode cases cleared; the 48 remaining are all-config failures, i.e. Chunk M3 scope) |
+| **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) (-3: the three `NO-REF` gcc-reference-timeout transitions above) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
@@ -151,6 +151,7 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
    - Float assignment evaluation order: saved `right_is_float` immediately after lowering RHS, preventing LHS array index expressions from clobbering `c->last_expr_is_float` and erroneously inserting `cvtsi2sd` conversions on float values. Also enhanced `NODE_CALL` and `va_arg` for 9-16B structs in memory. Fixed `execute/pr44575.c` and `execute/20021118-2.c`.
    - Function identity corruption & x86-64 MOVSXD operand bug: encapsulated `current_func_idx` in `LoweringState` so extern registrations during lowering (e.g. `abort`) do not overwrite the current function's label or prologue in `asm_emitter.c`; corrected `x86_emit_extend` to use destination register for both 32-bit and 64-bit MOVSXD operands. Fixed `execute/20171008-1.c`.
    - Result: Chunk M2 burned down to **0 failures (5/5 PASS)**; overall PASS increased to **2,042**, MISCOMPILE reduced to **170**.
+   - *Note (Sprint 59)*: the original 78-test M2 batch was fully resolved at that point, but later baseline re-records (AArch64 IEEE-754 FP fix, Chunk M4/M5) **re-exposed 7 partial-mode `MISCOMPILE`s** (`execute/961213-1.c`, `execute/memchr-1.c`, `execute/pr15262-1.c`, `execute/pr36765.c`, `execute/pr43008.c`, `execute/pr84339.c`, `execute/strlen-3.c`) — each OK in AOT but crashing in JIT. Item 10 below clears them, bringing partial-mode MISCOMPILEs to **0**.
 
 9. **Chunk M3: Generalized Lvalue Lowering, Non-Local `va_list` & `va_copy`, Multi-Chunk Struct Arguments & Prototype Conversions** (`src/zero_cc/core/preprocessor.h`, `parser/definitions.h`, `semantic/expr.c`, `ir/ast_lowering_internal.h`, `ir/ast_lowering_stmt.c`, `ir/ast_lowering_expr.c`):
    - **Bitfield C11 §6.3.1.1p2 Promotion & Multi-Word Specifiers**: bitfields with width < 32 or (width == 32 and signed) are promoted to signed `int`, else unsigned `int` (`execute/bf-sign-2.c`). Parser consumes trailing `long` and `int` in struct member specifiers (`execute/struct-aliasing-1.c`).
@@ -160,6 +161,12 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
    - **By-Value Struct Arguments Across Registers & Stack**: generalized `ast_expr_is_struct_addr()` and `NODE_CALL` to marshal struct arguments > 16B chunk-by-chunk across GP argument registers and stack slots, correctly handling member struct arguments (`dummy(statep->ap)` in `execute/va-arg-13.c`) and global struct arguments (`execute/packed-aligned.c`).
    - **Function Prototype Argument Conversion**: implemented automatic conversion between scalar types (int to float/double via `cvtsi2sd`, float/double to int via `cvttsd2si`) during `NODE_CALL` argument marshaling according to the callee's prototype. Fixed `execute/va-arg-26.c`.
    - **Result**: 22 MISCOMPILE tests burned down to PASS across all configurations (`bf-sign-2`, `packed-aligned`, `struct-aliasing-1`, `va-arg-10`, `va-arg-13`, `va-arg-14`, `va-arg-26`, etc.). Overall PASS increased to **2,064**, MISCOMPILE reduced from **170 → 148**.
+
+10. **Chunk M2 Final: Libc-Builtin Return Typing, JIT Param Specifier Runs & Pointer Width-Mark Exclusion** (`semantic/type.h`, `semantic/expr.c`, `semantic/visitor.c`, `jit/compile.h`, `ir/ast_lowering_expr.c`):
+    - **Wrong return type for libc-mapped `__builtin_*`**: unrecognized `__builtin_*` identifiers were K&R-typed as returning `int`, so `__builtin_malloc`/`__builtin_memchr`/`__builtin_strlen` call results got `SEXT32` in lowering — truncating 64-bit pointers. Benign in non-PIE AOT (heap < 4 GiB); guaranteed SIGSEGV under 48-bit JIT addresses. Added `type_builtin_libc_return()` (`semantic/type.h`) mirroring the `__builtin_<name>` → libc `<name>` lowering map, called from both identifier-typing sites. Fixed `execute/pr15262-1.c`, `execute/pr36765.c`, `execute/pr43008.c`, `execute/pr84339.c`.
+    - **JIT param parser left trailing specifier keywords**: `zero_cc_compile_function`'s hand-rolled parameter parser consumed `unsigned`/`signed` + at most one following keyword; in `unsigned long long int *v` the trailing `int` was re-parsed as a **second unnamed parameter** and the pointer param was recorded as `int *` (32-bit loads/stores on 64-bit values). The specifier block now consumes the full run of `signed`/`unsigned`/`char`/`short`/`long`/`int` in any order and resolves the base type (char > short > long > int). Fixed `execute/961213-1.c`.
+    - **SEXT32 on pointer arithmetic results (width-mark leak)**: `zero_cc_operand_int_width`/`zero_cc_expr_int_info` recursed through `NODE_UNOP` for **every** unary op, so `&expr` reported the *pointed-to* value's narrow width (e.g. 4 for `&arr[0]` of a char/int array). `&arr[0] + i` was then marked as 32-bit int math and the MC layer's post-op width extension emitted an in-place `SEXT32` on the 64-bit pointer sum — truncating JIT data addresses (AOT at `0x400000` masked it). Both helpers now treat `TK_AMP` as 8-byte (no mark / width 8 unsigned). Fixed `execute/memchr-1.c` and `execute/strlen-3.c`; also promoted `execute/pr103405.c` O0-jit to OK (its O1–O3 JIT crash and AOT link failure — nested functions/trampolines — remain open, pre-existing).
+    - **Result**: all 7 re-exposed partial-mode MISCOMPILEs promoted to PASS on all 8 configs; **partial-mode MISCOMPILEs: 0 remaining**. Overall PASS **2,170 → 2,209** (+8 incl. `compile/limits-structnest.c`), MISCOMPILE **75 → 48** (all 48 remaining are all-config failures → Chunk M3 scope). Baseline re-recorded (`--update-baseline`).
 
 ---
 
@@ -172,7 +179,7 @@ Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`14
 | Chunk | Scope & Count | Failure Signature & Root-Cause Cluster |
 | :--- | :--- | :--- |
 | **Chunk M1** | **10 `TIMEOUT`s ✅ COMPLETE**<br>(`0 TIMEOUT remaining`) | • **4 compile-time hangs** (`compile/20010518-2.c`, `compile/limits-enumconst.c`, `compile/pr103813.c`, `compile/pr94238.c`): resolved by .bss ELF NOBITS/mmap threshold, open-addressing enum registry hash table, enum false/true keyword fix, function-like macro whitespace handling, and __INT_MAX__ predefined macro.<br>• **2 optimizer loop hangs** (`execute/20011126-2.c`, `execute/pr43269.c`): resolved by CFG loop clean-entry LICM hoist guard and linear-scan register allocator VREG_0/VREG_2 fixed-interval conflict protection + active interval expire guard.<br>• **4 runtime loop hangs** (`execute/20000731-1.c`, `execute/20020404-1.c`, `execute/20061220-1.c`, `execute/930529-1.c`): resolved by float NODE_UNOP ++/--, static local struct/union brace initialization, ELF prototype symbol deduplication, AST statement progress guard, and unsigned promotion/condition code extension. Result: 9 PASS, 1 SKIP-C89. |
-| **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s ✅ COMPLETE**<br>(`0 MISCOMPILE remaining / 67 resolved`) | • **Root causes resolved:** Missing external-call symbol registration, missing builtin lowerings, dereference assignment evaluation order & multi-chunk struct copying, extern registration side effects / `current_func_idx`, float condition lowering, IEEE-754 float negation unary `-`, LP64 type macros, division fixed intervals in regalloc, and float array element assignment order. Result: All 67 target tests pass across all configurations. |
+| **Chunk M2** | **78 Partial-Mode `MISCOMPILE`s ✅ COMPLETE**<br>(`0 MISCOMPILE remaining / 74 resolved` incl. 7 re-exposed in Sprint 59) | • **Root causes resolved:** Missing external-call symbol registration, missing builtin lowerings, dereference assignment evaluation order & multi-chunk struct copying, extern registration side effects / `current_func_idx`, float condition lowering, IEEE-754 float negation unary `-`, LP64 type macros, division fixed intervals in regalloc, float array element assignment order, libc-`__builtin_*` return typing, JIT param specifier runs, and pointer width-mark exclusion (Sprint 59 final batch). Result: **zero partial-mode MISCOMPILEs remain** in the re-recorded baseline. |
 | **Chunk M3** | **140 All-Config `MISCOMPILE`s**<br>(Fail across all 8 `O0..O3 × JIT/AOT` configs) | • **Part A — Bitfields & Struct Layout**: bitfield signedness (`int x : 3` sign-extension on load), multi-word bitfield straddling, and nested struct/union assignment (`struct-cpy`, `bf-*`, `bitfld-*`).<br>• **Part B — Integer Promotions, Casts & Pointer Arithmetic**: sub-`int` (`char`/`short`) usual arithmetic conversions, compound assignments (`*=`, `/=`, `%=`) on narrow/unsigned types, and multidimensional array/pointer indexing. |
 
 ### Tier 2: `REJECT` Burn-Down (954 tests → 4 Chunks)

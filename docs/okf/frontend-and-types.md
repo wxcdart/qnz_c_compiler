@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-29T04:50:09Z
+timestamp: 2026-10-30T00:52:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -38,9 +38,24 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
 All C int types carry an explicit signedness tag end-to-end, and every narrow-int value is re-extended to 64-bit double-word at every value boundary:
 
 - **Tags**: `ZeroCCType.tag` uses `TYPE_UINT8/16/32/64` (not the signed variants) for `unsigned char/short/int/long`; `TypeInfo` uses `TYPE_MOD_UNSIGNED` on `TYPE_KIND_CHAR/SHORT/INT/LONG`. Both directions of the bridge preserve it: `zero_cc_type_to_typeinfo` maps `TYPE_UINT8→type_uchar` etc., and `typeinfo_to_zero_cc_type` maps back via the `TYPE_MOD_UNSIGNED` modifier.
-- **Parser signedness consumption**: a leading `signed`/`unsigned` token is consumed before the base specifier in every declaration path — locals/declarations (`ast_stmt.h`, `decl_is_unsigned`), function parameters (**two** parser paths: `ast_stmt.h` and the legacy `jit/compile.h`), function return types (`jit/compile.h`), struct members (`definitions.h`, all six tag sites use `is_unsigned ? TYPE_UINTn : TYPE_INTn`), file-scope globals (`compile_unit.h` via `zero_cc_parse_type_name`), and cast/initializer type names (`zero_cc_parse_type_name_at_pos` — `unsigned char` must consume the `char` token). `zero_cc_resolve_base_type` always returns the **signed** variant; callers apply the `UINTn` remap.
+- **Parser signedness consumption**: a leading `signed`/`unsigned` token is consumed before the base specifier in every declaration path — locals/declarations (`ast_stmt.h`, `decl_is_unsigned`), function parameters (**two** parser paths: `ast_stmt.h` and the legacy `jit/compile.h`), function return types (`jit/compile.h`), struct members (`definitions.h`, all six tag sites use `is_unsigned ? TYPE_UINTn : TYPE_INTn`), file-scope globals (`compile_unit.h` via `zero_cc_parse_type_name`), and cast/initializer type names (`zero_cc_parse_type_name_at_pos` — `unsigned char` must consume the `char` token). `zero_cc_resolve_base_type` always returns the **signed** variant; callers apply the `UINTn` remap. The legacy `jit/compile.h` parameter parser consumes the **full run** of `signed`/`unsigned`/`char`/`short`/`long`/`int` specifier keywords in any order (C11 6.7.5) before resolving the base type (char > short > long > int): a partial run (e.g. eating `unsigned long long` of `unsigned long long int *v` and leaving the trailing `int`) used to be re-parsed as a second unnamed parameter, recording the pointer param as `int *` and mis-sizing every dereference (`execute/961213-1.c`).
 - **Lowering width extension**: `ir/ast_lowering_expr.c` marks integer results with `ir_mark_last_width`/`zero_cc_operand_int_width` (wider operand wins; equal width → unsigned wins; comparisons unmarked). Extension is emitted in-place as `OP_SEXT8/16/32`/`OP_ZEXT8/16/32` at: local/global loads, struct-member loads (replacing the old AND/xor/sub narrowing), call arguments (per callee `param_types[i]`), scalar returns, int↔int and float→int casts, and `NODE_BINOP`/`NODE_UNOP(~)` results. Signed right shifts of signed left operands lower to `OP_SAR`, not logical `SHR`.
+  - **Pointer exclusion (M2 final)**: `&expr` operands report **no** narrow width (`zero_cc_operand_int_width` returns 0 for `TK_AMP`; `zero_cc_expr_int_info` returns 8-byte unsigned). Before the fix, `&arr[0] + i` inherited the *pointed-to* value's width (4 for a char/`int` lvalue), the ADD was marked 32-bit, and the MC layer emitted an in-place `SEXT32` on the 64-bit pointer sum — silently truncating JIT data addresses (48-bit) and crashing in libc calls (`execute/memchr-1.c`, `execute/strlen-3.c`). AOT at `0x400000` masked the bug (low-32-bit-clean addresses).
 - **`int` wraparound**: 32-bit `int` arithmetic truncates to 32 bits before further use (`SEXT32`/`ZEXT32` on the result), so `int a=2000000000; a+a` wraps to `-294967296` like gcc.
+
+## Libc-Mapped `__builtin_*` Return Types (M2 Final)
+
+Any unrecognized `__builtin_*` / `__sync_*` / `__atomic_*` / `__zerocc_*` identifier is treated as an implicit function declaration (K&R), but its **return type** is resolved by `type_builtin_libc_return()` (`src/zero_cc/semantic/type.h`, called from both identifier-typing sites: `semantic/expr.c` `expr_handle_identifier` and `semantic/visitor.c` `NODE_IDENT`):
+
+- `void *`: `malloc`, `calloc`, `realloc`, `memcpy`, `memmove`, `memchr`, `memset`
+- `unsigned long` (size_t on LP64): `strlen`
+- `char *`: `strcpy`, `strncpy`, `strcat`, `strchr`, `strrchr`, `strstr`
+- `void`: `abort`, `exit`, `free`
+- `float` / `double`: `sqrtf` / `sqrt`
+- `int`: `memcmp`, `strcmp`, `strncmp`, `printf`, `fprintf`, `sprintf`, `snprintf`, `puts`, `putchar`, `fputc`, `fputs`
+- otherwise: legacy implicit `int` (directly-lowered intrinsics such as `__builtin_expect` never go through this path).
+
+The list mirrors the `__builtin_<name>` → libc `<name>` mapping in `ir/ast_lowering_expr.c`. Without it these builtins were typed as returning `int`, the call result got `SEXT32` in lowering, and 64-bit pointer returns were truncated — benign in non-PIE AOT (heap < 4 GiB) but a guaranteed crash under the 48-bit JIT data/heap addresses (`execute/pr15262-1.c`, `execute/pr36765.c`, `execute/pr43008.c`, `execute/pr84339.c`).
 
 ## Function Pointer Representation (`is_func_ptr`)
 

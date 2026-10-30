@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-26T14:15:39Z
+timestamp: 2026-10-30T00:52:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -20,6 +20,7 @@ Each `Instr` in `c->ir_arena` has:
 - `op` (`Opcode`): One of 129 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP, and 128-bit SIMD vector ops).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
+- `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
 - `label_idx` (`uint16_t`): Synthetic branch target label ID.
 
 ### Parameter Promotion (`OP_PARAM_LOAD`)

@@ -207,7 +207,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                            strncmp(ident_name, "__sync_", 7) == 0 ||
                            strncmp(ident_name, "__atomic_", 9) == 0 ||
                            strncmp(ident_name, "__zerocc_", 9) == 0) {
-                    res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
+                    TypeInfo *ret = type_builtin_libc_return(ctx->perm_arena, ident_name);
+                    if (!ret) ret = type_int(ctx->perm_arena);
+                    res = type_function(ctx->perm_arena, ret, NULL, 0, true);
                 } else {
                     /* "did you mean" against every visible symbol in the
                      * scope chain (vars, functions, typedefs, tags). */

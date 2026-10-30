@@ -48,6 +48,12 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         case NODE_NULLPTR: return 0;  /* 8-byte pointer value */
         case NODE_UNOP:
             if (n->aux.op == TK_BANG) { *sign = 1; return 4; }
+            /* &expr is a pointer (8 bytes) - no narrow-int width. Reporting
+             * the pointed-to value's width here would make a binop like
+             * `&arr[0] + i` get marked as 32-bit int math and the MC layer
+             * would sign-extend the 64-bit pointer result (SEXT32),
+             * truncating it. */
+            if (n->aux.op == TK_AMP || n->aux.op == '&') return 0;
             return zero_cc_operand_int_width(c, arena, n->left, sign);
         case NODE_CAST: {
             TypeInfo *ti = ast_node_get_typeinfo(c, n);
@@ -167,6 +173,8 @@ static int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
         case NODE_UNOP:
             if (n->aux.op == TK_BANG) { *is_unsigned = 0; return 4; }
+            /* &expr is a pointer (8 bytes), not a narrow int. */
+            if (n->aux.op == TK_AMP || n->aux.op == '&') { *is_unsigned = 1; return 8; }
             return zero_cc_expr_int_info(c, arena, n->left, is_unsigned);
         case NODE_TERNARY: {
             int lu = 0, ru = 0;
