@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-31T20:29:02Z",
+ "generated": "2026-10-31T20:53:30Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -16629,18 +16629,18 @@
    "note": ""
   },
   "execute/20000914-1.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
+    "O0-aot": "REJECT",
     "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
+    "O1-aot": "REJECT",
     "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
+    "O2-aot": "REJECT",
     "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -20967,18 +20967,18 @@
    "note": ""
   },
   "execute/20071120-1.c": {
-   "class": "MISCOMPILE",
+   "class": "PASS",
    "configs": {
     "O0-aot": "OK",
     "O0-jit": "OK",
     "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "MISCOMPILE",
-    "O2-jit": "MISCOMPILE",
-    "O3-aot": "MISCOMPILE",
-    "O3-jit": "MISCOMPILE"
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "ref(rc=0 out='') O2 got rc=-11 out='' | cfgs: O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20071202-1.c": {
    "class": "PASS",
@@ -40750,13 +40750,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "MISCOMPILE": 1,
   "NO-REF": 186,
-  "PASS": 2864,
+  "PASS": 2865,
   "REF-BUG": 2,
   "REJECT": 151,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 571,
+  "SKIP-C89": 572,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40769,6 +40768,6 @@
   "SKIP-TARGET:trampolines": 16,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
-  "TIMEOUT": 10
+  "TIMEOUT": 9
  }
 }

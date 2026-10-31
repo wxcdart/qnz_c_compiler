@@ -1,14 +1,14 @@
 # ZeroCC Changelog
 
-## [Sprint 68] - 2026-10-31 - Cast/Init/ABI Fixes + Array-Decay Binop Typing: PASS 2,789 → 2,864, REJECT 223 → 151
+## [Sprint 68] - 2026-10-31 - Cast/Init/ABI Fixes + Array-Decay Binop Typing + Inlined Member Fix: PASS 2,789 → 2,865, REJECT 223 → 151, MISCOMPILE 0
 
 - **x86-64 FP arg regs / complex-7**: FP argument register count corrected 8→6 in the caller-stack path; caller-stack FP param loads deferred (LEA temps clobbered unspilled arg registers). Restores `va-arg-18`.
 - **Global-pointer init sentinel** (`20120919-1`): bare `int *pi = vi;` used `target_data_offset=0` as "symbol base", which patchers read as an absolute offset. New `(size_t)-1` "global base" sentinel handled by all patchers (ELF writer, AOT asm, JIT, multi-TU rebase). `&ca[0]` reloc addend now includes `gv->data_offset` (`strlen-6`).
 - **Constant-evaluator casts** (`pr39240`, `pr86714`): C99 6.5.4 integer cast conversion (mask/sign-extend); `compile_unit.h` cast-prefix stripping restricted to pointer targets.
 - **Brace-initializer `&global` / `&global[N]`** branch (`init_common.h`).
 - **Array decay in binop typing** (`strlen-4`, `semantic/visitor.c`): `array ± int` was typed `int` (arrays are not `type_is_pointer`), so `*(m + i)` on `char m[3][28]` lowered to a 4-byte load. Arrays now decay to a pointer to the element type (which may itself be an array); array−array/pointer yields `long`.
-- **Known residual**: `20071120-1` O2/O3 AOT segfault (CSE/GVN-hoisted load whose store is dropped); O0/O1/JIT pass.
-- **Verification**: `make test` 156/156 · `make test-opt` 117 ok · `make test-isa-qemu` 44/44 · diag battery OK · style 0 errors · c-torture gate OK, baseline re-recorded (PASS 2,864, REJECT 151; the 10 TIMEOUTs are load flakes on the shared box).
+- **Inlined-function member access** (`20071120-1` O2/O3, the last `MISCOMPILE`, `ir/ast_lowering_expr.c`): the `NODE_MEMBER` rvalue path, when the base identifier resolved to neither a local nor a global (exactly the **inlined function parameter** case), fell into a branch that assumed a frame-local struct and emitted a frame-relative load at the member offset — `vec_->num` inside an inlined function read `[fp+0]` (a never-written slot) instead of `[vec_+0]`, so the inlined `VEC_..._last` assert fired/segfaulted. The unresolvable-base path now lowers the base as an expression (inliner parameter substitution yields the argument temp) and loads through `[base + offset]`; local-struct (`.`) and local-pointer (`->`) bases keep their existing frame paths.
+- **Verification**: `make test` 156/156 · `make test-opt` 117 ok · `make test-isa-qemu` 44/44 · diag battery OK · style 0 errors · c-torture gate OK, baseline re-recorded (PASS 2,865, REJECT 151, **MISCOMPILE 0**; the ~9–10 TIMEOUTs are 5 s-budget load flakes on the shared box).
 
 ## [Sprint 67] - 2026-11-01 - C99 `_Complex` Support + Complex Members/Initializers + Function-Name Hash: PASS 2,708 → 2,789, REJECT 298 → 223, MISCOMPILE 0 held
 

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T20:29:18Z
+timestamp: 2026-10-31T20:53:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -617,3 +617,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `frontend-and-types.md`
 - Sprint 68: array operands of +/- decay to pointer-to-element in visitor binop typing
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 68: inlined-function member access fix (20071120-1 O2/O3) - last MISCOMPILE resolved; PASS 2,865, REJECT 151, MISCOMPILE 0

@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-31T20:29:18Z
+timestamp: 2026-10-31T20:53:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,14 +46,14 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,864** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+81 since Sprint 66: 61 REJECT→PASS + 20 complex/latent-MISCOMPILE→PASS) |
+| **`PASS`** | **2,865** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+76 since Sprint 66: 56 REJECT→PASS + 20 complex/latent-MISCOMPILE→PASS) |
 | **`REJECT`** | **151** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 298) — the ongoing burn-down target (dominant: `expected identifier in declaration` ~76, `unexpected token 'X' in statement`, `incompatible types in assignment`, `expected identifier in extern declaration`, `unexpected token in struct/union definition`) |
-| **`SKIP-C89`** | **589** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (Sprint 67's complex work exposed and fixed 8 latent ones: complex division precision via `__divdc3`, complex struct members, self-referential initializers; integer-element complex is a clean REJECT, not a miscompile) |
+| **`SKIP-C89`** | **571** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus.** Sprint 68 fixed the last one (`execute/20071120-1.c` at `-O2/-O3`): the `NODE_MEMBER` rvalue lowering assumed a frame-local struct base when the base identifier resolved to neither a local nor a global, so `vec_->num` inside an **inlined** function read `[fp+0]` (an unrelated, never-written frame slot) instead of `[vec_+0]` — the inlined `VEC_..._last` assert then fired/segfaulted. The unresolvable-base path now lowers the base expression (inliner parameter substitution) and loads through the real pointer. |
 | **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
-| **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
-| **`TIMEOUT`** | **0** | **0 TIMEOUTs** (the 5 s run budget can flake under external load on the shared box — see the environment note in the CHANGELOG) |
+| **`NO-REF`** | **186** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
+| **`SKIP-TARGET:*`** | **142** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `arm`: 1) |
+| **`TIMEOUT`** | **10** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |

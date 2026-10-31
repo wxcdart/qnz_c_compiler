@@ -6375,10 +6375,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else {
                         ir_emit_deref(val_temp, addr_temp);
                     }
-                } else {
-                    if (sym) {
-                        base_stack_offset = -sym->stack_offset;
-                    }
+                } else if (sym) {
+                    /* Local struct/union base accessed via `.`: frame-
+                     * relative member load (base_stack_offset from the
+                     * local's slot). */
+                    base_stack_offset = -sym->stack_offset;
                     int32_t total_offset = base_stack_offset + member_offset;
                     if (member_is_float) {
                         if (member_sz == 4) {
@@ -6400,6 +6401,39 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         return val_temp;
                     } else {
                         ir_emit_load(val_temp, BE(c)->fp_reg, total_offset);
+                    }
+                } else {
+                    /* Base is a plain identifier that is neither a local
+                     * nor a global - most importantly an INLINED function
+                     * parameter (resolved by the inliner's parameter
+                     * substitution when lowered as an expression; the
+                     * param temp holds the argument's pointer value).
+                     * Lower the base to its address/pointer value, add the
+                     * member offset, and load through it. (The old code
+                     * here assumed a frame-local struct and emitted a
+                     * frame-relative load at the member offset - reading
+                     * an unrelated slot; c-torture execute/20071120-1
+                     * segfaulted at -O2 when `vec_->num` in an inlined
+                     * function read [fp+0] instead of [vec_+0].) */
+                    int base_addr = lower_expr(c, arena, base_ref);
+                    int addr_temp = base_addr;
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(off_temp, member_offset);
+                        addr_temp = c->next_temp_id++;
+                        ir_emit_add(addr_temp, base_addr, off_temp);
+                    }
+                    if (member_is_array || member_is_struct) {
+                        ir_emit_mov_reg(val_temp, addr_temp);
+                        c->last_expr_is_float = 0;
+                        return val_temp;
+                    } else if (member_is_float) {
+                        if (member_sz == 4) ir_emit_vloadss((uint16_t)val_temp, (uint16_t)addr_temp);
+                        else ir_emit_vloadsd((uint16_t)val_temp, (uint16_t)addr_temp);
+                        c->last_expr_is_float = 1;
+                        return val_temp;
+                    } else {
+                        ir_emit_deref(val_temp, addr_temp);
                     }
                 }
             } else if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_COMPOUND_LIT) {
