@@ -572,6 +572,51 @@ static inline char* zero_cc_read_file(const char *filepath) {
     return buf;
 }
 
+/* Freestanding C99 math.h (double + float families; the `long double`
+ * family is intentionally omitted - ZeroCC models long double as double,
+ * so calling libm's 16-byte long-double entry points would be an ABI
+ * mismatch). Replaces the system glibc math.h in clean runs, whose
+ * __MATH_PRECNAME/__MATH_TGAMAC macro machinery is unparseable. */
+static inline const char *zc_builtin_math_h(void) {
+    return
+        "#ifndef _MATH_H\n#define _MATH_H 1\n"
+        "#define M_PI 3.14159265358979323846\n"
+        "#define M_E 2.7182818284590452354\n"
+        "#define HUGE_VAL 1e309\n"
+        "#define INFINITY (__builtin_inff(0.0))\n"
+        "#define NAN 0.0/0.0\n"
+        "double sin(double);\ndouble cos(double);\ndouble tan(double);\n"
+        "double asin(double);\ndouble acos(double);\ndouble atan(double);\n"
+        "double atan2(double, double);\n"
+        "double pow(double, double);\n"
+        "double exp(double);\ndouble exp2(double);\ndouble expm1(double);\n"
+        "double log(double);\ndouble log10(double);\ndouble log2(double);\ndouble log1p(double);\n"
+        "double floor(double);\ndouble ceil(double);\ndouble round(double);\n"
+        "double nearbyint(double);\ndouble rint(double);\ndouble trunc(double);\n"
+        "double fmod(double, double);\ndouble remainder(double, double);\n"
+        "double fdim(double, double);\ndouble fmin(double, double);\ndouble fmax(double, double);\n"
+        "double cbrt(double);\ndouble sqrt(double);\ndouble hypot(double, double);\n"
+        "double copysign(double, double);\n"
+        "double frexp(double, int *);\ndouble ldexp(double, int);\n"
+        "double modf(double, double *);\n"
+        "int isinf(double);\nint isnan(double);\n"
+        "float sinf(float);\nfloat cosf(float);\nfloat tanf(float);\n"
+        "float atan2f(float, float);\n"
+        "float powf(float, float);\n"
+        "float expf(float);\nfloat exp2f(float);\nfloat expm1f(float);\n"
+        "float logf(float);\nfloat log10f(float);\nfloat log2f(float);\nfloat log1pf(float);\n"
+        "float floorf(float);\nfloat ceilf(float);\nfloat roundf(float);\n"
+        "float nearbyintf(float);\nfloat rintf(float);\nfloat truncf(float);\n"
+        "float fmodf(float, float);\nfloat remainderf(float, float);\n"
+        "float fdimf(float, float);\nfloat fminf(float, float);\nfloat fmaxf(float, float);\n"
+        "float cbrtf(float);\nfloat sqrtf(float);\nfloat hypotf(float, float);\n"
+        "float copysignf(float, float);\n"
+        "float frexpf(float, int *);\nfloat ldexpf(float, int);\n"
+        "float modff(float, float *);\n"
+        "int isinff(float);\nint isnanf(float);\n"
+        "#endif\n";
+}
+
 static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (!name) return NULL;
     if (strcmp(name, "stddef.h") == 0) {
@@ -719,6 +764,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif\n"
         );
     }
+    if (strcmp(name, "math.h") == 0) {
+        return strdup(zc_builtin_math_h());
+    }
     if (strcmp(name, "ctype.h") == 0) {
         return strdup(
             "#ifndef _CTYPE_H\n#define _CTYPE_H 1\n"
@@ -741,7 +789,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef struct { unsigned long long *gp; unsigned long long *gp_end; unsigned long long *fp; unsigned long long *fp_end; unsigned long long *ovf; } va_list;\n"
             "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
             "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
-            "#define va_end(ap) ((void)0)\n"
+            /* Evaluate the argument (C99 7.15.1.1: va_end(ap) may evaluate
+             * ap - tests like c-torture va-arg-21 rely on the side effect,
+             * e.g. va_end(**ap_ptr++) advancing ap_ptr). */
+            "#define va_end(ap) ((void)(ap))\n"
             "#define va_copy(dest, src) ((void)((dest) = (src)))\n"
             "#define __va_copy(dest, src) ((void)((dest) = (src)))\n"
             "#define __builtin_va_copy(dest, src) ((void)((dest) = (src)))\n"
@@ -859,6 +910,11 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int snprintf(char *str, size_t size, const char *format, ...);\n"
             "int puts(const char *s);\nint putchar(int c);\n"
             "void perror(const char *s);\n"
+            "int vprintf(const char *format, va_list ap);\n"
+            "int vfprintf(FILE *stream, const char *format, va_list ap);\n"
+            "int vscanf(const char *format, va_list ap);\n"
+            "int vfscanf(FILE *stream, const char *format, va_list ap);\n"
+            "int remove(const char *filename);\nvoid rewind(FILE *stream);\n"
             "int fputs(const char *s, FILE *stream);\nint fgetc(FILE *stream);\n"
             "int getchar(void);\n"
             "FILE* fopen(const char *pathname, const char *mode);\n"
@@ -869,6 +925,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "long ftell(FILE *stream);\nint fflush(FILE *stream);\n"
             "#endif\n"
         );
+    }
+    if (strcmp(name, "math.h") == 0) {
+        return strdup(zc_builtin_math_h());
     }
     if (strcmp(name, "ctype.h") == 0) {
         return strdup(

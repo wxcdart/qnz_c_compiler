@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-31T04:56:50Z
+timestamp: 2026-10-31T22:09:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -72,6 +72,18 @@ When a function call requires stack arguments (>6 integer/pointer args on x86-64
   - When frame pointer omission is active (`omit_frame_pointer` is true), slots are addressed relative to `%rsp`.
   - During argument marshalling, `%rsp` shifts downwards by `extra_sp = stack_pad + pushed_stack_args * 8 + pushed_reg_args * 8`.
   - Any reloaded spill slot (for register arguments or stack arguments) must be addressed via `zero_cc_frame_disp_at(c, -off, extra_sp)` (defined in `src/zero_cc/ir/ir.c`), ensuring frame reloads never collide with newly pushed arguments or alignment pad slots.
+
+## External `va_list` Shadow (glibc x86-64, Sprint 69)
+
+ZeroCC's private `va_list` (64 B: `gp`/`fp`/overflow pointers) is not ABI-compatible with glibc's 16-byte `struct va_list`. Passing it to an **external** variadic libc function (`vprintf`, `vfprintf`, `__vprintf_chk`, …) makes glibc read the wrong register-save region. The call lowering (`ast_lowering_expr.c`, `big_struct_ptr_conv` path) therefore builds a **208-byte glibc-layout shadow** on the caller stack before the call, gated on: arg TypeInfo is a struct tagged `va_list` with size > 16, the callee is a **prototype** (extern — zerocc-compiled callees keep the native layout), and the target is x86-64:
+
+- **Header (32 B)**: `gp_offset`, `fp_offset`, `overflow_arg_area` = the zerocc overflow pointer (the caller's stack args), `reg_save_area` = the shadow's 176-byte region.
+- **Region (176 B)**: a glibc-ordered **copy** of the variadic frame's register save area — 6 GP × 8 B + **8** FP × 16 B (low 8 bytes of each double, high zeroed; slots 6..7 zero-filled because glibc sizes the region for 8 XMMs). Slot order is **reversed** relative to the zerocc spill: ZeroCC spills downward from slot 0 (`slot k` at `base-8k`), glibc's `reg_save_area` grows upward from the RDI slot (`region+8l`). FP slots live at `gp_end - 8l` (8-byte doubles).
+- **Origin from the `va_list` itself, not the current frame**: `gp_end = *(ap+8)`, `save_abs = gp_end + 48`. This is what makes wrapper forwarding work — `__vprintf_chk(int, const char *, va_list)` forwarding its argument to `vprintf` is not itself variadic and has no spill region; the region address must be carried in the `va_list`.
+- **Offsets are branch-free**: `gp_offset = save_abs - gp_ptr` (always in [0,48]; 48 *is* glibc's exhausted value) and `fp_offset = 48 + 2·(gp_end - fp_ptr)` (always in [48,176]; the zero-filled slots 6..7 make the exhausted value read 0.0 instead of running past the buffer). The first implementation used `test/je/jmp` clamps and **miscompiled at -O1+** (redundant-move elimination/LRA dropped the non-exhausted restore and stored `gpd-48` — `vprintf-1` printed `(null)`/segfaulted while O0 was clean); the branch-free form removes the fragile pattern. **Do not reintroduce branches/clamps here without re-testing -O1..-O3.**
+- glibc steps `overflow_arg_area` by 16 while the zerocc caller packs stack args at 8 B — overflow (more than 6 GP or 6 FP variadics) to an extern is unsupported; the printf-family corpus cases fit in the register region.
+- Companion frontend pieces: `stdio.h` declares the `vprintf`/`vfprintf`/`vscanf`/`vfscanf` family, and `va_end(ap)` is `((void)(ap))` — it must **evaluate** its argument (`va-arg-21` advances a pointer through `va_end(**ap_ptr++)`).
+- The ELF writer must not emit **unreferenced** prototype symbols (`main.c`): an undefined symbol for a never-called prototype makes GNU `ld` pull archive members (musl `vfscanf` → missing soft-float helpers on riscv32 → link failure).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

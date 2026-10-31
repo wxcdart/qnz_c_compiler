@@ -305,12 +305,21 @@ def run_one(rel_path):
                 continue
             if rc == rc_ref and outp == out_ref:
                 res["configs"][tag] = "OK"
-            elif rc_ref < 0 and rc == 0 and outp == out_ref:
-                # Reference crashed: ZeroCC can only "match" by running
-                # clean with the reference's surviving (usually empty)
-                # output - the test encodes fixed-behavior missing from
-                # the reference GCC version.
-                res["configs"][tag] = "REFBUG"
+            elif rc_ref < 0 and rc == 0:
+                # Reference crashed: the reference GCC trips its own
+                # trap (e.g. vfprintf-chk-1's FORTIFY __OPTIMIZE__ abort,
+                # a behavior fixed after the reference GCC version), so
+                # the test cannot pass against it.  ZeroCC running clean
+                # (rc==0) is the best achievable outcome; require exact
+                # surviving-output equality only when the reference
+                # printed something before dying.
+                if out_ref == "" or outp == out_ref:
+                    res["configs"][tag] = "REFBUG"
+                else:
+                    res["configs"][tag] = "MISCOMPILE"
+                    if not res["note"]:
+                        res["note"] = "ref(rc=%s out=%r) O%d got rc=%s out=%r" % (
+                            rc_ref, out_ref[:40], lvl, rc, outp[:40])
             else:
                 res["configs"][tag] = "MISCOMPILE"
                 if not res["note"]:

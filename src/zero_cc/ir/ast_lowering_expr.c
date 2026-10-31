@@ -8462,13 +8462,183 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 big_struct_ptr_conv = true;
                             }
                         }
+                        /* glibc x86-64 va_list shadow: ZeroCC's private
+                         * 5-pointer va_list is unreadable by libc's variadic
+                         * functions (vprintf/vfprintf/...), which expect the
+                         * 4-field glibc layout (u32 gp_offset, u32 fp_offset,
+                         * overflow_arg_area, reg_save_area) with a 176-byte
+                         * register save region: GP slots 0..5 at +0..+47, FP
+                         * slots 0..7 as 16-byte XMM words at +48..+175,
+                         * growing UP from the RDI slot (slot k at +8k).
+                         * ZeroCC's prologue spill grows DOWN from slot 0
+                         * (slot k at base-8k) and stores FP as 8-byte
+                         * doubles at 8B spacing, so the shadow materializes
+                         * a glibc-ordered COPY of the region: GP slot l at
+                         * region+8l, FP slot l at region+48+16l (low 8 bytes
+                         * of the double, high 8 bytes zeroed; FP slots 6..7
+                         * zero-filled). Buffer = 32B header + 176B region
+                         * (6 GP x 8 + 8 FP x 16, the glibc size).
+                         *  - gp_offset = save_abs - gp_ptr, always in [0,48]
+                         *    (48 == the glibc "exhausted" value);
+                         *  - fp_offset = 48 + 16 * (FP slots consumed)
+                         *    (= 48 + 2 * (gp_end - fp_ptr)), always in
+                         *    [48,176]; the zero-filled slots 6..7 make the
+                         *    exhausted value read 0.0 cleanly;
+                         *  - overflow_arg_area = the zerocc overflow pointer
+                         *    (the caller's stack args).  NOTE: glibc steps
+                         *    the overflow pointer by 16 while ZeroCC's
+                         *    caller packs stack args at 8B spacing - overflow
+                         *    (more than 6 GP or 6 FP variadics) to an extern
+                         *    is unsupported; the tested printf-family cases
+                         *    fit in the register region.
+                         * Zerocc-compiled callees keep the native layout. */
+                        TypeInfo *vati = arg_node ? ast_node_get_typeinfo(c, arg_node) : NULL;
+                        bool arg_is_vl = (vati && vati->kind == TYPE_KIND_STRUCT &&
+                                          vati->details.record.tag &&
+                                          strcmp(vati->details.record.tag, "va_list") == 0 &&
+                                          vati->details.record.size > 16);
+                        bool callee_extern_vl = (callee_fn != NULL && callee_fn->is_prototype);
+                        bool emit_vl_shadow = (arg_is_vl && callee_extern_vl && c->isa == ISA_X86_64);
                         if (big_struct_ptr_conv) {
                             c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
-                            int32_t asz = (int32_t)((arg_struct_sz + 7) & ~(size_t)7);
+                            int32_t asz = emit_vl_shadow ? 208 : (int32_t)((arg_struct_sz + 7) & ~(size_t)7);
                             c->current_stack_frame += asz;
                             int buf_t = c->next_temp_id++;
                             ir_emit_lea(buf_t, BE(c)->fp_reg, -c->current_stack_frame);
-                            zc_emit_mem_copy(c, big_src_addr, buf_t, arg_struct_sz);
+                            if (emit_vl_shadow) {
+                                /* The save region lives in the frame of the
+                                 * ORIGINAL variadic function (the va_list may
+                                 * be forwarded through wrapper frames, e.g.
+                                 * __vprintf_chk -> vprintf), so derive the
+                                 * slot-0 base from the va_list itself:
+                                 * gp_end (ap+8) = slot0 - 48 (6 GP x 8), so
+                                 * slot0 = gp_end + 48. */
+                                int o8a = c->next_temp_id++;
+                                ir_emit_mov_imm(o8a, 8);
+                                int ap8a = c->next_temp_id++;
+                                ir_emit_add(ap8a, big_src_addr, o8a);
+                                int gpend = c->next_temp_id++;
+                                ir_emit_deref(gpend, ap8a);        /* *(ap+8) */
+                                int o48a = c->next_temp_id++;
+                                ir_emit_mov_imm(o48a, 48);
+                                int save_abs = c->next_temp_id++;
+                                ir_emit_add(save_abs, gpend, o48a);
+                                /* region base = buf + 32 */
+                                int o32h = c->next_temp_id++;
+                                ir_emit_mov_imm(o32h, 32);
+                                int reg_base = c->next_temp_id++;
+                                ir_emit_add(reg_base, buf_t, o32h);
+                                /* GP region copy: origin slot l at
+                                 * save_abs - 8l -> region + 8l. */
+                                for (int l = 0; l < 6; l++) {
+                                    int sv = c->next_temp_id++;
+                                    int nl = c->next_temp_id++;
+                                    ir_emit_mov_imm(nl, -8 * l);
+                                    ir_emit_add(sv, save_abs, nl);
+                                    int val = c->next_temp_id++;
+                                    ir_emit_deref(val, sv);
+                                    if (l == 0) {
+                                        ir_emit_store_64((uint16_t)val, (uint16_t)reg_base);
+                                    } else {
+                                        int ol = c->next_temp_id++;
+                                        ir_emit_mov_imm(ol, 8 * l);
+                                        int dl = c->next_temp_id++;
+                                        ir_emit_add(dl, reg_base, ol);
+                                        ir_emit_store_64((uint16_t)val, (uint16_t)dl);
+                                    }
+                                }
+                                /* FP region copy: origin slot l (8-byte
+                                 * double) at save_abs - 48 - 8l (= gp_end -
+                                 * 8l) -> region + 48 + 16l, high 8 bytes
+                                 * zeroed.  glibc sizes the region for 8 XMMs,
+                                 * so slots 6..7 are zero-filled: an exhausted
+                                 * FP stream (fp_offset 144..176) then reads
+                                 * 0.0 from the shadow instead of running past
+                                 * the buffer. */
+                                for (int l = 0; l < 8; l++) {
+                                    int val;
+                                    if (l < 6) {
+                                        int sv = c->next_temp_id++;
+                                        int nl = c->next_temp_id++;
+                                        ir_emit_mov_imm(nl, -8 * l);
+                                        ir_emit_add(sv, gpend, nl);
+                                        val = c->next_temp_id++;
+                                        ir_emit_deref(val, sv);
+                                    } else {
+                                        val = c->next_temp_id++;
+                                        ir_emit_mov_imm(val, 0);
+                                    }
+                                    int ol = c->next_temp_id++;
+                                    ir_emit_mov_imm(ol, 48 + 16 * l);
+                                    int dl = c->next_temp_id++;
+                                    ir_emit_add(dl, reg_base, ol);
+                                    ir_emit_store_64((uint16_t)val, (uint16_t)dl);
+                                    int z0 = c->next_temp_id++;
+                                    ir_emit_mov_imm(z0, 0);
+                                    int oh = c->next_temp_id++;
+                                    ir_emit_mov_imm(oh, 8);
+                                    int dh = c->next_temp_id++;
+                                    ir_emit_add(dh, dl, oh);
+                                    ir_emit_store_64((uint16_t)z0, (uint16_t)dh);
+                                }
+                                /* gp_offset = (save_abs - gp_ptr): always in
+                                 * [0, 48] (gp_ptr runs from slot 0 down to
+                                 * gp_end = slot 5), and 48 IS the exhausted
+                                 * value glibc needs (48+8 > 48 -> overflow),
+                                 * so no clamp/branch is required.  Branchy
+                                 * clamp patterns here were fragile: at -O1 the
+                                 * redundant-move elimination/LRA dropped the
+                                 * non-exhausted restore and stored (gpd-48) -
+                                 * vprintf-1 printed (null)/segfaulted. */
+                                int gp0 = c->next_temp_id++;
+                                ir_emit_deref(gp0, big_src_addr);       /* *(ap+0) */
+                                int gpd = c->next_temp_id++;
+                                ir_emit_sub(gpd, save_abs, gp0);        /* 8*idx, 0..48 */
+                                ir_emit_store_32((uint16_t)gpd, (uint16_t)buf_t);
+                                /* fp_offset = 48 + 16*(FP consumed) = 48 +
+                                 * 2*(gp_end - fp_ptr), always in [48, 176];
+                                 * the 8-slot zero-filled region above makes
+                                 * the exhausted value (176) read 0.0 cleanly -
+                                 * no branch needed. */
+                                int o16a = c->next_temp_id++;
+                                ir_emit_mov_imm(o16a, 16);
+                                int ap16a = c->next_temp_id++;
+                                ir_emit_add(ap16a, big_src_addr, o16a);
+                                int fp0 = c->next_temp_id++;
+                                ir_emit_deref(fp0, ap16a);              /* *(ap+16) */
+                                int fpd = c->next_temp_id++;
+                                ir_emit_sub(fpd, gpend, fp0);           /* 8*idx, 0..48 */
+                                int fpo = c->next_temp_id++;
+                                ir_emit_shl(fpo, fpd, 1);               /* 16 * idx */
+                                int o48b = c->next_temp_id++;
+                                ir_emit_mov_imm(o48b, 48);
+                                ir_emit_add(fpo, o48b, fpo);            /* 48 + 16*idx */
+                                int o4 = c->next_temp_id++;
+                                ir_emit_mov_imm(o4, 4);
+                                int b4 = c->next_temp_id++;
+                                ir_emit_add(b4, buf_t, o4);
+                                ir_emit_store_32((uint16_t)fpo, (uint16_t)b4);
+                                /* +8: overflow_arg_area = *(ap+32) */
+                                int o32 = c->next_temp_id++;
+                                ir_emit_mov_imm(o32, 32);
+                                int ap32a = c->next_temp_id++;
+                                ir_emit_add(ap32a, big_src_addr, o32);
+                                int ov0 = c->next_temp_id++;
+                                ir_emit_deref(ov0, ap32a);
+                                int o8 = c->next_temp_id++;
+                                ir_emit_mov_imm(o8, 8);
+                                int b8 = c->next_temp_id++;
+                                ir_emit_add(b8, buf_t, o8);
+                                ir_emit_store_64((uint16_t)ov0, (uint16_t)b8);
+                                /* +16: reg_save_area = region base */
+                                int o16 = c->next_temp_id++;
+                                ir_emit_mov_imm(o16, 16);
+                                int b16 = c->next_temp_id++;
+                                ir_emit_add(b16, buf_t, o16);
+                                ir_emit_store_64((uint16_t)reg_base, (uint16_t)b16);
+                            } else {
+                                zc_emit_mem_copy(c, big_src_addr, buf_t, arg_struct_sz);
+                            }
                             temp = buf_t;
                         } else if (is_mem_struct) {
                             int val0 = c->next_temp_id++;

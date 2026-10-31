@@ -1270,6 +1270,20 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     }
                 }
                 if (has_def) continue;
+                /* Prototypes for functions that are declared but never CALLED
+                 * in this TU must not become undefined global symbols in the
+                 * object: GNU ld pulls archive members to resolve them, so a
+                 * mere <stdio.h> include would drag in musl's vfprintf/vfscanf
+                 * objects (whose soft-float 128-bit helpers are absent from
+                 * the riscv32 musl cross shim) and break the link. */
+                bool prot_ref = false;
+                for (size_t r = 0; r < comp->reloc_count; r++) {
+                    if (strcmp(comp->relocs[r].target_symbol, fn->name) == 0) {
+                        prot_ref = true;
+                        break;
+                    }
+                }
+                if (!prot_ref) continue;
             }
             if (fn->is_external) {
                 bool referenced = false;

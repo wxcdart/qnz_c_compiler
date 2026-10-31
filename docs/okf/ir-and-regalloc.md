@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-31T07:20:39Z
+timestamp: 2026-10-31T22:09:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -42,6 +42,7 @@ During code generation, if `temp_dest` is allocated to the identical physical AB
 - **C2a guard** (`ast_lowering.c`, after `lower_node`) now bounds at the 16-bit edge: `function '<fn>' uses <N> temporaries; max is 65534 per function (16-bit temp ids, 0xFFFF = no-temp sentinel). Split the function ...` - a safety net, not a practical limit (verified: 400+-temp functions work; 190 nested calls work; the practical ceiling for nested *expressions* is the H1 parser stack at ~depth 200).
 - **Base-register marker convention**: `OP_FLOAD`/`OP_FSTORE` (float stack access) and `OP_LEA` (stack address) take a base-register temp operand; the "frame-pointer base" marker is `TEMP_NONE` (0xFFFF) - **not** a real temp id. Pre-C2b the marker was 0xFF, identical to the no-temp sentinel; the C2b sweep would have routed it through `regalloc_get_reg_for_temp(255)` → garbage register (this silently broke float locals in JIT mode until the markers were moved to `TEMP_NONE`).
 - **`OP_CALL` args**: the legacy 8-bit-immediate packing of args 2/3 into `instr->imm` was removed with C2b (unrecoverable at 16 bits); the `IRCallArgs` side table is the single source of truth for all 16 args.
+- **-O1+ fragility: branchy compute/clamp/restore patterns (Sprint 69)**: a pattern of the form `t = f(x); c = t - K; je exhausted; t2 = t; jmp done; exhausted: t2 = K; done: use(t2)` — the glibc `va_list` shadow's original `gp_offset`/`fp_offset` clamps — **miscompiled at -O1 while -O0 was clean**: at the point of `use`, the value held `t - K` (the exhaustion-test result) instead of `t`; the restore move (`t2 = t`) had effectively been elided/merged and the two disjoint-liveness temps aliased one physical register (observed in `vprintf-1` at -O1/-O2/-O3: `gp_offset` stored as `gpd-48` = −40 instead of 8). The underlying LRA/elimination defect is **not yet fixed**; the workaround is to keep such runtime logic **branch-free** where the value domain makes the branch unnecessary (the shadow now computes `gp_offset = save_abs - gp_ptr` directly — always in [0,48] — and `fp_offset = 48 + 2·(gp_end - fp_ptr)` — always in [48,176] — with no compare/jump/restore at all). When emitting conditional offset computations in lowering, prefer branch-free algebra over `test/je/jmp` + restore; if a branch is truly required, verify -O1..-O3 on a differential test before accepting.
 
 ## Call Argument Tracking (`IRCallArgsArena`)
 
