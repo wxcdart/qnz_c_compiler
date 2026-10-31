@@ -48,6 +48,7 @@ typedef struct ZeroCCStructMember {
     bool is_const;
     bool is_volatile;
     bool is_atomic;
+    bool is_complex;   /* C99 6.2.5: _Complex T member (base = element type) */
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {
@@ -68,6 +69,10 @@ typedef struct ZeroCCType {
     /* C99 long double: 16-byte object (x86-64 SysV) but lowered with the
      * 64-bit double value model. */
     bool is_long_double;
+    /* C99 6.2.5: _Complex T - a two-part object of element type
+     * `*base` (re-tagged), size 2 * element.  Lowering intercepts
+     * arithmetic/comparisons and the __real__/__imag__ operators. */
+    bool is_complex;
     /* Function type marker: the type denotes a function, not an object
      * (e.g. the alias in `typedef int f(void);`).  Applying a pointer
      * declarator on top of it yields a function pointer (is_func_ptr).
@@ -184,6 +189,7 @@ typedef struct {
                                            * a function. */
     bool is_inline;                       /* True for inline declarations (C99) */
     bool is_static;                       /* True for static functions (internal linkage) */
+    size_t align;                         /* __attribute__((aligned(N))) on prototype/definition (0 = default) */
     bool can_inline;                      /* Eligible for small function inlining */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
     void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */

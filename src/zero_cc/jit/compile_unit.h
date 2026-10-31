@@ -950,6 +950,17 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
                 }
             }
+            /* Keep the pre-pointer base so comma declarators with their own
+             * star chains (`int a, *b, **c;`) can re-derive their type.
+             * zero_cc_parse_type_name may have already consumed declarator
+             * stars (recorded in c->last_type_ptr_depth), so unwrap exactly
+             * those layers to get the pure base type. */
+            int consumed_ptrs = c->last_type_ptr_depth;
+            ZeroCCType gtype_base = gtype;
+            for (int k = 0; k < consumed_ptrs &&
+                             gtype_base.tag == TYPE_PTR && gtype_base.base; k++) {
+                gtype_base = *gtype_base.base;
+            }
             for (int pd = 0; pd < ptr_depth; pd++) {
                 gtype = zero_cc_type_ptr(&gtype);
             }
@@ -1984,6 +1995,40 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
                             }
                             c->token_pos++;
+                            /* C99 6.7.5.3: each declarator owns its pointer
+                             * chain - `int a = 1, *b, **c;` / `long long c,
+                             * *g = &c;`. Consume the next declarator's stars
+                             * (and qualifiers) and re-derive its type from
+                             * the shared base; previously a `*` after the
+                             * comma hit the "malformed" skip and dropped the
+                             * rest of the declaration (c-torture pr57281,
+                             * pr57321, pr125039, 20020116-1). */
+                            int nd_ptr = 0;
+                            while (c->token_pos < c->token_count &&
+                                   c->tokens[c->token_pos].type == TK_STAR) {
+                                nd_ptr++;
+                                c->token_pos++;
+                                while (c->token_pos < c->token_count &&
+                                       (c->tokens[c->token_pos].type == TK_CONST ||
+                                        c->tokens[c->token_pos].type == TK_VOLATILE)) {
+                                    c->token_pos++;
+                                }
+                                size_t probe = 0;
+                                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
+                            }
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_CONST) {
+                                c->token_pos++;
+                            }
+                            ZeroCCType ng = gtype_base;
+                            for (int nd = 0; nd < nd_ptr; nd++) {
+                                ng = zero_cc_type_ptr(&ng);
+                            }
+                            gtype = ng;
+                            ptr_depth = nd_ptr;
+                            elem_size = ng.size > 0 ? ng.size : 8;
+                            elem_align = ng.align > 0 ? ng.align : 8;
+                            if (elem_align < 8) elem_align = 8;
                             if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
                                 /* malformed: skip to end of declaration */
                                 while (c->token_pos < c->token_count &&

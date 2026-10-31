@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,7 +26,8 @@ typedef enum TypeKind {
     TYPE_KIND_STRUCT,
     TYPE_KIND_UNION,
     TYPE_KIND_ENUM,
-    TYPE_KIND_VECTOR
+    TYPE_KIND_VECTOR,
+    TYPE_KIND_COMPLEX   /* C99 6.2.5: details.array holds the element type, count == 2 */
 } TypeKind;
 
 /* Forward declaration */
@@ -169,6 +171,26 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     }
     if (strcmp(base, "sqrtf") == 0) return type_float(perm);
     if (strcmp(base, "sqrt") == 0) return type_double(perm);
+    /* libm math builtins: double family returns double, `f` variants float.
+     * The lowering maps __builtin_<m> -> <m> (see the NODE_CALL builtin
+     * table), so the call result must be read from XMM0, not RAX. */
+    {
+        static const char *const dbl_m[] = {
+            "fabs", "fmax", "fmin", "floor", "ceil", "round", "trunc",
+            "fmod", "pow", "exp", "log", "log2", "log10", "sin", "cos",
+            "tan", "atan2", "sinh", "cosh", "tanh",
+        };
+        static const size_t ndbl = sizeof(dbl_m) / sizeof(dbl_m[0]);
+        for (size_t mi = 0; mi < ndbl; mi++) {
+            if (strcmp(base, dbl_m[mi]) == 0) return type_double(perm);
+            char fb[64];
+            snprintf(fb, sizeof(fb), "%sf", dbl_m[mi]);
+            if (strcmp(base, fb) == 0) return type_float(perm);
+            char lb[64];
+            snprintf(lb, sizeof(lb), "%sl", dbl_m[mi]);
+            if (strcmp(base, lb) == 0) return type_double(perm); /* long double: double model */
+        }
+    }
     if (strcmp(base, "memcmp") == 0 || strcmp(base, "strcmp") == 0 ||
         strcmp(base, "strncmp") == 0 || strcmp(base, "printf") == 0 ||
         strcmp(base, "fprintf") == 0 || strcmp(base, "sprintf") == 0 ||

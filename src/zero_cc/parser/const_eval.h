@@ -138,7 +138,8 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     }
     if (t == TK_IDENT) {
         const char *name = c->tokens[pos].str_val;
-        return zero_cc_find_typedef(c, name) != NULL;
+        return zero_cc_find_typedef(c, name) != NULL ||
+               zero_cc_tok_is_complex_spec(name);
     }
     return false;
 }
@@ -690,7 +691,16 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
             if (zero_cc_tok_is_type_start(c, *pos)) {
                 aty = zero_cc_parse_type_name_at_pos(c, pos);
             } else {
+                /* A function-name operand uses the function's
+                 * __attribute__((aligned(N))) (c-torture execute/align-3). */
+                ZeroCCFunction *aln_fn = NULL;
+                if (c->tokens[*pos].type == TK_IDENT) {
+                    aln_fn = zero_cc_find_function(c, c->tokens[*pos].str_val);
+                }
                 aty = zero_cc_type_of_equality(c, pos);
+                if (aln_fn && aln_fn->align > 0) {
+                    return (int64_t)aln_fn->align;
+                }
             }
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return (int64_t)(aty.align > 0 ? aty.align : 8);
@@ -1191,6 +1201,12 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         }
     } else if (t == TK_IDENT) {
         const char *name = c->tokens[*pos].str_val;
+        /* C99 6.7.2.3: `_Complex double` / `double _Complex`. */
+        if (zero_cc_tok_is_complex_spec(name)) {
+            (*pos)++;
+            ZeroCCType inner = zero_cc_parse_type_name_at_pos(c, pos);
+            return zero_cc_type_complex(&inner);
+        }
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);
         if (!tdef) tdef = zero_cc_find_enum(c, name);
@@ -1355,6 +1371,14 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ty = zero_cc_type_array(&elem_ty, inner_arr_len);
         }
     }
+    /* Suffix complex: `double _Complex` (C99 6.7.2.3). */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT &&
+        c->tokens[*pos].str_val &&
+        zero_cc_tok_is_complex_spec(c->tokens[*pos].str_val) &&
+        !ty.is_complex) {
+        (*pos)++;
+        ty = zero_cc_type_complex(&ty);
+    }
     while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
         (*pos)++;
@@ -1389,6 +1413,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
 static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     // Handle parentheses
     bool lparen = false;
+    if (c->last_type_ptr_depth != 0) c->last_type_ptr_depth = 0;
     if (c->tokens[c->token_pos].type == TK_LPAREN) {
         lparen = true;
         c->token_pos++;
@@ -1458,6 +1483,14 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         }
     } else if (c->tokens[c->token_pos].type == TK_IDENT) {
         const char *name = c->tokens[c->token_pos].str_val;
+        /* C99 6.7.2.3: the _Complex / __complex__ type specifier.
+         * Prefix form: `_Complex double`; the suffix form is handled
+         * after the base specifier below. */
+        if (zero_cc_tok_is_complex_spec(name)) {
+            c->token_pos++;
+            ZeroCCType inner = zero_cc_parse_type_name(c);
+            return zero_cc_type_complex(&inner);
+        }
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);
         if (!tdef) tdef = zero_cc_find_enum(c, name);
@@ -1605,6 +1638,14 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             }
         }
     }
+    /* Suffix complex: `double _Complex` (C99 6.7.2.3). */
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+        c->tokens[c->token_pos].str_val &&
+        zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val) &&
+        !ty.is_complex) {
+        c->token_pos++;
+        ty = zero_cc_type_complex(&ty);
+    }
     /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float).
      * A parenthesized declarator that contains an identifier (`(*fp)(void)`)
      * is a NAMED declarator, not an abstract type: leave the tokens for the
@@ -1668,6 +1709,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         for (int p = 0; p < ptr_cnt; p++) {
             ty = zero_cc_type_ptr(&ty);
             if (is_func && p == 0) ty.is_func_ptr = true;
+            c->last_type_ptr_depth++;
         }
         if (inner_arr_len >= 0) {
             ZeroCCType elem_ty = ty;
@@ -1679,6 +1721,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     // between chunks: `int *const *p;`, `int *__attr__((aligned(16))) *p;`)
     while (c->tokens[c->token_pos].type == TK_STAR) {
         ty = zero_cc_type_ptr(&ty);
+        c->last_type_ptr_depth++;
         c->token_pos++;
         while (c->tokens[c->token_pos].type == TK_CONST ||
                c->tokens[c->token_pos].type == TK_VOLATILE ||

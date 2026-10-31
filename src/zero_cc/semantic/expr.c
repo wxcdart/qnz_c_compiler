@@ -127,6 +127,16 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
             expr_node_set_type(ctx, node, res);
             return res;
         }
+        if (strcmp(name, "__real") == 0 || strcmp(name, "__real__") == 0 ||
+            strcmp(name, "__imag") == 0 || strcmp(name, "__imag__") == 0) {
+            /* GNU complex part extractors: __real(E) / __real__(E).
+             * Lowered to a part load of the complex operand; the value
+             * model is the double-width FP model. */
+            TypeInfo *res = type_function(ctx->perm_arena, type_double(ctx->perm_arena),
+                                          NULL, 0, true);
+            expr_node_set_type(ctx, node, res);
+            return res;
+        }
         if (strncmp(name, "__builtin_", 10) == 0 ||
             strncmp(name, "__sync_", 7) == 0 ||
             strncmp(name, "__atomic_", 9) == 0 ||
@@ -134,6 +144,13 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
             TypeInfo *ret = type_builtin_libc_return(ctx->perm_arena, name);
             if (!ret) ret = type_int(ctx->perm_arena);
             TypeInfo *res = type_function(ctx->perm_arena, ret, NULL, 0, true);
+            expr_node_set_type(ctx, node, res);
+            return res;
+        }
+        if (strcmp(name, "__alignof__") == 0 || strcmp(name, "_Alignof") == 0 ||
+            strcmp(name, "__builtin_alignof") == 0) {
+            /* C99 6.5.3.4 builtin: __alignof__(E) = alignment of E's type. */
+            TypeInfo *res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
             expr_node_set_type(ctx, node, res);
             return res;
         }

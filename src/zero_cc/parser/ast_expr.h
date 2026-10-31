@@ -811,6 +811,52 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
+    /* GNU complex part extractors without parentheses: `__real__ a[i]`,
+     * `__imag x`.  The identifier is immediately followed by a primary
+     * expression start; desugar to `__real(expr)` so the rest of the
+     * pipeline (semantics + lowering) sees a plain call. */
+    if (t == TK_IDENT && c->token_pos + 1 < c->token_count) {
+        const char *pn = c->tokens[c->token_pos].str_val;
+        if ((strcmp(pn, "__real__") == 0 || strcmp(pn, "__real") == 0 ||
+             strcmp(pn, "__imag__") == 0 || strcmp(pn, "__imag") == 0)) {
+            ZeroCCTokType nt = c->tokens[c->token_pos + 1].type;
+            bool starts_operand = (nt == TK_IDENT || nt == TK_LPAREN ||
+                                   nt == TK_LBRACKET || nt == TK_INT ||
+                                   nt == TK_FLOAT || nt == TK_CHAR ||
+                                   nt == TK_AMP || nt == TK_STAR ||
+                                   nt == TK_BANG || nt == TK_TILDE ||
+                                   nt == TK_MINUS || nt == TK_PLUS ||
+                                   nt == TK_SIZEOF);
+            if (starts_operand) {
+                size_t call_line = c->tokens[c->token_pos].line;
+                size_t call_col = c->tokens[c->token_pos].col;
+                c->token_pos++;
+                /* Operand is a UNARY-level expression: `__real__ b != 2.0`
+                 * must desugar to `(__real__ b) != 2.0`, not
+                 * `__real__(b != 2.0)`.  parse_unary_ast also picks up
+                 * postfix ops (b[i], b.m, f()). */
+                ASTRef arg = parse_unary_ast(c, arena);
+                if (arg != AST_NULL) {
+                    ASTRef call_ref = zero_cc_ast_alloc_node(arena, NODE_CALL);
+                    ZeroCCASTNode *call_node = zero_cc_ast_get(arena, call_ref);
+                    call_node->line = (uint32_t)call_line;
+                    call_node->col = (uint32_t)call_col;
+                    /* Build the callee ident */
+                    ASTRef callee_ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
+                    ZeroCCASTNode *callee = zero_cc_ast_get(arena, callee_ref);
+                    callee->line = (uint32_t)call_line;
+                    callee->col = (uint32_t)call_col;
+                    callee->s.str = zero_cc_intern_string(c, pn);
+                    callee->s_len = strlen(callee->s.str);
+                    call_node->left = callee_ref;
+                    call_node->right = arg;
+                    return call_ref;
+                }
+                return arg; /* malformed operand: hand back what we got */
+            }
+        }
+    }
+
     /* Switch for unary operators */
     switch (t) {
         case TK_SIZEOF: {
@@ -1206,6 +1252,11 @@ static bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t)
         const char *tname = c->tokens[pos].allocated_str ?
                             c->tokens[pos].allocated_str : c->tokens[pos].str_val;
         if (zero_cc_find_typedef(c, tname) != NULL) {
+            return true;
+        }
+        /* C99 6.7.2.3: the _Complex type specifier (GNU also accepts
+         * __complex__ as a prefix or suffix on a base specifier). */
+        if (zero_cc_tok_is_complex_spec(tname)) {
             return true;
         }
     }

@@ -141,6 +141,40 @@ static inline ZeroCCType zero_cc_type_vector(const ZeroCCType *elem, size_t n_by
     return t;
 }
 
+/* C99 6.2.5: _Complex T - two contiguous objects of element type `elem`
+ * (real, then imaginary).  Same tag as the element so float-ness
+ * detection keeps working; is_complex marks the complex semantics. */
+static inline bool zero_cc_type_is_complex(const ZeroCCType *t) {
+    return t && t->is_complex;
+}
+/* The three C/GNU spellings of the complex type specifier. */
+static inline bool zero_cc_tok_is_complex_spec(const char *s) {
+    return s && (strcmp(s, "_Complex") == 0 ||
+                 strcmp(s, "__complex__") == 0 ||
+                 strcmp(s, "__complex") == 0);
+}
+static inline ZeroCCType zero_cc_type_complex(const ZeroCCType *elem) {
+    ZeroCCType t;
+    if (elem) {
+        t = *elem;
+        t.base = zero_cc_type_alloc_base(elem);
+        t.size = elem->size * 2;
+        t.align = elem->align > 0 ? elem->align : 8;
+    } else {
+        ZeroCCType d = zero_cc_type_double();
+        t = d;
+        t.base = zero_cc_type_alloc_base(&d);
+        t.size = 16;
+        t.align = 16;
+    }
+    t.is_complex = true;
+    t.is_vla = false;
+    t.is_func = false;
+    t.is_func_ptr = false;
+    t.is_atomic = false;
+    return t;
+}
+
 static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
     ZeroCCType t;
     memset(&t, 0, sizeof(t));
@@ -208,6 +242,18 @@ static inline bool zc_struct_resolve_scalar_leaf_bf(const ZeroCCType *st, size_t
                 return true;
             }
             if (out_flex_name && *out_flex_name) return false;
+        } else if (m->is_complex) {
+            /* C99 6.7.9: complex member = two scalar leaves (re, im). */
+            size_t esz = (m->size >= 2) ? m->size / 2 : 8;
+            if (target_idx < *cur_idx + 2) {
+                size_t half = target_idx - *cur_idx;
+                *out_off = base_off + m->offset + half * esz;
+                *out_sz = esz;
+                if (out_is_bf) *out_is_bf = false;
+                if (out_is_float) *out_is_float = true;
+                return true;
+            }
+            *cur_idx += 2;
         } else {
             if (*cur_idx == target_idx) {
                 *out_off = base_off + m->offset;
@@ -233,6 +279,10 @@ static inline bool zc_struct_resolve_scalar_leaf(const ZeroCCType *st, size_t ta
 
 static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
     if (!t) return 0;
+    if (zero_cc_type_is_complex(t)) {
+        /* C99 6.7.9: a complex scalar has two scalar leaves (re, im). */
+        return 2;
+    }
     if (t->tag == TYPE_ARRAY) {
         if (!t->base || t->array_len == 0) return 0;
         return t->array_len * zc_object_count_scalar_leaves(t->base);
@@ -253,7 +303,7 @@ static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
             } else if (m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) {
                 n += m->base ? zc_object_count_scalar_leaves(m->base) : 1;
             } else {
-                n++;
+                n += m->is_complex ? 2 : 1;
             }
         }
         return n;

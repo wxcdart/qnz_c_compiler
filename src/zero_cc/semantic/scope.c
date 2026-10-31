@@ -95,6 +95,7 @@ Symbol *scope_put_symbol(Scope *s, const char *name, SymbolKind kind, TypeInfo *
     sym->type = type;
     sym->flags = 0;
     sym->node = NULL;
+    sym->removed = false;
 
     size_t idx = (size_t)(hash_str(name) & (s->bucket_count - 1));
     sym->next_in_bucket = s->buckets[idx];
@@ -102,6 +103,18 @@ Symbol *scope_put_symbol(Scope *s, const char *name, SymbolKind kind, TypeInfo *
 
     s->count++;
     return sym;
+}
+
+void scope_remove_symbol(Scope *s, const char *name) {
+    if (!s || !name || !s->buckets || s->bucket_count == 0) return;
+    size_t idx = (size_t)(hash_str(name) & (s->bucket_count - 1));
+    for (Symbol *curr = s->buckets[idx]; curr != NULL; curr = curr->next_in_bucket) {
+        if (strcmp(curr->name, name) == 0) {
+            curr->removed = true;
+            if (s->count > 0) s->count--;
+            return;
+        }
+    }
 }
 
 int scope_put(Scope *s, const char *name, TypeInfo *type) {
@@ -115,6 +128,7 @@ Symbol *scope_lookup_current(const Scope *s, const char *name) {
     size_t idx = (size_t)(hash_str(name) & (s->bucket_count - 1));
     for (Symbol *curr = s->buckets[idx]; curr != NULL; curr = curr->next_in_bucket) {
         if (strcmp(curr->name, name) == 0) {
+            if (curr->removed) continue;
             return curr;
         }
     }
@@ -144,7 +158,7 @@ size_t scope_chain_names(const Scope *s, const char **out, size_t cap) {
         if (!cur->buckets || cur->bucket_count == 0) continue;
         for (size_t b = 0; b < cur->bucket_count && n < cap; b++) {
             for (const Symbol *sym = cur->buckets[b]; sym != NULL && n < cap; sym = sym->next_in_bucket) {
-                if (sym->name) out[n++] = sym->name;
+                if (sym->name && !sym->removed) out[n++] = sym->name;
             }
         }
     }

@@ -52,6 +52,14 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         c->token_pos++;
     }
     ZeroCCTokType t = c->tokens[c->token_pos].type;
+    /* C99 6.7.2.3 prefix complex: `_Complex double *a` - consume the
+     * specifier; the base type follows and gets wrapped below. */
+    bool p_prefix_complex = false;
+    if (t == TK_IDENT && zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+        p_prefix_complex = true;
+        c->token_pos++;
+        t = c->tokens[c->token_pos].type;
+    }
     bool starts_type = (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
                         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_FLOAT_KW ||
                         t == TK_DOUBLE_KW || t == TK_VOID ||
@@ -131,6 +139,12 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { p_has_float = true; c->token_pos++; }
         else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { p_has_double = true; c->token_pos++; }
         else if (c->tokens[c->token_pos].type == TK_VOID) { p_has_void = true; c->token_pos++; }
+        /* C99 6.7.2.3 suffix complex: `double _Complex *a`. */
+        if (!p_prefix_complex && c->tokens[c->token_pos].type == TK_IDENT &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+            p_prefix_complex = true; /* reuse flag: complex wraps the base */
+            c->token_pos++;
+        }
         if (found) {
             pt = *found;
         } else if (p_has_void) {
@@ -153,6 +167,9 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
             else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
             else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
             else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
+        }
+        if (p_prefix_complex && !zero_cc_type_is_complex(&pt)) {
+            pt = zero_cc_type_complex(&pt);
         }
     }
     while (c->token_pos < c->token_count &&
@@ -362,6 +379,13 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
     }
     ZeroCCType typeof_pt;
     bool is_typeof_param = false;
+    bool p_is_complex = false;
+    /* C99 6.7.2.3 prefix complex parameter: `_Complex double x` / `__complex__ float x`. */
+    if (c->tokens[c->token_pos].type == TK_IDENT &&
+        zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+        p_is_complex = true;
+        c->token_pos++;
+    }
     if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
         is_typeof_param = true;
         typeof_pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
@@ -438,6 +462,12 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
             c->token_pos++;
         }
+        /* C99 6.7.2.3 suffix complex parameter: `double _Complex x`. */
+        if (!p_is_complex && c->tokens[c->token_pos].type == TK_IDENT &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+            p_is_complex = true;
+            c->token_pos++;
+        }
         int ptr_depth = 0;
         bool p_ptr_is_const = false;
         bool p_ptr_is_volatile = false;
@@ -486,6 +516,9 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         }
         pt.is_const = p_is_const;
         pt.is_volatile = p_is_volatile;
+        if (p_is_complex) {
+            pt = zero_cc_type_complex(&pt);
+        }
         if (p_vec_size > 0) {
             pt = zero_cc_type_vector(&pt, p_vec_size);
         }
@@ -772,7 +805,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
         }
     }
-    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+    if (c->tokens[c->token_pos].type == TK_IDENT &&
+        zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+        /* C99 6.7.2.3: `_Complex` / `__complex__` return type prefix. */
+        c->token_pos++;
+        ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+        fn_ret_type = zero_cc_type_complex(&cx_inner);
+    } else if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
         fn_ret_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
     } else if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
         bool fn_ret_is_union = (c->tokens[c->token_pos].type == TK_UNION);
@@ -875,6 +914,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     }
     if (fn_ret_vec_size > 0 && !zero_cc_type_is_vector(&fn_ret_type)) {
         fn_ret_type = zero_cc_type_vector(&fn_ret_type, fn_ret_vec_size);
+    }
+    /* C99 6.7.2.3 suffix complex: `float _Complex foo(void)`. */
+    if (c->tokens[c->token_pos].type == TK_IDENT &&
+        zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val) &&
+        !fn_ret_type.is_complex) {
+        c->token_pos++;
+        fn_ret_type = zero_cc_type_complex(&fn_ret_type);
     }
     /* Skip _Noreturn that may appear after return type */
     while (c->tokens[c->token_pos].type == TK_NORETURN) {
@@ -1090,6 +1136,27 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         return;
     }
 
+    /* Trailing function alignment: `void f(void) __attribute__((aligned(N)));`
+     * (preprocessor marker __zc_aligned__(N)).  Kept on the function record
+     * so `__alignof__(f)` sees it (c-torture execute/align-3).  A later
+     * definition without the attribute inherits the prototype's value. */
+    size_t fn_align = 0;
+    {
+        size_t probe = 0;
+        while (c->token_pos < c->token_count &&
+               c->tokens[c->token_pos].type == TK_IDENT &&
+               c->tokens[c->token_pos].str_val &&
+               strcmp(c->tokens[c->token_pos].str_val, "__zc_aligned__") == 0) {
+            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe) && probe > fn_align) {
+                fn_align = probe;
+            }
+        }
+        if (fn_align == 0) {
+            ZeroCCFunction *prev = zero_cc_find_function(c, fn_name);
+            if (prev && prev->align > 0) fn_align = prev->align;
+        }
+    }
+
     if (c->tokens[c->token_pos].type == TK_SEMI) {
         /* Function prototype declaration: record prototype, no code emit */
         if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
@@ -1108,6 +1175,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
+            fn->align = fn_align;
             if (first_param_count > 0) {
                 Arena *farena = zero_cc_get_fn_arena(c);
                 fn->param_names = (const char **)arena_alloc(farena, first_param_count * sizeof(const char *));
@@ -1141,7 +1209,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn->has_prototype = has_prototype;
         fn->is_inline = fn_inline;
         fn->is_static = fn_static;
-        /* Copy parameter types and names to function struct */
+        fn->align = fn_align;
         if (param_count > 0) {
             Arena *farena = zero_cc_get_fn_arena(c);
             fn->param_names = (const char **)arena_alloc(farena, param_count * sizeof(const char *));

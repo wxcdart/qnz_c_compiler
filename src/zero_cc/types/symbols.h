@@ -36,6 +36,11 @@ typedef struct ZeroCCCompiler {
     size_t token_count;
     size_t token_pos;
     int last_expr_is_float;
+    /* Pointer stars consumed by the most recent zero_cc_parse_type_name
+     * call (declarator stars immediately following the base specifier,
+     * e.g. the `*` in `char *a, *b;`).  Multi-declarator parsing uses this
+     * to recover the pre-star base type. */
+    int last_type_ptr_depth;
 
     ZeroCCSym *locals;
     size_t local_count;
@@ -79,6 +84,15 @@ typedef struct ZeroCCCompiler {
     ZeroCCFunction functions[ZERO_CC_MAX_FUNCTIONS];
     size_t function_count;
     Arena *fn_arena;                      /* Arena for function parameter slices */
+
+    /* Function-name hash backing zero_cc_find_function (Sprint 67):
+     * covers entries [0, fn_hash_upto), incrementally updated - the table
+     * is append-only.  Without it, a TU with 100k extern declarations
+     * (c-torture compile/limits-externdecl) pays O(n^2) strcmps. */
+    int32_t *fn_hash;                     /* open addressing; -1 = empty */
+    int32_t *fn_hash_next;                /* same-name chain per entry; -1 end */
+    size_t fn_hash_cap;                   /* power of two */
+    size_t fn_hash_upto;                  /* entries covered by the hash */
 
     ZeroCCReloc relocs[ZERO_CC_MAX_RELOCS];
     size_t reloc_count;

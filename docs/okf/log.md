@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T12:19:40Z
+timestamp: 2026-10-31T16:01:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -605,3 +605,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `c-torture-gate.md`
 - Sprint 66: function-pointer return typing + O2 inlining indirect-call fix + __builtin_choose_expr; PASS 2682->2708, REJECT 322->298, MISCOMPILE 3->0
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 67: C99 complex support + function-name hash (PASS 2,708->2,789, REJECT 298->223, MISCOMPILE 0, TIMEOUT 0)
+
+## 2026-10-31 — Updated `frontend-and-types.md`
+- Sprint 67: C99 _Complex type representation & lowering invariants

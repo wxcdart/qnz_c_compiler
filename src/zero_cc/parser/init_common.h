@@ -45,6 +45,12 @@ static inline ZeroCCType zc_init_member_value_type(const ZeroCCStructMember *m) 
 }
 
 static inline bool zc_init_member_leaf_count(const ZeroCCStructMember *m, size_t *out) {
+    if (m->is_complex) {
+        /* C99 6.7.9: a complex member initializes from two scalar leaves
+         * ({ re, im }); a single scalar sets (value, 0). */
+        *out = 2;
+        return true;
+    }
     if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
         size_t count = m->size / m->base->size;
         *out = count * zc_object_count_scalar_leaves(m->base);
@@ -185,6 +191,27 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
                     out->scalar_sz = 0;
                     out->local_leaf = local;
                     out->advance = leaves_m;
+                } else if (m->is_complex) {
+                    /* C99 6.7.9: complex member = two scalar halves.
+                     * The value target is the whole member modeled as an
+                     * array of two element scalars, so `{ re, im }` iterates
+                     * the halves and a bare scalar initializes (value, 0). */
+                    out->abs_off = base_off + m->offset;
+                    memset(&out->val_type, 0, sizeof(out->val_type));
+                    out->val_type.tag = TYPE_ARRAY;
+                    out->val_type.size = m->size;
+                    out->val_type.align = m->align;
+                    out->val_type.array_len = 2;
+                    ZeroCCType cx_el;
+                    memset(&cx_el, 0, sizeof(cx_el));
+                    cx_el.tag = m->tag;
+                    cx_el.size = m->size / 2;
+                    cx_el.align = m->align;
+                    out->val_type.base = zero_cc_type_alloc_base(&cx_el);
+                    out->is_scalar = false;
+                    out->scalar_sz = 0;
+                    out->local_leaf = local;
+                    out->advance = leaves_m;
                 } else {
                     out->abs_off = base_off + m->offset;
                     out->val_type.tag = m->tag;
@@ -269,6 +296,22 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
             out->local_leaf = *cursor % per;
             out->advance = per;
         }
+        return true;
+    }
+    /* C99 6.7.9: a top-level complex scalar initializes from two halves:
+     * `_Complex double z = { re, im };` (a bare scalar yields (v, 0) in
+     * the elided-leaf path below). */
+    if (zero_cc_type_is_complex(t)) {
+        size_t esz = (t->size >= 2) ? t->size / 2 : (t->base ? t->base->size : 8);
+        if (*cursor >= 2) return false;
+        out->abs_off = base_off + *cursor * esz;
+        out->val_type.tag = t->tag;
+        out->val_type.size = esz;
+        out->val_type.align = t->align;
+        out->val_type.base = NULL;
+        out->is_scalar = true;
+        out->scalar_sz = (esz > 8) ? 8 : (esz ? esz : 4);
+        out->advance = 1;
         return true;
     }
     if (*cursor == 0) {
@@ -373,6 +416,23 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                         tgt->is_bitfield = tgt->is_scalar && m->is_bitfield;
                         tgt->bit_offset = tgt->is_bitfield ? m->bit_offset : 0;
                         tgt->bit_width = tgt->is_bitfield ? m->bit_width : 0;
+                        if (m->is_complex) {
+                            /* C99 6.7.9: complex member = two scalar halves
+                             * (`.a = { re, im }`), same as positional path. */
+                            memset(&tgt->val_type, 0, sizeof(tgt->val_type));
+                            tgt->val_type.tag = TYPE_ARRAY;
+                            tgt->val_type.size = m->size;
+                            tgt->val_type.align = m->align;
+                            tgt->val_type.array_len = 2;
+                            ZeroCCType cx_el;
+                            memset(&cx_el, 0, sizeof(cx_el));
+                            cx_el.tag = m->tag;
+                            cx_el.size = m->size / 2;
+                            cx_el.align = m->align;
+                            tgt->val_type.base = zero_cc_type_alloc_base(&cx_el);
+                            tgt->is_scalar = false;
+                            tgt->scalar_sz = 0;
+                        }
                         if (m->tag == TYPE_ARRAY && m->base &&
                             (m->base->tag == TYPE_INT8 || m->base->tag == TYPE_UINT8)) {
                             tgt->arr_ctx_off = base_off + (tgt->abs_off - m->offset);
@@ -480,6 +540,23 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                         tgt->is_bitfield = tgt->is_scalar && m->is_bitfield;
                         tgt->bit_offset = tgt->is_bitfield ? m->bit_offset : 0;
                         tgt->bit_width = tgt->is_bitfield ? m->bit_width : 0;
+                        if (m->is_complex) {
+                            /* C99 6.7.9: complex member = two scalar halves
+                             * (`.a = { re, im }`), same as positional path. */
+                            memset(&tgt->val_type, 0, sizeof(tgt->val_type));
+                            tgt->val_type.tag = TYPE_ARRAY;
+                            tgt->val_type.size = m->size;
+                            tgt->val_type.align = m->align;
+                            tgt->val_type.array_len = 2;
+                            ZeroCCType cx_el;
+                            memset(&cx_el, 0, sizeof(cx_el));
+                            cx_el.tag = m->tag;
+                            cx_el.size = m->size / 2;
+                            cx_el.align = m->align;
+                            tgt->val_type.base = zero_cc_type_alloc_base(&cx_el);
+                            tgt->is_scalar = false;
+                            tgt->scalar_sz = 0;
+                        }
                         *lo = 0; *hi = 0; *is_range = false; *step = 0;
                     }
                 }

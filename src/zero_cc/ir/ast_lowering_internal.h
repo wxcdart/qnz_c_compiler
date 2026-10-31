@@ -42,6 +42,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
  * plain cvtsi2sd. */
 int zc_emit_int_to_double(ZeroCCCompiler *c, int src_temp, const TypeInfo *src_ti);
 
+/* Rodata offset of a double literal (8-byte aligned), registered on demand. */
+int zc_rodata_double_offset(ZeroCCCompiler *c, double val);
+
 /* Resolve a local variable's symbol using the index stashed at parse time
  * (node->aux.step = index into c->locals + 1, 0 = not stashed), falling
  * back to a by-name lookup.  The by-name table is latest-wins: with sibling

@@ -354,6 +354,62 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         const char *var = node->s.str;
         ZeroCCSym *sym = lowering_local_sym(c, node, var);
         if (sym) {
+            /* C99 complex local initializer: the RHS is either an
+             * address-form complex object (binop/call/ident) or a scalar
+             * value (converted to (val, 0)). */
+            if (zero_cc_type_is_complex(&sym->type)) {
+                size_t cesz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
+                int32_t soff = -sym->stack_offset;
+                /* Brace initializer (`z = { re, im }`): the compound-lit
+                 * lowering already zeroed the object and stamped both
+                 * halves in place - nothing more to do. */
+                if (node->left != AST_NULL) {
+                    ZeroCCASTNode *init_node_cx = zero_cc_ast_get(arena, node->left);
+                    if (init_node_cx && init_node_cx->tag == NODE_COMPOUND_LIT) {
+                        c->last_expr_is_float = 0;
+                        return;
+                    }
+                }
+                if (c->last_expr_is_float) {
+                    if (cesz == 4) {
+                        int a1 = c->next_temp_id++;
+                        ir_emit_lea(a1, BE(c)->fp_reg, soff);
+                        ir_emit_vstoress((uint16_t)a1, (uint16_t)result_temp);
+                    } else {
+                        ir_emit_fstore((uint16_t)result_temp, TEMP_NONE, soff);
+                    }
+                    if (cesz == 4) {
+                        int a1 = c->next_temp_id++;
+                        ir_emit_lea(a1, BE(c)->fp_reg, soff + 4);
+                        int z = c->next_temp_id++;
+                        ir_emit_fmov_imm((uint16_t)z, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        ir_emit_vstoress((uint16_t)a1, (uint16_t)z);
+                    } else {
+                        int z = c->next_temp_id++;
+                        ir_emit_fmov_imm((uint16_t)z, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        ir_emit_fstore((uint16_t)z, TEMP_NONE, soff + (int)cesz);
+                    }
+                    c->last_expr_is_float = 0;
+                    return;
+                }
+                /* address form: copy the two halves */
+                int rh = c->next_temp_id++, li = c->next_temp_id++;
+                if (cesz == 4) { ir_emit_vloadss(rh, (uint16_t)result_temp); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4); int a2 = c->next_temp_id++; ir_emit_add(a2, result_temp, o2); ir_emit_vloadss(li, (uint16_t)a2); }
+                else { ir_emit_vloadsd(rh, (uint16_t)result_temp); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8); int a2 = c->next_temp_id++; ir_emit_add(a2, result_temp, o2); ir_emit_vloadsd(li, (uint16_t)a2); }
+                if (cesz == 4) {
+                    int a1 = c->next_temp_id++;
+                    ir_emit_lea(a1, BE(c)->fp_reg, soff);
+                    ir_emit_vstoress((uint16_t)a1, (uint16_t)rh);
+                    int a1b = c->next_temp_id++;
+                    ir_emit_lea(a1b, BE(c)->fp_reg, soff + 4);
+                    ir_emit_vstoress((uint16_t)a1b, (uint16_t)li);
+                } else {
+                    ir_emit_fstore((uint16_t)rh, TEMP_NONE, soff);
+                    ir_emit_fstore((uint16_t)li, TEMP_NONE, soff + (int)cesz);
+                }
+                c->last_expr_is_float = 0;
+                return;
+            }
             bool target_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             if (target_is_float) {
                 int float_temp = result_temp;
@@ -577,6 +633,89 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
+        ZeroCCFunction *cur_fn2 = zero_cc_get_current_fn(c);
+        bool ret_cx_type = (cur_fn2 && zero_cc_type_is_complex(&cur_fn2->return_type));
+        /* C99 complex return from an ADDRESS-FORM complex expression that is
+         * not a plain local (call results, binop temps, ...): load the two
+         * halves from the object address. */
+        if (ret_cx_type && !(sym && zero_cc_type_is_complex(&sym->type))) {
+            int cval = lower_expr(c, arena, node->left);
+            int32_t rc_sz = (cur_fn2->return_type.base && cur_fn2->return_type.base->size == 4) ? 4 : 8;
+            if (c->last_expr_is_float) {
+                /* Scalar operand: convert to (val, 0.0). */
+                ir_emit_fmov((uint16_t)VREG_F0, (uint16_t)cval);
+                int rz = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
+                ir_emit_fmov((uint16_t)VREG_F1, (uint16_t)rz);
+                c->last_expr_is_float = 0;
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
+            int caddr = cval; /* object address */
+            int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)rc_sz);
+            int a2 = c->next_temp_id++; ir_emit_add(a2, caddr, o2);
+            if (rc_sz == 4) {
+                ir_emit_vloadss((uint16_t)VREG_F0, (uint16_t)caddr);
+                ir_emit_vloadss((uint16_t)VREG_F1, (uint16_t)a2);
+            } else {
+                ir_emit_vloadsd((uint16_t)VREG_F0, (uint16_t)caddr);
+                ir_emit_vloadsd((uint16_t)VREG_F1, (uint16_t)a2);
+            }
+            c->last_expr_is_float = 0;
+            ir_emit_jmp(c->lowering.epilogue_label);
+            return;
+        }
+        if (sym && zero_cc_type_is_complex(&sym->type)) {
+            /* C99 6.8.6.4: `return t;` where t is complex converts the
+             * value as if by assignment to the return type - the real
+             * half is used.  A complex return type would keep both halves. */
+            ZeroCCFunction *cur_fn2 = zero_cc_get_current_fn(c);
+            bool ret_cx = (cur_fn2 && zero_cc_type_is_complex(&cur_fn2->return_type));
+            if (ret_cx) {
+                /* C99 6.5.5 / SysV: complex return - real in xmm0, imag in
+                 * xmm1. */
+                int32_t cesz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
+                int caddr = c->next_temp_id++;
+                ir_emit_lea(caddr, BE(c)->fp_reg, -sym->stack_offset);
+                int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)cesz);
+                int a2 = c->next_temp_id++; ir_emit_add(a2, caddr, o2);
+                if (cesz == 4) {
+                    /* VLOADSS widens to the double-width FP model already,
+                     * which keeps the caller's materialization (and any
+                     * downstream double ops) ABI-safe. */
+                    ir_emit_vloadss((uint16_t)VREG_F0, (uint16_t)caddr);
+                    ir_emit_vloadss((uint16_t)VREG_F1, (uint16_t)a2);
+                } else {
+                    ir_emit_vloadsd((uint16_t)VREG_F0, (uint16_t)caddr);
+                    ir_emit_vloadsd((uint16_t)VREG_F1, (uint16_t)a2);
+                }
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
+            int rt = c->next_temp_id++;
+            int32_t cesz2 = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
+            if (cesz2 == 4) {
+                int caddr2 = c->next_temp_id++;
+                ir_emit_lea(caddr2, BE(c)->fp_reg, -sym->stack_offset);
+                ir_emit_vloadss((uint16_t)rt, (uint16_t)caddr2);
+            } else {
+                ir_emit_fload(rt, TEMP_NONE, -sym->stack_offset);
+            }
+            bool ret_float = (cur_fn2 &&
+                              (cur_fn2->return_type.tag == TYPE_FLOAT ||
+                               cur_fn2->return_type.tag == TYPE_DOUBLE ||
+                               cur_fn2->return_type.is_long_double));
+            if (ret_float) {
+                ir_emit_fmov(VREG_0, (uint16_t)rt);
+                c->last_expr_is_float = 1;
+            } else {
+                ir_emit((Instr){.op = OP_CVTTSD2SI, .temp_dest = VREG_0,
+                    .temp_src1 = (uint16_t)rt, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                c->last_expr_is_float = 0;
+            }
+            ir_emit_jmp(c->lowering.epilogue_label);
+            return;
+        }
         if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
                     (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)))) {
             if (sym->is_promoted) {
@@ -1206,6 +1345,17 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             if (!(node->flags & NODE_DECL_IS_VLA) && node->right != AST_NULL) {
                 lower_stmt_block(c, arena, node->right);
             } else {
+                /* Make this declaration's own symbol visible while lowering
+                 * its initializer: self-referential aggregate initializers
+                 * like `struct xx s = {0, &s, 23};` must resolve `&s` to
+                 * the NEW object (C99 6.7.9), and `int x = x;` reads the
+                 * new indeterminate object, not a shadowed outer x.  The
+                 * bound is raised again after the lowering regardless. */
+                int32_t pre_bound = c->local_lookup_bound;
+                if (pre_bound >= 0 && node->aux.step != 0 &&
+                    (int32_t)node->aux.step > pre_bound) {
+                    c->local_lookup_bound = (int32_t)node->aux.step;
+                }
                 lower_stmt_decl(c, arena, node);
                 if (c->local_lookup_bound >= 0 && node->aux.step != 0) {
                     if ((int32_t)node->aux.step > c->local_lookup_bound) {

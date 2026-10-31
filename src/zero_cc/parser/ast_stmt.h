@@ -1003,10 +1003,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
         bool decl_is_unsigned = false;
-        c->token_pos++;
+        bool suffix_complex = false;
+        ZeroCCType typeof_base_type_early;
+        memset(&typeof_base_type_early, 0, sizeof(typeof_base_type_early));
+        /* C99 6.7.2.3 prefix complex: `_Complex double x;` - consume the
+         * specifier and parse the rest as a normal type name. */
+        bool prefix_complex = (t == TK_IDENT && c->token_pos < c->token_count &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].allocated_str ?
+                                        c->tokens[c->token_pos].allocated_str
+                                        : c->tokens[c->token_pos].str_val));
+        if (prefix_complex) {
+            c->token_pos++;
+            ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            typeof_base_type_early = zero_cc_type_complex(&cx_inner);
+        } else {
+            c->token_pos++;
+        }
         ZeroCCType typeof_base_type;
         memset(&typeof_base_type, 0, sizeof(typeof_base_type));
-        bool has_typeof_base = false;
+        bool has_typeof_base = prefix_complex;
+        if (prefix_complex) {
+            typeof_base_type = typeof_base_type_early;
+        }
         ZeroCCType anon_struct_type;
         memset(&anon_struct_type, 0, sizeof(anon_struct_type));
         bool has_anon_struct = false;
@@ -1132,6 +1150,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             if (c->tokens[c->token_pos].type == TK_VOLATILE) is_volatile = true;
             c->token_pos++;
         }
+        /* C99 6.7.2.3 suffix complex: `double _Complex x;` */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+            !prefix_complex) {
+            const char *cn = c->tokens[c->token_pos].allocated_str ?
+                             c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+            if (cn && zero_cc_tok_is_complex_spec(cn)) {
+                c->token_pos++;
+                suffix_complex = true;
+            }
+        }
 
         ZeroCCDeclarator decl;
         zero_cc_declarator_init(&decl);
@@ -1167,6 +1195,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             if (is_function) {
                 /* Build canonical return type and function TypeInfo */
                 ZeroCCType base_ret = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                if (suffix_complex && !zero_cc_type_is_complex(&base_ret)) {
+                    base_ret = zero_cc_type_complex(&base_ret);
+                }
                 if (decl_is_unsigned) {
                     if (base_ret.tag == TYPE_INT8) base_ret.tag = TYPE_UINT8;
                     else if (base_ret.tag == TYPE_INT16) base_ret.tag = TYPE_UINT16;
@@ -1260,6 +1291,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 ZeroCCType base_decl = has_anon_struct ? anon_struct_type :
                     (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
+                if (suffix_complex && !zero_cc_type_is_complex(&base_decl)) {
+                    base_decl = zero_cc_type_complex(&base_decl);
+                }
                 if (decl_is_unsigned) {
                     if (base_decl.tag == TYPE_INT8) base_decl.tag = TYPE_UINT8;
                     else if (base_decl.tag == TYPE_INT16) base_decl.tag = TYPE_UINT16;
@@ -1505,6 +1539,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                     const char *next_vname = next_decl.name;
                     ZeroCCType next_base = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                    /* C99 6.7.2.3 suffix complex applies to every
+                     * comma declarator: `double _Complex a, b;`. */
+                    if (suffix_complex && !zero_cc_type_is_complex(&next_base)) {
+                        next_base = zero_cc_type_complex(&next_base);
+                    }
                     if (decl_is_unsigned) {
                         if (next_base.tag == TYPE_INT8) next_base.tag = TYPE_UINT8;
                         else if (next_base.tag == TYPE_INT16) next_base.tag = TYPE_UINT16;

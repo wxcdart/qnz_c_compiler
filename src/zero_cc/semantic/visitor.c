@@ -210,6 +210,22 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     TypeInfo *ret = type_builtin_libc_return(ctx->perm_arena, ident_name);
                     if (!ret) ret = type_int(ctx->perm_arena);
                     res = type_function(ctx->perm_arena, ret, NULL, 0, true);
+                } else if (strcmp(ident_name, "__alignof__") == 0 ||
+                           strcmp(ident_name, "_Alignof") == 0 ||
+                           strcmp(ident_name, "__builtin_alignof") == 0) {
+                    res = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, true);
+                } else if (strcmp(ident_name, "__real") == 0 ||
+                           strcmp(ident_name, "__real__") == 0 ||
+                           strcmp(ident_name, "__imag") == 0 ||
+                           strcmp(ident_name, "__imag__") == 0) {
+                    /* GNU complex part extractors: __real(E) / __real__(E). */
+                    res = type_function(ctx->perm_arena, type_double(ctx->perm_arena),
+                                        NULL, 0, true);
+                } else if (strcmp(ident_name, "__builtin_alloca") == 0 ||
+                           strcmp(ident_name, "alloca") == 0) {
+                    res = type_function(ctx->perm_arena,
+                                        type_pointer_to(ctx->perm_arena, type_void(ctx->perm_arena)),
+                                        NULL, 0, true);
                 } else {
                     /* "did you mean" against every visible symbol in the
                      * scope chain (vars, functions, typedefs, tags). */
@@ -267,7 +283,15 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 /* GNU vector: element-wise; the result keeps the vector
                  * type. Comparisons of floating-point element vectors yield
                  * a same-size integer-element vector (GCC semantics). */
-                if (type_is_vector(lt) || type_is_vector(rt)) {
+                /* C99 6.5.5: complex arithmetic keeps the complex type;
+                 * complex ==/!= yields int. */
+                if (lt->kind == TYPE_KIND_COMPLEX || rt->kind == TYPE_KIND_COMPLEX) {
+                    if (is_comparison) {
+                        res = type_int(ctx->perm_arena);
+                    } else {
+                        res = (lt->kind == TYPE_KIND_COMPLEX) ? (TypeInfo *)lt : (TypeInfo *)rt;
+                    }
+                } else if (type_is_vector(lt) || type_is_vector(rt)) {
                     const TypeInfo *vec = type_is_vector(lt) ? lt : rt;
                     if (is_comparison) {
                         TypeInfo *cr = type_vector_cmp_result(ctx->perm_arena, vec);
@@ -275,6 +299,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     }
                     if (!res) res = (TypeInfo *)vec;
                 } else if (is_comparison) {
+                    res = type_int(ctx->perm_arena);
+                } else if (op == TK_LOGAND || op == TK_LOGOR) {
+                    /* C99 6.5.13/6.5.14: logical && and || always yield
+                     * int, even with pointer operands (`p && q` is not
+                     * pointer arithmetic). */
                     res = type_int(ctx->perm_arena);
                 } else if (lt->kind == TYPE_KIND_DOUBLE || rt->kind == TYPE_KIND_DOUBLE) {
                     res = type_double(ctx->perm_arena);
@@ -292,8 +321,6 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = lt;
                 } else if (type_is_pointer(rt) && (op == '+' || op == TK_PLUS)) {
                     res = rt;
-                } else if (op == TK_LOGAND || op == TK_LOGOR) {
-                    res = type_int(ctx->perm_arena);
                 } else if (op == TK_SHL || op == TK_SHR) {
                     res = type_promote(ctx->perm_arena, lt);
                 } else {

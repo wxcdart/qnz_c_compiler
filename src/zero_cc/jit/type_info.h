@@ -28,6 +28,16 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         return type_int(perm);
     }
     TypeInfo *ti = NULL;
+    /* C99 6.2.5: _Complex T -> a 2-element complex type; details.array
+     * carries the element type (real part first, then imaginary). */
+    if (t.is_complex) {
+        ti = type_new(perm);
+        if (!ti) return type_int(perm);
+        ti->kind = TYPE_KIND_COMPLEX;
+        ti->details.array.base = t.base ? zero_cc_type_to_typeinfo(perm, *t.base) : type_double(perm);
+        ti->details.array.count = 2;
+        return ti;
+    }
     switch (t.tag) {
         case TYPE_VOID: ti = type_void(perm); break;
         case TYPE_BOOL: ti = type_bool(perm); break;
@@ -119,12 +129,29 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     mt.base = t.members[i].base;
                 } else if (t.members[i].base) {
                     mt = *t.members[i].base;
+                    /* C99 6.7.2.3: a complex member keeps the complex
+                     * marker (base = element type); unwrapping to the
+                     * element would type `s.a` as plain double/float. */
+                    if (t.members[i].is_complex) {
+                        mt = zero_cc_type_complex(&mt);
+                    }
                 } else {
                     memset(&mt, 0, sizeof(mt));
                     mt.tag = t.members[i].tag;
                     mt.size = t.members[i].size;
                     mt.align = t.members[i].align;
                     mt.base = NULL;
+                    /* Complex scalar member (`_Complex double a;`): the
+                     * member stores the doubled size but no base pointer;
+                     * rebuild the complex type from the element. */
+                    if (t.members[i].is_complex) {
+                        ZeroCCType el;
+                        memset(&el, 0, sizeof(el));
+                        el.tag = t.members[i].tag;
+                        el.size = t.members[i].size / 2;
+                        el.align = t.members[i].align;
+                        mt = zero_cc_type_complex(&el);
+                    }
                 }
                 TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
                 if (mti) {
@@ -221,6 +248,11 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
         case TYPE_KIND_VECTOR: {
             ZeroCCType base_t = typeinfo_to_zero_cc_type(ti->details.array.base);
             t = zero_cc_type_vector(&base_t, type_size(ti));
+            break;
+        }
+        case TYPE_KIND_COMPLEX: {
+            ZeroCCType base_t = typeinfo_to_zero_cc_type(ti->details.array.base);
+            t = zero_cc_type_complex(&base_t);
             break;
         }
         case TYPE_KIND_STRUCT:

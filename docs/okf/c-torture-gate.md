@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-31T12:19:40Z
+timestamp: 2026-10-31T16:01:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 65 / File-Scope REJECT Burn-Down)
+## 2. Classification Buckets & Baseline (Sprint 67 / C99 Complex + Function-Name Hash)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,682** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+235 since Sprint 64: 5 MISCOMPILE→PASS + 230 REJECT→PASS) |
-| **`REJECT`** | **322** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 480) — the ongoing burn-down target (dominant: `expected identifier in declaration`, `use of undeclared identifier`, `unexpected token at file scope`, `unexpected token 'X' in statement`) |
-| **`SKIP-C89`** | **597** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (5 latent bugs — uint64→float conversion, sticky-bit join, zero-size struct phantom bytes, long double, unary `+` float — all fixed in Sprint 65) |
+| **`PASS`** | **2,789** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+81 since Sprint 66: 61 REJECT→PASS + 20 complex/latent-MISCOMPILE→PASS) |
+| **`REJECT`** | **223** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 298) — the ongoing burn-down target (dominant: `expected identifier in declaration` ~76, `unexpected token 'X' in statement`, `incompatible types in assignment`, `expected identifier in extern declaration`, `unexpected token in struct/union definition`) |
+| **`SKIP-C89`** | **589** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (Sprint 67's complex work exposed and fixed 8 latent ones: complex division precision via `__divdc3`, complex struct members, self-referential initializers; integer-element complex is a clean REJECT, not a miscompile) |
 | **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
 | **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
@@ -225,6 +225,14 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
       - **JIT data-reloc BSS placement** (`execution.h`): global-object relocs now patch against the target's actual placement (`bss_offset` when `is_bss`, else `data_offset`) — `&bss_global` pointers were landing in the `.data` page and segfaulting (`pr43784`).
     - **Result**: MISCOMPILE **3 → 0**; REJECT **322 → 298**; PASS **2,682 → 2,708**; no PASS→bad, no TIMEOUT. `make test` 156/156, `make test-opt` 117/117 (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK (8/8 categories), style 0 errors. Baseline re-recorded (`--update-baseline`).
     - **Next**: continue the REJECT burn-down (298 remaining; dominant: `expected identifier in declaration`, `use of undeclared identifier`, `incompatible types in assignment`, `unexpected token 'X' in statement`, `static local initializer must be a constant literal`).
+
+- **Sprint 67 — C99 `_Complex` Support, Complex Members/Initializers & Function-Name Hash** (2026-11-01):
+    - **C99 `_Complex` implemented end-to-end** (the dominant remaining `use of undeclared identifier` cluster): type representation (`ZeroCCType.is_complex`, `zero_cc_type_complex`, `TYPE_KIND_COMPLEX`), prefix/suffix parsing of `_Complex`/`__complex__`/`__complex` (block decls incl. all comma declarators, function params/returns, file scope), complex arithmetic/assignment/equality typing, `__real`/`__imag` part extractors (parenthesis-less GNU forms desugar at **unary** level), address-form two-part lowering with register-indirect SSE halves, complex call/return ABI (two consecutive FP registers, `xmm0`/`xmm1`), complex casts, part-extractor lvalue assignment. **`_Complex double` division delegates to libgcc `__divdc3`** (in-compiler formulas can't match libgcc subnormal accuracy for `ieee/cdivchk*`); JIT resolves `libgcc_s.so.1` via `dlopen`. Integer-element complex is a clean REJECT (FP-only pipeline) covering globals as well. Side fixes: logical `&&`/`||` with pointer operands must yield `int` (they hit the pointer-arithmetic branch first, REJECTing `pr10352-1`); math `__builtin_*` remaps + return typing.
+    - **Complex struct members** (`execute/pr42248.c`): `ZeroCCStructMember.is_complex` + prefix/suffix complex in `zero_cc_parse_struct_body` (previously `_Complex double a;` in a struct silently became a plain 8-byte double — sizeof 16→8), member TypeInfo mapping preserves complex, `NODE_MEMBER` value lowering returns the member **address** for complex members, and complex members initialize as **two scalar leaves** (`{ re, im }` positional/designated, bare-scalar elision `(v, 0)`, top-level `_Complex double z = { re, im };`, local brace inits store in place).
+    - **Self-referential aggregate initializers** (`execute/20020529-1.c`): `struct xx s = {0, &s, 23};` — `local_lookup_bound` now raised to the declaration's own symbol index before lowering the initializer, so `&s` resolves to the new local.
+    - **Function-name hash** (`types/symbol_mgmt.h`, `types/symbols.h`): `compile/limits-externdecl.c` (100,000 `extern int x();`) was the last `TIMEOUT` — `zero_cc_find_function`'s O(n) strcmp scan on every registration ≈ 5×10⁹ comparisons (8.6 s). Incremental open-addressing hash with same-name chains (proto/def prefer-definition semantics preserved) makes it O(1): 0.31 s parse, fast clean REJECT on the 100k-element initializer (test stays `SKIP-C89`-class). **Gate-caught bug**: the first lookup probed only the home bucket, so collision-displaced names were silently unfindable → 30 latent `MISCOMPILE`s (crashes) in the first full run; the lookup now probes the full linear sequence until an empty slot. Small-TU tests never collide at the 256-bucket initial cap, so unit suites stayed green while the gate caught it.
+    - **Result**: PASS **2,708 → 2,789**; REJECT **298 → 223**; MISCOMPILE **0 → 0**; TIMEOUT **0 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117/117 (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK (8/8 categories), style 0 errors. Baseline re-recorded (`--update-baseline`), confirmed on two consecutive full runs.
+    - **Next**: continue the REJECT burn-down (223 remaining; dominant: `expected identifier in declaration` ~76, `unexpected token 'X' in statement`, `incompatible types in assignment`, `expected identifier in extern declaration`, `unexpected token in struct/union definition`, `expected expression in argument list`).
 
 ---
 

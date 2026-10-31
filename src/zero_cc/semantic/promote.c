@@ -292,6 +292,21 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
         return type_is_compatible(dst, src);
     }
 
+    /* C99 6.2.5 complex: complex<->complex of the same element, and
+     * complex<->scalar (GCC permits the implicit conversions with a
+     * warning - the complex value's real part is used, the scalar is
+     * converted to (scalar, 0)). */
+    if (dst->kind == TYPE_KIND_COMPLEX && src->kind == TYPE_KIND_COMPLEX) {
+        return type_is_compatible(dst->details.array.base, src->details.array.base);
+    }
+    if (dst->kind == TYPE_KIND_COMPLEX && type_is_arithmetic(src)) {
+        return true;
+    }
+    if (src->kind == TYPE_KIND_COMPLEX &&
+        (type_is_arithmetic(dst) || dst->kind == TYPE_KIND_POINTER)) {
+        return true;
+    }
+
     /* Both are compatible structure or union types */
     if ((dst->kind == TYPE_KIND_STRUCT || dst->kind == TYPE_KIND_UNION) &&
         (src->kind == TYPE_KIND_STRUCT || src->kind == TYPE_KIND_UNION)) {
@@ -409,6 +424,32 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
         }
         if (diag) diag_report(diag, 0, 0, "invalid operands to binary vector operator");
         return NULL;
+    }
+
+    /* 1b. C99 6.5.5 complex arithmetic: +,-,*,/ on complex operands keep
+     * the complex type (usual arithmetic conversions on the real and
+     * imaginary parts); ==/!= yield int. */
+    {
+        bool lp_cx = (lp->kind == TYPE_KIND_COMPLEX);
+        bool rp_cx = (rp->kind == TYPE_KIND_COMPLEX);
+        if (lp_cx || rp_cx) {
+            if (is_equality) {
+                return type_int(perm);
+            }
+            if (is_plus || is_minus || is_mult_div) {
+                const TypeInfo *cx = lp_cx ? lp : rp;
+                TypeInfo *r = type_new(perm);
+                if (r) {
+                    r->kind = TYPE_KIND_COMPLEX;
+                    r->modifiers = TYPE_MOD_NONE;
+                    r->details.array.base = cx->details.array.base;
+                    r->details.array.count = 2;
+                }
+                return r;
+            }
+            if (diag) diag_report(diag, 0, 0, "invalid operands to binary operator with complex");
+            return NULL;
+        }
     }
 
     /* 1. Pointer arithmetic cases */

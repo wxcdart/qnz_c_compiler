@@ -96,6 +96,56 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
 
+    /* C99 6.2.5: _Complex with an INTEGER element type is not supported by
+     * ZeroCC's codegen (the complex pipeline is FP-only: SSE halves, FP
+     * register ABI).  Diagnose cleanly instead of emitting wrong code -
+     * an honest REJECT beats a MISCOMPILE (gate philosophy). */
+    {
+        const ZeroCCType *cx_t = NULL;
+        if (lowering_fn) {
+            if (zero_cc_type_is_complex(&lowering_fn->return_type)) {
+                cx_t = &lowering_fn->return_type;
+            }
+            if (!cx_t) {
+                for (size_t p = 0; p < lowering_fn->param_count; p++) {
+                    if (zero_cc_type_is_complex(&lowering_fn->param_types[p])) {
+                        cx_t = &lowering_fn->param_types[p];
+                        break;
+                    }
+                }
+            }
+        }
+        if (!cx_t) {
+            for (size_t i = 0; i < c->local_count; i++) {
+                if (zero_cc_type_is_complex(&c->locals[i].type)) {
+                    cx_t = &c->locals[i].type;
+                    break;
+                }
+            }
+        }
+        /* File-scope complex objects (`_Complex int a[1024];`) never pass
+         * through a function's locals/params - scan the global table too. */
+        if (!cx_t) {
+            for (size_t i = 0; i < global_var_count; i++) {
+                ZeroCCType *gt = &global_vars[i].type;
+                while (gt && (gt->tag == TYPE_ARRAY || gt->tag == TYPE_PTR) && gt->base) {
+                    gt = gt->base;
+                }
+                if (gt && zero_cc_type_is_complex(gt)) {
+                    cx_t = gt;
+                    break;
+                }
+            }
+        }
+        if (cx_t && cx_t->base &&
+            cx_t->base->tag != TYPE_FLOAT && cx_t->base->tag != TYPE_DOUBLE) {
+            diag_report_error_at_token(c,
+                "unsupported: _Complex with an integer element type "
+                "(complex floating types only)");
+            return;
+        }
+    }
+
     /* Block scope starts unbounded at the function top level (-1 = unbounded) */
     c->local_lookup_bound = -1;
 
@@ -142,6 +192,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
                     ZeroCCSym *sym = &c->locals[p];
                     if (!sym->is_param) continue;
+                    /* C99 complex parameters consume TWO consecutive FP
+                     * argument registers and need an addressable frame
+                     * object (address-form value) - no promotion. */
+                    if (zero_cc_type_is_complex(&sym->type)) {
+                        can_promote_params = false; break;
+                    }
                     bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
                     if (is_fp) {
                         if (sym->type.tag == TYPE_FLOAT) { can_promote_params = false; break; }
@@ -268,6 +324,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         stack_idx++;
                     }
                 }
+            } else if (is_fp && zero_cc_type_is_complex(&sym->type) && xmm_idx + 1 < BE(c)->conv->fp_arg_reg_count) {
+                /* C99 complex parameter: real in xmmN, imaginary in xmmN+1.
+                 * The local object is 2*esz; first half at -stack_offset. */
+                int32_t esz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
+                bool is_flt = (esz == 4);
+                ir_emit_param_save_fp(xmm_idx, sym->stack_offset, is_flt);
+                xmm_idx++;
+                ir_emit_param_save_fp(xmm_idx, sym->stack_offset - (int32_t)esz, is_flt);
+                xmm_idx++;
             } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                 ir_emit_param_save_fp(xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
                 xmm_idx++;

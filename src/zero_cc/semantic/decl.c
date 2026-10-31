@@ -75,6 +75,21 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
     /* Retrieve declared type (if annotated on node) */
     TypeInfo *var_t = decl_node_type(ctx, node);
 
+    /* C99 6.7.9p11: the identifier is in scope within its own
+     * initializer (`double b = b;` compiles; reading b is UB but the
+     * name must resolve to the new object). Register the symbol before
+     * evaluating the initializer when the declared type is known;
+     * remove it again if the declaration is then rejected. */
+    Symbol *sym = NULL;
+    if (var_t && !type_is_void(var_t)) {
+        sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, var_t);
+        if (!sym) {
+            decl_error(ctx, node, "failed to insert symbol '%s' into scope", name);
+            return NULL;
+        }
+        sym->node = node;
+    }
+
     /* If initializer expression exists (in left branch) */
     TypeInfo *init_t = NULL;
     ZeroCCASTNode *init_node = NULL;
@@ -100,6 +115,7 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* Disallow void variables */
     if (type_is_void(var_t)) {
+        if (sym) scope_remove_symbol(ctx->current_scope, name);
         decl_error(ctx, node, "variable '%s' declared with void type", name);
         return NULL;
     }
@@ -115,16 +131,20 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
              var_t->details.array.base &&
              var_t->details.array.base->kind == TYPE_KIND_CHAR);
         if (!str_lit_into_char_arr && !type_compatible_assign(var_t, init_t)) {
+            if (sym) scope_remove_symbol(ctx->current_scope, name);
             decl_error(ctx, node, "incompatible initializer type for variable '%s'", name);
             return NULL;
         }
     }
 
-    /* Register symbol in current scope */
-    Symbol *sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, var_t);
+    /* Register symbol in current scope (already done above when the
+     * declared type was known) */
     if (!sym) {
-        decl_error(ctx, node, "failed to insert symbol '%s' into scope", name);
-        return NULL;
+        sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, var_t);
+        if (!sym) {
+            decl_error(ctx, node, "failed to insert symbol '%s' into scope", name);
+            return NULL;
+        }
     }
     sym->node = node;
 

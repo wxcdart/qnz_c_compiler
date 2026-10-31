@@ -481,6 +481,17 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             if (c->tokens[c->token_pos].type == TK_VOLATILE) member_is_volatile = true;
             c->token_pos++;
         }
+        /* C99 6.7.2.3 prefix complex member: `_Complex double a;` /
+         * `__complex__ float f;` - the specifier only counts when a type
+         * follows (an identifier member merely named `_Complex` is valid). */
+        bool member_is_complex = false;
+        if (c->tokens[c->token_pos].type == TK_IDENT &&
+            c->token_pos + 1 < c->token_count &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val) &&
+            zero_cc_tok_is_type_start(c, c->token_pos + 1)) {
+            c->token_pos++;
+            member_is_complex = true;
+        }
         mt = c->tokens[c->token_pos].type;
 
         if (mt == TK_IDENT || mt == TK_INT || mt == TK_CHAR || mt == TK_VOID ||
@@ -532,6 +543,15 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 }
             }
             c->token_pos++;
+            /* C99 6.7.2.3 suffix complex member: `double _Complex a;` /
+             * `float __complex__ f;` - the specifier directly follows the
+             * base type name. */
+            if (!member_is_complex && c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_IDENT &&
+                zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+                c->token_pos++;
+                member_is_complex = true;
+            }
             ZeroCCType typeof_type;
             memset(&typeof_type, 0, sizeof(typeof_type));
             bool is_typeof = false;
@@ -627,7 +647,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     base_size = td->size;
                 }
             }
+            /* C99 6.7.2.3: _Complex T is a two-part object of element type T
+             * (GCC: sizeof(_Complex double) == 16, align 8; float: 8, align 4).
+             * Non-pointer scalar float members only - the pointer/array
+             * forms keep the pointer or array of complex element. */
+            bool member_cx_scalar = member_is_complex && !is_ptr &&
+                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW);
             if (is_ptr) { base_align = 8; base_size = 8; }
+            if (member_cx_scalar) { base_size *= 2; }
             size_t effective_align = member_align > base_align ? member_align : base_align;
             if (c->default_pack > 0 && effective_align > (size_t)c->default_pack) effective_align = (size_t)c->default_pack;
             if (effective_align > st.align) st.align = effective_align;
@@ -726,6 +753,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                     m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                     m->is_atomic = member_is_atomic;
+                    m->is_complex = member_cx_scalar;
                     if (is_typeof) {
                         m->tag = typeof_type.tag;
                         if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
@@ -758,6 +786,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             dummy.align = base_align;
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
+                            if (member_is_complex &&
+                                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW)) {
+                                dummy.size = (mt == TK_DOUBLE_KW) ? 16 : 8;
+                                dummy.is_complex = true;
+                            }
                             m->base = zero_cc_type_alloc_base(&dummy);
                         }
                         m->tag = TYPE_PTR;
@@ -882,6 +915,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                         m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
+                        m->is_complex = member_cx_scalar;
                         if (is_typeof) {
                         m->tag = typeof_type.tag;
                         if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
@@ -929,6 +963,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 dummy.align = base_align;
                                 dummy.is_const = member_is_const;
                                 dummy.is_volatile = member_is_volatile;
+                                if (member_is_complex &&
+                                    (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW)) {
+                                    dummy.size = (mt == TK_DOUBLE_KW) ? 16 : 8;
+                                    dummy.is_complex = true;
+                                }
                                 m->base = zero_cc_type_alloc_base(&dummy);
                             }
                             m->tag = TYPE_PTR;
@@ -1043,6 +1082,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = c_is_ptr ? c_member_ptr_is_const : member_is_const;
                         m->is_volatile = c_is_ptr ? c_member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
+                        m->is_complex = member_cx_scalar;
                         if (is_typeof) {
                         m->tag = typeof_type.tag;
                         if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
@@ -1176,6 +1216,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_const = c_is_ptr ? c_member_ptr_is_const : member_is_const;
                         m->is_volatile = c_is_ptr ? c_member_ptr_is_volatile : member_is_volatile;
                         m->is_atomic = member_is_atomic;
+                        m->is_complex = member_cx_scalar;
                         if (is_typeof) {
                         m->tag = typeof_type.tag;
                         if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);

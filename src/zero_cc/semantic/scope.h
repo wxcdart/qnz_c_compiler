@@ -28,6 +28,7 @@ typedef struct Symbol {
     TypeInfo   *type;
     uint32_t    flags;
     void       *node;   /* optional AST node or definition pointer */
+    bool        removed; /* lazy deletion (failed declaration) */
     struct Symbol *next_in_bucket; /* chained in hash bucket */
 } Symbol;
 
@@ -60,6 +61,14 @@ void scope_leave(Scope **cur);
  * Returns the created Symbol on success, or NULL on failure (duplicate or OOM).
  */
 Symbol *scope_put_symbol(Scope *s, const char *name, SymbolKind kind, TypeInfo *type);
+
+/**
+ * Mark a symbol as removed (lazy deletion): subsequent lookups in this
+ * scope no longer see it. Used when a declaration is registered before
+ * its initializer is checked (C99 6.7.9: the identifier is in scope
+ * within its own initializer) and the check then fails.
+ */
+void scope_remove_symbol(Scope *s, const char *name);
 
 /**
  * Convenience function to insert a variable/type into the current scope (Milestone M3 spec).

@@ -56,6 +56,73 @@ int zc_emit_int_to_double(ZeroCCCompiler *c, int src_temp, const TypeInfo *src_t
     return fp_res;
 }
 
+/* Rodata offset of a double literal (8-byte aligned). Callers that emit
+ * the same literal many times (e.g. the 0.0 imaginary part of complex
+ * scalar conversions) should reuse one temp per loop rather than re-emit. */
+int zc_rodata_double_offset(ZeroCCCompiler *c, double val) {
+    size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+    if (pad) {
+        uint8_t z8[8] = {0};
+        zero_cc_buf_put_bytes(&c->rodata_section, z8, pad);
+    }
+    size_t off = c->rodata_section.length;
+    zero_cc_buf_put_bytes(&c->rodata_section, &val, sizeof(double));
+    return (int)off;
+}
+
+/* Branchless fabs of a double-width FP-model temp (IEEE sign-bit clear).
+ * The scalar FP model always holds doubles, so float-complex parts work
+ * through the same path. Used by the scaled complex division to compute
+ * the scaling factor k = |br| + |bi| without branches. */
+static int zc_cx_fabs(ZeroCCCompiler *c, int ftemp) {
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    c->current_stack_frame += 8;
+    int32_t slot = c->current_stack_frame;
+    ir_emit_fstore((uint16_t)ftemp, TEMP_NONE, -slot);
+    int it = c->next_temp_id++;
+    ir_emit_load(it, BE(c)->fp_reg, -slot);
+    int mk = c->next_temp_id++;
+    ir_emit_mov_imm(mk, 0x7FFFFFFFFFFFFFFFLL);
+    int at = c->next_temp_id++;
+    ir_emit_and(at, it, mk);
+    ir_emit_store(at, BE(c)->fp_reg, -slot);
+    int rt = c->next_temp_id++;
+    ir_emit_fload((uint16_t)rt, TEMP_NONE, -slot);
+    return rt;
+}
+
+/* Branchless FP select of two double-width FP-model temps: returns va if
+ * cond != 0, else vb (bit-level select on the IEEE bits, the same
+ * technique __builtin_shuffle uses for vector lanes). */
+static int zc_cx_fselect(ZeroCCCompiler *c, int cond, int va, int vb) {
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    c->current_stack_frame += 16;
+    int32_t s_a = c->current_stack_frame;
+    int32_t s_b = s_a - 8;
+    ir_emit_fstore((uint16_t)va, TEMP_NONE, -s_a);
+    ir_emit_fstore((uint16_t)vb, TEMP_NONE, -s_b);
+    int ia = c->next_temp_id++;
+    ir_emit_load(ia, BE(c)->fp_reg, -s_a);
+    int ib = c->next_temp_id++;
+    ir_emit_load(ib, BE(c)->fp_reg, -s_b);
+    int ones = c->next_temp_id++;
+    ir_emit_mov_imm(ones, (int32_t)-1);
+    int m = c->next_temp_id++;
+    ir_emit_mul(m, cond, ones);          /* -1 or 0 */
+    int nm = c->next_temp_id++;
+    ir_emit_xor(nm, m, ones);            /* ~m */
+    int sa = c->next_temp_id++;
+    ir_emit_and(sa, ia, m);
+    int sb = c->next_temp_id++;
+    ir_emit_and(sb, ib, nm);
+    int r = c->next_temp_id++;
+    ir_emit_or(r, sa, sb);
+    ir_emit_store(r, BE(c)->fp_reg, -s_a);
+    int rt = c->next_temp_id++;
+    ir_emit_fload((uint16_t)rt, TEMP_NONE, -s_a);
+    return rt;
+}
+
 /* Does the node denote a compile-time constant expression?  Used by
  * __builtin_constant_p (c-torture execute/bcp-1): literals and
  * sub-expressions built only from them are constant; anything touching an
@@ -1465,6 +1532,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
                     return sym->promoted_vreg;
                 }
+                if (zero_cc_type_is_complex(&sym->type)) {
+                    /* C99 _Complex: address-form value (16-byte object,
+                     * real half first) - like a vector, consumers load
+                     * the parts from this address. */
+                    int temp = c->next_temp_id++;
+                    ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    c->last_expr_is_float = 0;
+                    return temp;
+                }
                 if (sym->type.tag == TYPE_FLOAT) {
                     int addr = c->next_temp_id++;
                     ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
@@ -1628,6 +1704,260 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_BINOP: {
+            /* C99 6.5.5 complex arithmetic: both operands are complex
+             * (an address-form 2-part object: real half first) or scalar
+             * (converted to (scalar, 0)).  The result is a fresh aligned
+             * stack object returned as its ADDRESS. */
+            {
+                ZeroCCASTNode *cl_node = zero_cc_ast_get(arena, node->left);
+                ZeroCCASTNode *cr_node = zero_cc_ast_get(arena, node->right);
+                TypeInfo *cres_ti = ast_node_get_typeinfo(c, node);
+                TypeInfo *cl_ti = ast_node_get_typeinfo(c, cl_node);
+                TypeInfo *cr_ti = ast_node_get_typeinfo(c, cr_node);
+                bool is_cx_eqne = (node->aux.op == TK_EQ || node->aux.op == TK_NE) &&
+                                  cl_ti && cr_ti &&
+                                  (cl_ti->kind == TYPE_KIND_COMPLEX || cr_ti->kind == TYPE_KIND_COMPLEX);
+                if ((cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) || is_cx_eqne) {
+                    const TypeInfo *cel = (cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) ? cres_ti->details.array.base :
+                                          (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ? cl_ti->details.array.base : cr_ti->details.array.base;
+                    size_t cesz = cel ? type_size(cel) : 8;
+                    if (cesz != 4 && cesz != 8) cesz = 8; /* long double: double model */
+                    bool cflt = cel ? type_is_floating(cel) : true;
+                    uint32_t cop = node->aux.op;
+                    int32_t save_frame = c->current_stack_frame;
+                    c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + 16 + 7) & ~7;
+                    int32_t croff = c->current_stack_frame;
+                    int clv = lower_expr(c, arena, node->left);
+                    bool left_cx = (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX);
+                    int crv = lower_expr(c, arena, node->right);
+                    bool right_cx = (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX);
+
+
+                    /* Load parts (or materialize (scalar, 0)).  Complex
+                     * operands are address-form: use register-indirect
+                     * SSE loads (OP_FLOAD is frame-relative only). */
+                    int zero_f_off = zc_rodata_double_offset(c, 0.0);
+                    int ar = c->next_temp_id++, ai = c->next_temp_id++;
+                    int br = c->next_temp_id++, bi = c->next_temp_id++;
+                    if (left_cx) {
+                        if (cesz == 4) { ir_emit_vloadss(ar, (uint16_t)clv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 4); int ai2 = c->next_temp_id++; ir_emit_add(ai2, clv, a2); ir_emit_vloadss(ai, (uint16_t)ai2); }
+                        else { ir_emit_vloadsd(ar, (uint16_t)clv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(ai2, clv, a2); ir_emit_vloadsd(ai, (uint16_t)ai2); }
+                    } else {
+                        int lpart = clv;
+                        if (!c->last_expr_is_float) {
+                            /* Integer scalar -> double (C99 6.3.1.2). */
+                            lpart = zc_emit_int_to_double(c, clv, cl_ti);
+                        }
+                        ir_emit_fmov(ar, (uint16_t)lpart);
+                        ir_emit_fmov_imm((uint16_t)ai, (int64_t)zero_f_off);
+                    }
+                    if (right_cx) {
+                        if (cesz == 4) { ir_emit_vloadss(br, (uint16_t)crv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 4); int ai2 = c->next_temp_id++; ir_emit_add(ai2, crv, a2); ir_emit_vloadss(bi, (uint16_t)ai2); }
+                        else { ir_emit_vloadsd(br, (uint16_t)crv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(ai2, crv, a2); ir_emit_vloadsd(bi, (uint16_t)ai2); }
+                    } else {
+                        int rpart = crv;
+                        /* last_expr_is_float reflects the right operand
+                         * (lowered last): if the scalar is integral,
+                         * convert it to double. */
+                        if (!c->last_expr_is_float) {
+                            rpart = zc_emit_int_to_double(c, crv, cr_ti);
+                        }
+                        ir_emit_fmov(br, (uint16_t)rpart);
+                        ir_emit_fmov_imm((uint16_t)bi, (int64_t)zero_f_off);
+                    }
+                    /* Per-operator part results */
+                    int rr = c->next_temp_id++, ri = c->next_temp_id++;
+                    switch (cop) {
+                        case TK_PLUS: {
+                            ir_emit_fadd(rr, ar, br);
+                            ir_emit_fadd(ri, ai, bi);
+                            break;
+                        }
+                        case TK_MINUS: {
+                            ir_emit_fsub(rr, ar, br);
+                            ir_emit_fsub(ri, ai, bi);
+                            break;
+                        }
+                        case TK_STAR: {
+                            int t1 = c->next_temp_id++; ir_emit_fmul(t1, ar, br);
+                            int t2 = c->next_temp_id++; ir_emit_fmul(t2, ai, bi);
+                            int t3 = c->next_temp_id++; ir_emit_fmul(t3, ar, bi);
+                            int t4 = c->next_temp_id++; ir_emit_fmul(t4, ai, br);
+                            ir_emit_fsub(rr, t1, t2);
+                            ir_emit_fadd(ri, t3, t4);
+                            break;
+                        }
+                        case TK_SLASH: {
+                            if (cesz == 8) {
+                                /* C99 _Complex double division: delegate to
+                                 * libgcc __divdc3, the same helper GCC itself
+                                 * calls at -O0 (the ieee/cdivchk* expected
+                                 * values are generated that way).  The
+                                 * in-compiler formulas cannot match its
+                                 * accuracy for extreme subnormal inputs
+                                 * (products like ar*br underflow to 0 while
+                                 * contributing ~2^-32 relative to the
+                                 * quotient), and __divdc3 handles the
+                                 * inf/nan/+-0 edge cases per IEEE.  The call
+                                 * is ABI-identical to a normal zerocc complex
+                                 * call: two complex args = four consecutive
+                                 * FP registers (a.re, a.im, b.re, b.im),
+                                 * result in xmm0/xmm1. */
+                                int div_args[4];
+                                int div_vals[4] = { ar, ai, br, bi };
+                                if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                                    !zero_cc_find_function(c, "__divdc3")) {
+                                    ZeroCCFunction *fn = &c->functions[c->function_count++];
+                                    memset(fn, 0, sizeof(*fn));
+                                    snprintf(fn->name, sizeof(fn->name), "%s", "__divdc3");
+                                    fn->is_prototype = true;
+                                    fn->is_external = true;
+                                }
+                                for (int h = 0; h < 4; h++) {
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int32_t slot = c->current_stack_frame;
+                                    ir_emit_fstore((uint16_t)div_vals[h], TEMP_NONE, -slot);
+                                    div_args[h] = c->next_temp_id++;
+                                    ir_emit_fload((uint16_t)div_args[h], TEMP_NONE, -slot);
+                                }
+                                ir_emit_call("__divdc3");
+                                if (ir_get_count() > 0) {
+                                    Instr *last_instr = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                                    last_instr->temp_dest = 0;  /* no int args */
+                                    last_instr->temp_src1 = (uint16_t)div_args[0];
+                                    last_instr->temp_src2 = (uint16_t)div_args[1];
+                                    last_instr->imm = 0;
+                                    int div_is_fp[4] = { 1, 1, 1, 1 };
+                                    uint8_t div_pos[4] = { 255, 255, 255, 255 };
+                                    ir_call_args_record(ir_get_count() - 1, 4, div_args, div_is_fp, div_pos);
+                                    last_instr->label_idx = 4; /* 4 FP register args */
+                                    if (c->lowering.ir_ctx.call_count < 64) {
+                                        int cidx = c->lowering.ir_ctx.call_count++;
+                                        c->lowering.ir_ctx.call_fp_spill_counts[cidx] = 4;
+                                        for (int h = 0; h < 4; h++) {
+                                            c->lowering.ir_ctx.call_fp_spills[cidx][h] =
+                                                c->current_stack_frame - (3 - h) * 8;
+                                        }
+                                    }
+                                }
+                                /* Complex return: xmm0/xmm1 -> stack object */
+                                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                                int32_t dres_off = c->current_stack_frame;
+                                if (ir_get_count() > 0) {
+                                    Instr *li = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                                    li->label_idx = 0x0100 | (16 & 0xFF);
+                                }
+                                int daddr = c->next_temp_id++;
+                                ir_emit_lea(daddr, BE(c)->fp_reg, -dres_off);
+                                ir_emit_vstoresd((uint16_t)daddr, (uint16_t)VREG_F0);
+                                int do2 = c->next_temp_id++;
+                                ir_emit_mov_imm(do2, 8);
+                                int da2 = c->next_temp_id++;
+                                ir_emit_add(da2, daddr, do2);
+                                ir_emit_vstoresd((uint16_t)da2, (uint16_t)VREG_F1);
+                                c->current_stack_frame = save_frame;
+                                c->last_expr_is_float = 0;
+                                return daddr;
+                            }
+                            /* _Complex float division: in-compiler scaled
+                             * formula (float has far more headroom between
+                             * its normal and subnormal ranges, and
+                             * __divsc3's packed-float argument ABI differs
+                             * from the double-model parts held here).  Scale
+                             * by the divisor's dominant component, forming
+                             * each mixed product as (a_dom/b_dom)*b_min so
+                             * the tiny ratio never underflows first:
+                               |br| >= |bi|:  re = (ar + (ai/br)*bi)/d
+                                              im = (ai - (ar/br)*bi)/d
+                                              d  = br + (bi/br)*bi
+                               otherwise:     re = (ai + (ar/bi)*br)/d
+                                              im = ((ai/bi)*br - ar)/d
+                                              d  = bi + (br/bi)*br
+                             Both branches may divide by zero on their
+                             * unused path (-> nan), so the parts are
+                             * selected branchlessly. */
+                            int fab_br = zc_cx_fabs(c, br);
+                            int fab_bi = zc_cx_fabs(c, bi);
+                            int ge = c->next_temp_id++;
+                            ir_emit_cmp(fab_br, fab_bi);
+                            ir_emit_cond_set(ge, CC_GE);
+                            int qa1 = c->next_temp_id++; ir_emit_fdiv(qa1, ai, br);
+                            int qa1b = c->next_temp_id++; ir_emit_fmul(qa1b, qa1, bi);
+                            int reA = c->next_temp_id++; ir_emit_fadd(reA, ar, qa1b);
+                            int qa0 = c->next_temp_id++; ir_emit_fdiv(qa0, ar, br);
+                            int qa0b = c->next_temp_id++; ir_emit_fmul(qa0b, qa0, bi);
+                            int imA = c->next_temp_id++; ir_emit_fsub(imA, ai, qa0b);
+                            int da_m = c->next_temp_id++; ir_emit_fdiv(da_m, bi, br);
+                            int da_m2 = c->next_temp_id++; ir_emit_fmul(da_m2, da_m, bi);
+                            int dA = c->next_temp_id++; ir_emit_fadd(dA, br, da_m2);
+                            int qb0a = c->next_temp_id++; ir_emit_fdiv(qb0a, ar, bi);
+                            int qb0ab = c->next_temp_id++; ir_emit_fmul(qb0ab, qb0a, br);
+                            int reB = c->next_temp_id++; ir_emit_fadd(reB, ai, qb0ab);
+                            int qb0b = c->next_temp_id++; ir_emit_fdiv(qb0b, ai, bi);
+                            int qb0bb = c->next_temp_id++; ir_emit_fmul(qb0bb, qb0b, br);
+                            int imB = c->next_temp_id++; ir_emit_fsub(imB, qb0bb, ar);
+                            int db_m = c->next_temp_id++; ir_emit_fdiv(db_m, br, bi);
+                            int db_m2 = c->next_temp_id++; ir_emit_fmul(db_m2, db_m, br);
+                            int dB = c->next_temp_id++; ir_emit_fadd(dB, bi, db_m2);
+                            int num_r = zc_cx_fselect(c, ge, reA, reB);
+                            int num_i = zc_cx_fselect(c, ge, imA, imB);
+                            int den = zc_cx_fselect(c, ge, dA, dB);
+                            ir_emit_fdiv(rr, num_r, den);
+                            ir_emit_fdiv(ri, num_i, den);
+                            break;
+                        }
+                        case TK_EQ:
+                        case TK_NE: {
+                            int eqr = c->next_temp_id++, eqi = c->next_temp_id++;
+                            ir_emit_cmp(ar, br);
+                            ir_emit_cond_set(eqr, CC_EQ);
+                            ir_emit_cmp(ai, bi);
+                            ir_emit_cond_set(eqi, CC_EQ);
+                            int both = c->next_temp_id++;
+                            ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)both,
+                                .temp_src1=(uint16_t)eqr,.temp_src2=(uint16_t)eqi});
+                            if (cop == TK_NE) {
+                                int one = c->next_temp_id++;
+                                ir_emit_mov_imm(one, 1);
+                                int nz = c->next_temp_id++;
+                                ir_emit((Instr){.op=OP_XOR,.temp_dest=(uint16_t)nz,
+                                    .temp_src1=(uint16_t)both,.temp_src2=(uint16_t)one});
+                                rr = nz;
+                            } else {
+                                rr = both;
+                            }
+                            ir_emit_mov_imm(ri, 0);
+                            c->current_stack_frame = save_frame; /* int result, no object */
+                            c->last_expr_is_float = 0;
+                            return rr;
+                        }
+                        default:
+                            ir_emit_fmov(rr, ar);
+                            ir_emit_fmov(ri, ai);
+                            break;
+                    }
+                    if (cesz == 4) {
+                        int sa = c->next_temp_id++;
+                        ir_emit_lea(sa, BE(c)->fp_reg, -croff);
+                        ir_emit_vstoress(sa, (uint16_t)rr);
+                        int sa2 = c->next_temp_id++;
+                        ir_emit_mov_imm(sa2, 4);
+                        int sa3 = c->next_temp_id++;
+                        ir_emit_add(sa3, sa, sa2);
+                        ir_emit_vstoress(sa3, (uint16_t)ri);
+                    } else {
+                        ir_emit_fstore((uint16_t)rr, TEMP_NONE, -croff);
+                        ir_emit_fstore((uint16_t)ri, TEMP_NONE, -(croff - (int)cesz));
+                    }
+                    int addr = c->next_temp_id++;
+                    ir_emit_lea(addr, BE(c)->fp_reg, -croff);
+                    c->last_expr_is_float = 0;
+                    return addr;
+                }
+            }
             /* GNU vector arithmetic: per-lane scalar expansion. A
              * vector-typed operand lowers to the ADDRESS of the vector
              * object (ident decay, the per-lane temp of an inner vector
@@ -2903,7 +3233,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             TypeInfo *cast_ti = ast_node_get_typeinfo(c, node);
             bool target_is_float = type_is_floating(cast_ti);
             ZeroCCASTNode *cast_src = zero_cc_ast_get(arena, node->left);
-            if (cast_src && cast_src->tag == NODE_FLOAT && !target_is_float) {
+            if (cast_src && cast_src->tag == NODE_FLOAT && !target_is_float &&
+                !(cast_ti && cast_ti->kind == TYPE_KIND_COMPLEX)) {
                 double f = cast_src->float_val;
                 int64_t ival;
                 size_t sz = cast_ti ? type_size(cast_ti) : 4;
@@ -2958,6 +3289,80 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             {
                 ZeroCCASTNode *csrc2 = zero_cc_ast_get(arena, node->left);
                 TypeInfo *cst2 = csrc2 ? ast_node_get_typeinfo(c, csrc2) : NULL;
+                /* C99 6.5.4: cast to a complex type.  A scalar operand
+                 * becomes (value, 0); a complex operand is copied.  The
+                 * result is a fresh address-form complex object. */
+                if (cast_ti && cast_ti->kind == TYPE_KIND_COMPLEX) {
+                    const TypeInfo *cel = cast_ti->details.array.base;
+                    size_t cesz = cel ? type_size(cel) : 8;
+                    if (cesz != 4 && cesz != 8) cesz = 8; /* long double: double model */
+                    c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)(cesz * 2) + 7) & ~7;
+                    int32_t coff = c->current_stack_frame;
+                    if (cst2 && cst2->kind == TYPE_KIND_COMPLEX) {
+                        /* complex -> complex: copy both halves from the
+                         * source object address. */
+                        int ca = c->next_temp_id++;
+                        ir_emit_lea(ca, BE(c)->fp_reg, -coff);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)cesz);
+                        int a2 = c->next_temp_id++; ir_emit_add(a2, ca, o2);
+                        if (cesz == 4) {
+                            int sr = c->next_temp_id++, si = c->next_temp_id++;
+                            ir_emit_vloadss((uint16_t)sr, (uint16_t)result);
+                            int so2 = c->next_temp_id++; ir_emit_mov_imm(so2, (int)cesz);
+                            int sa2 = c->next_temp_id++; ir_emit_add(sa2, result, so2);
+                            ir_emit_vloadss((uint16_t)si, (uint16_t)sa2);
+                            ir_emit_vstoress((uint16_t)ca, (uint16_t)sr);
+                            ir_emit_vstoress((uint16_t)a2, (uint16_t)si);
+                        } else {
+                            int sr = c->next_temp_id++, si = c->next_temp_id++;
+                            ir_emit_vloadsd((uint16_t)sr, (uint16_t)result);
+                            int so2 = c->next_temp_id++; ir_emit_mov_imm(so2, (int)cesz);
+                            int sa2 = c->next_temp_id++; ir_emit_add(sa2, result, so2);
+                            ir_emit_vloadsd((uint16_t)si, (uint16_t)sa2);
+                            ir_emit_vstoresd((uint16_t)ca, (uint16_t)sr);
+                            ir_emit_vstoresd((uint16_t)a2, (uint16_t)si);
+                        }
+                    } else if (c->last_expr_is_float) {
+                        int ca = c->next_temp_id++;
+                        ir_emit_lea(ca, BE(c)->fp_reg, -coff);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)cesz);
+                        int a2 = c->next_temp_id++; ir_emit_add(a2, ca, o2);
+                        if (cesz == 4) {
+                            ir_emit_vstoress((uint16_t)ca, (uint16_t)result);
+                            int zr = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            ir_emit_vstoress((uint16_t)a2, (uint16_t)zr);
+                        } else {
+                            ir_emit_fstore((uint16_t)result, TEMP_NONE, -coff);
+                            int zr = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            ir_emit_fstore((uint16_t)zr, TEMP_NONE, -coff + (int)cesz);
+                        }
+                    } else {
+                        /* Integer scalar -> (double value, 0). */
+                        int dv = zc_emit_int_to_double(c, result, cst2);
+                        int ca = c->next_temp_id++;
+                        ir_emit_lea(ca, BE(c)->fp_reg, -coff);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)cesz);
+                        int a2 = c->next_temp_id++; ir_emit_add(a2, ca, o2);
+                        if (cesz == 4) {
+                            ir_emit_vstoress((uint16_t)ca, (uint16_t)dv);
+                            int zr = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            ir_emit_vstoress((uint16_t)a2, (uint16_t)zr);
+                        } else {
+                            ir_emit_fstore((uint16_t)dv, TEMP_NONE, -coff);
+                            int zr = c->next_temp_id++;
+                            ir_emit_fmov_imm((uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            ir_emit_fstore((uint16_t)zr, TEMP_NONE, -coff + (int)cesz);
+                        }
+                    }
+                    int caddr = c->next_temp_id++;
+                    ir_emit_lea(caddr, BE(c)->fp_reg, -coff);
+                    c->last_expr_is_float = 0;
+                    return caddr;
+                }
                 if (cast_ti && type_is_vector(cast_ti) && (!cst2 || !type_is_vector(cst2))) {
                     size_t vsz = type_size(cast_ti);
                     if (vsz > 0 && vsz <= 128) {
@@ -3624,6 +4029,153 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             /* Check if this is a compound assignment (+=, -=, etc.) */
             bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
+
+            /* C99 complex assignment:
+             *  - LHS complex local, RHS complex: copy the two halves
+             *  - LHS complex local, RHS scalar: real = rhs, imag = 0
+             *  - LHS scalar, RHS complex: lhs = real half of rhs
+             *  - LHS complex via *ptr: store the halves at the target
+             * Complex values are address-form (16 bytes, real first). */
+            if (!is_compound) {
+                TypeInfo *lhs_ti = ast_node_get_typeinfo(c, left_node);
+                TypeInfo *rhs_ti_a = ast_node_get_typeinfo(c,
+                    (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL);
+                bool lhs_cx = (lhs_ti && lhs_ti->kind == TYPE_KIND_COMPLEX);
+                bool rhs_cx = (rhs_ti_a && rhs_ti_a->kind == TYPE_KIND_COMPLEX);
+                if (getenv("ZC_DEBUG_ASSIGN")) fprintf(stderr, "[assign] LHS tag=%d ti=%p kind=%d\n", (int)(left_node?left_node->tag:-1), (void*)lhs_ti, lhs_ti?(int)lhs_ti->kind:-1);
+                /* GNU part-extractor lvalue: `__real__ a = 9;` / `__imag__ a = 42;`
+                 * (desugared to `__real__(a) = 9`). Store the RHS scalar into
+                 * the corresponding half of the complex object. */
+                {
+                    bool lhs_is_cxpart = false;
+                    bool cxpart_imag = false;
+                    ZeroCCASTNode *lcal = (left_node && left_node->tag == NODE_CALL)
+                                              ? zero_cc_ast_get(arena, left_node->left) : NULL;
+                    if (lcal && lcal->tag == NODE_IDENT && lcal->s.str) {
+                        const char *cs = lcal->s.str;
+                        if (strcmp(cs, "__real") == 0 || strcmp(cs, "__real__") == 0) lhs_is_cxpart = true;
+                        else if (strcmp(cs, "__imag") == 0 || strcmp(cs, "__imag__") == 0) { lhs_is_cxpart = true; cxpart_imag = true; }
+                    }
+                    if (lhs_is_cxpart && node->right != AST_NULL) {
+                        ZeroCCASTNode *cxan = zero_cc_ast_get(arena, left_node->right);
+                        TypeInfo *cxati = cxan ? ast_node_get_typeinfo(c, cxan) : NULL;
+                        if (cxati && cxati->kind == TYPE_KIND_COMPLEX) {
+                            size_t pesz = (cxati->details.array.base) ? type_size(cxati->details.array.base) : 8;
+                            if (pesz != 4 && pesz != 8) pesz = 8;
+                            int paddr = lower_expr(c, arena, left_node->right);
+                            if (cxpart_imag) {
+                                int po = c->next_temp_id++;
+                                ir_emit_mov_imm(po, (int)pesz);
+                                int pa = c->next_temp_id++;
+                                ir_emit_add(pa, paddr, po);
+                                paddr = pa;
+                            }
+                            int prv = lower_expr(c, arena, node->right);
+                            if (c->last_expr_is_float) {
+                                if (pesz == 4) ir_emit_vstoress((uint16_t)paddr, (uint16_t)prv);
+                                else ir_emit_vstoresd((uint16_t)paddr, (uint16_t)prv);
+                            } else {
+                                int pdv = zc_emit_int_to_double(c, prv, rhs_ti_a);
+                                if (pesz == 4) ir_emit_vstoress((uint16_t)paddr, (uint16_t)pdv);
+                                else ir_emit_vstoresd((uint16_t)paddr, (uint16_t)pdv);
+                            }
+                            c->last_expr_is_float = 0;
+                            int pz = c->next_temp_id++;
+                            ir_emit_mov_imm(pz, 0);
+                            return pz;
+                        }
+                    }
+                }
+                ZeroCCSym *cx_lsym = (left_node && left_node->tag == NODE_IDENT &&
+                                      zero_cc_find_local(c, left_node->s.str))
+                                         ? zero_cc_find_local(c, left_node->s.str) : NULL;
+                if (!lhs_cx && !rhs_cx && cx_lsym && zero_cc_type_is_complex(&cx_lsym->type)) {
+                    lhs_cx = true;
+                }
+                if (lhs_cx || rhs_cx) {
+                    size_t esz = (lhs_cx && lhs_ti && lhs_ti->details.array.base)
+                                     ? type_size(lhs_ti->details.array.base) :
+                                 (rhs_cx && rhs_ti_a && rhs_ti_a->details.array.base)
+                                     ? type_size(rhs_ti_a->details.array.base) : 8;
+                    if (esz != 4 && esz != 8) esz = 8; /* long double: double model */
+
+                    int target_off = TEMP_NONE; /* local slot offset if LHS ident */
+                    int target_addr = TEMP_NONE;
+                    if (cx_lsym && left_node->tag == NODE_IDENT) {
+                        target_off = cx_lsym->stack_offset;
+                    } else if (left_node && left_node->tag == NODE_UNOP &&
+                               (left_node->aux.op == '*' || left_node->aux.op == TK_STAR)) {
+                        target_addr = lower_expr(c, arena, left_node->left);
+                    } else if (left_node && left_node->tag == NODE_MEMBER) {
+                        /* Complex member lvalue (`g.a = y;` / `p->a = y;`):
+                         * resolve the member's address and store the halves
+                         * there.  Without this, the generic struct-member
+                         * path treated the 16-byte complex member as a
+                         * struct copy and filled the second half from the
+                         * ABI secondary register (garbage). */
+                        target_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
+                        if (target_addr == TEMP_NONE) {
+                            goto zc_complex_assign_generic;
+                        }
+                    } else {
+                        /* Unsupported complex lvalue form: fall through to
+                         * the generic path (may diagnose). */
+                        goto zc_complex_assign_generic;
+                    }
+
+                    int rv = lower_expr(c, arena, node->right);
+                    bool rv_is_float = c->last_expr_is_float;
+                    int rh = c->next_temp_id++, li = c->next_temp_id++;
+                    if (rhs_cx) {
+                        if (esz == 4) { ir_emit_vloadss(rh, (uint16_t)rv); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4); int a2 = c->next_temp_id++; ir_emit_add(a2, rv, o2); ir_emit_vloadss(li, (uint16_t)a2); }
+                        else { ir_emit_vloadsd(rh, (uint16_t)rv); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8); int a2 = c->next_temp_id++; ir_emit_add(a2, rv, o2); ir_emit_vloadsd(li, (uint16_t)a2); }
+                    } else {
+                        if (rv_is_float) {
+                            ir_emit_fmov(rh, (uint16_t)rv);
+                        } else {
+                            rh = zc_emit_int_to_double(c, rv, rhs_ti_a);
+                        }
+                        ir_emit_fmov_imm((uint16_t)li, (int64_t)zc_rodata_double_offset(c, 0.0));
+                    }
+                    if (lhs_cx) {
+                        if (target_off != TEMP_NONE) {
+                            if (esz == 4) {
+                                int sa = c->next_temp_id++;
+                                ir_emit_lea(sa, BE(c)->fp_reg, -target_off);
+                                ir_emit_vstoress(sa, (uint16_t)rh);
+                                int sa2 = c->next_temp_id++;
+                                ir_emit_mov_imm(sa2, 4);
+                                int sa3 = c->next_temp_id++;
+                                ir_emit_add(sa3, sa, sa2);
+                                ir_emit_vstoress(sa3, (uint16_t)li);
+                            } else {
+                                ir_emit_fstore((uint16_t)rh, TEMP_NONE, -target_off);
+                                ir_emit_fstore((uint16_t)li, TEMP_NONE, -target_off + (int)esz);
+                            }
+                        } else {
+                            if (esz == 4) { ir_emit_vstoress((uint16_t)target_addr, (uint16_t)rh); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4); int a2 = c->next_temp_id++; ir_emit_add(a2, target_addr, o2); ir_emit_vstoress((uint16_t)a2, (uint16_t)li); }
+                            else { ir_emit_vstoresd((uint16_t)target_addr, (uint16_t)rh); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8); int a2 = c->next_temp_id++; ir_emit_add(a2, target_addr, o2); ir_emit_vstoresd((uint16_t)a2, (uint16_t)li); }
+                        }
+                        c->last_expr_is_float = 0;
+                        int zt = c->next_temp_id++; ir_emit_mov_imm(zt, 0);
+                        return zt;
+                    } else {
+                        /* scalar LHS = complex RHS: real half */
+                        (void)li;
+                        if (lhs_ti && (lhs_ti->kind == TYPE_KIND_FLOAT || lhs_ti->kind == TYPE_KIND_DOUBLE)) {
+                            c->last_expr_is_float = 1;
+                            return rh;
+                        }
+                        /* integral LHS: double -> integer conversion */
+                        int zt2 = c->next_temp_id++;
+                        ir_emit((Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)zt2,
+                            .temp_src1 = (uint16_t)rh, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                        c->last_expr_is_float = 0;
+                        return zt2;
+                    }
+                }
+                zc_complex_assign_generic:
+            ;}
 
             /* Dereference assignment (*ptr = expr): evaluate LHS target address
              * BEFORE RHS value expression so that RHS calling-convention return
@@ -5557,6 +6109,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
              * base is a pointer (->) or a struct object (.). */
             bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
             TypeInfo *member_ti = ast_node_get_typeinfo(c, node);
+            /* C99 6.7.2.3: a complex member is an address-form value, just
+             * like a complex local - consumers (__real__/__imag__, complex
+             * arithmetic and assignment) load the two halves from the
+             * address.  Loading it as a scalar here would read the real
+             * part as the "value" and drop the imaginary half. */
+            if (member_ti && member_ti->kind == TYPE_KIND_COMPLEX) {
+                int cx_addr = zero_cc_lower_lvalue_addr(c, arena, ref);
+                if (cx_addr != TEMP_NONE) return cx_addr;
+            }
             bool member_is_array = (member_ti && member_ti->kind == TYPE_KIND_ARRAY);
             bool member_is_struct = (member_ti && (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION));
             bool member_is_float = (member_ti && type_is_floating(member_ti) && !member_is_array);
@@ -5877,7 +6438,33 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     strcmp(base_fn, "snprintf") == 0 || strcmp(base_fn, "puts") == 0 ||
                     strcmp(base_fn, "putchar") == 0 || strcmp(base_fn, "fputc") == 0 ||
                     strcmp(base_fn, "fputs") == 0 || strcmp(base_fn, "sqrt") == 0 ||
-                    strcmp(base_fn, "sqrtf") == 0) {
+                    strcmp(base_fn, "sqrtf") == 0 ||
+                    strcmp(base_fn, "fabsl") == 0 || strcmp(base_fn, "fabsf") == 0 ||
+                    strcmp(base_fn, "fabs") == 0 || strcmp(base_fn, "fmax") == 0 ||
+                    strcmp(base_fn, "fmaxf") == 0 || strcmp(base_fn, "fmaxl") == 0 ||
+                    strcmp(base_fn, "fmin") == 0 || strcmp(base_fn, "fminf") == 0 ||
+                    strcmp(base_fn, "fminl") == 0 || strcmp(base_fn, "floor") == 0 ||
+                    strcmp(base_fn, "floorf") == 0 || strcmp(base_fn, "floorl") == 0 ||
+                    strcmp(base_fn, "ceil") == 0 || strcmp(base_fn, "ceilf") == 0 ||
+                    strcmp(base_fn, "ceill") == 0 || strcmp(base_fn, "round") == 0 ||
+                    strcmp(base_fn, "roundf") == 0 || strcmp(base_fn, "roundl") == 0 ||
+                    strcmp(base_fn, "trunc") == 0 || strcmp(base_fn, "truncf") == 0 ||
+                    strcmp(base_fn, "truncl") == 0 || strcmp(base_fn, "fmod") == 0 ||
+                    strcmp(base_fn, "fmodf") == 0 || strcmp(base_fn, "fmodl") == 0 ||
+                    strcmp(base_fn, "pow") == 0 || strcmp(base_fn, "powf") == 0 ||
+                    strcmp(base_fn, "powl") == 0 || strcmp(base_fn, "exp") == 0 ||
+                    strcmp(base_fn, "expf") == 0 || strcmp(base_fn, "expl") == 0 ||
+                    strcmp(base_fn, "log") == 0 || strcmp(base_fn, "logf") == 0 ||
+                    strcmp(base_fn, "logl") == 0 || strcmp(base_fn, "log2") == 0 ||
+                    strcmp(base_fn, "log2f") == 0 || strcmp(base_fn, "log2l") == 0 ||
+                    strcmp(base_fn, "log10") == 0 || strcmp(base_fn, "log10f") == 0 ||
+                    strcmp(base_fn, "log10l") == 0 || strcmp(base_fn, "sin") == 0 ||
+                    strcmp(base_fn, "sinf") == 0 || strcmp(base_fn, "sinl") == 0 ||
+                    strcmp(base_fn, "cos") == 0 || strcmp(base_fn, "cosf") == 0 ||
+                    strcmp(base_fn, "cosl") == 0 || strcmp(base_fn, "tan") == 0 ||
+                    strcmp(base_fn, "tanf") == 0 || strcmp(base_fn, "tanl") == 0 ||
+                    strcmp(base_fn, "atan2") == 0 || strcmp(base_fn, "atan2f") == 0 ||
+                    strcmp(base_fn, "atan2l") == 0) {
                     name = base_fn;
                 }
             }
@@ -5910,6 +6497,36 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_vla_alloc(ptr_temp, aligned_size);
                 c->last_expr_is_float = 0;
                 return ptr_temp;
+            }
+
+            /* GNU complex part extractors: __real(E) / __real__(E) load
+             * the first half of the address-form complex value, __imag / __imag__
+             * the second. */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__real") == 0 ||
+                 strcmp(callee->s.str, "__real__") == 0 ||
+                 strcmp(callee->s.str, "__imag") == 0 ||
+                 strcmp(callee->s.str, "__imag__") == 0)) {
+                bool is_imag = (callee->s.str[2] == 'i');
+                ZeroCCASTNode *cx_node = zero_cc_ast_get(arena, node->right);
+                TypeInfo *cx_ti = ast_node_get_typeinfo(c, cx_node);
+                size_t esz = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX &&
+                              cx_ti->details.array.base)
+                                 ? type_size(cx_ti->details.array.base) : 8;
+                if (esz != 4 && esz != 8) esz = 8; /* long double: double model */
+                int addr = lower_expr(c, arena, node->right);
+                int res = c->next_temp_id++;
+                int la = addr;
+                if (is_imag) {
+                    int off = c->next_temp_id++;
+                    ir_emit_mov_imm(off, (int)esz);
+                    la = c->next_temp_id++;
+                    ir_emit_add(la, addr, off);
+                }
+                if (esz == 4) ir_emit_vloadss(res, (uint16_t)la);
+                else ir_emit_vloadsd(res, (uint16_t)la);
+                c->last_expr_is_float = 1;
+                return res;
             }
 
             /* __builtin_expect(cond, val) is a branch-hint builtin: it
@@ -6224,6 +6841,36 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 int res = zc_node_is_const_expr(c, arena, cp_arg) ? 1 : 0;
                 int temp = c->next_temp_id++;
                 ir_emit_mov_imm(temp, res);
+                c->last_expr_is_float = 0;
+                return temp;
+            }
+
+            /* __alignof__(E) / _Alignof(E) (C99 6.5.3.4): the alignment of
+             * E's type.  A function name operand uses the function's
+             * __attribute__((aligned(N))) when present (execute/align-3). */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__alignof__") == 0 ||
+                 strcmp(callee->s.str, "_Alignof") == 0 ||
+                 strcmp(callee->s.str, "__builtin_alignof") == 0)) {
+                size_t al = 0;
+                ZeroCCFunction *aln_fn = NULL;
+                if (callee_is_ident && node->right != AST_NULL) {
+                    ZeroCCASTNode *an = zero_cc_ast_get(arena, node->right);
+                    if (an && an->tag == NODE_IDENT && an->s.str) {
+                        aln_fn = zero_cc_find_function(c, an->s.str);
+                    }
+                    if (!aln_fn) {
+                        TypeInfo *at = ast_node_get_typeinfo(c, an);
+                        if (at) {
+                            ZeroCCType aty = typeinfo_to_zero_cc_type(at);
+                            if (aty.align > 0) al = aty.align;
+                        }
+                    }
+                }
+                if (aln_fn) al = aln_fn->align > 0 ? aln_fn->align : 1;
+                if (al == 0) al = 8;
+                int temp = c->next_temp_id++;
+                ir_emit_mov_imm(temp, (int32_t)al);
                 c->last_expr_is_float = 0;
                 return temp;
             }
@@ -7493,7 +8140,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (callee_fn && param_idx < (int)callee_fn->param_count) {
                         const ZeroCCType *pt = &callee_fn->param_types[param_idx];
                         bool param_is_fp = (pt->tag == TYPE_FLOAT || pt->tag == TYPE_DOUBLE);
-                        if (param_is_fp && !c->last_expr_is_float) {
+                        if (pt->is_complex) {
+                            /* complex argument: temp is the object's address;
+                                 * marshaling happens below (two FP slots). */
+                        } else if (param_is_fp && !c->last_expr_is_float) {
                             int conv_temp = c->next_temp_id++;
                             ir_emit_cvtsi2sd((uint16_t)conv_temp, (uint16_t)temp);
                             temp = conv_temp;
@@ -7509,6 +8159,44 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                     }
                     param_idx++;
+                    /* C99 complex argument: passed in TWO consecutive FP
+                     * registers (real, then imaginary). The argument
+                     * expression lowered to the ADDRESS of the complex
+                     * object; load the halves and spill them to the FP
+                     * stream. */
+                    {
+                        bool param_is_cx = (callee_fn && param_idx < (int)callee_fn->param_count &&
+                                            zero_cc_type_is_complex(&callee_fn->param_types[param_idx - 1]));
+                        ZeroCCASTNode *cx_an = arg_node;
+                        TypeInfo *cx_ati = cx_an ? ast_node_get_typeinfo(c, cx_an) : NULL;
+                        bool arg_is_cx = (cx_ati && cx_ati->kind == TYPE_KIND_COMPLEX);
+                        if (param_is_cx || arg_is_cx) {
+                            size_t cesz = (cx_ati && cx_ati->details.array.base) ? type_size(cx_ati->details.array.base) :
+                                           (param_is_cx && callee_fn->param_types[param_idx - 1].base) ? callee_fn->param_types[param_idx - 1].base->size : 8;
+                            if (cesz != 4 && cesz != 8) cesz = 8;
+                            for (int half = 0; half < 2; half++) {
+                                int hv = c->next_temp_id++;
+                                int la = temp;
+                                if (half == 1) {
+                                    int o2 = c->next_temp_id++;
+                                    ir_emit_mov_imm(o2, (int)cesz);
+                                    la = c->next_temp_id++;
+                                    ir_emit_add(la, temp, o2);
+                                }
+                                if (cesz == 4) ir_emit_vloadss((uint16_t)hv, (uint16_t)la);
+                                else ir_emit_vloadsd((uint16_t)hv, (uint16_t)la);
+                                fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                fp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                                ir_emit_fstore((uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                fp_arg_idx++;
+                            }
+                            arg = arg_node ? arg_node->next : AST_NULL;
+                            continue;
+                        }
+                    }
                     bool is_callee_variadic = (callee_fn && callee_fn->is_variadic) ||
                         (name && (strcmp(name, "printf") == 0 || strcmp(name, "sprintf") == 0 ||
                                   strcmp(name, "snprintf") == 0 || strcmp(name, "fprintf") == 0));
@@ -7796,6 +8484,38 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     for (int f = 0; f < fp_arg_idx && f < 16; f++) {
                         c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                     }
+                }
+
+                /* C99 complex return: real in xmm0 (VREG_F0), imaginary in
+                 * xmm1 (VREG_F1). Materialize into an aligned stack object
+                 * and hand back its ADDRESS (like vector returns). */
+                if (call_ret_type.is_complex) {
+                    size_t cesz = (call_ret_type.base && call_ret_type.base->size == 4) ? 4 : 8;
+                    size_t csz = cesz * 2;
+                    c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame = (c->current_stack_frame + (int32_t)csz + 7) & ~7;
+                    int32_t cres_off = c->current_stack_frame;
+                    if (ir_get_count() > 0) {
+                        /* Keep VREG_F0/VREG_F1 (xmm0/xmm1) live across the
+                         * call: the complex result lives in that pair. */
+                        Instr *li = (Instr*)&ir_get_buffer()[ir_get_count() - 1];
+                        li->label_idx = 0x0100 | (csz & 0xFF);
+                    }
+                    int caddr = c->next_temp_id++;
+                    ir_emit_lea(caddr, BE(c)->fp_reg, -cres_off);
+                    if (cesz == 4) {
+                        ir_emit_vstoress((uint16_t)caddr, (uint16_t)VREG_F0);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4);
+                        int a2 = c->next_temp_id++; ir_emit_add(a2, caddr, o2);
+                        ir_emit_vstoress((uint16_t)a2, (uint16_t)VREG_F1);
+                    } else {
+                        ir_emit_vstoresd((uint16_t)caddr, (uint16_t)VREG_F0);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8);
+                        int a2 = c->next_temp_id++; ir_emit_add(a2, caddr, o2);
+                        ir_emit_vstoresd((uint16_t)a2, (uint16_t)VREG_F1);
+                    }
+                    c->last_expr_is_float = 0;
+                    return caddr;
                 }
 
                 if (call_ret_type.tag == TYPE_FLOAT || call_ret_type.tag == TYPE_DOUBLE) {

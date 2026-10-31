@@ -364,9 +364,25 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__DBL_MIN_EXP__", "(-1021)");
     zero_cc_cpp_define_obj(cpp, "__DBL_MAX_10_EXP__", "308");
     zero_cc_cpp_define_obj(cpp, "__DBL_MIN_10_EXP__", "(-307)");
-    zero_cc_cpp_define_obj(cpp, "__DBL_MAX__", "1.7976931348623157580412819756850388593900e+307");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MAX__", "1.7976931348623157081452742373170435679807e+308");
     zero_cc_cpp_define_obj(cpp, "__DBL_MIN__", "2.22507385850720138309e-308");
     zero_cc_cpp_define_obj(cpp, "__DBL_DENORM_MIN__", "4.94065645841246544177e-324");
+    /* long double is a 16-byte object lowered through the 64-bit double
+     * path (-mlong-double-64 model): LDBL_* limits mirror the double set. */
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MANT_DIG__", "53");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_DIG__", "15");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_DECIMAL_DIG__", "17");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_EPSILON__", "2.22044604925031308085e-16L");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_HAS_DENORM__", "1");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_HAS_INFINITY__", "1");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_HAS_QUIET_NAN__", "1");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MAX_EXP__", "1024");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MIN_EXP__", "(-1021)");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MAX_10_EXP__", "308");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MIN_10_EXP__", "(-307)");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MAX__", "1.7976931348623157081452742373170435679807e+308L");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_MIN__", "2.22507385850720138309e-308L");
+    zero_cc_cpp_define_obj(cpp, "__LDBL_DENORM_MIN__", "4.94065645841246544177e-324L");
     zero_cc_cpp_define_obj(cpp, "__DECIMAL_DIG__", "17");
     zero_cc_cpp_define_obj(cpp, "FLT_RADIX", "2");
     zero_cc_cpp_define_obj(cpp, "FLT_MANT_DIG", "24");
@@ -386,8 +402,17 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "DBL_MIN_EXP", "(-1021)");
     zero_cc_cpp_define_obj(cpp, "DBL_MAX_10_EXP", "308");
     zero_cc_cpp_define_obj(cpp, "DBL_MIN_10_EXP", "(-307)");
-    zero_cc_cpp_define_obj(cpp, "DBL_MAX", "1.7976931348623157580412819756850388593900e+307");
+    zero_cc_cpp_define_obj(cpp, "DBL_MAX", "1.7976931348623157081452742373170435679807e+308");
     zero_cc_cpp_define_obj(cpp, "DBL_MIN", "2.22507385850720138309e-308");
+    zero_cc_cpp_define_obj(cpp, "LDBL_EPSILON", "2.22044604925031308085e-16L");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MAX_EXP", "1024");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MIN_EXP", "(-1021)");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MAX_10_EXP", "308");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MIN_10_EXP", "(-307)");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MAX", "1.7976931348623157081452742373170435679807e+308L");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MIN", "2.22507385850720138309e-308L");
+    zero_cc_cpp_define_obj(cpp, "LDBL_MANT_DIG", "53");
+    zero_cc_cpp_define_obj(cpp, "LDBL_DIG", "15");
     /* Atomic memory orders */
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
@@ -615,6 +640,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "void* qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
             "void* bsearch(const void *key, const void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
             "int atoi(const char *nptr);\nint abs(int j);\n"
+            "char* tmpnam(char *s);\n"
             "#endif\n"
         );
     }
@@ -832,6 +858,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int sprintf(char *str, const char *format, ...);\n"
             "int snprintf(char *str, size_t size, const char *format, ...);\n"
             "int puts(const char *s);\nint putchar(int c);\n"
+            "void perror(const char *s);\n"
             "int fputs(const char *s, FILE *stream);\nint fgetc(FILE *stream);\n"
             "int getchar(void);\n"
             "FILE* fopen(const char *pathname, const char *mode);\n"
@@ -995,8 +1022,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "float.h") == 0) {
         return strdup(
             "#ifndef _FLOAT_H\n#define _FLOAT_H 1\n"
-            "#define DBL_MAX 1.7976931348623157580412819756850388593900e+307\n#define DBL_MIN 2.22507385850720138309e-308\n#define DBL_EPSILON 2.22044604925031308085e-16\n"
+            "#define DBL_MAX 1.7976931348623157081452742373170435679807e+308\n#define DBL_MIN 2.22507385850720138309e-308\n#define DBL_EPSILON 2.22044604925031308085e-16\n"
             "#define FLT_MAX 3.40282346638528859812e+38F\n#define FLT_MIN 1.17549435082228750797e-38F\n#define FLT_EPSILON 1.19209289550781250000e-7F\n"
+            "#define LDBL_MAX 1.7976931348623157081452742373170435679807e+308L\n#define LDBL_MIN 2.22507385850720138309e-308L\n#define LDBL_EPSILON 2.22044604925031308085e-16L\n"
+            "#define LDBL_MAX_EXP 1024\n#define LDBL_MIN_EXP (-1021)\n#define LDBL_MANT_DIG 53\n#define LDBL_DIG 15\n"
             "#endif\n"
         );
     }

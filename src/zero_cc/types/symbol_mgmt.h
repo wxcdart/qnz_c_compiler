@@ -144,6 +144,70 @@ static inline Arena *zero_cc_get_fn_arena(ZeroCCCompiler *c) {
     return c->fn_arena;
 }
 
+/* Incrementally extend the function-name hash to cover entries
+ * [fn_hash_upto, function_count).  The functions table is append-only, so
+ * each entry is hashed exactly once; same-named entries (prototype +
+ * definition) chain through fn_hash_next.  A capacity overrun rehashes the
+ * covered range (rare - capacity doubles). */
+static inline void zero_cc_fn_hash_extend(ZeroCCCompiler *c) {
+    if (c->fn_hash_upto >= c->function_count) return;
+    if (!c->fn_hash) {
+        if (!c->fn_hash_next) {
+            c->fn_hash_next = (int32_t *)malloc(ZERO_CC_MAX_FUNCTIONS * sizeof(int32_t));
+            if (!c->fn_hash_next) { c->fn_hash_upto = c->function_count; return; }
+        }
+        size_t cap = 256;
+        while (cap < c->function_count * 2) cap *= 2;
+        c->fn_hash_cap = cap;
+        c->fn_hash = (int32_t *)calloc(cap, sizeof(int32_t));
+        if (!c->fn_hash) { c->fn_hash_upto = c->function_count; return; }
+        for (size_t i = 0; i < cap; i++) c->fn_hash[i] = -1;
+    }
+    if (c->function_count * 2 > c->fn_hash_cap) {
+        size_t ncap = c->fn_hash_cap * 2;
+        while (ncap < c->function_count * 2) ncap *= 2;
+        int32_t *nh = (int32_t *)calloc(ncap, sizeof(int32_t));
+        if (!nh) { c->fn_hash_upto = c->function_count; return; }
+        for (size_t i = 0; i < ncap; i++) nh[i] = -1;
+        free(c->fn_hash);
+        c->fn_hash = nh;
+        c->fn_hash_cap = ncap;
+        c->fn_hash_upto = 0;
+    }
+    uint64_t mask = c->fn_hash_cap - 1;
+    for (size_t i = c->fn_hash_upto; i < c->function_count; i++) {
+        const char *nm = c->functions[i].name;
+        if (!nm || !nm[0]) continue;
+        c->fn_hash_next[i] = -1;
+        size_t b = (size_t)(zero_cc_hash64(nm) & mask);
+        size_t same_b = (size_t)-1;
+        bool claimed = false;
+        for (size_t probe = 0; probe <= c->fn_hash_cap; probe++) {
+            int32_t cur = c->fn_hash[b];
+            if (cur < 0) {
+                /* First empty slot: claim it unless the name is already
+                 * chained elsewhere in this probe sequence. */
+                if (same_b == (size_t)-1) c->fn_hash[b] = (int32_t)i;
+                claimed = true;
+                break;
+            }
+            if (same_b == (size_t)-1 &&
+                strcmp(c->functions[cur].name, nm) == 0) {
+                same_b = b;
+            }
+            b = (b + 1) & mask;
+        }
+        (void)claimed;
+        if (same_b != (size_t)-1) {
+            /* Same name already hashed (prototype + definition): join its
+             * slot chain (newest first); the entry owns no slot of its own. */
+            c->fn_hash_next[i] = c->fn_hash[same_b];
+            c->fn_hash[same_b] = (int32_t)i;
+        }
+    }
+    c->fn_hash_upto = c->function_count;
+}
+
 static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const char *name) {
     /* Prefer a DEFINITION over an earlier prototype/extern entry with the
      * same name (Sprint 41).  A function declared before its body (the
@@ -151,6 +215,34 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
      * return bound call relocations and function pointers to the prototype
      * stub (text_offset 0, is_prototype), which the JIT then resolved via
      * dlsym() - a wrong target for internal functions. */
+    if (!c || !name) return NULL;
+    zero_cc_fn_hash_extend(c);
+    if (c->fn_hash && c->fn_hash_cap > 0) {
+        uint64_t mask = c->fn_hash_cap - 1;
+        size_t b = (size_t)(zero_cc_hash64(name) & mask);
+        /* Probe the linear sequence: entries displaced by collisions live
+         * past the home bucket; an empty slot ends the search. */
+        for (size_t probe = 0; probe <= c->fn_hash_cap; probe++) {
+            int32_t idx = c->fn_hash[b];
+            if (idx < 0) return NULL;
+            if (strcmp(c->functions[idx].name, name) != 0) {
+                b = (b + 1) & mask;
+                continue;
+            }
+            /* Same-name chain (newest -> oldest); keep the oldest
+             * prototype and oldest definition, matching the historical
+             * first-match scan semantics. */
+            ZeroCCFunction *proto = NULL, *def = NULL;
+            size_t guard = 0;
+            while (idx >= 0 && guard++ < ZERO_CC_MAX_FUNCTIONS) {
+                if (c->functions[idx].is_prototype) proto = &c->functions[idx];
+                else def = &c->functions[idx];
+                idx = (idx < ZERO_CC_MAX_FUNCTIONS) ? c->fn_hash_next[idx] : -1;
+            }
+            return def ? def : proto;
+        }
+        return NULL;
+    }
     ZeroCCFunction *proto = NULL;
     for (size_t i = 0; i < c->function_count; i++) {
         if (strcmp(c->functions[i].name, name) == 0) {
@@ -184,6 +276,20 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
         }
         if (libm_handle) {
             sym = dlsym(libm_handle, name);
+        }
+    }
+    if (!sym) {
+        /* libgcc runtime helpers (e.g. __divdc3 complex division, which
+         * GCC itself calls at -O0): not in the default global scope, so
+         * dlopen libgcc_s explicitly. */
+        static void *libgcc_handle = NULL;
+        static int libgcc_tried = 0;
+        if (!libgcc_tried) {
+            libgcc_tried = 1;
+            libgcc_handle = dlopen("libgcc_s.so.1", RTLD_LAZY | RTLD_GLOBAL);
+        }
+        if (libgcc_handle) {
+            sym = dlsym(libgcc_handle, name);
         }
     }
     return sym;
