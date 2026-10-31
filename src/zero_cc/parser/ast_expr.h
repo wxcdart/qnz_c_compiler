@@ -316,6 +316,15 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
     ZeroCCToken *tok = &c->tokens[c->token_pos];
 
+    /* GNU `__extension__` (a marker for diagnostics of non-ISO syntax):
+     * a no-op prefix in expression position - consume and re-dispatch
+     * (e.g. `(T) (__extension__ 1.0iF)`, c-torture compile/pr54559). */
+    if (tok->type == TK_IDENT && tok->str_val &&
+        strcmp(tok->str_val, "__extension__") == 0) {
+        c->token_pos++;
+        return parse_primary_ast(c, arena);
+    }
+
     /* Switch for simple primary tokens */
     switch (tok->type) {
         case TK_NUM: {
@@ -352,7 +361,10 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->line = (uint32_t)tok->line;
             n->col = (uint32_t)tok->col;
             n->float_val = tok->float_val;
-            n->aux.extra = (uint32_t)tok->int_suffix;
+            /* Literal type suffix (bit0=f, bit1=l, bit3=imaginary) lives in
+             * flags: aux.extra is reused by the semantic pass for the
+             * attached TypeInfo pointer and would clobber it. */
+            n->flags = (uint16_t)tok->int_suffix;
             return ref;
         }
 
@@ -384,6 +396,20 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
         case TK_TRUE:
         case TK_FALSE: {
+            /* A `true`/`false` followed by `(` is a CALL to a function
+             * named true/false (C: they are identifiers unless <stdbool.h>
+             * is included - c-torture execute/loop-9).  Emit an identifier
+             * so the postfix call handling wraps it in NODE_CALL. */
+            if (c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+                c->token_pos++;
+                ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_IDENT);
+                ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+                n->s.str = zero_cc_intern_string(c, tok->str_val);
+                n->line = (uint32_t)tok->line;
+                n->col = (uint32_t)tok->col;
+                return ref;
+            }
             c->token_pos++;
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_BOOL);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);

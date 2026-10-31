@@ -85,8 +85,12 @@ static inline int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size
 static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align) {
     if (!c || !out_align || !pos || *pos >= c->token_count) return 0;
     ZeroCCToken *t = &c->tokens[*pos];
-    const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
-    if (!id || strcmp(id, "__zc_aligned__") != 0) return 0;
+    /* C11 `_Alignas(N)` is a real token; `__attribute__((aligned(N)))` is
+     * rewritten to the `__zc_aligned__(N)` marker by the preprocessor. */
+    if (t->type != TK_ALIGNAS) {
+        const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
+        if (!id || (strcmp(id, "__zc_aligned__") != 0 && strcmp(id, "_Alignas") != 0)) return 0;
+    }
     if (*pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_LPAREN) return 0;
     size_t save = *pos;
     size_t save_tp = c->token_pos;
@@ -599,6 +603,51 @@ static inline int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *p
     return total_offset;
 }
 
+/* Sprint 68: the value of an already-initialized scalar global, read back
+ * from the data section (its bytes were emitted when the global was
+ * declared).  Constant expressions may reference earlier globals:
+ * `const char a = 0x42; ... double b = (double) a;` (c-torture compile/
+ * pr83222).  Returns false if the identifier is not a readable scalar
+ * global (non-scalar types, externs without storage, not yet emitted). */
+static inline bool zc_const_global_scalar(ZeroCCCompiler *c, const char *name,
+                                          bool *out_is_float,
+                                          int64_t *out_i, double *out_d) {
+    ZeroCCGlobalVar *gv = find_global_var(name);
+    if (!gv || gv->size == 0) return false;
+    if (gv->data_offset + gv->size > c->data_section.length) return false;
+    ZeroCCType t = gv->type;
+    if (t.tag == TYPE_ARRAY && t.base) t = *t.base;
+    if (t.tag == TYPE_PTR || t.tag == TYPE_STRUCT || t.tag == TYPE_UNION) return false;
+    if (t.is_func || t.is_func_ptr) return false;
+    const uint8_t *p = (const uint8_t *)c->data_section.data + gv->data_offset;
+    uint64_t bits = 0;
+    size_t sz = (t.size > 0 && t.size <= 8) ? t.size : 8;
+    for (size_t i = 0; i < sz; i++) bits |= (uint64_t)p[i] << (8 * i);
+    *out_is_float = (t.tag == TYPE_FLOAT || t.tag == TYPE_DOUBLE);
+    if (*out_is_float) {
+        if (t.tag == TYPE_FLOAT) {
+            float f;
+            memcpy(&f, &bits, 4);
+            *out_d = f;
+        } else {
+            double d;
+            memcpy(&d, &bits, 8);
+            *out_d = d;
+        }
+        *out_i = 0;
+    } else if (t.tag == TYPE_UINT8 || t.tag == TYPE_UINT16 ||
+               t.tag == TYPE_UINT32 || t.tag == TYPE_UINT64) {
+        *out_i = (int64_t)bits;
+        *out_d = (double)(uint64_t)bits;
+    } else {
+        /* Sign-extend from the stored width. */
+        int64_t sv = (int64_t)bits;
+        *out_i = (sv << (64 - sz * 8)) >> (64 - sz * 8);
+        *out_d = (double)*out_i;
+    }
+    return true;
+}
+
 static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
@@ -711,17 +760,56 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
             (*pos)++;
             return ec->value;
         }
+        /* An earlier global's value (object constants in constant
+         * expressions, e.g. `const char a = 0x42; ... (double) a`). */
+        {
+            bool g_is_f = false;
+            int64_t g_i = 0;
+            double g_d = 0.0;
+            if (zc_const_global_scalar(c, c->tokens[*pos].str_val, &g_is_f, &g_i, &g_d)) {
+                (*pos)++;
+                return g_i;
+            }
+        }
         return 0; /* unknown identifier in constant expression */
     }
     if (t == TK_LPAREN) {
         (*pos)++;
         if (zero_cc_tok_is_type_start(c, *pos)) {
-            /* Cast: (type) expr - skip the type, evaluate the operand. */
+            /* Cast: (type) expr - convert the operand to the cast type.
+             * The result is the value AS THE CAST TYPE (C99 6.5.4): a
+             * narrow unsigned cast yields the masked (non-negative)
+             * value, a narrow signed cast sign-extends.  Dropping the
+             * cast type (as before) made `(unsigned short)-4` evaluate
+             * to -4, so `unsigned long l = (unsigned short)-4;` stored
+             * 0xFFFFFFFFFFFFFFFC instead of 0xFFFC (c-torture
+             * execute/pr39240). */
             ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
-            (void)cast_ty;
             if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             int64_t val = parse_unary(c, pos);
-            return val;
+            uint64_t u = (uint64_t)val;
+            switch (cast_ty.tag) {
+                case TYPE_BOOL:
+                    u = u ? 1 : 0;
+                    break;
+                case TYPE_INT8:   u &= 0xFFULL;      u = (uint64_t)(((int64_t)(u << 56)) >> 56);
+                    break;
+                case TYPE_UINT8:  u &= 0xFFULL;
+                    break;
+                case TYPE_INT16:  u &= 0xFFFFULL;    u = (uint64_t)(((int64_t)(u << 48)) >> 48);
+                    break;
+                case TYPE_UINT16: u &= 0xFFFFULL;
+                    break;
+                case TYPE_INT32:  u &= 0xFFFFFFFFULL; u = (uint64_t)(((int64_t)(u << 32)) >> 32);
+                    break;
+                case TYPE_UINT32: u &= 0xFFFFFFFFULL;
+                    break;
+                case TYPE_INT64:
+                case TYPE_UINT64:
+                default:
+                    break;
+            }
+            return (int64_t)u;
         }
         int64_t val = parse_equality(c, pos);
         if (c->tokens[*pos].type == TK_RPAREN) {
@@ -744,6 +832,23 @@ static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos
             left = zero_cc_type_int(); /* comparison yields int */
         } else {
             break;
+        }
+    }
+    /* C99 6.5.15: conditional expression in a type context
+     * (`sizeof ((c ? a : b).c)`).  Both operands must be compatible;
+     * the result type is that of the (struct/union) operands. */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_QUESTION) {
+        (*pos)++;
+        ZeroCCType t = zero_cc_type_of_equality(c, pos);
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_COLON) (*pos)++;
+        ZeroCCType f = zero_cc_type_of_equality(c, pos);
+        if ((t.tag == TYPE_STRUCT && f.tag == TYPE_STRUCT) ||
+            (t.tag == TYPE_UNION && f.tag == TYPE_UNION)) {
+            left = t;
+        } else if (t.tag == f.tag) {
+            left = t;
+        } else {
+            left = zero_cc_type_int();
         }
     }
     return left;
@@ -963,8 +1068,21 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         /* Parenthesized expression */
         ZeroCCType ty = zero_cc_type_of_equality(c, pos);
         if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-        while (*pos < c->token_count && (c->tokens[*pos].type == TK_INC || c->tokens[*pos].type == TK_DEC)) {
-            (*pos)++;
+        /* Postfix after the closing paren: `++/--` and member access
+         * (`((c ? a : b).c)` - c-torture compile/20011106-2). */
+        while (*pos < c->token_count) {
+            ZeroCCTokType pt = c->tokens[*pos].type;
+            if (pt == TK_INC || pt == TK_DEC) { (*pos)++; continue; }
+            if (pt == TK_DOT || pt == TK_ARROW) {
+                (*pos)++;
+                if (c->tokens[*pos].type == TK_IDENT) {
+                    const char *mem_name = c->tokens[*pos].str_val;
+                    (*pos)++;
+                    ty = zero_cc_type_find_member(c, ty, mem_name);
+                }
+                continue;
+            }
+            break;
         }
         return ty;
     }
@@ -1153,6 +1271,45 @@ static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType 
     return zero_cc_type_int();
 }
 
+/* C99 6.5.9: the basic type specifiers may appear in ANY order, so
+ * `short int`, `short unsigned`, `unsigned short int`, `long unsigned`,
+ * `long signed`, `int unsigned`, `int signed`, `long long signed`, ...
+ * are all legal.  Consume the whole specifier window and derive the type
+ * from the SET of specifiers seen (order-insensitive), instead of the
+ * previous one-token-per-branch handling that left trailing specifiers
+ * unconsumed ("expected identifier in declaration" on `short int a;`). */
+static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos) {
+    int has_char = 0, has_short = 0, has_long = 0;
+    int has_float = 0, has_double = 0;
+    int n_unsigned = 0, n_signed = 0;
+    for (;;) {
+        ZeroCCTokType u = (*pos < c->token_count) ? c->tokens[*pos].type : TK_EOF;
+        if (u == TK_INT) { /* int - carries no extra information */ }
+        else if (u == TK_CHAR) has_char = 1;
+        else if (u == TK_SHORT) has_short = 1;
+        else if (u == TK_LONG) has_long++;
+        else if (u == TK_FLOAT_KW) has_float = 1;
+        else if (u == TK_DOUBLE_KW) has_double = 1;
+        else if (u == TK_UNSIGNED) n_unsigned++;
+        else if (u == TK_SIGNED) n_signed++;
+        /* Type qualifiers interleave with specifiers in any order
+         * (C99 6.7.1): `unsigned long long const`, `volatile unsigned
+         * int`, ... - they carry no effect on the scalar type here. */
+        else if (u == TK_CONST || u == TK_VOLATILE || u == TK_RESTRICT) { /* skip */ }
+        else break;
+        (*pos)++;
+    }
+    bool is_unsigned = (n_unsigned > 0) && (n_signed == 0);
+    if (has_double || has_float) {
+        if (has_double) return has_long ? zero_cc_type_long_double() : zero_cc_type_double();
+        return has_long ? zero_cc_type_long_double() : zero_cc_type_float();
+    }
+    if (has_char) return is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
+    if (has_short) return is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
+    if (has_long) return is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+    return is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+}
+
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
@@ -1217,31 +1374,15 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ty = zero_cc_type_int();
             (*pos)++;
         }
-    } else if (t == TK_INT) {
-        ty = zero_cc_type_int(); (*pos)++;
-    } else if (t == TK_CHAR) {
-        ty = zero_cc_type_char(); (*pos)++;
+    } else if (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
+               t == TK_FLOAT_KW || t == TK_DOUBLE_KW ||
+               t == TK_SIGNED || t == TK_UNSIGNED) {
+        /* Basic type specifier window in any order (C99 6.5.9). */
+        ty = zc_parse_basic_type_spec(c, pos);
     } else if (t == TK_VOID) {
         ty = zero_cc_type_void(); (*pos)++;
-    } else if (t == TK_FLOAT_KW) {
-        ty = zero_cc_type_float(); (*pos)++;
-    } else if (t == TK_DOUBLE_KW) {
-        ty = zero_cc_type_double(); (*pos)++;
     } else if (t == TK_BOOL_KW) {
         ty = zero_cc_type_bool(); (*pos)++;
-    } else if (t == TK_SHORT) {
-        ty = zero_cc_type_int16(); (*pos)++;
-    } else if (t == TK_LONG) {
-        (*pos)++;
-        if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) (*pos)++; /* long long */
-        if (*pos < c->token_count &&
-            (c->tokens[*pos].type == TK_DOUBLE_KW || c->tokens[*pos].type == TK_FLOAT_KW)) {
-            (*pos)++;
-            ty = zero_cc_type_long_double();
-        } else {
-            ty = zero_cc_type_int64();
-        }
-        if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* long int */
     } else if (t == TK_ATOMIC) {
         (*pos)++;
         if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
@@ -1303,6 +1444,12 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else {
         ty = zero_cc_type_int();
     }
+    /* Leading qualifiers attach to the BASE type, not the outermost
+     * pointer: `const char *ss` = pointer to const char (C99 6.7.3).
+     * Applied now, before pointer/array wrapping. */
+    if (q_const) ty.is_const = true;
+    if (q_volatile) ty.is_volatile = true;
+    if (q_restrict) ty.is_restrict = true;
     /* Vector attribute trailing the base specifier:
      * `short __attribute__((__vector_size__(16)))` / `V __zc_vector_size__(16)`.
      * Wraps the base type in a 128-bit vector before any pointer/array
@@ -1404,9 +1551,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         ZeroCCType elem_ty = ty;
         ty = zero_cc_type_array(&elem_ty, arr_len);
     }
-    ty.is_const = q_const;
-    ty.is_volatile = q_volatile;
-    ty.is_restrict = q_restrict;
+    (void)q_const; (void)q_volatile; (void)q_restrict; /* applied at the base type */
     return ty;
 }
 
@@ -1548,61 +1693,26 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             ty = zero_cc_parse_type_name(c);
         }
         ty.is_atomic = true;
-    } else if (c->tokens[c->token_pos].type == TK_SHORT) {
-        ty = zero_cc_type_int16();
-        c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED) {
-        bool is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
-        c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SHORT) {
-            ty = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
-            c->token_pos++;
-        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR) {
-            ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
-            c->token_pos++;
-        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
-            c->token_pos++;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
-            if (c->token_pos < c->token_count &&
-                (c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_FLOAT_KW)) {
-                c->token_pos++;
-                ty = zero_cc_type_long_double();
-            } else {
-                ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
-            }
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++; /* long [long] int */
-        } else {
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
-            ty = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
-        }
-    } else if (c->tokens[c->token_pos].type == TK_INT) {
-        ty = zero_cc_type_int();
-        c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_CHAR) {
-        ty = zero_cc_type_char();
-        c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_LONG) {
-        /* C99: long | long long | long double | long float |
-         * [signed|unsigned] long [long] [int] */
-        c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
-        if (c->token_pos < c->token_count &&
-            (c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_FLOAT_KW)) {
-            c->token_pos++;
-            ty = zero_cc_type_long_double();
-        } else if (c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
-            if (c->tokens[c->token_pos].type == TK_UNSIGNED) ty = zero_cc_type_uint64();
-            else ty = zero_cc_type_int64();
-            c->token_pos++;
-        } else {
-            ty = zero_cc_type_int64();
-        }
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_INT ||
+               c->tokens[c->token_pos].type == TK_CHAR ||
+               c->tokens[c->token_pos].type == TK_SHORT ||
+               c->tokens[c->token_pos].type == TK_LONG ||
+               c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+               c->tokens[c->token_pos].type == TK_DOUBLE_KW ||
+               c->tokens[c->token_pos].type == TK_SIGNED ||
+               c->tokens[c->token_pos].type == TK_UNSIGNED) {
+        /* Basic type specifier window in any order (C99 6.5.9). */
+        ty = zc_parse_basic_type_spec(c, &c->token_pos);
     } else {
         // default
         ty = zero_cc_type_int64();
     }
+    /* Leading qualifiers attach to the BASE type, not the outermost
+     * pointer: `const char *ss` = pointer to const char (C99 6.7.3).
+     * Applied now, before pointer/array wrapping. */
+    if (q_const) ty.is_const = true;
+    if (q_volatile) ty.is_volatile = true;
+    if (q_restrict) ty.is_restrict = true;
     /* Vector attribute trailing the base specifier: consume it (otherwise
      * the marker identifier would be read as the variable name) and wrap
      * the base type in a vector. Same for aligned(N): raise the type's
@@ -1748,9 +1858,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
-    ty.is_const = q_const;
-    ty.is_volatile = q_volatile;
-    ty.is_restrict = q_restrict;
+    (void)q_const; (void)q_volatile; (void)q_restrict; /* applied at the base type */
     return ty;
 }
 

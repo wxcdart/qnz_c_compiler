@@ -375,7 +375,9 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
     if (is_hex) scan_ptr += 2;
     while (*scan_ptr && (isxdigit((unsigned char)*scan_ptr) || *scan_ptr == '.' ||
            *scan_ptr == 'e' || *scan_ptr == 'E' || *scan_ptr == 'p' || *scan_ptr == 'P' ||
-           *scan_ptr == '+' || *scan_ptr == '-' || *scan_ptr == '\'')) {
+           *scan_ptr == '+' || *scan_ptr == '-' || *scan_ptr == '\'' ||
+           *scan_ptr == 'i' || *scan_ptr == 'I' || *scan_ptr == 'f' || *scan_ptr == 'F' ||
+           *scan_ptr == 'l' || *scan_ptr == 'L')) {
         if (*scan_ptr == '\'') {
             has_sep = true;
         }
@@ -439,13 +441,19 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
             s++; offset++; col++;
         }
 
-        /* Suffixes: f/F (float), l/L (long double) */
+        /* Suffixes: f/F (float), l/L (long double); a leading i/I marks a
+         * C99 6.2.5 imaginary literal (value is the IMAGINARY part): bit3.
+         * `1.0iF` -> 0 + 1.0i (float complex). */
         uint8_t suf = 0;
+        if (*s == 'i' || *s == 'I') {
+            suf = 8; /* complex (imaginary literal) */
+            s++; offset++; col++;
+        }
         if (*s == 'f' || *s == 'F') {
-            suf = 1; /* float */
+            suf |= 1; /* float */
             s++; offset++; col++;
         } else if (*s == 'l' || *s == 'L') {
-            suf = 2; /* long double */
+            suf |= 2; /* long double */
             s++; offset++; col++;
         }
         tok->int_suffix = suf;

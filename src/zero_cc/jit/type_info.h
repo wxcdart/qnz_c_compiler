@@ -16,6 +16,14 @@
 /* Parse and Compile a Top-Level Function */
 
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
+    /* Recursion guard: a self-referential struct (`struct S { ...; struct S
+     * *next; }`) yields a cycle through member bases (the completed pointee
+     * copy's member table points back at itself).  Past the depth limit a
+     * struct/union maps to a tag-only record (no fields), breaking the
+     * cycle; legitimate types nest far shallower than this. */
+    static int zc_t2ti_depth = 0;
+    bool zc_t2ti_break = (zc_t2ti_depth >= 48);
+    zc_t2ti_depth++;
     // Guard against uninitialized/corrupted types while allowing valid large arrays and structs.
     // NOTE: the threshold must comfortably exceed the largest legitimate struct.  zerocc's
     // own state struct (ZeroCCCompiler) is ~62 MB because it embeds large fixed arrays
@@ -32,10 +40,14 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
      * carries the element type (real part first, then imaginary). */
     if (t.is_complex) {
         ti = type_new(perm);
-        if (!ti) return type_int(perm);
+        if (!ti) {
+            zc_t2ti_depth--;
+            return type_int(perm);
+        }
         ti->kind = TYPE_KIND_COMPLEX;
         ti->details.array.base = t.base ? zero_cc_type_to_typeinfo(perm, *t.base) : type_double(perm);
         ti->details.array.count = 2;
+        zc_t2ti_depth--;
         return ti;
     }
     switch (t.tag) {
@@ -95,6 +107,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             }
             ti->details.record.size = t.size;
             ti->details.record.align = t.align;
+            if (zc_t2ti_break) break; /* cycle guard: no member expansion */
             for (size_t i = 0; i < t.member_count; i++) {
                 size_t nlen = strlen(t.members[i].name);
                 char *name_copy = (char *)arena_alloc(perm, nlen + 1);
@@ -201,6 +214,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         if (t.is_restrict) ti->modifiers |= TYPE_MOD_RESTRICT;
         if (t.is_atomic) ti->modifiers |= TYPE_MOD_ATOMIC;
     }
+    zc_t2ti_depth--;
     return ti;
 }
 

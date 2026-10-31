@@ -171,8 +171,14 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
         base->data_relocs[base->data_reloc_count].data_patch_offset += data_base;
         if (base->data_relocs[base->data_reloc_count].target_kind == 0) {
             base->data_relocs[base->data_reloc_count].rodata_offset += rodata_base;
-        } else if (base->data_relocs[base->data_reloc_count].target_kind == 1) {
-            base->data_relocs[base->data_reloc_count].target_data_offset += data_base;
+        } else if (base->data_relocs[base->data_reloc_count].target_kind == 1 ||
+                   base->data_relocs[base->data_reloc_count].target_kind == 4) {
+            /* Kind 1: target global's data offset rebases with the data base.
+             * Kind 4: absolute in-TU .data offset (static local) - the
+             * target moves with the patch site. The (size_t)-1 "global
+             * base" sentinel is resolved at patch time, not rebased. */
+            if (base->data_relocs[base->data_reloc_count].target_data_offset != (size_t)-1)
+                base->data_relocs[base->data_reloc_count].target_data_offset += data_base;
         }
         base->data_reloc_count++;
     }

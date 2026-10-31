@@ -604,7 +604,7 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
                                    : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < 8) {
+        if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < BE(c)->conv->fp_arg_reg_count) {
             fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
             fp_arg_idx++;
         }

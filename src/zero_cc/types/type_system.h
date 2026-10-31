@@ -223,7 +223,12 @@ typedef struct {
  *   target_kind 2: an object defined in ANOTHER translation unit, referenced
  *                  by name (target_extern_name). AOT: emitted as a .rela..
  *                  data relocation against the UND symbol; JIT: resolved
- *                  against the merged global-registry at patch time. */
+ *                  against the merged global-registry at patch time.
+ *   target_kind 3: a function symbol by name (target_extern_name).
+ *   target_kind 4: an absolute offset within this TU's .data (address of an
+ *                  in-TU static local; target_data_offset = the slot's
+ *                  .data offset). AOT: reloc against the .data section
+ *                  symbol; JIT: mem + data_offset + target_data_offset. */
 typedef struct {
     size_t data_patch_offset;
     int    target_kind;

@@ -928,7 +928,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int cidx = call_idx;
                 if (call_idx < c->lowering.ir_ctx.call_count) {
                     int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
-                    for (int f = 0; f < fp_count && f < 8; f++) {
+                    int fp_reg_cap = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
+                    for (int f = 0; f < fp_count && f < fp_reg_cap; f++) {
                         int32_t spill_off = c->lowering.ir_ctx.call_fp_spills[call_idx][f];
                         int fp_arg_reg = backend_get_fp_arg_reg(BE(c), f);
                         if (fp_arg_reg < 0) fp_arg_reg = f;

@@ -172,7 +172,17 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_FLOAT: {
-            if (node->aux.extra == 1) {
+            uint8_t vsuf = (uint8_t)(node->flags & 0xF);
+            if (vsuf & 8) {
+                TypeInfo *el = (vsuf & 1) ? type_float(ctx->perm_arena) :
+                                            type_double(ctx->perm_arena);
+                res = type_new(ctx->perm_arena);
+                if (res) {
+                    res->kind = TYPE_KIND_COMPLEX;
+                    res->details.array.base = el;
+                    res->details.array.count = 2;
+                }
+            } else if (vsuf & 1) {
                 res = type_float(ctx->perm_arena);
             } else {
                 res = type_double(ctx->perm_arena);
@@ -309,6 +319,25 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = type_double(ctx->perm_arena);
                 } else if (lt->kind == TYPE_KIND_FLOAT || rt->kind == TYPE_KIND_FLOAT) {
                     res = type_float(ctx->perm_arena);
+                } else if ((op == '+' || op == TK_PLUS || op == '-' || op == TK_MINUS) &&
+                           (type_is_array(lt) || type_is_array(rt)) &&
+                           (type_is_array(lt) || type_is_pointer(lt) || type_is_integer(lt)) &&
+                           (type_is_array(rt) || type_is_pointer(rt) || type_is_integer(rt))) {
+                    /* C99 6.3.2.1p3 + 6.5.6: an array operand decays to a
+                     * pointer to its element type (which may itself be an
+                     * array: `m + i` on char m[3][28] is char (*)[28]). */
+                    bool l_ptrish = type_is_array(lt) || type_is_pointer(lt);
+                    bool r_ptrish = type_is_array(rt) || type_is_pointer(rt);
+                    if (l_ptrish && r_ptrish) {
+                        res = (op == '-' || op == TK_MINUS) ? type_long(ctx->perm_arena)
+                              : (type_is_array(lt) ? type_pointer_to(ctx->perm_arena, lt->details.array.base) : lt);
+                    } else if (l_ptrish) {
+                        res = type_is_array(lt) ? type_pointer_to(ctx->perm_arena, lt->details.array.base) : lt;
+                    } else if (op == '+' || op == TK_PLUS) {
+                        res = type_pointer_to(ctx->perm_arena, rt->details.array.base);
+                    } else {
+                        res = type_common_arithmetic_type(ctx->perm_arena, lt, rt);
+                    }
                 } else if (type_is_pointer(lt) && type_is_pointer(rt)) {
                     /* Pointer-pointer operations (except comparisons which are handled above).
                      * C11 6.5.6p9: pointer - pointer yields ptrdiff_t (long), not a pointer. */
@@ -434,6 +463,20 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                        type_is_function(fn_t->details.pointer.base)) {
                 proto_t = fn_t->details.pointer.base;
                 res = proto_t->details.function.ret;
+            }
+            /* GNU part extractors require a complex operand: `__real(E)` /
+             * `__imag(E)` on a non-complex value is a constraint violation
+             * (GCC: "__real applied to a non-complex value").  Reject
+             * cleanly instead of lowering a scalar temp as an address. */
+            {
+                ZeroCCASTNode *pn = sem_get_node(ctx, node->left);
+                const char *pname = (pn && pn->tag == NODE_IDENT && pn->s.str) ? pn->s.str : NULL;
+                if (pname &&
+                    (strcmp(pname, "__real") == 0 || strcmp(pname, "__real__") == 0 ||
+                     strcmp(pname, "__imag") == 0 || strcmp(pname, "__imag__") == 0) &&
+                    (!first_arg_t || first_arg_t->kind != TYPE_KIND_COMPLEX)) {
+                    sem_node_error(ctx, node, "'%s' applied to a non-complex value", pname);
+                }
             }
             /* C99 6.7.5.3p6: when the callee has a prototype, the argument
              * count must match it (variadic: at least the named parameters).

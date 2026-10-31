@@ -77,8 +77,50 @@ static inline bool zero_cc_tk_def_via_aligned_marker(const ZeroCCCompiler *c, si
 
 /* Try to compile a top-level declaration (typedef struct, struct/union, etc.) */
 /* Returns true if a top-level declaration was consumed, false otherwise */
+/* Sprint 68: true when the token at `pos` is a struct/union definition
+ * (tag + body), possibly preceded by storage-class specifiers:
+ * `static struct S { ... } u;`, `const union { ... } v;`.  A bare
+ * `struct S *p;` (no body) is not a definition. */
+static inline bool zc_filescope_struct_def_at(ZeroCCCompiler *c, size_t pos) {
+    if (pos >= c->token_count) return false;
+    size_t sp = pos;
+    for (int k = 0; k < 8 && sp < c->token_count; k++) {
+        ZeroCCTokType sk = c->tokens[sp].type;
+        if (sk == TK_STATIC || sk == TK_INLINE || sk == TK_CONST ||
+            sk == TK_VOLATILE || sk == TK_RESTRICT) sp++;
+        else break;
+    }
+    if (sp >= c->token_count) return false;
+    if (c->tokens[sp].type != TK_STRUCT && c->tokens[sp].type != TK_UNION) return false;
+    if (sp + 1 >= c->token_count) return false;
+    if (c->tokens[sp + 1].type == TK_LBRACE) return true;
+    if (c->tokens[sp + 1].type == TK_IDENT &&
+        sp + 2 < c->token_count && c->tokens[sp + 2].type == TK_LBRACE) return true;
+    return zero_cc_tk_def_via_aligned_marker(c, sp);
+}
+
 static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
     if (c->token_pos >= c->token_count) return false;
+
+    /* Sprint 68: storage-class prefixes before a struct/union definition
+     * (`static struct S { ... } u;`): probe past the specifier run and
+     * treat it as a definition when the tag is followed by a body.  The
+     * prefix itself is consumed by zero_cc_stmt_typedef_struct. */
+    {
+        size_t sp = c->token_pos;
+        for (int k = 0; k < 8 && sp < c->token_count; k++) {
+            ZeroCCTokType sk = c->tokens[sp].type;
+            if (sk == TK_STATIC || sk == TK_INLINE || sk == TK_CONST ||
+                sk == TK_VOLATILE || sk == TK_RESTRICT) sp++;
+            else break;
+        }
+        if (sp > c->token_pos && sp < c->token_count &&
+            (c->tokens[sp].type == TK_STRUCT || c->tokens[sp].type == TK_UNION) &&
+            zc_filescope_struct_def_at(c, sp)) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        }
+    }
 
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
@@ -217,10 +259,22 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
         cast_esz = psz;
     }
     if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_AMP) {
-        c->token_pos = save;
-        return false;
+        /* A bare `ident [.member | [i]]*` primary (no &): an array or
+         * struct-member global decays to its address (c-torture compile/
+         * 930326-1: `long i = s.f - &s.b;`).  Only a known global
+         * identifier is accepted, so ordinary constant expressions are
+         * not swallowed. */
+        if (c->token_pos < c->token_count &&
+            c->tokens[c->token_pos].type == TK_IDENT &&
+            find_global_var(c->tokens[c->token_pos].str_val)) {
+            /* fall through to the IDENT branch below */
+        } else {
+            c->token_pos = save;
+            return false;
+        }
+    } else {
+        c->token_pos++;
     }
-    c->token_pos++;
     if (cast_esz > 0) a->esz = cast_esz;
     if (c->token_pos >= c->token_count) { c->token_pos = save; return false; }
     if (c->tokens[c->token_pos].type == TK_STRING) {
@@ -421,7 +475,10 @@ static inline int zc_eval_const_ptr_expr(ZeroCCCompiler *c, ZCPAddr *out, int64_
         if (t == TK_PLUS || t == TK_MINUS) {
             size_t p2 = c->token_pos + 1;
             bool minus = (t == TK_MINUS);
-            if (p2 < c->token_count && c->tokens[p2].type == TK_AMP) {
+            /* A cast prefix before the & is fine: zc_cpe_primary handles
+             * `(char *) &...` (c-torture compile/920928-1). */
+            if (p2 < c->token_count &&
+                (c->tokens[p2].type == TK_AMP || c->tokens[p2].type == TK_LPAREN)) {
                 /* pointer - pointer: same base -> integer difference */
                 ZCPAddr b;
                 size_t before = c->token_pos;
@@ -433,6 +490,8 @@ static inline int zc_eval_const_ptr_expr(ZeroCCCompiler *c, ZCPAddr *out, int64_
                     (a.kind != 0 || strcmp(a.base_str, b.base_str) == 0) &&
                     (a.kind != 2 || strcmp(a.ext_name, b.ext_name) == 0);
                 if (!same_base) { c->token_pos = save; return 0; }
+                /* Byte difference (c-torture forms cast to char*; the
+                 * common case). */
                 *diff_out = (a.off) - (b.off);
                 return 2;
             }
@@ -685,10 +744,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                (c->tokens[c->token_pos + 1].type == TK_IDENT &&
                 c->token_pos + 2 < c->token_count &&
                 (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
-            ((c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) &&
-             (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
-              (c->tokens[c->token_pos + 1].type == TK_IDENT && c->tokens[c->token_pos + 2].type == TK_LBRACE) ||
-              zero_cc_tk_def_via_aligned_marker(c, c->token_pos)))) {
+            zc_filescope_struct_def_at(c, c->token_pos)) {
             /* Sprint 65: `struct S { ... } name (params)` - a function
              * returning the struct (the `;` after the body is omitted when
              * a declarator follows).  The function parser handles the
@@ -858,6 +914,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             /* Check for static / inline keywords */
             bool is_static = false;
             bool is_thread_local = false;
+            bool gq_const = false, gq_volatile = false;
             while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_STATIC ||
                    c->tokens[c->token_pos].type == TK_INLINE ||
                    c->tokens[c->token_pos].type == TK_CONST ||
@@ -870,6 +927,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
                     is_thread_local = true;
                 }
+                if (c->tokens[c->token_pos].type == TK_CONST) gq_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) gq_volatile = true;
                 c->token_pos++;
             }
             if (is_thread_local) {
@@ -914,6 +973,14 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
             /* Parse type */
             ZeroCCType gtype = zero_cc_parse_type_name(c);
+            /* Trailing qualifiers after the type name: `unsigned long long
+             * const data[64]`, `void volatile f();` (C99 6.7.1). */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                c->token_pos++;
+            }
             if (global_align > 0) {
                 if (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION) {
                     ZeroCCType *st = zero_cc_find_struct(c, gtype.struct_name);
@@ -960,6 +1027,16 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
             for (int k = 0; k < consumed_ptrs &&
                              gtype_base.tag == TYPE_PTR && gtype_base.base; k++) {
                 gtype_base = *gtype_base.base;
+            }
+            /* A leading `const`/`volatile` consumed above qualifies the
+             * BASE type, not the pointer: `const char *ss` = pointer to
+             * const char (C99 6.7.3).  Walk to the innermost node so the
+             * change propagates through the allocated base chain. */
+            if (gq_const || gq_volatile) {
+                ZeroCCType *gb = &gtype;
+                while (gb->tag == TYPE_PTR && gb->base) gb = gb->base;
+                if (gq_const) { gb->is_const = true; gtype_base.is_const = true; }
+                if (gq_volatile) { gb->is_volatile = true; gtype_base.is_volatile = true; }
             }
             for (int pd = 0; pd < ptr_depth; pd++) {
                 gtype = zero_cc_type_ptr(&gtype);
@@ -1105,6 +1182,53 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             dr->target_data_offset = 0;
                             dr->target_global_idx = -1;
                             snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fn_name);
+                        } else if (c->tokens[c->token_pos].type == TK_AMP &&
+                                   c->token_pos + 1 < c->token_count &&
+                                   c->tokens[c->token_pos + 1].type == TK_IDENT &&
+                                   find_global_var(c->tokens[c->token_pos + 1].str_val) &&
+                                   c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                            /* `char (*p)[3] = &ca[0];` - address of a global
+                             * (array) object, optionally subscripted:
+                             * `&g` / `&g[N]` -> kind-1 data reloc with an
+                             * element-scaled addend (c-torture execute/
+                             * strlen-6). */
+                            c->token_pos++; /* '&' */
+                            char gv_name[128];
+                            snprintf(gv_name, sizeof(gv_name), "%s", c->tokens[c->token_pos].str_val);
+                            c->token_pos++;
+                            ZeroCCGlobalVar *gv = find_global_var(gv_name);
+                            int64_t addend = 0;
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_LBRACKET) {
+                                ZeroCCType gtt = gv ? gv->type : zero_cc_type_int();
+                                int64_t gesz = (gtt.tag == TYPE_ARRAY && gtt.base &&
+                                                gtt.base->size > 0) ?
+                                    (int64_t)gtt.base->size : (int64_t)(gtt.size > 0 ? gtt.size : 8);
+                                c->token_pos++; /* '[' */
+                                int64_t n = 0;
+                                if (c->token_pos < c->token_count &&
+                                    c->tokens[c->token_pos].type == TK_NUM) {
+                                    n = c->tokens[c->token_pos].num_val;
+                                    c->token_pos++;
+                                }
+                                if (c->token_pos < c->token_count &&
+                                    c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                                addend = n * gesz;
+                            }
+                            ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                            dr->data_patch_offset = voff;
+                            dr->target_kind = 1; /* .data global target */
+                            dr->rodata_offset = 0;
+                            /* Absolute data offset: the global's own
+                             * placement PLUS the element addend (the
+                             * patchers compute extra = target -
+                             * gv->data_offset; a bare addend of 0 would
+                             * become a NEGATIVE extra for any global not
+                             * at data offset 0). */
+                            dr->target_data_offset = (gv ? gv->data_offset : 0) +
+                                                     (size_t)(addend > 0 ? addend : 0);
+                            dr->target_global_idx = gv ? (int)(gv - global_vars) : -1;
+                            zero_cc_emit_u64(&c->data_section, 0);
                         } else if (c->tokens[c->token_pos].type == TK_IDENT &&
                                    zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
                                    c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
@@ -1149,8 +1273,13 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 if (!pdecl_handoff_fn) continue;
                 /* Function handoff: fall through to the function parser. */
             }
-            /* Expect identifier (skipped on function handoff) */
-            if (!pdecl_handoff_fn && c->tokens[c->token_pos].type == TK_IDENT) {
+            /* Expect identifier (skipped on function handoff); `true`/
+             * `false` count as names for a function declaration (C: they
+             * are identifiers unless <stdbool.h> is included). */
+            if (!pdecl_handoff_fn &&
+                (c->tokens[c->token_pos].type == TK_IDENT ||
+                 c->tokens[c->token_pos].type == TK_TRUE ||
+                 c->tokens[c->token_pos].type == TK_FALSE)) {
                 /* Check if this is a function (followed by '(') or variable */
                 if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                     /* This is a function definition, back up to start and let function parser handle it */
@@ -1336,13 +1465,50 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 c->token_pos = clit_brace_pos;
                                 it = TK_LBRACE;
                             }
+                            /* C99 6.7.2.3 complex scalar initializer:
+                             * `__complex__ double ag = 1.0 + 1.0i;` -
+                             * evaluate the constant expression as (re, im)
+                             * and emit the two halves (real first).  Must
+                             * precede the scalar float/integer branches,
+                             * which would mis-evaluate the `1.0i` operand. */
+                            if (gtype.is_complex && it != TK_LBRACE && it != TK_AMP) {
+                                double cre = 0.0, cim = 0.0;
+                                if (zero_cc_eval_const_expr_complex(c, &cre, &cim)) {
+                                    uint64_t rbits, ibits;
+                                    memcpy(&rbits, &cre, sizeof(rbits));
+                                    memcpy(&ibits, &cim, sizeof(ibits));
+                                    size_t half = 8;
+                                    if (gtype.base && gtype.base->size == 4) {
+                                        float fr = (float)cre, fi = (float)cim;
+                                        memcpy(&rbits, &fr, 4);
+                                        memcpy(&ibits, &fi, 4);
+                                        half = 4;
+                                    }
+                                    zero_cc_emit_scalar_bytes(&c->data_section, half, rbits);
+                                    zero_cc_emit_scalar_bytes(&c->data_section, half, ibits);
+                                    for (size_t i = 2 * half; i < size; i++) {
+                                        zero_cc_emit_u8(&c->data_section, 0);
+                                    }
+                                } else {
+                                    for (size_t i = 0; i < size; i++) {
+                                        zero_cc_emit_u8(&c->data_section, 0);
+                                    }
+                                }
+                                has_initializer = true;
+                                goto zc_ptr_init_done;
+                            }
                             /* Sprint 65: cast-prefixed pointer initializer
                              * `static struct Ustr *s1 = ((struct Ustr *) "");` /
                              * `struct c *cptr = (void *)&val;` - drop the
                              * `(type)` prefix (optionally double-parenthesized)
                              * so the existing STRING / AMP / constant branches
-                             * below apply (c-torture pr44038). */
+                             * below apply (c-torture pr44038).
+                             * POINTER TARGETS ONLY: for a scalar target the
+                             * cast is a VALUE conversion (`(unsigned short)-4`
+                             * = 0xFFFC, pr39240) and must reach the float/int
+                             * constant evaluators intact. */
                             if (it == TK_LPAREN && !is_clit &&
+                                (gtype.tag == TYPE_PTR || ptr_depth > 0) &&
                                 c->token_pos + 2 < c->token_count) {
                                 size_t tp = c->token_pos + 1;
                                 if (tp < c->token_count && c->tokens[tp].type == TK_LPAREN) {
@@ -1926,6 +2092,55 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 for (size_t i = 0; i < size; i++) zero_cc_emit_u8(&c->data_section, 0);
                                 }
                             }
+                            } else if (it == TK_IDENT && !has_array_suffix &&
+                                       (gtype.tag == TYPE_PTR || ptr_depth > 0)) {
+                                /* Bare global reference as a pointer
+                                 * initializer: `int *p = arr;` (an array
+                                 * decays to its address) or `int **q = f;`
+                                 * (a function designator decays).
+                                 * (c-torture execute/longlong, execute/
+                                 * builtin-prefetch-2/5). */
+                                char ref_name[128];
+                                snprintf(ref_name, sizeof(ref_name), "%s", c->tokens[c->token_pos].str_val);
+                                c->token_pos++;
+                                ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
+                                int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                ZeroCCFunction *ref_fn = NULL;
+                                if (ref_idx < 0) {
+                                    for (size_t fi = 0; fi < c->function_count; fi++) {
+                                        if (strcmp(c->functions[fi].name, ref_name) == 0) {
+                                            ref_fn = &c->functions[fi];
+                                            break;
+                                        }
+                                    }
+                                }
+                                zero_cc_emit_u64(&c->data_section, 0);
+                                if (ref_idx >= 0 || ref_fn) {
+                                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                        dr->data_patch_offset = var_offset;
+                                        dr->rodata_offset = 0;
+                                        dr->target_global_idx = -1;
+                                        if (ref_idx >= 0) {
+                                            dr->target_kind = 1; /* .data global */
+                                            /* (size_t)-1 = "the target
+                                             * global's own storage base"
+                                             * (resolved to the final
+                                             * data_offset at patch time -
+                                             * the target's offset may not
+                                             * be final yet, and 0 would
+                                             * mean "byte 0 of .data"). */
+                                            dr->target_data_offset = (size_t)-1;
+                                            dr->target_global_idx = ref_idx;
+                                        } else {
+                                            dr->target_kind = 3; /* function symbol */
+                                            snprintf(dr->target_extern_name,
+                                                     sizeof(dr->target_extern_name),
+                                                     "%s", ref_name);
+                                        }
+                                    }
+                                }
+                                size = 8;
                             } else if (it == TK_FLOAT ||
                                        (elem_size == 4 && gtype.tag == TYPE_FLOAT) ||
                                        (elem_size == 8 && gtype.tag == TYPE_DOUBLE) ||
@@ -1949,8 +2164,25 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     zero_cc_emit_u8(&c->data_section, 0);
                                 }
                             } else {
-                                /* Integer scalar initializer */
-                                int64_t init_val = zero_cc_eval_const_expr(c);
+                                /* Integer scalar initializer.  A pointer
+                                 * difference expression (`s.f - &s.b`,
+                                 * c-torture compile/930326-1) is not a
+                                 * constant expression - try the constant
+                                 * pointer evaluator first (returns 2 for a
+                                 * pointer-pointer difference). */
+                                int64_t init_val;
+                                {
+                                    ZCPAddr cpa2;
+                                    int64_t cdiff2 = 0;
+                                    size_t cpe_save = c->token_pos;
+                                    int pr2 = zc_eval_const_ptr_expr(c, &cpa2, &cdiff2);
+                                    if (pr2 == 2) {
+                                        init_val = cdiff2;
+                                    } else {
+                                        c->token_pos = cpe_save;
+                                        init_val = zero_cc_eval_const_expr(c);
+                                    }
+                                }
                                 zero_cc_emit_scalar_bytes(&c->data_section, elem_size > 8 ? 8 : elem_size, (uint64_t)init_val);
                                 for (size_t i = elem_size; i < size; i++) {
                                     zero_cc_emit_u8(&c->data_section, 0);

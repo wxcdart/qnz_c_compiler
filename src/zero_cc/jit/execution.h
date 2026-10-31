@@ -128,11 +128,14 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         uintptr_t target;
         if (dr->target_kind == 1) {
             /* Global object target: respect BSS placement (the target's
-             * data_offset is within the .bss page, not .data). */
+             * data_offset is within the .bss page, not .data). The
+             * (size_t)-1 sentinel means "the target's own storage base"
+             * (resolve the final data_offset now). */
             ZeroCCGlobalVar *tv = &global_vars[dr->target_global_idx];
+            size_t t_off = (dr->target_data_offset == (size_t)-1)
+                ? tv->data_offset : dr->target_data_offset;
             target = (uintptr_t)((char *)mem +
-                (tv->is_bss ? bss_offset : data_offset) +
-                dr->target_data_offset);
+                (tv->is_bss ? bss_offset : data_offset) + t_off);
         } else if (dr->target_kind == 2) {
             /* Extern object defined in another TU: resolved against the
              * (merged) global registry at patch time. */
@@ -150,6 +153,9 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                     break;
                 }
             }
+        } else if (dr->target_kind == 4) {
+            /* Absolute .data offset: address of an in-TU static local. */
+            target = (uintptr_t)((char *)mem + data_offset + dr->target_data_offset);
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset + dr->target_data_offset);
         }

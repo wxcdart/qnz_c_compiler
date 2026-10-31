@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-31T15:59:54Z",
+ "generated": "2026-10-31T20:29:02Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -245,12 +245,12 @@
    "note": ""
   },
   "compile/20000605-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000606-1.c": {
    "class": "REJECT",
@@ -461,12 +461,12 @@
    "note": "    ^; Compile error: VLA must be at function scope, not in nested blocks (hybrid VLA rule) | cfgs: O0-aot,O2-aot"
   },
   "compile/20001222-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: expected ';' after return statement (near 'i') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001226-1.c": {
    "class": "REJECT",
@@ -573,12 +573,12 @@
    "note": ""
   },
   "compile/20010209-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010226-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -860,12 +860,12 @@
    "note": ""
   },
   "compile/20011106-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011109-1.c": {
    "class": "PASS",
@@ -1100,12 +1100,12 @@
    "note": ""
   },
   "compile/20020304-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20020304-2.c": {
    "class": "PASS",
@@ -1172,12 +1172,12 @@
    "note": ""
   },
   "compile/20020320-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: static local 'p' initializer must be a constant literal (complex initializers not yet supported) (near 'x') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020323-1.c": {
    "class": "PASS",
@@ -1643,12 +1643,12 @@
    "note": ""
   },
   "compile/20030530-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030530-3.c": {
    "class": "PASS",
@@ -2295,12 +2295,12 @@
    "note": ""
   },
   "compile/20040727-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040730-1.c": {
    "class": "PASS",
@@ -2622,7 +2622,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer | cfgs: O0-aot,O2-aot"
   },
   "compile/20060208-1.c": {
    "class": "PASS",
@@ -2633,12 +2633,12 @@
    "note": ""
   },
   "compile/20060215-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20060217-1.c": {
    "class": "REJECT",
@@ -2857,12 +2857,12 @@
    "note": ""
   },
   "compile/20070915-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20070919-1.c": {
    "class": "PASS",
@@ -3049,20 +3049,20 @@
    "note": ""
   },
   "compile/20080820-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080903-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080910-1.c": {
    "class": "SKIP-C89",
@@ -3073,12 +3073,12 @@
    "note": "                                               ^; Compile error: use of undeclared identifier 'addlit' | cfgs: O0-aot,O2-aot"
   },
   "compile/20080922-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080929-1.c": {
    "class": "PASS",
@@ -3790,12 +3790,12 @@
    "note": ""
   },
   "compile/920428-6.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-7.c": {
    "class": "SKIP-C89",
@@ -3888,7 +3888,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-20.c": {
    "class": "SKIP-C89",
@@ -4079,12 +4079,12 @@
    "note": ""
   },
   "compile/920701-1.c": {
-   "class": "PASS",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": ""
+   "note": "                                        ^; Compile error: incompatible return type in return statement | cfgs: O0-aot,O2-aot"
   },
   "compile/920702-1.c": {
    "class": "PASS",
@@ -4262,12 +4262,12 @@
    "note": ""
   },
   "compile/920928-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920928-2.c": {
    "class": "SKIP-C89",
@@ -4302,12 +4302,12 @@
    "note": ""
   },
   "compile/920928-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                            ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/921004-1.c": {
    "class": "PASS",
@@ -4571,12 +4571,12 @@
    "note": ""
   },
   "compile/930326-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                    ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930411-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -5752,12 +5752,12 @@
    "note": ""
   },
   "compile/BUG23.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG24.c": {
    "class": "SKIP-C89",
@@ -6311,12 +6311,12 @@
    "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/bitf.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bitfield-1.c": {
    "class": "SKIP-TARGET:int128",
@@ -6477,7 +6477,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/charmtst.c": {
    "class": "PASS",
@@ -9003,12 +9003,12 @@
    "note": ""
   },
   "compile/pr19853.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                         ^; Compile error: unexpected token in brace initializer (near 'global_int') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr20203.c": {
    "class": "PASS",
@@ -9303,12 +9303,12 @@
    "note": ""
   },
   "compile/pr25311.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr25483.c": {
    "class": "PASS",
@@ -9557,7 +9557,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: use of undeclared identifier 'meta_window_constrain' | cfgs: O0-aot,O2-aot"
+   "note": "                    ^; Compile error: use of undeclared identifier 'meta_window_constrain' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr29241.c": {
    "class": "REJECT",
@@ -9863,7 +9863,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                ^; Compile error: initialization of flexible array member 'searchconfig' | cfgs: O0-aot,O2-aot"
+   "note": "                 ^; Compile error: initialization of flexible array member 'searchconfig' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr33614.c": {
    "class": "PASS",
@@ -9962,12 +9962,12 @@
    "note": ""
   },
   "compile/pr34448.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token in brace initializer (near 'ASN1_group_oid_str') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34458.c": {
    "class": "PASS",
@@ -9983,7 +9983,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                     ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr34688.c": {
    "class": "SKIP-C89",
@@ -9991,7 +9991,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                            ^; Compile error: unexpected token in brace initializer (near 'strfilter_convert_filter') | cfgs: O0-aot,O2-aot"
+   "note": "                                     ^; Compile error: unexpected token in brace initializer (near 'strfilter_convert_filter') | cfgs: O0-aot,O2-aot"
   },
   "compile/pr34808.c": {
    "class": "PASS",
@@ -10210,12 +10210,12 @@
    "note": ""
   },
   "compile/pr37056.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37078.c": {
    "class": "PASS",
@@ -10260,12 +10260,12 @@
    "note": ""
   },
   "compile/pr37341.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37380.c": {
    "class": "PASS",
@@ -10484,20 +10484,20 @@
    "note": ""
   },
   "compile/pr38343-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr38343.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr38359.c": {
    "class": "PASS",
@@ -10585,12 +10585,12 @@
    "note": ""
   },
   "compile/pr38752.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr38771.c": {
    "class": "PASS",
@@ -10649,12 +10649,12 @@
    "note": ""
   },
   "compile/pr39360.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                               ^; Compile error: static local 'c' initializer must be a constant literal (complex initializers not yet supported) (near 'a') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39394.c": {
    "class": "SKIP-C89",
@@ -10777,12 +10777,12 @@
    "note": ""
   },
   "compile/pr39845.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39886.c": {
    "class": "PASS",
@@ -10873,12 +10873,12 @@
    "note": ""
   },
   "compile/pr40080.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                   ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr40204.c": {
    "class": "PASS",
@@ -11166,7 +11166,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42196-2.c": {
    "class": "SKIP-C89",
@@ -11174,23 +11174,23 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42196-3.c": {
-   "class": "PASS",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": ""
+   "note": "                       ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42196-4.c": {
-   "class": "PASS",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": ""
+   "note": "                       ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42234.c": {
    "class": "PASS",
@@ -11315,7 +11315,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                         ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                                         ^; Compile error: use of undeclared identifier 'e' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42998.c": {
    "class": "PASS",
@@ -11504,7 +11504,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                          ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": "                                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44246.c": {
    "class": "SKIP-C89",
@@ -11539,12 +11539,12 @@
    "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44784.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44788.c": {
    "class": "PASS",
@@ -11611,12 +11611,12 @@
    "note": ""
   },
   "compile/pr45059.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr45109.c": {
    "class": "PASS",
@@ -11675,12 +11675,12 @@
    "note": ""
   },
   "compile/pr45919.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr45969-1.c": {
    "class": "PASS",
@@ -11781,12 +11781,12 @@
    "note": ""
   },
   "compile/pr46866.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                              ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr46883.c": {
    "class": "PASS",
@@ -12067,7 +12067,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                      ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
   },
   "compile/pr50565-2.c": {
    "class": "SKIP-C89",
@@ -12075,7 +12075,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                      ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
   },
   "compile/pr50650.c": {
    "class": "PASS",
@@ -12386,12 +12386,12 @@
    "note": ""
   },
   "compile/pr53519.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr53748.c": {
    "class": "PASS",
@@ -12466,12 +12466,12 @@
    "note": ""
   },
   "compile/pr54428.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr54552-1.c": {
    "class": "REJECT",
@@ -12482,12 +12482,12 @@
    "note": "                                                           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr54559.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr54713-1.c": {
    "class": "PASS",
@@ -12514,12 +12514,12 @@
    "note": ""
   },
   "compile/pr54925.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: incompatible return type in return statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr55273.c": {
    "class": "PASS",
@@ -13387,12 +13387,12 @@
    "note": ""
   },
   "compile/pr72742.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr72749.c": {
    "class": "PASS",
@@ -13499,12 +13499,12 @@
    "note": ""
   },
   "compile/pr78439.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr78527.c": {
    "class": "PASS",
@@ -13738,12 +13738,12 @@
    "note": ""
   },
   "compile/pr82381.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr82389.c": {
    "class": "PASS",
@@ -13850,12 +13850,12 @@
    "note": ""
   },
   "compile/pr83222.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr83448.c": {
    "class": "PASS",
@@ -14403,12 +14403,12 @@
    "note": ""
   },
   "compile/pr94179.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: incompatible return type in return statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr94238.c": {
    "class": "PASS",
@@ -14475,12 +14475,12 @@
    "note": ""
   },
   "compile/pr97144.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr97205.c": {
    "class": "PASS",
@@ -14645,7 +14645,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/ptr-conv-1.c": {
    "class": "PASS",
@@ -15812,18 +15812,18 @@
    "note": ""
   },
   "execute/20000217-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000223-1.c": {
    "class": "SKIP-C89",
@@ -15966,18 +15966,18 @@
    "note": ""
   },
   "execute/20000412-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000412-2.c": {
    "class": "PASS",
@@ -16554,18 +16554,18 @@
    "note": ""
   },
   "execute/20000815-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000818-1.c": {
    "class": "PASS",
@@ -16629,18 +16629,18 @@
    "note": ""
   },
   "execute/20000914-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                ^; Compile error: void function should not return a value | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -17428,18 +17428,18 @@
    "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20011019-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: incompatible return type in return statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20011024-1.c": {
    "class": "PASS",
@@ -17848,18 +17848,18 @@
    "note": ""
   },
   "execute/20020227-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020307-1.c": {
    "class": "PASS",
@@ -19048,18 +19048,18 @@
    "note": ""
   },
   "execute/20030828-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030828-2.c": {
    "class": "PASS",
@@ -19384,18 +19384,18 @@
    "note": ""
   },
   "execute/20040218-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040223-1.c": {
    "class": "SKIP-C89",
@@ -19935,18 +19935,18 @@
    "note": ""
   },
   "execute/20041114-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20041124-1.c": {
    "class": "SKIP-C89",
@@ -20838,7 +20838,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20070623-1.c": {
    "class": "PASS",
@@ -20967,18 +20967,18 @@
    "note": ""
   },
   "execute/20071120-1.c": {
-   "class": "SKIP-C89",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": "                              ^; Compile error: unexpected token in brace initializer (near 'deferred_access_no_check') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "ref(rc=0 out='') O2 got rc=-11 out='' | cfgs: O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20071202-1.c": {
    "class": "PASS",
@@ -21346,32 +21346,32 @@
    "note": ""
   },
   "execute/20090113-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20090113-3.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20090207-1.c": {
    "class": "PASS",
@@ -21500,18 +21500,18 @@
    "note": ""
   },
   "execute/20100416-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                   ^; Compile error: unsized array of struct with no initializer list is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20100430-1.c": {
    "class": "PASS",
@@ -21780,18 +21780,18 @@
    "note": ""
   },
   "execute/20120919-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                 ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20121108-1.c": {
    "class": "SKIP-C89",
@@ -22074,18 +22074,18 @@
    "note": ""
   },
   "execute/20180921-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20181120-1.c": {
    "class": "PASS",
@@ -22127,7 +22127,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20190901-1.c": {
    "class": "PASS",
@@ -25161,7 +25161,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                             ^; Compile error: unexpected token in brace initializer (near 'nil') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                        ^; Compile error: unexpected token in brace initializer (near 'cons1') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/980424-1.c": {
    "class": "PASS",
@@ -26000,18 +26000,18 @@
    "note": ""
   },
   "execute/991201-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                    ^; Compile error: unexpected token in brace initializer (near 'a_con') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/991202-1.c": {
    "class": "PASS",
@@ -26350,32 +26350,32 @@
    "note": ""
   },
   "execute/ashldi-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ashrdi-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/bcp-1.c": {
    "class": "PASS",
@@ -26719,32 +26719,32 @@
    "note": ""
   },
   "execute/builtin-prefetch-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                         ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/builtin-prefetch-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                           ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/builtin-prefetch-4.c": {
    "class": "PASS",
@@ -26761,18 +26761,18 @@
    "note": ""
   },
   "execute/builtin-prefetch-5.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                    ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/builtin-prefetch-6.c": {
    "class": "PASS",
@@ -27674,32 +27674,32 @@
    "note": ""
   },
   "execute/complex-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                 ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/complex-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                          ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/complex-3.c": {
    "class": "PASS",
@@ -27741,7 +27741,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                               ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/complex-6.c": {
    "class": "SKIP-C89",
@@ -27755,21 +27755,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/complex-7.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/compndlit-1.c": {
    "class": "SKIP-C89",
@@ -28071,18 +28071,18 @@
    "note": ""
   },
   "execute/ffs-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                               ^; Compile error: unsized array of struct with no initializer list is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/float-floor.c": {
    "class": "PASS",
@@ -28202,18 +28202,18 @@
    "note": ""
   },
   "execute/ieee/20001122-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/20010114-2.c": {
    "class": "PASS",
@@ -28926,18 +28926,18 @@
    "note": ""
   },
   "execute/ieee/mul-subnormal-single-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                          ^; Compile error: unsized array of struct with no initializer list is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/mzero2.c": {
    "class": "PASS",
@@ -29343,7 +29343,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ipa-sra-1.c": {
    "class": "PASS",
@@ -29374,18 +29374,18 @@
    "note": ""
   },
   "execute/longlong.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                  ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/loop-1.c": {
    "class": "PASS",
@@ -29710,18 +29710,18 @@
    "note": ""
   },
   "execute/loop-9.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/loop-ivopts-1.c": {
    "class": "REJECT",
@@ -29752,32 +29752,32 @@
    "note": ""
   },
   "execute/lshrdi-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/lto-tbaa-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                   ^; Compile error: unexpected token in brace initializer (near 'e') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/mayalias-1.c": {
    "class": "PASS",
@@ -29878,74 +29878,38 @@
    "note": ""
   },
   "execute/memcpy-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/memcpy-a1.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a2.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a4.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a8.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-bi.c": {
    "class": "PASS",
@@ -29962,46 +29926,46 @@
    "note": ""
   },
   "execute/memset-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "          ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/memset-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/memset-3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/memset-4.c": {
    "class": "PASS",
@@ -31482,18 +31446,18 @@
    "note": ""
   },
   "execute/pr125291.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                         ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr126405-2.c": {
    "class": "REJECT",
@@ -32117,18 +32081,18 @@
    "note": ""
   },
   "execute/pr23324.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                 ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr23467.c": {
    "class": "REJECT",
@@ -32771,18 +32735,18 @@
    "note": ""
   },
   "execute/pr33870.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr33992.c": {
    "class": "PASS",
@@ -33485,18 +33449,18 @@
    "note": ""
   },
   "execute/pr39240.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr39339.c": {
    "class": "PASS",
@@ -33529,7 +33493,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr40057.c": {
    "class": "PASS",
@@ -34601,18 +34565,18 @@
    "note": ""
   },
   "execute/pr49123.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                          ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49161.c": {
    "class": "PASS",
@@ -34713,18 +34677,18 @@
    "note": ""
   },
   "execute/pr49644.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: expected ';' after declaration of 'a' (near 'i') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49712.c": {
    "class": "PASS",
@@ -34783,18 +34747,18 @@
    "note": ""
   },
   "execute/pr51023.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr51323.c": {
    "class": "PASS",
@@ -35532,7 +35496,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr58364.c": {
    "class": "PASS",
@@ -36833,18 +36797,18 @@
    "note": ""
   },
   "execute/pr68532.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr68624.c": {
    "class": "PASS",
@@ -37026,7 +36990,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token in brace initializer (near 'u') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr70005.c": {
    "class": "PASS",
@@ -37655,18 +37619,18 @@
    "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr80153.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr80421.c": {
    "class": "SKIP-C89",
@@ -38239,18 +38203,18 @@
    "note": ""
   },
   "execute/pr86714.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                 ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr86844.c": {
    "class": "PASS",
@@ -38267,18 +38231,18 @@
    "note": ""
   },
   "execute/pr87053.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr87290.c": {
    "class": "PASS",
@@ -39659,32 +39623,32 @@
    "note": "         ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strcmp-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strcpy-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strcpy-2.c": {
    "class": "PASS",
@@ -39827,18 +39791,18 @@
    "note": ""
   },
   "execute/strlen-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "          ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strlen-2.c": {
    "class": "PASS",
@@ -39869,18 +39833,18 @@
    "note": ""
   },
   "execute/strlen-4.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token in brace initializer (near 'a') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strlen-5.c": {
    "class": "PASS",
@@ -39897,18 +39861,18 @@
    "note": ""
   },
   "execute/strlen-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                            ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strlen-7.c": {
    "class": "PASS",
@@ -39925,18 +39889,18 @@
    "note": ""
   },
   "execute/strncmp-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/struct-aliasing-1.c": {
    "class": "PASS",
@@ -40786,12 +40750,13 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 182,
-  "PASS": 2789,
+  "MISCOMPILE": 1,
+  "NO-REF": 186,
+  "PASS": 2864,
   "REF-BUG": 2,
-  "REJECT": 223,
+  "REJECT": 151,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 589,
+  "SKIP-C89": 571,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40803,6 +40768,7 @@
   "SKIP-TARGET:return_address": 7,
   "SKIP-TARGET:trampolines": 16,
   "SKIP-TARGET:untyped_assembly": 40,
-  "SKIP-TARGET:unwrapped": 2
+  "SKIP-TARGET:unwrapped": 2,
+  "TIMEOUT": 10
  }
 }

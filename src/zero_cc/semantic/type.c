@@ -284,6 +284,9 @@ size_t type_size(const TypeInfo *t) {
             return t->details.record.size;
         case TYPE_KIND_ENUM:
             return 4;
+        case TYPE_KIND_COMPLEX:
+            /* Two-element object: real half first, then imaginary. */
+            return 2 * type_size(t->details.array.base);
         default:
             return 0;
     }
@@ -329,6 +332,14 @@ size_t type_align(const TypeInfo *t) {
             return t->details.record.align ? t->details.record.align : 1;
         case TYPE_KIND_ENUM:
             return 4;
+        case TYPE_KIND_COMPLEX: {
+            /* Matches GCC on x86-64: _Alignof(_Complex double) = 16,
+             * _Alignof(_Complex float) = 8. */
+            size_t ea = type_align(t->details.array.base);
+            size_t es = type_size(t->details.array.base);
+            if (es == 8) return 16;
+            return ea > es ? ea : es;
+        }
         default:
             return 1;
     }

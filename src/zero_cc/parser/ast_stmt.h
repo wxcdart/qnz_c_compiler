@@ -308,25 +308,142 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                                        fam_extra);
         return true;
     }
-    if (is_float) {
-        if (t != TK_FLOAT && t != TK_NUM) return false;
-        double dv = (t == TK_FLOAT) ? (double)c->tokens[c->token_pos].float_val :
-            (double)c->tokens[c->token_pos].num_val;
-        c->token_pos++;
-        uint64_t bits;
-        size_t width;
-        if (sym->type.tag == TYPE_FLOAT) {
-            float fv = (float)dv;
-            bits = 0;
-            memcpy(&bits, &fv, sizeof(fv));
-            width = 4;
-        } else {
-            memcpy(&bits, &dv, sizeof(bits));
-            width = 8;
+    /* Static-local pointer: `static int *hx = gx;` (an array global decays
+     * to its address), `static const char *p = "x";`, `static T *q = &g;`
+     * (c-torture execute/builtin-prefetch-2) - bake an 8-byte slot patched
+     * by a data reloc. */
+    if (sym->type.tag == TYPE_PTR) {
+        size_t save = c->token_pos;
+        bool ok = false;
+        if (c->token_pos < c->token_count &&
+            (c->tokens[c->token_pos].type == TK_AMP ||
+             c->tokens[c->token_pos].type == TK_IDENT ||
+             c->tokens[c->token_pos].type == TK_STRING)) {
+            ZeroCCDataReloc *dr = NULL;
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                dr = &c->data_relocs[c->data_reloc_count];
+                memset(dr, 0, sizeof(*dr));
+                dr->data_patch_offset = sym->static_data_offset;
+                dr->rodata_offset = 0;
+                dr->target_data_offset = 0;
+                dr->target_global_idx = -1;
+            }
+            size_t cap_end = sym->static_data_offset + 8;
+            if (c->data_section.length < cap_end) {
+                zero_cc_buf_ensure(&c->data_section, cap_end - c->data_section.length);
+                c->data_section.length = cap_end;
+            }
+            if (dr) dr->data_patch_offset = sym->static_data_offset;
+            if (c->tokens[c->token_pos].type == TK_AMP) {
+                c->token_pos++;
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_IDENT) {
+                    char nm[128];
+                    snprintf(nm, sizeof(nm), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                    ZeroCCGlobalVar *gv = find_global_var(nm);
+                    if (gv) {
+                        if (dr) {
+                            dr->target_kind = 1;
+                            dr->target_global_idx = (int)(gv - global_vars);
+                        }
+                        ok = true;
+                    }
+                }
+            } else if (c->tokens[c->token_pos].type == TK_STRING) {
+                const char *sv = c->tokens[c->token_pos].allocated_str ?
+                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
+                size_t slen = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1;
+                c->token_pos++;
+                size_t ro_off = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, sv, slen);
+                if (dr) {
+                    dr->target_kind = 0;
+                    dr->rodata_offset = ro_off;
+                }
+                ok = true;
+            } else {
+                char nm[128];
+                snprintf(nm, sizeof(nm), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                /* Address of an in-TU static local (e.g. `static int *hx = gx;`):
+                 * kind-4 data-reloc with an absolute .data offset. */
+                for (size_t li = c->local_count; li > 0; li--) {
+                    ZeroCCSym *ls = &c->locals[li - 1];
+                    if (strcmp(ls->name, nm) == 0 && ls->is_static_local) {
+                        if (dr) {
+                            dr->target_kind = 4;
+                            dr->target_data_offset = ls->static_data_offset;
+                        }
+                        ok = true;
+                        break;
+                    }
+                }
+                if (!ok) {
+                    ZeroCCGlobalVar *gv = find_global_var(nm);
+                    if (gv) {
+                        if (dr) {
+                            dr->target_kind = 1;
+                            dr->target_global_idx = (int)(gv - global_vars);
+                        }
+                        ok = true;
+                    } else {
+                        /* Cross-TU extern (declared in the function table) or
+                         * a function designator. */
+                        bool ext = false;
+                        for (size_t fi = 0; fi < c->function_count; fi++) {
+                            if (strcmp(c->functions[fi].name, nm) == 0) { ext = true; break; }
+                        }
+                        if (ext) {
+                            if (dr) {
+                                dr->target_kind = 3; /* function/extern symbol by name */
+                                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", nm);
+                            }
+                            ok = true;
+                        }
+                    }
+                }
+            }
+            if (ok && dr) {
+                c->data_reloc_count++;
+                uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+                memset(dst, 0, 8);
+                return true;
+            }
         }
-        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
-        for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
-        return true;
+        c->token_pos = save;
+        return false;
+    }
+    if (is_float) {
+        /* Full constant expression (casts + global references, e.g.
+         * `static const double k = (double) a;` - c-torture compile/
+         * pr83222). */
+        size_t start = c->token_pos;
+        double dv = zero_cc_eval_const_expr_float(c);
+        if (c->token_pos != start) {
+            ZeroCCTokType after = (c->token_pos < c->token_count) ? c->tokens[c->token_pos].type : TK_EOF;
+            if (after != TK_SEMI) { c->token_pos = start; return false; }
+            uint64_t bits;
+            size_t width;
+            if (sym->type.tag == TYPE_FLOAT) {
+                float fv = (float)dv;
+                bits = 0;
+                memcpy(&bits, &fv, sizeof(fv));
+                width = 4;
+            } else {
+                memcpy(&bits, &dv, sizeof(bits));
+                width = 8;
+            }
+            uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+            size_t cap_end = sym->static_data_offset + width;
+            if (c->data_section.length < cap_end) {
+                zero_cc_buf_ensure(&c->data_section, cap_end - c->data_section.length);
+                c->data_section.length = cap_end;
+            }
+            for (size_t i = 0; i < width; i++) dst[i] = (uint8_t)(bits >> (8 * i));
+            return true;
+        }
+        return false;
     }
     /* Static-local scalar: accept any compile-time constant expression
      * (literals, shifts, bitwise/arith ops, enum constants, parenthesized
@@ -1015,6 +1132,26 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         if (prefix_complex) {
             c->token_pos++;
             ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            /* The type-name parser also consumes pointer suffixes
+             * (`double *` in `_Complex double *c`), but for a local
+             * declaration the declarator stack below must own those
+             * stars: `_Complex double *c` is a POINTER TO complex, not
+             * a complex of pointers.  Walk the position back over the
+             * consumed [star (qualifiers|attrs)]* suffix - the base
+             * specifier's last token is always a type keyword, so the
+             * walk stops exactly at its end. */
+            while (c->token_pos > 0 &&
+                   (c->tokens[c->token_pos - 1].type == TK_STAR ||
+                    c->tokens[c->token_pos - 1].type == TK_CONST ||
+                    c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
+                c->token_pos--;
+            }
+            /* The parser returned the suffix-included type (e.g. ptr to
+             * double); the complex element is the scalar base only. */
+            while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
+                cx_inner = *cx_inner.base;
+            }
             typeof_base_type_early = zero_cc_type_complex(&cx_inner);
         } else {
             c->token_pos++;

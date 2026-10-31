@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T16:01:08Z
+timestamp: 2026-10-31T20:29:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -611,3 +611,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `frontend-and-types.md`
 - Sprint 67: C99 _Complex type representation & lowering invariants
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 68: PASS 2,789->2,864, REJECT 223->151; array-decay binop typing, cast const-eval, global-base sentinel
+
+## 2026-10-31 — Updated `frontend-and-types.md`
+- Sprint 68: array operands of +/- decay to pointer-to-element in visitor binop typing

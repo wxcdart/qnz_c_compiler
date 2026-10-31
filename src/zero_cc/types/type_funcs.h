@@ -157,9 +157,21 @@ static inline ZeroCCType zero_cc_type_complex(const ZeroCCType *elem) {
     ZeroCCType t;
     if (elem) {
         t = *elem;
-        t.base = zero_cc_type_alloc_base(elem);
-        t.size = elem->size * 2;
-        t.align = elem->align > 0 ? elem->align : 8;
+        /* The complex pipeline stores two scalar halves of 4 or 8 bytes
+         * each; long double is modeled through the 8-byte double value
+         * model, so a long-double element collapses to double here
+         * (_Complex long double behaves as _Complex double: 16 bytes). */
+        if (elem->is_long_double) {
+            ZeroCCType d = zero_cc_type_double();
+            t.base = zero_cc_type_alloc_base(&d);
+            t.size = 16;
+            t.align = 16;
+            t.is_long_double = false;
+        } else {
+            t.base = zero_cc_type_alloc_base(elem);
+            t.size = elem->size * 2;
+            t.align = elem->align > 0 ? elem->align : 8;
+        }
     } else {
         ZeroCCType d = zero_cc_type_double();
         t = d;

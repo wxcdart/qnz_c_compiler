@@ -27,7 +27,7 @@ static const ISARegInfo x86_64_regs = {
 /* Register numbers: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15 */
 
 static const int x86_64_int_arg_regs[] = {7, 6, 2, 1, 8, 9};  /* rdi, rsi, rdx, rcx, r8, r9 */
-static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5, 6, 7};  /* xmm0-xmm7 */
+static const int x86_64_fp_arg_regs[] = {0, 1, 2, 3, 4, 5};  /* xmm0-xmm5 (SysV: 6 FP arg regs) */
 static const int x86_64_callee_saved_gpr[] = {3, 12, 13, 14, 15};  /* rbx, r12-r15 (rbp handled by prologue/epilogue) */
 
 /* Callee-save slot offsets (indexed by array position in callee_saved_gpr) */
@@ -43,7 +43,7 @@ static const ISACallingConvention x86_64_conv = {
     .int_arg_regs = x86_64_int_arg_regs,
     .int_arg_reg_count = 6,
     .fp_arg_regs = x86_64_fp_arg_regs,
-    .fp_arg_reg_count = 8,
+    .fp_arg_reg_count = 6,
     .callee_saved_gpr = x86_64_callee_saved_gpr,
     .callee_saved_gpr_count = 5,
     .callee_save_slot_offsets = x86_64_callee_save_slot_offset,  /* indexed by array position */

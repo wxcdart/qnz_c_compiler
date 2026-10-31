@@ -390,6 +390,7 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
     }
     if (has_data || comp->data_section.length > 0) {
         fprintf(comp->asm_out, "\t.section\t.data\n");
+        fprintf(comp->asm_out, ".Lzc_data_start:\n");
         const uint8_t *data_buf = (const uint8_t *)comp->data_section.data;
         size_t data_len = comp->data_section.length;
         size_t cur_offset = 0;
@@ -453,8 +454,11 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
                         const char *tgt_name = global_vars[matching_reloc->target_global_idx].name;
                         /* target_data_offset = gv->data_offset + extra: the
                          * extra (member/element offset) becomes a symbol
-                         * addend, e.g. `.quad arr+16` (const-addr-expr-1). */
-                        size_t extra = matching_reloc->target_data_offset -
+                         * addend, e.g. `.quad arr+16` (const-addr-expr-1).
+                         * The (size_t)-1 sentinel means "the target's own
+                         * storage base" - no addend. */
+                        size_t extra = (matching_reloc->target_data_offset == (size_t)-1) ? 0 :
+                                       matching_reloc->target_data_offset -
                                        global_vars[matching_reloc->target_global_idx].data_offset;
                         if (extra > 0)
                             fprintf(comp->asm_out, "\t.quad\t%s+%zu\n", tgt_name, extra);
@@ -490,6 +494,22 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
         /* Emit any remaining trailing data bytes */
         if (cur_offset < data_len) {
             for (size_t b = cur_offset; b < data_len; b++) {
+                /* Kind-4 patch (address of an in-TU static local): emit a
+                 * section-relative reloc instead of the raw placeholder. */
+                ZeroCCDataReloc *mr4 = NULL;
+                for (size_t r = 0; r < comp->data_reloc_count; r++) {
+                    if (comp->data_relocs[r].target_kind == 4 &&
+                        comp->data_relocs[r].data_patch_offset == b) {
+                        mr4 = &comp->data_relocs[r];
+                        break;
+                    }
+                }
+                if (mr4 && b + 8 <= data_len) {
+                    fprintf(comp->asm_out, "\t.quad\t.Lzc_data_start+%zu\n",
+                            mr4->target_data_offset);
+                    b += 7;
+                    continue;
+                }
                 fprintf(comp->asm_out, "\t.byte\t0x%02x\n", data_buf[b]);
             }
         }
@@ -1228,6 +1248,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                               rodata_idx,  /* .rodata section index */
                               0, 0);
     }
+    if (comp->data_section.length > 0) {
+        elf_writer_add_symbol(&elf_ctx, ".data",
+                              ELF_STB_LOCAL, ELF_STT_SECTION,
+                              data_idx,  /* .data section index */
+                              0, 0);
+    }
 
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
@@ -1508,7 +1534,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, tname) == 0) { sym_idx = j + 1; break; }
                 }
                 if (sym_idx > 0) {
-                    int64_t extra = (int64_t)dr->target_data_offset -
+                    int64_t extra = (dr->target_data_offset == (size_t)-1) ? 0 :
+                                    (int64_t)dr->target_data_offset -
                                     (int64_t)global_vars[dr->target_global_idx].data_offset;
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
                                               sym_idx, reloc_type_data_abs, extra);
@@ -1546,6 +1573,23 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 }
                 elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
                                           sym_idx, reloc_type_data_abs, 0);
+            } else if (dr->target_kind == 4) {
+                /* Absolute .data offset: address of an in-TU static local.
+                 * Reloc against the .data section symbol (added above, before
+                 * global symbols, for correct sh_info). */
+                int dsym = 0;
+                for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                    if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, ".data") == 0) { dsym = j + 1; break; }
+                }
+                if (dsym == 0) {
+                    elf_writer_add_symbol(&elf_ctx, ".data",
+                                          ELF_STB_LOCAL, ELF_STT_SECTION,
+                                          data_section_idx, 0, 0);
+                    dsym = elf_ctx.symbol_count;
+                }
+                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                          dsym, reloc_type_data_abs,
+                                          (int64_t)dr->target_data_offset);
             }
         }
     }

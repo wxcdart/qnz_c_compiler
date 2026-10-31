@@ -1452,6 +1452,37 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
 
         case NODE_FLOAT: {
+            /* C99 6.2.5p10: an imaginary floating literal (`1.0iF`) is the
+             * complex value 0 + v*i (value in the imaginary part).
+             * Materialize an address-form complex object: (0.0, val). */
+            if (node->flags & 8u) {
+                size_t cesz = (node->flags & 1u) ? 4 : 8; /* l/L: double model */
+                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                c->current_stack_frame = (c->current_stack_frame + (int32_t)(cesz * 2) + 7) & ~7;
+                int32_t coff = c->current_stack_frame;
+                double val = node->float_val;
+                size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
+                if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
+                size_t ro_off = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, &val, sizeof(double));
+                int ca = c->next_temp_id++;
+                ir_emit_lea(ca, BE(c)->fp_reg, -coff);
+                int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int)cesz);
+                int a2 = c->next_temp_id++; ir_emit_add(a2, ca, o2);
+                int zr = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
+                int vv = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)vv, (int64_t)ro_off);
+                if (cesz == 4) {
+                    ir_emit_vstoress((uint16_t)ca, (uint16_t)zr);
+                    ir_emit_vstoress((uint16_t)a2, (uint16_t)vv);
+                } else {
+                    ir_emit_fstore((uint16_t)zr, TEMP_NONE, -coff);
+                    ir_emit_fstore((uint16_t)vv, TEMP_NONE, -coff + (int)cesz);
+                }
+                c->last_expr_is_float = 0;
+                return ca;
+            }
             /* Float literals: store in rodata and load via RIP-relative addressing.
              * A double must be 8-byte aligned in .rodata (AArch64 LDR D requires 8-
              * byte alignment; equally required on x86-64), so pad to the next 8-byte
@@ -1623,7 +1654,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_global_addr(c, addr_temp, gv);
                     /* Arrays, structs and vectors decay/return address, scalars load value */
                     if (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION ||
-                        (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type))) {
+                        (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type)) ||
+                        zero_cc_type_is_complex(&gv->type)) {
+                        /* _Complex global: address-form value (16-byte
+                         * object, real half first) - consumers load the
+                         * two parts from this address. */
                         c->last_expr_is_float = 0;
                         return addr_temp;
                     }
@@ -1730,8 +1765,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int32_t croff = c->current_stack_frame;
                     int clv = lower_expr(c, arena, node->left);
                     bool left_cx = (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX);
+                    bool left_is_float = c->last_expr_is_float;
                     int crv = lower_expr(c, arena, node->right);
                     bool right_cx = (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX);
+                    bool right_is_float = c->last_expr_is_float;
 
 
                     /* Load parts (or materialize (scalar, 0)).  Complex
@@ -1745,7 +1782,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else { ir_emit_vloadsd(ar, (uint16_t)clv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(ai2, clv, a2); ir_emit_vloadsd(ai, (uint16_t)ai2); }
                     } else {
                         int lpart = clv;
-                        if (!c->last_expr_is_float) {
+                        if (!left_is_float) {
                             /* Integer scalar -> double (C99 6.3.1.2). */
                             lpart = zc_emit_int_to_double(c, clv, cl_ti);
                         }
@@ -1757,10 +1794,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else { ir_emit_vloadsd(br, (uint16_t)crv); int a2 = c->next_temp_id++; ir_emit_mov_imm(a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(ai2, crv, a2); ir_emit_vloadsd(bi, (uint16_t)ai2); }
                     } else {
                         int rpart = crv;
-                        /* last_expr_is_float reflects the right operand
-                         * (lowered last): if the scalar is integral,
-                         * convert it to double. */
-                        if (!c->last_expr_is_float) {
+                        /* right_is_float was captured right after the right
+                         * operand's lowering (a later complex-address
+                         * lowering would clear last_expr_is_float and make
+                         * a float scalar look integral). */
+                        if (!right_is_float) {
                             rpart = zc_emit_int_to_double(c, crv, cr_ti);
                         }
                         ir_emit_fmov(br, (uint16_t)rpart);
@@ -4030,6 +4068,83 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
             ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
 
+            /* C99 complex compound assignment (x += y, x -= y, x *= y,
+             * x /= y): desugar to x = x OP y via a synthetic complex
+             * binop (the full binop path handles the part math, scalar
+             * operand conversion, and the __divdc3 delegation for double
+             * division), then store the two result halves into the LHS. */
+            if (is_compound) {
+                TypeInfo *lhs_ti_c = ast_node_get_typeinfo(c, left_node);
+                ZeroCCSym *cx_lsym_c = (left_node && left_node->tag == NODE_IDENT &&
+                                        zero_cc_find_local(c, left_node->s.str))
+                                           ? zero_cc_find_local(c, left_node->s.str) : NULL;
+                bool lhs_cx_c = (lhs_ti_c && lhs_ti_c->kind == TYPE_KIND_COMPLEX);
+                if (!lhs_cx_c && cx_lsym_c && zero_cc_type_is_complex(&cx_lsym_c->type)) {
+                    lhs_cx_c = true;
+                }
+                uint32_t cop_c = node->aux.op == TK_ADD_ASSIGN ? TK_PLUS :
+                                 node->aux.op == TK_SUB_ASSIGN ? TK_MINUS :
+                                 node->aux.op == TK_MUL_ASSIGN ? TK_STAR :
+                                 node->aux.op == TK_DIV_ASSIGN ? TK_SLASH : 0;
+                if (lhs_cx_c && cop_c != 0 && node->right != AST_NULL) {
+                    size_t esz_c = (lhs_ti_c && lhs_ti_c->details.array.base)
+                                       ? type_size(lhs_ti_c->details.array.base) : 8;
+                    if (esz_c != 4 && esz_c != 8) esz_c = 8;
+                    int target_off = TEMP_NONE, target_addr = TEMP_NONE;
+                    if (cx_lsym_c && left_node->tag == NODE_IDENT) {
+                        target_off = cx_lsym_c->stack_offset;
+                    } else if (left_node->tag == NODE_UNOP &&
+                               (left_node->aux.op == '*' || left_node->aux.op == TK_STAR)) {
+                        target_addr = lower_expr(c, arena, left_node->left);
+                    } else if (left_node->tag == NODE_MEMBER) {
+                        target_addr = zero_cc_lower_lvalue_addr(c, arena, left_node);
+                    }
+                    if (target_off != TEMP_NONE || target_addr != TEMP_NONE) {
+                        ASTRef syn_ref = zero_cc_ast_alloc_node(arena, NODE_BINOP);
+                        ZeroCCASTNode *syn = zero_cc_ast_get(arena, syn_ref);
+                        syn->aux.op = cop_c;
+                        syn->line = node->line;
+                        syn->col = node->col;
+                        syn->left = node->left;
+                        syn->right = node->right;
+                        ast_node_set_typeinfo(c, syn, lhs_ti_c);
+                        int res_addr = lower_expr(c, arena, syn_ref);
+
+                        int rhc, lic;
+                        if (esz_c == 4) {
+                            rhc = c->next_temp_id++; ir_emit_vloadss(rhc, (uint16_t)res_addr);
+                            int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4);
+                            int a2 = c->next_temp_id++; ir_emit_add(a2, res_addr, o2);
+                            lic = c->next_temp_id++; ir_emit_vloadss(lic, (uint16_t)a2);
+                        } else {
+                            rhc = c->next_temp_id++; ir_emit_vloadsd(rhc, (uint16_t)res_addr);
+                            int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8);
+                            int a2 = c->next_temp_id++; ir_emit_add(a2, res_addr, o2);
+                            lic = c->next_temp_id++; ir_emit_vloadsd(lic, (uint16_t)a2);
+                        }
+                        if (target_off != TEMP_NONE) {
+                            if (esz_c == 4) {
+                                int sa = c->next_temp_id++;
+                                ir_emit_lea(sa, BE(c)->fp_reg, -target_off);
+                                ir_emit_vstoress(sa, (uint16_t)rhc);
+                                int sa2 = c->next_temp_id++; ir_emit_mov_imm(sa2, 4);
+                                int sa3 = c->next_temp_id++; ir_emit_add(sa3, sa, sa2);
+                                ir_emit_vstoress(sa3, (uint16_t)lic);
+                            } else {
+                                ir_emit_fstore((uint16_t)rhc, TEMP_NONE, -target_off);
+                                ir_emit_fstore((uint16_t)lic, TEMP_NONE, -target_off + (int)esz_c);
+                            }
+                        } else {
+                            if (esz_c == 4) { ir_emit_vstoress((uint16_t)target_addr, (uint16_t)rhc); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4); int a2 = c->next_temp_id++; ir_emit_add(a2, target_addr, o2); ir_emit_vstoress((uint16_t)a2, (uint16_t)lic); }
+                            else { ir_emit_vstoresd((uint16_t)target_addr, (uint16_t)rhc); int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8); int a2 = c->next_temp_id++; ir_emit_add(a2, target_addr, o2); ir_emit_vstoresd((uint16_t)a2, (uint16_t)lic); }
+                        }
+                        c->last_expr_is_float = 0;
+                        int zt = c->next_temp_id++; ir_emit_mov_imm(zt, 0);
+                        return zt;
+                    }
+                }
+            }
+
             /* C99 complex assignment:
              *  - LHS complex local, RHS complex: copy the two halves
              *  - LHS complex local, RHS scalar: real = rhs, imag = 0
@@ -4042,7 +4157,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL);
                 bool lhs_cx = (lhs_ti && lhs_ti->kind == TYPE_KIND_COMPLEX);
                 bool rhs_cx = (rhs_ti_a && rhs_ti_a->kind == TYPE_KIND_COMPLEX);
-                if (getenv("ZC_DEBUG_ASSIGN")) fprintf(stderr, "[assign] LHS tag=%d ti=%p kind=%d\n", (int)(left_node?left_node->tag:-1), (void*)lhs_ti, lhs_ti?(int)lhs_ti->kind:-1);
                 /* GNU part-extractor lvalue: `__real__ a = 9;` / `__imag__ a = 42;`
                  * (desugared to `__real__(a) = 9`). Store the RHS scalar into
                  * the corresponding half of the complex object. */
@@ -8190,7 +8304,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                                 c->current_stack_frame += 8;
                                 fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
-                                ir_emit_fstore((uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                if (cesz == 4 && fp_spill_stack_pos[fp_arg_idx] < 255) {
+                                    /* Stack-passed float half: the slot must
+                                     * hold the FLOAT bits (low 4 bytes) -
+                                     * the callee reads it as a float.  A
+                                     * double-width store would leave the
+                                     * double's low 32 bits, which are not
+                                     * the float pattern. */
+                                    int sa = c->next_temp_id++;
+                                    ir_emit_lea(sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
+                                    ir_emit_vstoress((uint16_t)sa, (uint16_t)hv);
+                                } else {
+                                    ir_emit_fstore((uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                }
                                 fp_arg_idx++;
                             }
                             arg = arg_node ? arg_node->next : AST_NULL;

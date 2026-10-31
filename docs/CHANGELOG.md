@@ -1,5 +1,15 @@
 # ZeroCC Changelog
 
+## [Sprint 68] - 2026-10-31 - Cast/Init/ABI Fixes + Array-Decay Binop Typing: PASS 2,789 → 2,864, REJECT 223 → 151
+
+- **x86-64 FP arg regs / complex-7**: FP argument register count corrected 8→6 in the caller-stack path; caller-stack FP param loads deferred (LEA temps clobbered unspilled arg registers). Restores `va-arg-18`.
+- **Global-pointer init sentinel** (`20120919-1`): bare `int *pi = vi;` used `target_data_offset=0` as "symbol base", which patchers read as an absolute offset. New `(size_t)-1` "global base" sentinel handled by all patchers (ELF writer, AOT asm, JIT, multi-TU rebase). `&ca[0]` reloc addend now includes `gv->data_offset` (`strlen-6`).
+- **Constant-evaluator casts** (`pr39240`, `pr86714`): C99 6.5.4 integer cast conversion (mask/sign-extend); `compile_unit.h` cast-prefix stripping restricted to pointer targets.
+- **Brace-initializer `&global` / `&global[N]`** branch (`init_common.h`).
+- **Array decay in binop typing** (`strlen-4`, `semantic/visitor.c`): `array ± int` was typed `int` (arrays are not `type_is_pointer`), so `*(m + i)` on `char m[3][28]` lowered to a 4-byte load. Arrays now decay to a pointer to the element type (which may itself be an array); array−array/pointer yields `long`.
+- **Known residual**: `20071120-1` O2/O3 AOT segfault (CSE/GVN-hoisted load whose store is dropped); O0/O1/JIT pass.
+- **Verification**: `make test` 156/156 · `make test-opt` 117 ok · `make test-isa-qemu` 44/44 · diag battery OK · style 0 errors · c-torture gate OK, baseline re-recorded (PASS 2,864, REJECT 151; the 10 TIMEOUTs are load flakes on the shared box).
+
 ## [Sprint 67] - 2026-11-01 - C99 `_Complex` Support + Complex Members/Initializers + Function-Name Hash: PASS 2,708 → 2,789, REJECT 298 → 223, MISCOMPILE 0 held
 
 - **Goal**: implement C99 complex numbers (the dominant remaining `use of undeclared identifier` cluster — `_Complex`, `__complex__`, `__real`/`__imag` and friends), fix the newly-exposed latent `MISCOMPILE`s it unblocked (complex division precision, complex struct members, self-referential initializers), and eliminate the last `TIMEOUT` (100k-extern TU quadratic function lookup). **Result: PASS 2,789 (+81), REJECT 223 (−75), MISCOMPILE 0, TIMEOUT 0** — baseline re-recorded at 223 bad.

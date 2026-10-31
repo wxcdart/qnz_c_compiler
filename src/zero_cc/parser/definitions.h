@@ -26,6 +26,20 @@ static inline void zero_cc_sync_globals_with_struct(ZeroCCCompiler *c, const cha
             zero_cc_type_sync_struct(&c->functions[i].param_types[p], name, complete);
         }
     }
+    /* Struct member tables: a self-referential pointer member
+     * (`struct S { ...; struct S *next; }`) recorded the pointee as an
+     * INCOMPLETE snapshot while the body was being parsed.  Without this
+     * refresh the pointee stays fieldless forever, member access through
+     * it (`t.next->d`) falls back to the lenient int default, and the
+     * lowering loads a scalar from the garbage pointer (segfault). */
+    for (size_t i = 0; i < c->struct_count; i++) {
+        ZeroCCType *st2 = &c->structs[i].type;
+        for (size_t mi = 0; mi < st2->member_count; mi++) {
+            if (st2->members[mi].base) {
+                zero_cc_type_sync_struct(st2->members[mi].base, name, complete);
+            }
+        }
+    }
 }
 
 /* Shared aggregate-initializer engine (init_common.h, included after this
@@ -1314,6 +1328,18 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
 /* Typedef or Standalone Struct/Union Definition */
 static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
+    /* Sprint 68: storage-class prefixes on file-scope struct/union
+     * definitions with declarators: `static struct S { ... } u;`,
+     * `const static union { ... } v;`.  The specifiers may interleave in
+     * any order (C99 6.7.1); `static` makes the variable internal-linkage.
+     * (Qualifiers on the variable itself are ignored.) */
+    bool st_is_static = false;
+    for (int sc = 0; sc < 8 && c->token_pos < c->token_count; sc++) {
+        ZeroCCTokType st = c->tokens[c->token_pos].type;
+        if (st == TK_STATIC) { st_is_static = true; c->token_pos++; }
+        else if (st == TK_INLINE || st == TK_CONST || st == TK_VOLATILE || st == TK_RESTRICT) c->token_pos++;
+        else break;
+    }
     bool is_typedef = false;
     if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
         is_typedef = true;
@@ -1363,6 +1389,30 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
              * declarator may begin with `*` (pointer to an anonymous
              * struct: `struct { ... } *p;`; typedef: `typedef struct x
              * { ... } *tree;`). */
+            /* Sprint 68: a storage class may sit in the declarator:
+             * `struct a { ... } static g = {9, 5};` (C99 6.7.4).  Probe
+             * past a short specifier run when an identifier/pointer
+             * follows, and consume it. */
+            bool dcl_is_static = false;
+            {
+                size_t sc_probe = c->token_pos;
+                for (int k = 0; k < 4 && sc_probe < c->token_count; k++) {
+                    ZeroCCTokType pk = c->tokens[sc_probe].type;
+                    if (pk == TK_STATIC || pk == TK_INLINE ||
+                        pk == TK_CONST || pk == TK_VOLATILE) sc_probe++;
+                    else break;
+                }
+                if (sc_probe > c->token_pos && sc_probe < c->token_count &&
+                    (c->tokens[sc_probe].type == TK_IDENT ||
+                     (c->tokens[sc_probe].type == TK_STAR &&
+                      sc_probe + 1 < c->token_count &&
+                      c->tokens[sc_probe + 1].type == TK_IDENT))) {
+                    while (c->token_pos < sc_probe) {
+                        if (c->tokens[c->token_pos].type == TK_STATIC) dcl_is_static = true;
+                        c->token_pos++;
+                    }
+                }
+            }
             bool dcl_star = (c->tokens[c->token_pos].type == TK_STAR &&
                              c->token_pos + 1 < c->token_count &&
                              c->tokens[c->token_pos + 1].type == TK_IDENT);
@@ -1444,12 +1494,46 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                         while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                             c->token_pos++;
                             if (c->tokens[c->token_pos].type == TK_RBRACKET) {
-                                diag_report_error_at_token(c,
-                                    "unsized array of %s with no initializer list is not supported",
-                                    is_union ? "union" : "struct");
-                                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
-                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
-                                return;
+                                /* Unsized `struct S {...} a[] = { ... };`:
+                                 * infer the bound from the brace list when
+                                 * one follows (c-torture compile/pr38343);
+                                 * otherwise it is an error. */
+                                int64_t inferred = -1;
+                                size_t ub = c->token_pos + 1;
+                                if (ub < c->token_count && c->tokens[ub].type == TK_ASSIGN &&
+                                    ub + 1 < c->token_count && c->tokens[ub + 1].type == TK_LBRACE) {
+                                    size_t q = ub + 2;
+                                    int64_t cnt = 0;
+                                    int depth = 0;
+                                    bool trailing = false;
+                                    while (q < c->token_count) {
+                                        ZeroCCTokType qt = c->tokens[q].type;
+                                        if (qt == TK_LBRACE) { depth++; if (depth == 1) trailing = false; }
+                                        else if (qt == TK_RBRACE) {
+                                            if (depth == 0) break;
+                                            depth--;
+                                        } else if (depth == 0) {
+                                            if (qt == TK_COMMA) { cnt++; trailing = true; }
+                                            else trailing = false;
+                                        }
+                                        q++;
+                                    }
+                                    if (trailing) cnt--;
+                                    inferred = (cnt > 0) ? cnt : 1;
+                                }
+                                if (inferred < 0) {
+                                    diag_report_error_at_token(c,
+                                        "unsized array of %s with no initializer list is not supported",
+                                        is_union ? "union" : "struct");
+                                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                                    return;
+                                }
+                                int64_t dim = inferred;
+                                c->token_pos++;
+                                varray_len *= dim;
+                                if (vdim_count < 8) vdims[vdim_count++] = dim;
+                                continue;
                             }
                             int64_t dim = zero_cc_eval_const_expr(c);
                             if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
@@ -1596,7 +1680,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                                 for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
                             }
                         }
-                        if (add_global_var(alias, vreg_type, var_offset, vsize, false, vhas_init) < 0) {
+                        if (add_global_var(alias, vreg_type, var_offset, vsize, st_is_static || dcl_is_static, vhas_init) < 0) {
                             diag_report_error_at_token(c, "out of memory registering global variable '%s'", alias);
                         }
                         if (c->tokens[c->token_pos].type == TK_COMMA) {
@@ -1878,6 +1962,13 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     if (t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
         ttype = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
     }
+    else if (t == TK_IDENT && c->tokens[c->token_pos].str_val &&
+             zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+        /* C99 6.7.2.3 prefix complex: `typedef _Complex double C;` */
+        c->token_pos++;
+        ZeroCCType inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+        ttype = zero_cc_type_complex(&inner);
+    }
     else if (t == TK_INT) { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); c->token_pos++; }
     else if (t == TK_CHAR) { ttype = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char(); c->token_pos++; }
     else if (t == TK_VOID) { ttype = zero_cc_type_void(); c->token_pos++; }
@@ -1926,6 +2017,14 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
     }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ttype)) {
         ttype = zero_cc_type_vector(&ttype, vec_attr_size);
+    }
+    /* C99 6.7.2.3 suffix complex: `typedef double _Complex C;` */
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+        c->tokens[c->token_pos].str_val &&
+        zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val) &&
+        !ttype.is_complex) {
+        c->token_pos++;
+        ttype = zero_cc_type_complex(&ttype);
     }
     if (align_attr_val > 0 && align_attr_val > ttype.align) {
         ttype.align = align_attr_val;

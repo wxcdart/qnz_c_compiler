@@ -412,6 +412,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
          * param would be recorded as `int *`, mis-sizing every
          * dereference (c-torture execute/961213-1). */
         bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
+        bool p_is_long_double = false;
         if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED ||
                                  ptt == TK_SHORT || ptt == TK_LONG ||
                                  ptt == TK_CHAR)) {
@@ -443,6 +444,16 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             else if (p_longs > 0) ptt = TK_LONG;
             else ptt = TK_INT;
             p_is_unsigned = p_has_unsigned;
+            /* C99 6.7.2.1: `long double` / `long long double` - the
+             * double keyword follows the long run and turns it into the
+             * extended-precision type (modeled through the double value
+             * model with the is_long_double marker). */
+            if (p_longs >= 1 && c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
+                c->token_pos++;
+                ptt = TK_DOUBLE_KW;
+                p_is_long_double = true;
+            }
         }
         if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
             ptname = c->tokens[c->token_pos].str_val;
@@ -496,7 +507,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         } else if (ptt == TK_FLOAT_KW) {
             pt = zero_cc_type_float();
         } else if (ptt == TK_DOUBLE_KW) {
-            pt = zero_cc_type_double();
+            pt = p_is_long_double ? zero_cc_type_long_double() : zero_cc_type_double();
         } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
             pt = zero_cc_type_char();
         } else if (ptt == TK_SHORT) {
@@ -791,25 +802,28 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
         }
     }
-    if (c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED) {
-        fn_ret_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
-        c->token_pos++;
-        if (c->token_pos < c->token_count &&
-            (c->tokens[c->token_pos].type == TK_INT ||
-             c->tokens[c->token_pos].type == TK_CHAR ||
-             c->tokens[c->token_pos].type == TK_SHORT ||
-             c->tokens[c->token_pos].type == TK_LONG)) {
-            /* fall through to the base-specifier dispatch below */
-        } else {
-            /* bare `unsigned` / `signed` */
-            fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
-        }
-    }
     if (c->tokens[c->token_pos].type == TK_IDENT &&
         zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
         /* C99 6.7.2.3: `_Complex` / `__complex__` return type prefix. */
         c->token_pos++;
         ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+        /* `_Complex double *f(void)` returns a POINTER TO complex: the
+         * type-name parser's pointer-suffix consumption must be rewound
+         * so the declarator below owns the stars (the base specifier's
+         * last token is a type keyword, so the walk stops at its end). */
+        while (c->token_pos > 0 &&
+               (c->tokens[c->token_pos - 1].type == TK_STAR ||
+                c->tokens[c->token_pos - 1].type == TK_CONST ||
+                c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
+                c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
+            c->token_pos--;
+        }
+        /* The parser returned the suffix-included type (e.g. ptr to
+         * double); the complex element is the scalar base only - the
+         * declarator below re-applies the pointer. */
+        while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
+            cx_inner = *cx_inner.base;
+        }
         fn_ret_type = zero_cc_type_complex(&cx_inner);
     } else if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
         fn_ret_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
@@ -871,38 +885,45 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             /* Unknown type name: legacy lenient behavior (default int, skip). */
             c->token_pos++;
         }
-    } else if (c->tokens[c->token_pos].type == TK_FLOAT_KW) {
-        fn_ret_type = zero_cc_type_float();
-        c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
-        fn_ret_type = zero_cc_type_double();
-        c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_BOOL_KW) {
+    } else if (c->tokens[c->token_pos].type == TK_CHAR ||
+               c->tokens[c->token_pos].type == TK_BOOL_KW) {
         fn_ret_type = zero_cc_type_char();
         c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_SHORT) {
-        fn_ret_type = zero_cc_type_int16();
-        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+               c->tokens[c->token_pos].type == TK_DOUBLE_KW ||
+               c->tokens[c->token_pos].type == TK_SHORT ||
+               c->tokens[c->token_pos].type == TK_INT ||
+               c->tokens[c->token_pos].type == TK_SIGNED ||
+               c->tokens[c->token_pos].type == TK_UNSIGNED ||
+               c->tokens[c->token_pos].type == TK_LONG) {
+        /* Basic type specifier window in any order (C99 6.5.9):
+         * `short int`, `int unsigned`, `long long unsigned`, ... */
+        fn_ret_type = zc_parse_basic_type_spec(c, &c->token_pos);
     } else if (c->tokens[c->token_pos].type == TK_VOID) {
         fn_ret_type = zero_cc_type_void();
         c->token_pos++;
-    } else if (c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_SIGNED ||
-               c->tokens[c->token_pos].type == TK_UNSIGNED) {
-        fn_ret_type = zero_cc_type_int();
-        c->token_pos++; }
-    else if (c->tokens[c->token_pos].type == TK_LONG) {
-        c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
-        if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
-            fn_ret_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
-            c->token_pos++;
-        }
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
-        fn_ret_type = fn_ret_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
     }
-    if (fn_ret_const && c->tokens[c->token_pos].type == TK_STAR) fn_ret_type.is_const = true;
+    /* Leading `const` (e.g. `const char f(void)`) qualifies the BASE
+     * scalar, not a later pointer (C99 6.7.3): apply before the
+     * pointer wraps below. */
+    if (fn_ret_const) fn_ret_type.is_const = true;
     while (c->tokens[c->token_pos].type == TK_STAR) {
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
+        c->token_pos++;
+        /* A `const` immediately after a `*` applies to THAT pointer
+         * level: `const char * const *` = pointer to (const pointer to
+         * const char). */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CONST) {
+            fn_ret_type.is_const = true;
+            c->token_pos++;
+        }
+    }
+    /* Trailing qualifiers after the return type: `void volatile f();`
+     * (c-torture compile/20000605-1) - no effect on the scalar type. */
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_RESTRICT)) {
         c->token_pos++;
     }
     /* Apply the signedness qualifier to a plain int return type */
@@ -997,7 +1018,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             param_count = pi;
         }
         zero_cc_ast_arena_free(&darena);
-    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+    } else if (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_IDENT ||
+                c->tokens[c->token_pos].type == TK_TRUE ||
+                c->tokens[c->token_pos].type == TK_FALSE)) {
         snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
 

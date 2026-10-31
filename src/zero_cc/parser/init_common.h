@@ -593,9 +593,22 @@ static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
         c->token_pos++;
     }
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-        c->token_pos++;
-        v = zc_eval_const_fp_additive(c);
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        if (c->token_pos + 1 < c->token_count &&
+            zero_cc_tok_is_type_start(c, c->token_pos + 1)) {
+            /* Cast prefix: `(type) operand` - skip the cast type and
+             * evaluate the operand (Sprint 68: pr83222 `1 + (double) a`). */
+            c->token_pos++;
+            zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            v = zc_eval_const_fp_additive(c);
+        } else {
+            c->token_pos++;
+            v = zc_eval_const_fp_additive(c);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        }
     } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
         v = c->tokens[c->token_pos].float_val;
         c->token_pos++;
@@ -605,6 +618,16 @@ static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
     } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CHAR_LIT) {
         v = (double)(int)c->tokens[c->token_pos].num_val;
         c->token_pos++;
+    } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+        /* Earlier global's value: `double d = (double) a;` where
+         * `const char a = 0x42;` (Sprint 68). */
+        bool g_is_f = false;
+        int64_t g_i = 0;
+        double g_d = 0.0;
+        if (zc_const_global_scalar(c, c->tokens[c->token_pos].str_val, &g_is_f, &g_i, &g_d)) {
+            v = g_is_f ? g_d : (double)g_i;
+            c->token_pos++;
+        }
     }
     v *= sign;
     while (c->token_pos < c->token_count &&
@@ -647,6 +670,121 @@ static double zc_eval_const_fp_additive(ZeroCCCompiler *c) {
 }
 static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
     return zc_eval_const_fp_additive(c);
+}
+
+/* C99 6.7.2.3 complex constant initializer: evaluate the expression as a
+ * (re, im) pair - imaginary literals (`1.0i`), the four binary
+ * arithmetic ops, unary +/-, parens, cast prefixes, and earlier global
+ * references.  Advances token_pos past the consumed expression; returns
+ * 1 on success, 0 when the current token does not start a constant
+ * expression (token_pos restored).  Used for file-scope complex objects
+ * and static local complex initializers. */
+static int zc_eval_const_cx_primary(ZeroCCCompiler *c, double *re, double *im);
+static int zc_eval_const_cx_multiplicative(ZeroCCCompiler *c, double *re, double *im) {
+    size_t save = c->token_pos;
+    double v = 0.0, s = 0.0;
+    if (!zc_eval_const_cx_primary(c, &v, &s)) { c->token_pos = save; return 0; }
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_STAR || c->tokens[c->token_pos].type == TK_SLASH)) {
+        bool div = (c->tokens[c->token_pos].type == TK_SLASH);
+        c->token_pos++;
+        double r = 0.0, t = 0.0;
+        if (!zc_eval_const_cx_primary(c, &r, &t)) { c->token_pos = save; return 0; }
+        if (div) {
+            double d = r * r + t * t;
+            double nr = (v * r + s * t) / d;
+            double ni = (s * r - v * t) / d;
+            v = nr; s = ni;
+        } else {
+            double nr = v * r - s * t;
+            double ni = v * t + s * r;
+            v = nr; s = ni;
+        }
+    }
+    *re = v; *im = s;
+    return 1;
+}
+static int zc_eval_const_cx_additive(ZeroCCCompiler *c, double *re, double *im) {
+    size_t save = c->token_pos;
+    double v = 0.0, s = 0.0;
+    if (!zc_eval_const_cx_multiplicative(c, &v, &s)) { c->token_pos = save; return 0; }
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
+        bool sub = (c->tokens[c->token_pos].type == TK_MINUS);
+        c->token_pos++;
+        double r = 0.0, t = 0.0;
+        if (!zc_eval_const_cx_multiplicative(c, &r, &t)) { c->token_pos = save; return 0; }
+        if (sub) { v -= r; s -= t; } else { v += r; s += t; }
+    }
+    *re = v; *im = s;
+    return 1;
+}
+static int zc_eval_const_cx_primary(ZeroCCCompiler *c, double *re, double *im) {
+    size_t save = c->token_pos;
+    double v = 0.0, s = 0.0;
+    bool ok = true;
+    double sign = 1.0;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
+        if (c->tokens[c->token_pos].type == TK_MINUS) sign = -sign;
+        c->token_pos++;
+    }
+    if (c->token_pos >= c->token_count) ok = false;
+    else if (c->tokens[c->token_pos].type == TK_LPAREN) {
+        c->token_pos++;
+        if (c->token_pos < c->token_count &&
+            zero_cc_tok_is_type_start(c, c->token_pos)) {
+            /* Cast prefix: skip the cast type, evaluate the operand. */
+            zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            ok = zc_eval_const_cx_additive(c, &v, &s);
+        } else {
+            ok = zc_eval_const_cx_additive(c, &v, &s);
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            else ok = false;
+        }
+    } else if (c->tokens[c->token_pos].type == TK_FLOAT) {
+        v = c->tokens[c->token_pos].float_val;
+        s = 0.0;
+        if ((c->tokens[c->token_pos].int_suffix & 8) != 0) { s = v; v = 0.0; }
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_NUM) {
+        v = (double)c->tokens[c->token_pos].num_val;
+        s = 0.0;
+        if ((c->tokens[c->token_pos].int_suffix & 8) != 0) { s = v; v = 0.0; }
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_CHAR_LIT) {
+        v = (double)(int)c->tokens[c->token_pos].num_val;
+        s = 0.0;
+        c->token_pos++;
+    } else if (c->tokens[c->token_pos].type == TK_IDENT) {
+        bool g_is_f = false;
+        int64_t g_i = 0;
+        double g_d = 0.0;
+        if (zc_const_global_scalar(c, c->tokens[c->token_pos].str_val, &g_is_f, &g_i, &g_d)) {
+            v = g_is_f ? g_d : (double)g_i;
+            s = 0.0;
+            c->token_pos++;
+        } else {
+            ok = false;
+        }
+    } else {
+        ok = false;
+    }
+    if (!ok) {
+        c->token_pos = save;
+        return 0;
+    }
+    v *= sign; s *= sign;
+    *re = v; *im = s;
+    return 1;
+}
+static inline int zero_cc_eval_const_expr_complex(ZeroCCCompiler *c, double *re, double *im) {
+    return zc_eval_const_cx_additive(c, re, im);
 }
 
 /* C99 6.7.2.1p3: a trailing flexible-array member is initialized from the
@@ -908,6 +1046,61 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 *cursor += tgt.advance;
             }
         }
+        } else if (c->token_pos + 1 < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_AMP &&
+                   c->tokens[c->token_pos + 1].type == TK_IDENT) {
+            /* Address of a global as a member initializer (`struct T g =
+             * { &var };`, c-torture execute/20071120-1): emit a kind-1
+             * data reloc against the referenced global's storage base
+             * (optional [N] element addend). */
+            size_t ap = c->token_pos + 1; /* at the ident */
+            char refn[128];
+            snprintf(refn, sizeof(refn), "%s", c->tokens[ap].str_val);
+            ZeroCCGlobalVar *rgv = find_global_var(refn);
+            ap++; /* past the ident */
+            size_t addoff = 0;
+            if (rgv && ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
+                ZeroCCType rtt = rgv->type;
+                int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
+                    (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 8);
+                ap++; /* past '[' */
+                if (ap < c->token_count && c->tokens[ap].type == TK_NUM) {
+                    addoff = (size_t)(c->tokens[ap].num_val * (resz > 0 ? resz : 8));
+                    ap++;
+                }
+                if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
+            }
+            if (rgv) {
+                c->token_pos = ap;
+                if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                    dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                    dr->target_kind = 1; /* .data global target */
+                    dr->rodata_offset = 0;
+                    dr->target_data_offset = (addoff > 0)
+                        ? rgv->data_offset + addoff : (size_t)-1; /* global base */
+                    dr->target_global_idx = (int)(rgv - global_vars);
+                }
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
+                    }
+                }
+            } else {
+                /* Not a known global: skip & ident (zero-fill, no reloc). */
+                c->token_pos = ap;
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
+                    }
+                }
+            }
         } else {
             /* Scalar constant value (int/char/float/enum/sizeof). */
             bool is_f = (c->tokens[c->token_pos].type == TK_FLOAT ||

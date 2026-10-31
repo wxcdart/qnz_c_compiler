@@ -76,9 +76,27 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
             res = type_int_literal(ctx->perm_arena,
                                    (uint8_t)(node->flags & 7u), node->int_val);
             break;
-        case NODE_FLOAT:
-            res = type_double(ctx->perm_arena);
+        case NODE_FLOAT: {
+            /* C99 6.2.5: a float literal with the imaginary suffix bit
+             * (lexer int_suffix bit3, carried in node->flags) is a complex
+             * value: element float for f/F, double otherwise (l/L long
+             * double is modeled as double).  The value is the imaginary
+             * part (0 + v*i). */
+            uint8_t fsuf = (uint8_t)(node->flags & 0xF);
+            if (fsuf & 8) {
+                TypeInfo *el = (fsuf & 1) ? type_float(ctx->perm_arena) :
+                                            type_double(ctx->perm_arena);
+                res = type_new(ctx->perm_arena);
+                if (res) {
+                    res->kind = TYPE_KIND_COMPLEX;
+                    res->details.array.base = el;
+                    res->details.array.count = 2;
+                }
+            } else {
+                res = type_double(ctx->perm_arena);
+            }
             break;
+        }
         case NODE_STRING: {
             TypeInfo *elem_t = (node->flags & NODE_FLAG_WIDE) ?
                 type_int(ctx->perm_arena) : type_char(ctx->perm_arena);
@@ -437,6 +455,19 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
 
         arg_count++;
         arg_ref = arg_node->next;
+    }
+
+    /* GNU part extractors require a complex operand: `__real(E)` /
+     * `__imag(E)` on a non-complex value is a constraint violation
+     * (GCC: "__real applied to a non-complex value").  Reject cleanly
+     * instead of lowering a scalar temp as an address (segfault). */
+    if (callee->tag == NODE_IDENT && callee->s.str &&
+        (strcmp(callee->s.str, "__real") == 0 || strcmp(callee->s.str, "__real__") == 0 ||
+         strcmp(callee->s.str, "__imag") == 0 || strcmp(callee->s.str, "__imag__") == 0)) {
+        if (!first_arg_t || first_arg_t->kind != TYPE_KIND_COMPLEX) {
+            expr_error(ctx, node, "'%s' applied to a non-complex value", callee->s.str);
+            return NULL;
+        }
     }
 
     /* Verify argument count — only against prototype types; no-prototype

@@ -267,6 +267,16 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int32_t big_param_dst_off[64];
         size_t big_param_size[64];
         int big_param_copy_count = 0;
+        /* FP params arriving on the CALLER STACK (beyond the FP arg
+         * register window): their loads use LEA'd integer temps that the
+         * register allocator may place in not-yet-spilled argument
+         * registers (rdi/rsi/...), clobbering the variadic spill - so
+         * defer them until after it (same pattern as the big-param
+         * hidden-pointer copies). */
+        int32_t fpstack_src_off[64];
+        int32_t fpstack_dst_off[64];
+        uint8_t fpstack_is_flt[64];
+        int fpstack_copy_count = 0;
         if (uses_sret) {
             if (c->isa == ISA_AARCH64) {
                 ir_emit_param_save_int(8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
@@ -324,17 +334,46 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         stack_idx++;
                     }
                 }
-            } else if (is_fp && zero_cc_type_is_complex(&sym->type) && xmm_idx + 1 < BE(c)->conv->fp_arg_reg_count) {
-                /* C99 complex parameter: real in xmmN, imaginary in xmmN+1.
-                 * The local object is 2*esz; first half at -stack_offset. */
+            } else if (is_fp && zero_cc_type_is_complex(&sym->type)) {
+                /* C99 complex parameter: real then imaginary in TWO
+                 * consecutive FP argument slots.  Each half consumes one
+                 * slot: xmm0..5 first, then the shared caller-stack
+                 * stream in argument order (8-byte bit-pattern copy for
+                 * the stack halves).  A half beyond the register window
+                 * must advance the shared stack stream. */
                 int32_t esz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
                 bool is_flt = (esz == 4);
-                ir_emit_param_save_fp(xmm_idx, sym->stack_offset, is_flt);
-                xmm_idx++;
-                ir_emit_param_save_fp(xmm_idx, sym->stack_offset - (int32_t)esz, is_flt);
-                xmm_idx++;
+                for (int half = 0; half < 2; half++) {
+                    int32_t half_off = sym->stack_offset - (int32_t)half * esz;
+                    if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
+                        ir_emit_param_save_fp(xmm_idx, half_off, is_flt);
+                    } else {
+                        /* Stack half: defer the load until after the
+                         * variadic spill (see fpstack_* above). */
+                        if (fpstack_copy_count < 64) {
+                            fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                            fpstack_dst_off[fpstack_copy_count] = half_off;
+                            fpstack_is_flt[fpstack_copy_count] = is_flt ? 1 : 0;
+                            fpstack_copy_count++;
+                        }
+                        stack_idx++;
+                    }
+                    xmm_idx++;
+                }
             } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                 ir_emit_param_save_fp(xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
+                xmm_idx++;
+            } else if (is_fp) {
+                /* FP argument beyond the register window: shared
+                 * caller-stack stream in argument order.  Deferred like
+                 * the complex stack halves (see fpstack_* above). */
+                if (fpstack_copy_count < 64) {
+                    fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                    fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
+                    fpstack_is_flt[fpstack_copy_count] = (sym->type.tag == TYPE_FLOAT) ? 1 : 0;
+                    fpstack_copy_count++;
+                }
+                stack_idx++;
                 xmm_idx++;
             } else if (!is_fp && int_idx < BE(c)->conv->int_arg_reg_count) {
                 ir_emit_param_save_int(int_idx, sym->stack_offset);
@@ -371,6 +410,21 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             int dst_addr = c->next_temp_id++;
             ir_emit_lea(dst_addr, BE(c)->fp_reg, -big_param_dst_off[bp]);
             zc_emit_mem_copy(c, pt, dst_addr, big_param_size[bp]);
+        }
+
+        /* Deferred caller-stack FP param loads (see fpstack_* above): all
+         * argument registers are now saved / spilled, so the LEA temps
+         * can reuse them freely. */
+        for (int fs = 0; fs < fpstack_copy_count; fs++) {
+            int ca = c->next_temp_id++;
+            ir_emit_lea(ca, BE(c)->fp_reg, fpstack_src_off[fs]);
+            int hv = c->next_temp_id++;
+            if (fpstack_is_flt[fs]) ir_emit_vloadss((uint16_t)hv, (uint16_t)ca);
+            else ir_emit_vloadsd((uint16_t)hv, (uint16_t)ca);
+            int la = c->next_temp_id++;
+            ir_emit_lea(la, BE(c)->fp_reg, -fpstack_dst_off[fs]);
+            if (fpstack_is_flt[fs]) ir_emit_vstoress((uint16_t)la, (uint16_t)hv);
+            else ir_emit_vstoresd((uint16_t)la, (uint16_t)hv);
         }
     }
 

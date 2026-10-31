@@ -185,6 +185,13 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
             return t1->details.array.count == t2->details.array.count;
         }
 
+        case TYPE_KIND_COMPLEX: {
+            /* C99 6.2.5p5: complex types are compatible when their element
+             * types are compatible. */
+            if (!t1->details.array.base || !t2->details.array.base) return false;
+            return type_is_compatible(t1->details.array.base, t2->details.array.base);
+        }
+
         case TYPE_KIND_FUNCTION: {
             if (!type_is_compatible(t1->details.function.ret, t2->details.function.ret)) {
                 return false;
