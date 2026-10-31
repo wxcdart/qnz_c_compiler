@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-10-26T14:15:39Z
+timestamp: 2026-10-31T04:56:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,7 +24,8 @@ ZeroCC implements the System V AMD64 ABI for x86-64 across both JIT and AOT mode
   - `<= 8` bytes: Passed in 1 integer register (or stack if no GPR remains).
   - `9 .. 16` bytes: Passed across 2 consecutive integer argument registers (`num_chunks = (size + 7) / 8`) in both caller argument setup (`NODE_CALL`) and callee prologue parameter saving (`OP_PARAM_SAVE_INT`).
   - Multi-eightbyte structs passed by value iterate over all `num_chunks` 8-byte chunks at `-(stack_offset - c * 8)`.
-  - **Chunk source for non-identifier arguments (Sprint 56)**: the `NODE_CALL` arg loop derives each extra chunk from the argument expression's value representation — a struct/union **local** (`NODE_IDENT`) is read from the local's stack slot (`-(stack_offset - ch*8)`), while any other 9–16 byte value (compound literal, struct-returning call) picks up chunk 1 from the ABI **secondary value register** (`VREG_2` — `rdx` on x86-64, `x1` on AArch64, `a1` on RISC-V64), the same register a 9–16 byte struct return / compound-literal lowering leaves it in. `> 16` byte by-value arguments are passed by pointer (the expression value is already the address of the buffer). Argument size comes from the local's `ZeroCCType` or the semantic `TypeInfo` of the argument node.
+  - **9–16B chunk source for non-identifier arguments (Sprint 56)**: the `NODE_CALL` arg loop derives each extra chunk from the argument expression's value representation — a struct/union **local** (`NODE_IDENT`) is read from the local's stack slot (`-(stack_offset - ch*8)`), while any other 9–16 byte value (compound literal, struct-returning call) picks up chunk 1 from the ABI **secondary value register** (`VREG_2` — `rdx` on x86-64, `x1` on AArch64, `a1` on RISC-V64), the same register a 9–16 byte struct return / compound-literal lowering leaves it in. Argument size comes from the local's `ZeroCCType` or the semantic `TypeInfo` of the argument node.
+  - `> 16` bytes: **Hidden-pointer convention (Sprint 64)** — the struct is NOT split across registers. The caller copies the source value into a fresh **16-byte-aligned stack buffer** (via `zc_emit_mem_copy`) and passes **one GP pointer** to it as an ordinary integer argument; the callee prologue saves that pointer and, **after all parameter saves** (and after `ir_emit_variadic_spill` for variadics — the spill must still see the original argument registers), copies the buffer contents into the parameter's local storage (again `zc_emit_mem_copy`; deferring the copy is mandatory — an immediate copy lets the regalloc place copy-loop temps in not-yet-saved argument registers, corrupting later scalar parameters, c-torture `execute/20030914-2`). `va_arg(ap, struct S)` for `sizeof(S) > 16` therefore yields the **hidden pointer itself**, which is why `ast_expr_is_struct_addr` treats such `NODE_VA_ARG` results as address-form. The copies use a real IR loop over 8-byte chunks with a fixed temp set (1/2/4-byte tail stores) — straight-line unrolling a 128 KB struct would need 16,384 temps, over the 16-bit per-function temp-id budget.
 - **Struct Return Values (`<= 16` bytes)**:
   - `<= 8` bytes: Returned in `%rax` (`VREG_0`).
   - `9 .. 16` bytes: Lower 8 bytes in `%rax` (`VREG_0`), upper 8 bytes in `%rdx` (`VREG_2`).

@@ -287,6 +287,37 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_POINTER__", "8");
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_SIZE_T__", "8");
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_PTRDIFF_T__", "8");
+    /* GCC-style __*_TYPE__ macros (LP64 Linux). Undefined in the
+     * preprocessor, these silently became `int` base types and
+     * miscompiled stdint-style code (c-torture execute/pr42833). */
+    zero_cc_cpp_define_obj(cpp, "__INT8_TYPE__", "signed char");
+    zero_cc_cpp_define_obj(cpp, "__INT16_TYPE__", "short");
+    zero_cc_cpp_define_obj(cpp, "__INT32_TYPE__", "int");
+    zero_cc_cpp_define_obj(cpp, "__INT64_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__UINT8_TYPE__", "unsigned char");
+    zero_cc_cpp_define_obj(cpp, "__UINT16_TYPE__", "unsigned short");
+    zero_cc_cpp_define_obj(cpp, "__UINT32_TYPE__", "unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT64_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__INT_LEAST8_TYPE__", "signed char");
+    zero_cc_cpp_define_obj(cpp, "__INT_LEAST16_TYPE__", "short");
+    zero_cc_cpp_define_obj(cpp, "__INT_LEAST32_TYPE__", "int");
+    zero_cc_cpp_define_obj(cpp, "__INT_LEAST64_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_LEAST8_TYPE__", "unsigned char");
+    zero_cc_cpp_define_obj(cpp, "__UINT_LEAST16_TYPE__", "unsigned short");
+    zero_cc_cpp_define_obj(cpp, "__UINT_LEAST32_TYPE__", "unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_LEAST64_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__INT_FAST8_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__INT_FAST16_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__INT_FAST32_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__INT_FAST64_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_FAST8_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_FAST16_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_FAST32_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__UINT_FAST64_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__INTMAX_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__UINTMAX_TYPE__", "long unsigned int");
+    zero_cc_cpp_define_obj(cpp, "__INTPTR_TYPE__", "long int");
+    zero_cc_cpp_define_obj(cpp, "__UINTPTR_TYPE__", "long unsigned int");
     zero_cc_cpp_define_obj(cpp, "SCHAR_MIN", "(-128)");
     zero_cc_cpp_define_obj(cpp, "SCHAR_MAX", "127");
     zero_cc_cpp_define_obj(cpp, "CHAR_MIN", "(-128)");

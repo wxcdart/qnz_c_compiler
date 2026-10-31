@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-31T03:20:24Z
+timestamp: 2026-10-31T04:56:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -314,6 +314,23 @@ In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata
 - FLT/DBL limits (radix, mant dig, dig, decimal dig, epsilon, max/min, denorm min, exp ranges; uppercase + `__UPPER__`). **Floating-limit literals must be exact representable values**: `DBL_MAX`/`__DBL_MAX__` = `1.7976931348623157580412819756850388593900e+307` — the common 17-digit `1.79769313486231580794e+308` is *above* DBL_MAX and rounds to `inf` (which silently corrupted `execute/ieee/unsafe-fp-assoc.c`); `FLT_MAX` = `3.40282346638528859812e+38F`.
 - Pseudo `limits.h` `CHAR_MIN` is `(-128)` (signed-char model, was `0`); pseudo `float.h` uses the same exact literals.
 - These are literal values, not self-referencing — the preprocessor does not expand a macro's definition in terms of itself.
+
+## GCC `__*_TYPE__` Integer-Type Mapping Macros & Local Inline Aggregates (Sprint 64)
+
+- **`__INT*_TYPE__`/`__UINT*_TYPE__` macros** (`core/preprocessor.h`): GCC's LP64 type-mapping set — `__INT8/16/32/64_TYPE__` (`signed char`/`short`/`int`/`long int`), `__UINT8/16/32/64_TYPE__`, `__INT_LEAST*`/`__UINT_LEAST*`, `__INT_FAST*`/`__UINT_FAST*` (FAST = `long int`/`long unsigned int` on LP64), `__INTMAX_TYPE__`/`__UINTMAX_TYPE__`, `__INTPTR_TYPE__`/`__UINTPTR_TYPE__`. Without them `typedef __INT_LEAST8_TYPE__ int8_t;` resolved the identifier as `int` (undeclared-macro → default-int fallback path), silently widening every `int8_t` in the test (`execute/pr42833.c`).
+- **Local inline struct/union definitions** (`parser/ast_stmt.h`): `struct S { ... } v;` and anonymous `union { ... } u;` inside a function body are parsed **before** base-type resolution (the body's `TK_LBRACE` is consumed inline, the tag registered, and the declarator continues normally). Anonymous local aggregates get generated tags `__anon_struct_N` / `__anon_union_N` (new `ZeroCCCompiler.anon_struct_seq` counter) so their members are addressable by the usual member layout.
+
+## Flexible-Array-Member Initializers (C99 6.7.2.1, Sprint 64)
+
+A trailing flexible array member (`struct P { int n; char data[]; };`) is legal in a **definition-with-initializer** when the brace list runs past the fixed size: the excess elements initialize `data` in the same object. `sizeof`/alignment of the struct type are unchanged (the FAM contributes 0), but the **object's allocation must grow** to cover the FAM data run:
+
+- `zc_measure_fam_init_bytes()` (`parser/init_common.h`) scans the brace list (pure token walk — never advances `token_pos`) and returns the byte count of the trailing group(s) past the fixed struct size.
+- `fam_bytes` is threaded through `zc_init_resolve_positional()` and `zero_cc_emit_brace_init_global()` (and all four call sites: `jit/compile_unit.h`, `parser/definitions.h`, `parser/ast_stmt.h`, `parser/ast_expr.h`); the char-array string fill is bounded by the **grown** object size, and the data section allocation is widened accordingly (`execute/20010924-1.c`).
+
+## Bitfield Assignment & Shift-Result Value Rules (C99 6.5.16.1 / C11 6.5.7.3, Sprint 64)
+
+- **Assignment expression value = field-reduced value**: `(l.m = j)` where `m` is an 11-bit bitfield must evaluate to the value **as stored in the field** — masked to the field width, sign-extended for signed fields — not the raw RHS (`execute/921016-1.c`: `(l.m = 1081) == 1081` must be false). Implemented in `assign_member_bitfield` (all three variants) and the member/compound-literal fallback assignment paths in `ir/ast_lowering_expr.c`.
+- **Shifts reduce too**: >32-bit bitfield `<<`/`>>` results reduce to the bitfield type per C11 6.5.7.3p2 (`zc_binop_bitfield_reduce` applies to `TK_SHL`/`TK_SHR`, not only `+`/`-`/`*`; `pr32244-1`, `pr34971`).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

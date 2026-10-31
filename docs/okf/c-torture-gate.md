@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-31T03:20:24Z
+timestamp: 2026-10-31T04:56:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,18 +40,18 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 63 / Chunk M3 Part 4)
+## 2. Classification Buckets & Baseline (Sprint 64 / MISCOMPILE Burn-Down Complete)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,393** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+141 since Sprint 62: 129 REJECT→PASS + 13 SKIP-C89→PASS, unblocked by the predefined-macro batch and the four latent-bug fixes) |
-| **`REJECT`** | **519** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 658; the macro batch removed ~139 `use of undeclared identifier` rejections) |
-| **`SKIP-C89`** | **677** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (incl. `pr56866`/`pr85756`, whose real bodies need GNU `asm`) |
-| **`MISCOMPILE`** | **12** | **Newly-exposed latent bugs** (was 0): tests that previously took `exit(0)` fallback branches now compile and diverge — tracked as the next burn-down batch (`20010924-1`, `20050604-1`, `pr108292`, `pr23135`, `pr32244-1`, `pr34971`, `pr55750`, `pr59014-2`, `pr61306-2`, `pr82388`, `pr97386-1`, `stdarg-3`) |
-| **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) — was 3, `pr123864` now passes |
-| **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
+| **`PASS`** | **2,447** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+54 since Sprint 63: 12 MISCOMPILE→PASS + 39 REJECT→PASS + 3 SKIP-C89→PASS) |
+| **`REJECT`** | **480** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 519) — the next burn-down target (Chunk R1–R4) |
+| **`SKIP-C89`** | **674** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (3 moved to PASS by the macro batch) |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (was 12 newly-exposed latent bugs in Sprint 63; all 12 + 5 newly-exposed + 2 re-exposed latent bugs fixed in Sprint 64) |
+| **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
+| **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
 | **`TIMEOUT`** | **0** | **0 TIMEOUTs** (the 5 s run budget can flake under external load on the shared box — see the environment note in the CHANGELOG) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
@@ -179,10 +179,31 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **Types**: the marker wraps the element type in a `TYPE_USER_0` vector (`type_vector`): first-class type with `size = N`, `align = 16` when `N >= 16`. Vectors appear in every position GCC allows them: typedefs, locals, globals, parameters, return types, struct members, pointer targets, compound literals.
     - **Lowering model (per-lane scalar expansion)**: a vector *expression* always lowers to the **address** of a stack temp holding the lanes; consumers load through it. Element-wise binops/unops/comparisons expand lane-by-lane (`vlanes <= 32`), scalar operands broadcast. Float lanes run in the **double-width FP model** (`VLOADSS`/`VSTORESS` widen/narrow; `CVTSS2SD`/`CVTSD2SS` opcodes added to all three ISAs with both asm and raw emitters). Comparison results follow GCC semantics (float→int, double→long element vectors).
     - **ABI**: vectors ≤ 8 B pass/return in `VREG_0`; 9–16 B in the `VREG_0`/`VREG_2` pair; > 16 B use the `sret` hidden-pointer convention (`callee_uses_sret` extended). By-value vector **call results are materialized to a stack temp** (address form), which is why `ast_expr_is_vector_addr` reduces to `type_is_vector`.
-    - **Casts**: vector→vector is a same-size bitwise reinterpret (raw-byte copy); vector→scalar requires matching sizes (GCC's "different size" rule) and extracts via a width-correct load; scalar→vector broadcasts.
+    - **Casts**: vector→vector is a same-size bitwise reinterpret (raw-byte copy); vector→scalar requires matching sizes (GCC's "different size" rule) and extracts via a width-correct load; scalar→vector takes the scalar's **low `min(sizeof(vector), 8)` bytes as the vector's bit pattern** (NOT a broadcast — corrected in Sprint 64 by `execute/20050316-1/3`).
     - **`__builtin_shuffle(v1, v2, {idx...})`**: per-lane branchless lane select on the raw index bits (`m = idx & (n-1)`, `from_a = (idx & n) == 0`, bit-level select); the semantic layer types the call as the first argument's vector type.
     - **Compound assignment**: per-lane in-place `+=`/`-=`/`*=`/`/=` for both int and float element lanes, on local variables and through pointers (`*w += v`), vector RHS read per-lane or scalar RHS broadcast.
     - **Result**: all **17 `__vector_size__` c-torture tests** pass on every `(-O0..-O3 × JIT/AOT)` config (`scal-to-vec1..3`, `pr94524-1/2`, `pr94412`, `pr110817-1/2`, `pr85169`, `pr71626-1/2`, `pr123625-2`, `pr126405-3`, `pr85331`, `pr94591`, `pr92618`, `fp-cmp-cond-1`, `pr72824-2`, `simd-6`), plus `20060420-1` and `pr60960` regression fixes (float-vector compound assignment; ≤ 8 B vector assignment from address-form RHS). Overall PASS **2,196 → 2,216**, MISCOMPILE **41 → 23** (all 23 remaining are true C99/C11 correctness bugs). Baseline re-recorded (`--update-baseline`).
+
+13. **Sprint 64: MISCOMPILE Burn-Down to Zero (12 + 5 newly-exposed + 2 re-exposed latent bugs)** (`src/zero_cc/parser/ast_stmt.h`, `parser/definitions.h`, `parser/ast_expr.h`, `parser/init_common.h`, `ir/ast_lowering.c`, `ir/ast_lowering_expr.c`, `ir/ast_lowering_stmt.c`, `ir/ast_lowering_internal.h`, `core/preprocessor.h`):
+    - **12 originally-exposed `MISCOMPILE`s** (unblocked by the Sprint 63 predefined-macro batch) — every root cause a distinct latent codegen bug, now all fixed:
+      - `pr32244-1`, `pr34971`: 40-bit bitfield **shift** results must be reduced per C11 6.5.7.3p2 (`zc_binop_bitfield_reduce` extended to `TK_SHL`/`TK_SHR`).
+      - `pr108292`: 64-byte vector **compound assignment** (`v -= (V4DI)1`) — new per-lane in-place helper `zc_emit_vector_compound_inplace` (vector RHS read per-lane, scalar broadcast; float lanes via the double-width FP model).
+      - `20010924-1`: **flexible-array-member initializers** — the trailing brace-group run past the struct's fixed size now grows the object's allocation (`zc_measure_fam_init_bytes`, `fam_bytes` threaded through `zc_init_resolve_positional` / `zero_cc_emit_brace_init_global` / all call sites).
+      - `pr23135`, `stdarg-3`: **SysV >16B struct/union by-value arguments use the hidden-pointer convention** (one GP pointer to a 16-aligned caller buffer; callee copies from it into the parameter) — previously marshaled as 8-byte chunk streams, corrupting every following argument. Copies use the loop-based `zc_emit_mem_copy` (a 128 KB struct would otherwise need 16,384 temps — over the 16-bit per-function temp-id budget).
+      - `pr82388`: **9–16B struct return values from address-form expressions** (`return h[29];`, `return *p;`) must load the value into the `VREG_0`/`VREG_2` pair, not return the address / first chunk only.
+      - `pr55750`: `arr[i].n++` on a **global** struct array — the `++`/`--` lvalue path missed the `NODE_INDEX` base (`base + index*elem_size`).
+      - `pr59014-2`, `pr61306-2`: integer **narrowing casts** (`(int)x`) must materialize a fresh temp — the in-place `sext`/`zext` destroyed the 64-bit source operand still needed later in the expression (`x + y` read zero).
+      - `pr97386-1`: `__builtin_bswap16` implemented.
+      - `20050604-1`: vector member/compound-assignment regression from the Sprint 63 vector work (stray `} else` split the member-assignment branches; global vector assignment from an address-form vector RHS needed a deref; vector member `+=` needed the in-place compound helper).
+      - `921016-1`: **bitfield assignment expression value** — `l.m = j` on an 11-bit field must evaluate to the field-reduced value (masked + sign-extended), not the raw RHS (C99 6.5.16.1p2). Fixed in `assign_member_bitfield` (all 3 variants) and the member/compound-literal fallback paths.
+      - `pr42833`: GCC-style `__INT*_TYPE__`/`__UINT*_TYPE__` predefined macros for LP64 (missing macros made `typedef __INT_LEAST8_TYPE__ int8_t;` resolve to `int`, silently widening all the test's arithmetic).
+    - **5 newly-exposed latent `MISCOMPILE`s** (unblocked by the anon-union/macro fixes): `20050316-1/3` (**scalar→vector cast = low bytes, not broadcast** — new `NODE_CAST` path producing a fresh address-form vector object; float elements converted via the double-width FP model), `921016-1`, `pr42833` (above), `pr92904` (**9–16B struct-return copy register clobber** — `zero_cc_emit_struct_copy_to_addr` now captures the `VREG_0`/`VREG_2` pair into fresh allocatable temps immediately after the call, because the `dst+8` address arithmetic may legally reuse rax/rdx; vector-typed calls excluded since they return in address form).
+    - **2 re-exposed latent `MISCOMPILE`s**: `pr85331`, `pr94591` — the same clobber hit `*r = __builtin_shuffle(y, m)` (16B vector call result stored through a pointer): the struct-return fast path must not fire for vector-typed calls.
+    - **Local inline struct/union definitions** (`struct S { ... } v;`, anonymous `union { ... } u;` in block scope): parsed before base-type resolution; anonymous aggregates get generated tags (`__anon_struct_N`/`__anon_union_N`).
+    - **Large hidden-pointer parameter copies deferred** in the callee prologue: the >16B hidden-pointer→param-storage copy must run **after all `PARAM_SAVE_INT`s** (and after `ir_emit_variadic_spill` for variadics) — an immediate copy let the regalloc place copy temps in not-yet-saved argument registers, corrupting later scalar parameters (`execute/20030914-2`, `va-arg-4` regression class).
+    - **9 `REJECT`→PASS** from the same batch: `20000605-1`, `20030914-2`, `20040703-1`, `20050826-2`, `20071030-1`, `pr67226`, `pr93434`, `va-arg-4`, `961223-1` (GNU89 inline; needs `-fgnu89-inline` reference).
+    - **Result**: MISCOMPILE **12 → 0** across all 3,940 tests; REJECT **519 → 480**; PASS **2,393 → 2,447**. All transitions are improvements (12 MISCOMPILE→PASS, 39 REJECT→PASS, 3 SKIP-C89→PASS); `make test` 156/156, `make test-opt` 117/117, `make test-isa-qemu` 44/44, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
+    - **Next**: the REJECT burn-down (480 remaining; dominant signatures: `unexpected token at file scope`, `use of undeclared identifier`, `expected identifier in declaration`).
 
 ---
 

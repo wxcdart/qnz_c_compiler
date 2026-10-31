@@ -13,7 +13,8 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
  * and returns with the stream positioned after the closing brace. */
 static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                                                   uint8_t *buf, size_t buf_off, size_t buf_cap,
-                                                  size_t data_patch_off, size_t *cursor);
+                                                  size_t data_patch_off, size_t *cursor,
+                                                  size_t fam_bytes);
 
 /* M3: the struct/union member table is heap-backed (it was a fixed 64-entry
  * array and the 65th+ member was silently dropped). Reserve one slot for the
@@ -1361,10 +1362,17 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                             c->token_pos++;
                             vhas_init = true;
                             if (c->tokens[c->token_pos].type == TK_LBRACE) {
+                                /* C99 6.7.2.1p3: a trailing flexible-array
+                                 * member is initialized past the struct's fixed
+                                 * size - grow the object to cover the FAM data
+                                 * run (c-torture execute/20010924-1). */
+                                size_t fam_extra = (vdim_count == 0 && vptr_depth == 0) ?
+                                    zc_measure_fam_init_bytes(c, &vt) : 0;
+                                if (fam_extra > 0) vsize += fam_extra;
                                 uint8_t *vbuf = calloc(vsize > 0 ? vsize : 1, 1);
                                 if (vbuf) {
                                     size_t top_cursor = 0;
-                                    zero_cc_emit_brace_init_global(c, vreg_type, vbuf, 0, vsize, var_offset, &top_cursor);
+                                    zero_cc_emit_brace_init_global(c, vreg_type, vbuf, 0, vsize, var_offset, &top_cursor, fam_extra);
                                     zero_cc_buf_put_bytes(&c->data_section, vbuf, vsize);
                                 } else {
                                     for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);

@@ -146,9 +146,53 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     } else if (node->tag == NODE_MEMBER) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
+    } else if (node->tag == NODE_VA_ARG) {
+        /* va_arg(ap, struct S) with sizeof(S) > 16 yields the hidden
+         * pointer to the caller's variadic copy (SysV ABI) - an address. */
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) &&
+            type_size(ti) > 16) return true;
     }
     return false;
 }
+
+/* Copy n bytes from src (address temp) to dst (address temp) with a real
+ * IR loop of 8-byte chunks. A straight-line unroll would emit 4+ insns per
+ * chunk - a 128KB by-value struct argument (c-torture execute/pr23135) is
+ * 16K chunks and would blow both the JIT compile time and the 16-bit
+ * per-function temp budget. A fixed set of temps is reused per iteration. */
+static void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
+    if (n == 0) return;
+    size_t full = n / 8;
+    size_t tail = n % 8;
+    int s = c->next_temp_id++;
+    int d = c->next_temp_id++;
+    int v = c->next_temp_id++;
+    int eight = c->next_temp_id++;
+    ir_emit_mov_reg(s, src);
+    ir_emit_mov_reg(d, dst);
+    ir_emit_mov_imm(eight, 8);
+    if (full > 0) {
+        int cnt = c->next_temp_id++;
+        int one = c->next_temp_id++;
+        ir_emit_mov_imm(cnt, (int32_t)full);
+        ir_emit_mov_imm(one, 1);
+        uint16_t loop = c->ir_next_label++;
+        ir_emit_label(loop);
+        ir_emit_deref(v, s);
+        ir_emit_store_64(v, d);
+        ir_emit_add(s, s, eight);
+        ir_emit_add(d, d, eight);
+        ir_emit_sub(cnt, cnt, one);
+        ir_emit_jne(cnt, loop);
+    }
+    if (tail > 0) {
+        if (tail >= 4) { ir_emit_load_32(v, s); ir_emit_store_32(v, d); }
+        else if (tail >= 2) { ir_emit_load_16(v, s); ir_emit_store_16(v, d); }
+        else { ir_emit_load_byte(v, s); ir_emit_store_byte(v, d); }
+    }
+}
+
 
 /* Check if an AST reference evaluates to a GNU vector object in memory
  * (an address temp). Vector-typed expressions lower to the vector's

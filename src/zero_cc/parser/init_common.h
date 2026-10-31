@@ -95,14 +95,41 @@ static inline size_t zc_init_member_leaf_start(const ZeroCCType *st, size_t mi) 
  * aggregate, the target is that sub-object (a nested brace list belongs
  * there); scalar leaves are direct value targets. */
 static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base_off,
-                                              ZcInitTarget *out) {
+                                              size_t fam_bytes, ZcInitTarget *out) {
     if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
         if (!t->members) return false;
         size_t member_start = 0;
         for (size_t mi = 0; mi < t->member_count; mi++) {
             const ZeroCCStructMember *m = &t->members[mi];
             size_t leaves_m = 1;
-            if (m->is_flexible) continue;
+            if (m->is_flexible) {
+                /* C99 6.7.2.1p3: a trailing flexible array member receives
+                 * the remaining initializer elements, placed after the
+                 * struct's fixed portion (it adds nothing to sizeof).
+                 * Reachable only once every fixed member is filled. */
+                if (*cursor >= member_start && m->tag == TYPE_ARRAY &&
+                    m->base && m->base->size > 0) {
+                    const ZeroCCType *el = m->base;
+                    size_t local = *cursor - member_start;
+                    out->in_member = true;
+                    out->abs_off = base_off + t->size + local * el->size;
+                    out->val_type.tag = el->tag;
+                    out->val_type.size = el->size;
+                    out->val_type.align = el->align;
+                    out->val_type.base = el->base;
+                    out->is_scalar = true;
+                    out->scalar_sz = (el->size > 8) ? 8 : (el->size ? el->size : 4);
+                    out->advance = 1;
+                    if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) {
+                        /* String-fill context: the caller sized the object
+                         * for the whole FAM data run, so report it in full. */
+                        out->arr_ctx_off = base_off + t->size;
+                        out->arr_ctx_size = fam_bytes;
+                    }
+                    return true;
+                }
+                continue;
+            }
             zc_init_member_leaf_count(m, &leaves_m);
             if (*cursor < member_start + leaves_m) {
                 size_t local = *cursor - member_start;
@@ -502,6 +529,62 @@ static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
     return sign * v;
 }
 
+/* C99 6.7.2.1p3: a trailing flexible-array member is initialized from the
+ * LAST top-level element of the brace list and placed after the struct's
+ * fixed portion, so the object's allocation must be grown by the bytes that
+ * element contributes: string literal -> len+1; brace list -> item count x
+ * element size; single scalar -> element size. Returns 0 when the struct has
+ * no trailing flexible member or no initializer brace list is present.
+ * Pure token scan (no evaluation, token_pos restored). */
+static inline size_t zc_measure_fam_init_bytes(ZeroCCCompiler *c, const ZeroCCType *st) {
+    if (!st || (st->tag != TYPE_STRUCT && st->tag != TYPE_UNION) || !st->members) return 0;
+    size_t fam_esz = 0;
+    for (size_t mi = 0; mi < st->member_count; mi++) {
+        const ZeroCCStructMember *m = &st->members[mi];
+        if (m->is_flexible && m->tag == TYPE_ARRAY && m->base && m->base->size > 0)
+            fam_esz = m->base->size;
+    }
+    if (fam_esz == 0) return 0;
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_LBRACE) return 0;
+    size_t pos = c->token_pos + 1; /* past '{' */
+    size_t last_start = pos;
+    int depth = 0;
+    while (pos < c->token_count) {
+        int tt = c->tokens[pos].type;
+        if (tt == TK_LBRACE) { depth++; pos++; }
+        else if (tt == TK_RBRACE) { if (depth == 0) break; depth--; pos++; }
+        else if (tt == TK_COMMA && depth == 0) { last_start = pos + 1; pos++; }
+        else pos++;
+    }
+    size_t bytes = 0;
+    if (last_start < c->token_count) {
+        int tt = c->tokens[last_start].type;
+        if (tt == TK_STRING) {
+            bytes = zero_cc_token_str_len(&c->tokens[last_start]) + 1;
+        } else if (tt == TK_LBRACE) {
+            size_t p = last_start + 1;
+            int d = 0;
+            size_t count = 0;
+            bool any = false;
+            while (p < c->token_count) {
+                int t2 = c->tokens[p].type;
+                if (t2 == TK_LBRACE) d++;
+                else if (t2 == TK_RBRACE) { if (d == 0) break; d--; }
+                else if (d == 0) {
+                    if (t2 == TK_COMMA) { if (any) count++; }
+                    else if (t2 != TK_ASSIGN && t2 != TK_DOT) any = true;
+                }
+                p++;
+            }
+            if (any) count++;
+            bytes = count * fam_esz;
+        } else if (tt != TK_RBRACE) {
+            bytes = fam_esz; /* single scalar (char literal / int / enum) */
+        }
+    }
+    return bytes;
+}
+
 /* Sprint 44: recursive aggregate-initializer writer for global/static
  * initializers (C99 6.7.8/6.7.9).  Fills buf[buf_off .. buf_off+obj_type.size)
  * from the brace list at c->token_pos (pointing at the opening '{').
@@ -511,10 +594,15 @@ static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
  * braces all resolve through the shared engine in parser/init_common.h,
  * keeping offsets identical to the AST/lowering path.
  * `data_patch_off` is the .data offset that receives data-reloc patches for
- * string pointers (element 0 of the object). */
+ * string pointers (element 0 of the object).
+ * `fam_bytes` is the extra storage a trailing flexible-array member (C99
+ * 6.7.2.1p3) may write past the struct's fixed size (0 when the object has
+ * no such member or it is not initialized); the object's allocation must
+ * already include it. */
 static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                                                   uint8_t *buf, size_t buf_off, size_t buf_cap,
-                                                  size_t data_patch_off, size_t *cursor) {
+                                                  size_t data_patch_off, size_t *cursor,
+                                                  size_t fam_bytes) {
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) c->token_pos++;
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
         size_t iter_start = c->token_pos;
@@ -539,7 +627,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
         }
         if (!has_desig) {
             size_t cur = cursor ? *cursor : 0;
-            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, &tgt)) {
+            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, fam_bytes, &tgt)) {
                 /* Excess elements: warn, stop (the rest stays zero). */
                 diag_report_warning_at_token(c, "excess elements in aggregate initializer");
                 int depth = 0;
@@ -568,7 +656,8 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             zero_cc_emit_brace_init_global(c, sub_type, buf,
                                            transparent ? buf_off : tgt.abs_off,
                                            buf_cap, data_patch_off,
-                                           transparent ? cursor : &sub_cursor);
+                                           transparent ? cursor : &sub_cursor,
+                                           fam_bytes);
             if (cursor && !transparent) {
                 if (has_desig) {
                     size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
@@ -584,7 +673,8 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                     sub_cursor = 0;
                     zero_cc_emit_brace_init_global(c, sub_type, buf,
                                                    tgt.abs_off + (size_t)(k - desig_lo) * step,
-                                                   buf_cap, data_patch_off, &sub_cursor);
+                                                   buf_cap, data_patch_off, &sub_cursor,
+                                                   fam_bytes);
                 }
             }
         } else if (c->token_pos < c->token_count &&

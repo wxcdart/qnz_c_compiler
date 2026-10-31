@@ -289,6 +289,10 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     }
     if (t == TK_LBRACE && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
         size_t total = (sym->type.size > 0) ? sym->type.size : 8;
+        /* C99 6.7.2.1p3: a trailing flexible-array member is initialized
+         * past the struct's fixed size - grow the object to cover it. */
+        size_t fam_extra = zc_measure_fam_init_bytes(c, &sym->type);
+        if (fam_extra > 0) total += fam_extra;
         size_t cap_end = sym->static_data_offset + total;
         if (c->data_section.length < cap_end) {
             size_t grow = cap_end - c->data_section.length;
@@ -300,7 +304,8 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         memset(dst, 0, total);
         size_t init_cursor = 0;
         zero_cc_emit_brace_init_global(c, sym->type, dst, 0, total,
-                                       sym->static_data_offset, &init_cursor);
+                                       sym->static_data_offset, &init_cursor,
+                                       fam_extra);
         return true;
     }
     if (is_float) {
@@ -1002,6 +1007,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         ZeroCCType typeof_base_type;
         memset(&typeof_base_type, 0, sizeof(typeof_base_type));
         bool has_typeof_base = false;
+        ZeroCCType anon_struct_type;
+        memset(&anon_struct_type, 0, sizeof(anon_struct_type));
+        bool has_anon_struct = false;
         if (type_tok == TK_TYPEOF || type_tok == TK_TYPEOF_UNQUAL) {
             has_typeof_base = true;
             bool unqual = (type_tok == TK_TYPEOF_UNQUAL);
@@ -1074,6 +1082,26 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 type_start_pos = c->token_pos;
                 c->token_pos++;
             }
+        }
+        /* C99 6.7.2.1: a block-scope declaration may define its aggregate
+         * type inline: `struct S { int x; } v;` / `union { int a; } w;`.
+         * Parse the body NOW (it precedes the declarator), register it,
+         * and use the definition as this declaration's base type.
+         * (File-scope definitions go through zero_cc_stmt_typedef_struct.) */
+        if ((type_tok == TK_STRUCT || type_tok == TK_UNION) &&
+            c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+            ZeroCCType st = zero_cc_parse_struct_body(c, type_tok == TK_UNION);
+            char tag[128];
+            if (c->tokens[type_start_pos].type == TK_IDENT) {
+                snprintf(tag, sizeof(tag), "%s", c->tokens[type_start_pos].str_val);
+            } else {
+                snprintf(tag, sizeof(tag), "__anon_%s_%zu",
+                         type_tok == TK_UNION ? "union" : "struct", c->anon_struct_seq++);
+            }
+            snprintf(st.struct_name, sizeof(st.struct_name), "%s", tag);
+            zero_cc_register_struct(c, tag, st);
+            has_anon_struct = true;
+            anon_struct_type = st;
         }
         /* Check _Atomic(T) or _Atomic T */
         if (type_tok == TK_ATOMIC) {
@@ -1230,7 +1258,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 bool has_any_vla = zero_cc_declarator_has_vla(&decl);
                 ASTRef vla_dim_expr = zero_cc_declarator_vla_dim_expr(&decl);
 
-                ZeroCCType base_decl = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                ZeroCCType base_decl = has_anon_struct ? anon_struct_type :
+                    (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
                 if (decl_is_unsigned) {
                     if (base_decl.tag == TYPE_INT8) base_decl.tag = TYPE_UINT8;
                     else if (base_decl.tag == TYPE_INT16) base_decl.tag = TYPE_UINT16;

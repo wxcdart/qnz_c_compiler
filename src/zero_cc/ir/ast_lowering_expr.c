@@ -596,6 +596,42 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     bool rhs_is_vec_addr = ast_expr_is_vector_addr(c, arena, rhs_ref);
     bool src_is_vec = src_sym && src_sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&src_sym->type);
 
+    /* 9-16B by-value CALL result: the value is the VREG_0/VREG_2 register
+     * pair. Capture BOTH halves into fresh allocatable temps immediately -
+     * any address arithmetic emitted later in this copy (dst+8) may legally
+     * reuse rax/rdx and would otherwise destroy the live return value
+     * (c-torture execute/pr92904: `v.c = f2(0, u.c)` stored the destination
+     * ADDRESS as the upper chunk). Vector-typed calls are NOT included:
+     * they return in address form like every other vector value. */
+    {
+        TypeInfo *c_ti = ast_node_get_typeinfo(c, rnode);
+        bool struct_ret_call = rnode && rnode->tag == NODE_CALL && c_ti &&
+            (c_ti->kind == TYPE_KIND_STRUCT || c_ti->kind == TYPE_KIND_UNION);
+        if (struct_ret_call && struct_sz > 8 && struct_sz <= 16 && !src_sym) {
+            int pair0 = c->next_temp_id++;
+            ir_emit_mov_reg(pair0, 0);
+            int pair1 = c->next_temp_id++;
+            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+            ir_emit_mov_reg(pair1, reg2);
+            if (struct_sz >= 8) ir_emit_store_64(pair0, dst_addr);
+            else if (struct_sz >= 4) ir_emit_store_32(pair0, dst_addr);
+            else if (struct_sz >= 2) ir_emit_store_16(pair0, dst_addr);
+            else ir_emit_store_byte(pair0, dst_addr);
+            if (struct_sz > 8) {
+                int off_t = c->next_temp_id++;
+                ir_emit_mov_imm(off_t, 8);
+                int cur_dst = c->next_temp_id++;
+                ir_emit_add(cur_dst, dst_addr, off_t);
+                size_t rem = struct_sz - 8;
+                if (rem >= 8) ir_emit_store_64(pair1, cur_dst);
+                else if (rem >= 4) ir_emit_store_32(pair1, cur_dst);
+                else if (rem >= 2) ir_emit_store_16(pair1, cur_dst);
+                else ir_emit_store_byte(pair1, cur_dst);
+            }
+            return;
+        }
+    }
+
     for (int i = 0; i < num_chunks; i++) {
         size_t rem = struct_sz - (size_t)(i * 8);
         int ch_val = c->next_temp_id++;
@@ -626,8 +662,16 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         } else if (i == 0) {
             ch_val = rhs_temp;
         } else if (i == 1 && struct_sz <= 16) {
+            /* 9-16B by-value call result: upper 8 bytes in the ABI
+             * secondary register. Copy it into a fresh allocatable temp
+             * first - using the raw VREG_2 temp id as a store source
+             * collides with the allocator assigning that same physical
+             * register (rdx) to the destination-address temp below
+             * (c-torture execute/pr92904: `v.c = f2(0, u.c)`). */
             int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
-            ch_val = reg2;
+            int ch2 = c->next_temp_id++;
+            ir_emit_mov_reg(ch2, reg2);
+            ch_val = ch2;
         }
         if (rem >= 8) ir_emit_store_64(ch_val, cur_dst);
         else if (rem >= 4) ir_emit_store_32(ch_val, cur_dst);
@@ -678,6 +722,93 @@ static void lower_assign_conv_zt(ZeroCCCompiler *c, int temp, const ZeroCCType *
         ir_emit_zext(temp, (int)zt->size);
     else
         ir_emit_sext(temp, (int)zt->size);
+}
+
+/* Per-lane in-place compound op (v OP= rhs) on a GNU vector object whose
+ * base address is in base_t. The RHS is either a scalar value in rhs_t
+ * (broadcast to every lane) or a vector in address form (each lane reads
+ * its own amount from rhs_t + i*esz). Element sizes 1-8; float elements
+ * run in the double-width FP model (VLOADSS/VSTORESS widen/narrow).
+ * Shared by the plain-local, global, and pointer-deref compound paths so
+ * all three keep identical lane semantics (c-torture execute/pr108292:
+ * `x >>= ((V){} != x) & 31` on a 64-byte global vector). */
+static void zc_emit_vector_compound_inplace(ZeroCCCompiler *c, int base_t, size_t vsize,
+                                            const ZeroCCType *vel, int op,
+                                            int rhs_t, bool rhs_is_vec, bool rhs_is_flt) {
+    size_t esz = (vel && vel->size > 0) ? vel->size : 4;
+    size_t lanes = (esz > 0) ? (vsize / esz) : 0;
+    if (lanes == 0 || lanes > 64) return;
+    bool el_flt = vel && (vel->tag == TYPE_FLOAT || vel->tag == TYPE_DOUBLE);
+    bool el_uns = vel && (vel->tag == TYPE_UINT8 || vel->tag == TYPE_UINT16 ||
+                          vel->tag == TYPE_UINT32 || vel->tag == TYPE_UINT64);
+    for (size_t i = 0; i < lanes; i++) {
+        int la = c->next_temp_id++;
+        if (i == 0) { ir_emit_mov_reg(la, base_t); }
+        else { int o = c->next_temp_id++; ir_emit_mov_imm(o, (int32_t)(i * esz));
+               ir_emit_add(la, base_t, o); }
+        int lv = c->next_temp_id++;
+        int rv = c->next_temp_id++;
+        if (el_flt) {
+            if (esz == 4) ir_emit_vloadss((uint16_t)lv, (uint16_t)la);
+            else ir_emit_vloadsd((uint16_t)lv, (uint16_t)la);
+            if (rhs_is_vec) {
+                int ra = c->next_temp_id++;
+                if (i == 0) { ir_emit_mov_reg(ra, rhs_t); }
+                else { int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int32_t)(i * esz));
+                         ir_emit_add(ra, rhs_t, o2); }
+                if (esz == 4) ir_emit_vloadss((uint16_t)rv, (uint16_t)ra);
+                else ir_emit_vloadsd((uint16_t)rv, (uint16_t)ra);
+            } else if (rhs_is_flt) {
+                ir_emit_mov_reg(rv, rhs_t);
+            } else {
+                ir_emit_cvtsi2sd((uint16_t)rv, (uint16_t)rhs_t);
+            }
+            int ov = c->next_temp_id++;
+            switch (op) {
+                case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                case TK_SUB_ASSIGN: ir_emit_fsub((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                case TK_MUL_ASSIGN: ir_emit_fmul((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+                default:            ir_emit_fdiv((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
+            }
+            if (esz == 4) ir_emit_vstoress(la, (uint16_t)ov);
+            else ir_emit_vstoresd(la, (uint16_t)ov);
+            continue;
+        }
+        if (esz == 1) { ir_emit_load_byte(lv, la); if (el_uns) ir_emit_zext(lv, 1); else ir_emit_sext(lv, 1); }
+        else if (esz == 2) { ir_emit_load_16(lv, la); if (el_uns) ir_emit_zext(lv, 2); else ir_emit_sext(lv, 2); }
+        else if (esz == 4) { ir_emit_load_32(lv, la); if (el_uns) ir_emit_zext(lv, 4); else ir_emit_sext(lv, 4); }
+        else ir_emit_deref(lv, la);
+        if (rhs_is_vec) {
+            int ra = c->next_temp_id++;
+            if (i == 0) { ir_emit_mov_reg(ra, rhs_t); }
+            else { int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, (int32_t)(i * esz));
+                    ir_emit_add(ra, rhs_t, o2); }
+            if (esz == 1) { ir_emit_load_byte(rv, ra); if (el_uns) ir_emit_zext(rv, 1); else ir_emit_sext(rv, 1); }
+            else if (esz == 2) { ir_emit_load_16(rv, ra); if (el_uns) ir_emit_zext(rv, 2); else ir_emit_sext(rv, 2); }
+            else if (esz == 4) { ir_emit_load_32(rv, ra); if (el_uns) ir_emit_zext(rv, 4); else ir_emit_sext(rv, 4); }
+            else ir_emit_deref(rv, ra);
+        } else {
+            ir_emit_mov_reg(rv, rhs_t);
+        }
+        int ov = c->next_temp_id++;
+        switch (op) {
+            case TK_ADD_ASSIGN: ir_emit_add(ov, lv, rv); break;
+            case TK_SUB_ASSIGN: ir_emit_sub(ov, lv, rv); break;
+            case TK_MUL_ASSIGN: ir_emit_mul(ov, lv, rv); break;
+            case TK_DIV_ASSIGN: ir_emit_div(ov, lv, rv); if (el_uns) ir_mark_last_unsigned(1); break;
+            case TK_MOD_ASSIGN: ir_emit_mod(ov, lv, rv); if (el_uns) ir_mark_last_unsigned(1); break;
+            case TK_AND_ASSIGN: ir_emit_and(ov, lv, rv); break;
+            case TK_OR_ASSIGN:  ir_emit_or(ov, lv, rv); break;
+            case TK_XOR_ASSIGN: ir_emit_xor(ov, lv, rv); break;
+            case TK_SHL_ASSIGN: ir_emit_shl(ov, lv, rv); break;
+            case TK_SHR_ASSIGN: ir_emit_shr(ov, lv, rv); break;
+            default: ir_emit_mov_reg(ov, lv); break;
+        }
+        if (esz == 1) ir_emit_store_byte(ov, la);
+        else if (esz == 2) ir_emit_store_16(ov, la);
+        else if (esz == 4) ir_emit_store_32(ov, la);
+        else ir_emit_store_64(ov, la);
+    }
 }
 
 /* ---- C11/GCC atomic-builtin dispatch (C11 7.6 / GNU __sync + __atomic) ----
@@ -911,6 +1042,22 @@ static int assign_member_bitfield(ZeroCCCompiler *c,
     int masked_val = c->next_temp_id++;
     ir_emit_and(masked_val, right_temp, val_mask_temp);
 
+    /* Value of the assignment expression: the RHS converted to the
+     * bit-field type (C99 6.5.16.1) - masked to the field width and
+     * sign-extended for signed fields (c-torture execute/921016-1:
+     * `(l.m = 1081)` on a signed 11-bit field is -967, not 1081). */
+    int field_val = masked_val;
+    if (is_signed && bit_width > 0 && bit_width < 32) {
+        int32_t sb = (int32_t)(1ULL << (bit_width - 1));
+        int sft = c->next_temp_id++;
+        ir_emit_mov_imm(sft, sb);
+        int xft = c->next_temp_id++;
+        ir_emit_xor(xft, field_val, sft);
+        int eft = c->next_temp_id++;
+        ir_emit_sub(eft, xft, sft);
+        field_val = eft;
+    }
+
     /* 4. Shift into position */
     if (bit_offset > 0) {
         int shl_amt = c->next_temp_id++;
@@ -927,7 +1074,7 @@ static int assign_member_bitfield(ZeroCCCompiler *c,
     else ir_emit_store_32(combined_temp, addr_temp);
 
     c->last_expr_is_float = 0;
-    return right_temp;
+    return field_val;
 }
 
 /* Conservative AST probe (Sprint 40): does this expression evaluate to a
@@ -1778,6 +1925,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     break;
                 case TK_SHL:
                     ir_emit_shl(result_temp, left_temp, right_temp);
+                    /* C11 6.5.8: the shift result is reduced to the width
+                     * of the (un-promoted) bit-field when the left operand
+                     * is one wider than unsigned int - `x.b << 36` on a
+                     * 40-bit field keeps only the low 40 bits (pr32244-1).
+                     * Bitwise & | ^ do NOT reduce. */
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                     break;
                 case TK_SHR: {
                     /* Signed >> is an arithmetic shift (C: implementation-
@@ -1789,6 +1942,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else {
                         ir_emit_shr(result_temp, left_temp, right_temp);
                     }
+                    /* Same bit-field result reduction as TK_SHL
+                     * (C11 6.5.8; signed fields re-sign-extend). */
+                    result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                     break;
                 }
                 case TK_EQ:
@@ -2085,6 +2241,31 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                         ir_emit_deref(base_addr, base_addr);
                                     }
                                 }
+                            } else if (base_node && base_node->tag == NODE_INDEX) {
+                                /* arr[i].m: element address + member offset
+                                 * (c-torture execute/pr55750: `arr[i].n++`). */
+                                int array_temp = lower_expr(c, arena, base_node->left);
+                                int index_temp = lower_expr(c, arena, base_node->right);
+                                TypeInfo *elti = ast_node_get_typeinfo(c, base_node);
+                                size_t esz = elti ? type_size(elti) : 0;
+                                if (esz == 0) esz = 4;
+                                int scaled_index;
+                                if (esz == 1) {
+                                    scaled_index = index_temp;
+                                } else if (esz == 2 || esz == 4 || esz == 8) {
+                                    int shift = (esz == 2) ? 1 : ((esz == 4) ? 2 : 3);
+                                    int sh_temp = c->next_temp_id++;
+                                    ir_emit_mov_imm(sh_temp, shift);
+                                    scaled_index = c->next_temp_id++;
+                                    ir_emit_shl(scaled_index, index_temp, sh_temp);
+                                } else {
+                                    int sz_temp = c->next_temp_id++;
+                                    ir_emit_mov_imm(sz_temp, (int32_t)esz);
+                                    scaled_index = c->next_temp_id++;
+                                    ir_emit_mul(scaled_index, index_temp, sz_temp);
+                                }
+                                base_addr = c->next_temp_id++;
+                                ir_emit_add(base_addr, array_temp, scaled_index);
                             }
                             if (base_addr == TEMP_NONE && is_arrow) {
                                 base_addr = lower_expr(c, arena, operand->left);
@@ -2549,6 +2730,77 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return int_res_temp;
             }
             int result = lower_expr(c, arena, node->left);
+            /* Scalar -> vector cast (GCC requires matching sizes): the vector's bit
+             * pattern is the low sizeof(vector) bytes of the scalar value.
+             * The result must be a fresh vector object in ADDRESS form
+             * (vector expressions are always address form) - e.g.
+             * `(V2HI)0` / `(V2SI)(long long)x` in c-torture
+             * execute/20050316-1/-3. */
+            {
+                ZeroCCASTNode *csrc2 = zero_cc_ast_get(arena, node->left);
+                TypeInfo *cst2 = csrc2 ? ast_node_get_typeinfo(c, csrc2) : NULL;
+                if (cast_ti && type_is_vector(cast_ti) && (!cst2 || !type_is_vector(cst2))) {
+                    size_t vsz = type_size(cast_ti);
+                    if (vsz > 0 && vsz <= 128) {
+                        c->current_stack_frame = (c->current_stack_frame + (int32_t)vsz + 7) & ~7;
+                        int32_t voff = c->current_stack_frame;
+                        const TypeInfo *el2 = cast_ti->details.array.base;
+                        bool efl = el2 && type_is_floating(el2);
+                        if (efl && !c->last_expr_is_float) {
+                            int convf = c->next_temp_id++;
+                            ir_emit_cvtsi2sd((uint16_t)convf, (uint16_t)result);
+                            result = convf;
+                            c->last_expr_is_float = 1;
+                        }
+                        size_t sz = (vsz <= 8) ? vsz : 8;
+                        if (efl) {
+                            if (sz == 4) {
+                                int fa = c->next_temp_id++;
+                                ir_emit_lea(fa, BE(c)->fp_reg, -voff);
+                                ir_emit_vstoress((uint16_t)fa, (uint16_t)result);
+                            } else {
+                                ir_emit_fstore((uint16_t)result, BE(c)->fp_reg, -voff);
+                            }
+                        } else {
+                            if (sz == 1) ir_emit_store_byte((uint16_t)result, (uint16_t)voff);
+                            else if (sz == 2) {
+                                int a2 = c->next_temp_id++;
+                                ir_emit_lea(a2, TEMP_NONE, -voff);
+                                ir_emit_store_16((uint16_t)result, (uint16_t)a2);
+                            } else if (sz == 4) {
+                                int a2 = c->next_temp_id++;
+                                ir_emit_lea(a2, TEMP_NONE, -voff);
+                                ir_emit_store_32((uint16_t)result, (uint16_t)a2);
+                            } else {
+                                ir_emit_store((uint16_t)result, BE(c)->fp_reg, -voff);
+                            }
+                        }
+                        /* Any bytes beyond the scalar's width (only possible
+                         * when the vector is wider than the source type) are
+                         * zero. */
+                        if (vsz > sz) {
+                            int zt = c->next_temp_id++;
+                            ir_emit_mov_imm(zt, 0);
+                            for (size_t off = sz; off < vsz; off += 8) {
+                                size_t rem = vsz - off;
+                                if (rem >= 8) {
+                                    ir_emit_store((uint16_t)zt, BE(c)->fp_reg, -(int32_t)(voff - (int32_t)off));
+                                } else {
+                                    int a2 = c->next_temp_id++;
+                                    ir_emit_lea(a2, TEMP_NONE, -(int32_t)(voff - (int32_t)off));
+                                    if (rem >= 4) ir_emit_store_32((uint16_t)zt, (uint16_t)a2);
+                                    else if (rem >= 2) ir_emit_store_16((uint16_t)zt, (uint16_t)a2);
+                                    else ir_emit_store_byte((uint16_t)zt, (uint16_t)a2);
+                                }
+                            }
+                        }
+                        int vaddr2 = c->next_temp_id++;
+                        ir_emit_lea(vaddr2, BE(c)->fp_reg, -voff);
+                        c->last_expr_is_float = 0;
+                        return vaddr2;
+                    }
+                }
+            }
             /* Vector -> same-size scalar cast (GCC requires matching sizes):
              * the vector lowers to the ADDRESS of the vector object; read
              * the whole vector as one scalar value of the target width.
@@ -2843,13 +3095,20 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             /* int->int narrowing cast ((int)longv, (short)x): extend the
              * 64-bit value to the target width so it carries true N-bit
-             * semantics (a plain cast previously did nothing). */
+             * semantics (a plain cast previously did nothing). The
+             * truncation must go to a FRESH temp - in-place zext would
+             * destroy a source operand that is used again after the cast
+             * (`if (((int)x | (int)y) != 0) ...; return x + y;` -
+             * c-torture execute/pr59014-2). */
             if (cast_ti) {
                 size_t ctsz = type_size(cast_ti);
                 if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
                     bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
-                    if (ctsu) ir_emit_zext(result, (int)ctsz);
-                    else ir_emit_sext(result, (int)ctsz);
+                    int cast_t = c->next_temp_id++;
+                    ir_emit_mov_reg(cast_t, result);
+                    if (ctsu) ir_emit_zext(cast_t, (int)ctsz);
+                    else ir_emit_sext(cast_t, (int)ctsz);
+                    result = cast_t;
                 }
             }
             return result;
@@ -2894,8 +3153,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ZeroCCSym *ps = &c->locals[p];
                     if (!ps->is_param) continue;
                     bool pfp = (ps->type.tag == TYPE_FLOAT || ps->type.tag == TYPE_DOUBLE);
-                    bool pmulti = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 8;
-                    if (pmulti) {
+                    /* >16B struct/union params take ONE hidden-pointer slot
+                     * (SysV ABI), not one slot per 8-byte chunk. */
+                    bool phidden = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 16;
+                    bool pmulti = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 8 && !phidden;
+                    if (phidden) {
+                        if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    } else if (pmulti) {
                         int chunks = (int)((ps->type.size + 7) / 8);
                         for (int ch = 0; ch < chunks; ch++) { if (gp_idx < gp_regs) gp_idx++; else stack_named++; }
                     } else if (pfp) {
@@ -2984,8 +3248,39 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_add(addr_ovf_field, ap_addr, off_ovf);
 
                 size_t struct_sz = (t_t && (t_t->kind == TYPE_KIND_STRUCT || t_t->kind == TYPE_KIND_UNION)) ? type_size(t_t) : 0;
+                bool is_struct_hidden = (!is_fp && struct_sz > 16);
                 bool is_struct2 = (!is_fp && struct_sz > 8 && struct_sz <= 16);
-                if (is_struct2) {
+                if (is_struct_hidden) {
+                    /* >16B struct va_arg: the caller passed ONE hidden
+                     * pointer slot (SysV ABI) - read it like a pointer;
+                     * the result is the address of the caller's copy. */
+                    int hp = c->next_temp_id++;
+                    ir_emit_deref(hp, addr_ptr_field);    /* fresh stream ptr */
+                    int he = c->next_temp_id++;
+                    ir_emit_deref(he, addr_end_field);    /* fresh end sentinel */
+                    int hd = c->next_temp_id++;
+                    ir_emit_sub(hd, hp, he);
+                    uint16_t ho_lbl = c->ir_next_label++;
+                    uint16_t ha_lbl = c->ir_next_label++;
+                    ir_emit_je((uint16_t)hd, ho_lbl);
+                    ir_emit_deref(result_temp, hp);
+                    int hn8 = c->next_temp_id++;
+                    ir_emit_mov_imm(hn8, -8);
+                    int hp2 = c->next_temp_id++;
+                    ir_emit_add(hp2, hp, hn8);
+                    ir_emit_store_64(hp2, addr_ptr_field);
+                    ir_emit_jmp(ha_lbl);
+                    ir_emit_label(ho_lbl);
+                    int ho = c->next_temp_id++;
+                    ir_emit_deref(ho, addr_ovf_field);
+                    ir_emit_deref(result_temp, ho);
+                    int hp8 = c->next_temp_id++;
+                    ir_emit_mov_imm(hp8, 8);
+                    int ho2 = c->next_temp_id++;
+                    ir_emit_add(ho2, ho, hp8);
+                    ir_emit_store_64(ho2, addr_ovf_field);
+                    ir_emit_label(ha_lbl);
+                } else if (is_struct2) {
                     /* 16B (or 9-16B) struct va_arg: two 8-byte chunks, but
                      * each chunk needs its OWN GP-exhaustion check - the
                      * chunks can straddle the register-stack boundary (the
@@ -3450,8 +3745,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                     }
                     bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
-                        (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
-                        ast_expr_is_struct_addr(c, arena, node->right));
+                        (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                          ast_expr_is_struct_addr(c, arena, node->right)) ||
+                         (type_is_vector(member_ti) &&
+                          ast_expr_is_vector_addr(c, arena, node->right))));
                     if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
@@ -3497,13 +3794,40 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         size_t m_size = 4;
                         TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
                         if (member_ti) m_size = type_size(member_ti);
-                        if (is_compound)
+                        if (is_compound) {
+                            if (member_ti && type_is_vector(member_ti)) {
+                                /* Vector member compound (u.v += w / u.v += 2): per-lane in-place op;
+                                 * the RHS is either a vector in address form (per-lane amount) or a
+                                 * scalar broadcast to every lane. */
+                                ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                                TypeInfo *rhs_t = rhs_n ? ast_node_get_typeinfo(c, rhs_n) : NULL;
+                                bool rhs_v = !!(rhs_t && type_is_vector(rhs_t));
+                                ZeroCCType vel;
+                                memset(&vel, 0, sizeof(vel));
+                                const TypeInfo *el = member_ti->details.array.base;
+                                if (el) {
+                                    vel.size = type_size(el);
+                                    if (el->kind == TYPE_KIND_FLOAT) vel.tag = TYPE_FLOAT;
+                                    else if (el->kind == TYPE_KIND_DOUBLE) vel.tag = TYPE_DOUBLE;
+                                    else if (el->kind == TYPE_KIND_INT || el->kind == TYPE_KIND_LONG ||
+                                             el->kind == TYPE_KIND_SHORT || el->kind == TYPE_KIND_CHAR)
+                                        vel.tag = (el->modifiers & TYPE_MOD_UNSIGNED) ? TYPE_UINT32 : TYPE_INT32;
+                                    else vel.tag = TYPE_INT64;
+                                }
+                                zc_emit_vector_compound_inplace(c, addr_temp, m_size, &vel, node->aux.op,
+                                                                right_temp, rhs_v, c->last_expr_is_float);
+                                c->last_expr_is_float = 0;
+                                return addr_temp;
+                            }
                             member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                    m_size,
                                                    (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                        }
                         bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
-                            (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
-                            ast_expr_is_struct_addr(c, arena, node->right));
+                            (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                              ast_expr_is_struct_addr(c, arena, node->right)) ||
+                             (type_is_vector(member_ti) &&
+                              ast_expr_is_vector_addr(c, arena, node->right))));
                         if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                             zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                             c->last_expr_is_float = 0;
@@ -3552,13 +3876,40 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         size_t m_size = 4;
                         TypeInfo *member_ti = ast_node_get_typeinfo(c, left_node);
                         if (member_ti) m_size = type_size(member_ti);
-                        if (is_compound)
+                        if (is_compound) {
+                            if (member_ti && type_is_vector(member_ti)) {
+                                /* Vector member compound (u.v += w / u.v += 2): per-lane in-place op;
+                                 * the RHS is either a vector in address form (per-lane amount) or a
+                                 * scalar broadcast to every lane. */
+                                ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                                TypeInfo *rhs_t = rhs_n ? ast_node_get_typeinfo(c, rhs_n) : NULL;
+                                bool rhs_v = !!(rhs_t && type_is_vector(rhs_t));
+                                ZeroCCType vel;
+                                memset(&vel, 0, sizeof(vel));
+                                const TypeInfo *el = member_ti->details.array.base;
+                                if (el) {
+                                    vel.size = type_size(el);
+                                    if (el->kind == TYPE_KIND_FLOAT) vel.tag = TYPE_FLOAT;
+                                    else if (el->kind == TYPE_KIND_DOUBLE) vel.tag = TYPE_DOUBLE;
+                                    else if (el->kind == TYPE_KIND_INT || el->kind == TYPE_KIND_LONG ||
+                                             el->kind == TYPE_KIND_SHORT || el->kind == TYPE_KIND_CHAR)
+                                        vel.tag = (el->modifiers & TYPE_MOD_UNSIGNED) ? TYPE_UINT32 : TYPE_INT32;
+                                    else vel.tag = TYPE_INT64;
+                                }
+                                zc_emit_vector_compound_inplace(c, addr_temp, m_size, &vel, node->aux.op,
+                                                                right_temp, rhs_v, c->last_expr_is_float);
+                                c->last_expr_is_float = 0;
+                                return addr_temp;
+                            }
                             member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                    m_size,
                                                    (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                        }
                         bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
-                            (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
-                            ast_expr_is_struct_addr(c, arena, node->right));
+                            (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                              ast_expr_is_struct_addr(c, arena, node->right)) ||
+                             (type_is_vector(member_ti) &&
+                              ast_expr_is_vector_addr(c, arena, node->right))));
                         if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                             zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                             c->last_expr_is_float = 0;
@@ -3632,13 +3983,40 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (left_node->flags & NODE_MEMBER_IS_BITFIELD) {
                         return assign_member_bitfield(c, node, left_node, addr_temp, right_temp);
                     }
-                    if (is_compound)
+                    if (is_compound) {
+                        if (member_ti && type_is_vector(member_ti)) {
+                            /* Vector member compound (u.v += w / u.v += 2): per-lane in-place op;
+                             * the RHS is either a vector in address form (per-lane amount) or a
+                             * scalar broadcast to every lane. */
+                            ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                            TypeInfo *rhs_t = rhs_n ? ast_node_get_typeinfo(c, rhs_n) : NULL;
+                            bool rhs_v = !!(rhs_t && type_is_vector(rhs_t));
+                            ZeroCCType vel;
+                            memset(&vel, 0, sizeof(vel));
+                            const TypeInfo *el = member_ti->details.array.base;
+                            if (el) {
+                                vel.size = type_size(el);
+                                if (el->kind == TYPE_KIND_FLOAT) vel.tag = TYPE_FLOAT;
+                                else if (el->kind == TYPE_KIND_DOUBLE) vel.tag = TYPE_DOUBLE;
+                                else if (el->kind == TYPE_KIND_INT || el->kind == TYPE_KIND_LONG ||
+                                         el->kind == TYPE_KIND_SHORT || el->kind == TYPE_KIND_CHAR)
+                                    vel.tag = (el->modifiers & TYPE_MOD_UNSIGNED) ? TYPE_UINT32 : TYPE_INT32;
+                                else vel.tag = TYPE_INT64;
+                            }
+                            zc_emit_vector_compound_inplace(c, addr_temp, m_size, &vel, node->aux.op,
+                                                            right_temp, rhs_v, c->last_expr_is_float);
+                            c->last_expr_is_float = 0;
+                            return addr_temp;
+                        }
                         member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                m_size,
                                                (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                    }
                     bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
-                        (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
-                        ast_expr_is_struct_addr(c, arena, node->right));
+                        (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
+                          ast_expr_is_struct_addr(c, arena, node->right)) ||
+                         (type_is_vector(member_ti) &&
+                          ast_expr_is_vector_addr(c, arena, node->right))));
                     if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
@@ -3684,6 +4062,30 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_lea(mc_addr, TEMP_NONE, total_offset);
                     TypeInfo *mc_ti = ast_node_get_typeinfo(c, left_node);
                     size_t mc_size = mc_ti ? type_size(mc_ti) : 4;
+                    if (mc_ti && type_is_vector(mc_ti)) {
+                        /* Vector member compound (u.v += w / u.v += 2): per-lane in-place op;
+                         * the RHS is either a vector in address form (per-lane amount) or a
+                         * scalar broadcast to every lane. */
+                        ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                        TypeInfo *rhs_t = rhs_n ? ast_node_get_typeinfo(c, rhs_n) : NULL;
+                        bool rhs_v = !!(rhs_t && type_is_vector(rhs_t));
+                        ZeroCCType vel;
+                        memset(&vel, 0, sizeof(vel));
+                        const TypeInfo *el = mc_ti->details.array.base;
+                        if (el) {
+                            vel.size = type_size(el);
+                            if (el->kind == TYPE_KIND_FLOAT) vel.tag = TYPE_FLOAT;
+                            else if (el->kind == TYPE_KIND_DOUBLE) vel.tag = TYPE_DOUBLE;
+                            else if (el->kind == TYPE_KIND_INT || el->kind == TYPE_KIND_LONG ||
+                                     el->kind == TYPE_KIND_SHORT || el->kind == TYPE_KIND_CHAR)
+                                vel.tag = (el->modifiers & TYPE_MOD_UNSIGNED) ? TYPE_UINT32 : TYPE_INT32;
+                            else vel.tag = TYPE_INT64;
+                        }
+                        zc_emit_vector_compound_inplace(c, mc_addr, mc_size, &vel, node->aux.op,
+                                                        right_temp, rhs_v, c->last_expr_is_float);
+                        c->last_expr_is_float = 0;
+                        return mc_addr;
+                    }
                     member_apply_compound(c, node->aux.op, mc_addr, &right_temp, mc_size,
                                            (mc_ti && type_is_floating(mc_ti)) || c->last_expr_is_float);
                 }
@@ -3714,8 +4116,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     int mc_addr2 = c->next_temp_id++;
                     ir_emit_lea(mc_addr2, TEMP_NONE, total_offset);
                     bool mc_rhs_struct_addr = (mc_size2 <= 8 && mc_ti2 &&
-                        (mc_ti2->kind == TYPE_KIND_STRUCT || mc_ti2->kind == TYPE_KIND_UNION) &&
-                        ast_expr_is_struct_addr(c, arena, node->right));
+                        (((mc_ti2->kind == TYPE_KIND_STRUCT || mc_ti2->kind == TYPE_KIND_UNION) &&
+                          ast_expr_is_struct_addr(c, arena, node->right)) ||
+                         (type_is_vector(mc_ti2) &&
+                          ast_expr_is_vector_addr(c, arena, node->right))));
                     if ((mc_size2 > 8 || mc_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, mc_addr2, mc_size2, node->right, right_temp);
                         c->last_expr_is_float = 0;
@@ -3893,88 +4297,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     const ZeroCCType *vel = sym->type.base;
                     size_t vesz = (vel && vel->size > 0) ? vel->size : 4;
                     size_t vlanes = (vesz > 0) ? (vsize / vesz) : 0;
-                    bool vel_float = (vel && (vel->tag == TYPE_FLOAT || vel->tag == TYPE_DOUBLE));
-                    bool vel_unsigned = (vel && (vel->tag == TYPE_UINT8 || vel->tag == TYPE_UINT16 ||
-                                                  vel->tag == TYPE_UINT32 || vel->tag == TYPE_UINT64));
-                    if (is_compound && vsize >= 8 && !vel_float && vlanes > 0 && vlanes <= 32) {
-                        /* Element-wise in-place compound (v %= 3, v += 2, ...):
-                         * the scalar RHS value broadcasts to every lane. */
-                        for (size_t i = 0; i < vlanes; i++) {
-                            int32_t lane_off = -(sym->stack_offset - (int32_t)(i * vesz));
-                            int la = c->next_temp_id++;
-                            ir_emit_lea(la, BE(c)->fp_reg, lane_off);
-                            int lv = c->next_temp_id++;
-                            if (vesz == 1) { ir_emit_load_byte(lv, la); if (vel_unsigned) ir_emit_zext(lv, 1); else ir_emit_sext(lv, 1); }
-                            else if (vesz == 2) { ir_emit_load_16(lv, la); if (vel_unsigned) ir_emit_zext(lv, 2); else ir_emit_sext(lv, 2); }
-                            else if (vesz == 4) { ir_emit_load_32(lv, la); if (vel_unsigned) ir_emit_zext(lv, 4); else ir_emit_sext(lv, 4); }
-                            else ir_emit_deref(lv, la);
-                            int ov = c->next_temp_id++;
-                            switch (node->aux.op) {
-                                case TK_ADD_ASSIGN: ir_emit_add(ov, lv, right_temp); break;
-                                case TK_SUB_ASSIGN: ir_emit_sub(ov, lv, right_temp); break;
-                                case TK_MUL_ASSIGN: ir_emit_mul(ov, lv, right_temp); break;
-                                case TK_DIV_ASSIGN: ir_emit_div(ov, lv, right_temp); if (vel_unsigned) ir_mark_last_unsigned(1); break;
-                                case TK_MOD_ASSIGN: ir_emit_mod(ov, lv, right_temp); if (vel_unsigned) ir_mark_last_unsigned(1); break;
-                                case TK_AND_ASSIGN: ir_emit_and(ov, lv, right_temp); break;
-                                case TK_OR_ASSIGN:  ir_emit_or(ov, lv, right_temp); break;
-                                case TK_XOR_ASSIGN: ir_emit_xor(ov, lv, right_temp); break;
-                                case TK_SHL_ASSIGN: ir_emit_shl(ov, lv, right_temp); break;
-                                case TK_SHR_ASSIGN: ir_emit_shr(ov, lv, right_temp); break;
-                                default: ir_emit_mov_reg(ov, lv); break;
-                            }
-                            if (vesz == 1) ir_emit_store_byte(ov, la);
-                            else if (vesz == 2) ir_emit_store_16(ov, la);
-                            else if (vesz == 4) ir_emit_store_32(ov, la);
-                            else ir_emit_store_64(ov, la);
-                        }
+                    if (is_compound && vsize >= 8 && vlanes > 0 && vlanes <= 32) {
+                        /* Element-wise in-place compound (v %= 3, v += w,
+                         * v >>= c, ...): scalar RHS broadcasts to every lane,
+                         * vector RHS reads a per-lane amount. */
+                        ZeroCCASTNode *rhs_node_l = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                        TypeInfo *rhs_ti_l = rhs_node_l ? ast_node_get_typeinfo(c, rhs_node_l) : NULL;
+                        bool rhs_vec_l = !!(rhs_ti_l && type_is_vector(rhs_ti_l));
+                        int base_t = c->next_temp_id++;
+                        ir_emit_lea(base_t, BE(c)->fp_reg, -sym->stack_offset);
+                        zc_emit_vector_compound_inplace(c, base_t, vsize, vel, node->aux.op,
+                                                        right_temp, rhs_vec_l, c->last_expr_is_float);
                         c->last_expr_is_float = 0;
-                        return right_temp;
-                    }
-                    if (is_compound && vel_float && vsize >= 8 && vlanes > 0 && vlanes <= 32) {
-                        /* Element-wise in-place compound on a float-element
-                         * vector (v4flt t; t += v, t *= 2.0, ...): the RHS is
-                         * either a vector in address form (per-lane read) or a
-                         * scalar broadcast to every lane. Lane math runs in the
-                         * double-width FP model (VLOADSS/VSTORESS widen/narrow). */
-                        ZeroCCASTNode *rhs_node_f = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
-                        TypeInfo *rhs_ti_f = rhs_node_f ? ast_node_get_typeinfo(c, rhs_node_f) : NULL;
-                        bool rhs_is_vec_f = !!(rhs_ti_f && type_is_vector(rhs_ti_f));
-                        bool rv_flt = c->last_expr_is_float;
-                        for (size_t i = 0; i < vlanes; i++) {
-                            int32_t lane_off = -(sym->stack_offset - (int32_t)(i * vesz));
-                            int la = c->next_temp_id++;
-                            ir_emit_lea(la, BE(c)->fp_reg, lane_off);
-                            int lv = c->next_temp_id++;
-                            if (vesz == 4) ir_emit_vloadss((uint16_t)lv, (uint16_t)la);
-                            else ir_emit_vloadsd((uint16_t)lv, (uint16_t)la);
-                            int rv = c->next_temp_id++;
-                            if (rhs_is_vec_f) {
-                                int ra = c->next_temp_id++;
-                                if (i == 0) { ir_emit_mov_reg(ra, right_temp); }
-                                else {
-                                    int o2 = c->next_temp_id++;
-                                    ir_emit_mov_imm(o2, (int32_t)(i * vesz));
-                                    ir_emit_add(ra, right_temp, o2);
-                                }
-                                if (vesz == 4) ir_emit_vloadss((uint16_t)rv, (uint16_t)ra);
-                                else ir_emit_vloadsd((uint16_t)rv, (uint16_t)ra);
-                            } else if (rv_flt) {
-                                ir_emit_mov_reg(rv, right_temp);
-                            } else {
-                                ir_emit_cvtsi2sd((uint16_t)rv, (uint16_t)right_temp);
-                            }
-                            int ov = c->next_temp_id++;
-                            switch (node->aux.op) {
-                                case TK_ADD_ASSIGN: ir_emit_fadd((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
-                                case TK_SUB_ASSIGN: ir_emit_fsub((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
-                                case TK_MUL_ASSIGN: ir_emit_fmul((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
-                                default:            ir_emit_fdiv((uint16_t)ov, (uint16_t)lv, (uint16_t)rv); break;
-                            }
-                            if (vesz == 4) ir_emit_vstoress(la, (uint16_t)ov);
-                            else ir_emit_vstoresd(la, (uint16_t)ov);
-                        }
-                        c->last_expr_is_float = 0;
-                        return right_temp;
+                        return base_t;
                     }
                     if (vsize > 8 && !is_compound) {
                         int dst_addr = c->next_temp_id++;
@@ -4196,6 +4531,23 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     bool gv_is_float = (gv->type.tag == TYPE_FLOAT);
                     bool gv_is_double = (gv->type.tag == TYPE_DOUBLE);
                     bool gv_is_flt = gv_is_float || gv_is_double;
+                    if (is_compound && gv->type.tag == TYPE_USER_0 &&
+                        zero_cc_type_is_vector(&gv->type)) {
+                        /* Per-lane in-place compound on a global vector
+                         * (v += 2, v >>= w, ...): scalar RHS broadcasts to
+                         * every lane, vector RHS reads a per-lane amount.
+                         * Must run before the float-RHS truncation below -
+                         * a float scalar into a float-element vector is a
+                         * broadcast, not an integer conversion. */
+                        ZeroCCASTNode *rhs_node_g = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                        TypeInfo *rhs_ti_g = rhs_node_g ? ast_node_get_typeinfo(c, rhs_node_g) : NULL;
+                        bool rhs_vec_g = !!(rhs_ti_g && type_is_vector(rhs_ti_g));
+                        zc_emit_vector_compound_inplace(c, gaddr_temp, gv_sz, gv->type.base,
+                                                        node->aux.op, right_temp,
+                                                        rhs_vec_g, c->last_expr_is_float);
+                        c->last_expr_is_float = 0;
+                        return gaddr_temp;
+                    }
                     if (gv_is_flt && c->last_expr_is_float) {
                         /* Float/double global: keep the value in the FP pipeline
                          * (an integer load/add/store on the raw bits would be
@@ -4277,7 +4629,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                     bool rhs_is_struct_addr = (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) &&
                                               !is_compound && ast_expr_is_struct_addr(c, arena, node->right);
-                    if (rhs_is_struct_addr) {
+                    /* A GNU vector global target: the RHS vector expression
+                     * lowers to the object's ADDRESS (decayed ident, compound
+                     * literal, per-lane temp) - copy the bytes, don't store
+                     * the pointer (c-torture execute/20050604-1). */
+                    bool rhs_is_vec_addr = gv->type.tag == TYPE_USER_0 &&
+                                           zero_cc_type_is_vector(&gv->type) &&
+                                           !is_compound && ast_expr_is_vector_addr(c, arena, node->right);
+                    if (rhs_is_struct_addr || rhs_is_vec_addr) {
                         int val_temp = c->next_temp_id++;
                         if (gv_sz == 1) ir_emit_load_byte(val_temp, final_val);
                         else if (gv_sz == 2) ir_emit_load_16(val_temp, final_val);
@@ -5666,6 +6025,34 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return temp;
             }
 
+            /* __builtin_bswap16(x) - byte-swap the low 16 bits:
+             * result = ((x & 0xFF) << 8) | ((x >> 8) & 0xFF).
+             * (c-torture execute/pr97386-1) */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_bswap16") == 0) {
+                ASTRef b16_arg = node->right;
+                int u_a = lower_expr(c, arena, b16_arg);
+                int u_ff = c->next_temp_id++; ir_emit_mov_imm(u_ff, 0xFF);
+                int u_8  = c->next_temp_id++; ir_emit_mov_imm(u_8,  8);
+                int u_b0 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)u_b0,
+                    .temp_src1=(uint16_t)u_a,.temp_src2=(uint16_t)u_ff});
+                int u_a8 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHR,.temp_dest=(uint16_t)u_a8,
+                    .temp_src1=(uint16_t)u_a,.temp_src2=(uint16_t)u_8});
+                int u_b1 = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)u_b1,
+                    .temp_src1=(uint16_t)u_a8,.temp_src2=(uint16_t)u_ff});
+                int u_b0s = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)u_b0s,
+                    .temp_src1=(uint16_t)u_b0,.temp_src2=(uint16_t)u_8});
+                int u_result = c->next_temp_id++;
+                ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)u_result,
+                    .temp_src1=(uint16_t)u_b0s,.temp_src2=(uint16_t)u_b1});
+                c->last_expr_is_float = 0;
+                return u_result;
+            }
+
             /* __builtin_bswap32(x) - byte-swap a 32-bit value.
              * result = ((x & 0xFF) << 24) | ((x >> 8) & 0xFF) << 16 |
              *          ((x >> 16) & 0xFF) << 8  | (x >> 24) */
@@ -6890,7 +7277,54 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                               (ast_expr_is_struct_addr(c, arena, arg) ||
                                                ast_expr_is_vector_addr(c, arena, arg)));
                         int mem_struct_addr = is_mem_struct ? temp : TEMP_NONE;
-                        if (is_mem_struct) {
+                        /* SysV ABI: a by-value struct/union argument LARGER
+                         * than 16 bytes is passed by hidden pointer (one GP
+                         * slot), not as a chunk stream - a 128KB struct must
+                         * not become 16K register/stack arguments (c-torture
+                         * execute/pr23135). The caller copies the value into
+                         * a stack buffer and passes its address; the callee
+                         * prologue reads the pointer back and copies.
+                         * Vector arguments keep the chunk convention. */
+                        bool arg_is_struct_u = false;
+                        if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                            arg_is_struct_u = (arg_struct_sym->type.tag == TYPE_STRUCT ||
+                                               arg_struct_sym->type.tag == TYPE_UNION);
+                        } else if (arg_node) {
+                            TypeInfo *ati = ast_node_get_typeinfo(c, arg_node);
+                            arg_is_struct_u = (arg_struct_sz > 0 && ati &&
+                                               (ati->kind == TYPE_KIND_STRUCT ||
+                                                ati->kind == TYPE_KIND_UNION));
+                        }
+                        bool big_struct_ptr_conv = false;
+                        int big_src_addr = TEMP_NONE;
+                        if (arg_struct_sz > 16 && arg_is_struct_u) {
+                            if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                                big_src_addr = c->next_temp_id++;
+                                ir_emit_lea(big_src_addr, BE(c)->fp_reg, -arg_struct_sym->stack_offset);
+                                big_struct_ptr_conv = true;
+                            } else if (arg_node && arg_node->tag == NODE_IDENT && !arg_struct_sym) {
+                                ZeroCCGlobalVar *bgv = find_global_var(arg_node->s.str);
+                                if (bgv && (bgv->type.tag == TYPE_STRUCT || bgv->type.tag == TYPE_UNION)) {
+                                    big_src_addr = c->next_temp_id++;
+                                    ir_emit_global_addr(c, big_src_addr, bgv);
+                                    big_struct_ptr_conv = true;
+                                }
+                            } else if (is_mem_struct) {
+                                /* call result / compound literal / deref / index:
+                                 * `temp` already holds the value's address. */
+                                big_src_addr = temp;
+                                big_struct_ptr_conv = true;
+                            }
+                        }
+                        if (big_struct_ptr_conv) {
+                            c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                            int32_t asz = (int32_t)((arg_struct_sz + 7) & ~(size_t)7);
+                            c->current_stack_frame += asz;
+                            int buf_t = c->next_temp_id++;
+                            ir_emit_lea(buf_t, BE(c)->fp_reg, -c->current_stack_frame);
+                            zc_emit_mem_copy(c, big_src_addr, buf_t, arg_struct_sz);
+                            temp = buf_t;
+                        } else if (is_mem_struct) {
                             int val0 = c->next_temp_id++;
                             if (arg_struct_sz < 8) {
                                 if (arg_struct_sz == 1) ir_emit_load_byte(val0, mem_struct_addr);
@@ -6926,10 +7360,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                          *  - any other 9-16 byte value (compound literal,
                          *    struct-returning call): chunk 1 sits in the ABI
                          *    secondary value register (rdx / a1 / x1);
-                         *  - >16 byte values: `temp` already holds the
-                         *    address of the value (ABI: passed by pointer),
+                         *  - >16 byte struct/union values take the hidden
+                         *    pointer convention (big_struct_ptr_conv above),
                          *    so no extra chunks are passed. */
-                        if (arg_struct_sz > 8) {
+                        if (arg_struct_sz > 8 && !big_struct_ptr_conv) {
                             int num_chunks = (int)((arg_struct_sz + 7) / 8);
                             for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
                                 int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);

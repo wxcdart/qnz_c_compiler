@@ -912,6 +912,13 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                  * positional, designated, nested sub-aggregates,
                                  * [i..j] ranges, elided braces): recursive walker
                                  * (Sprint 44) with the shared designator engine. */
+                                /* C99 6.7.2.1p3: a trailing flexible-array
+                                 * member is initialized past the struct's fixed
+                                 * size - grow the object (and buffer) to cover
+                                 * the FAM data run. */
+                                size_t fam_extra = has_array_suffix ? 0 :
+                                    zc_measure_fam_init_bytes(c, &gtype);
+                                if (fam_extra > 0) size += fam_extra;
                                 uint8_t *vbuf = calloc(size > 0 ? size : 1, 1);
                                 if (vbuf) {
                                     ZeroCCType init_type = gtype;
@@ -937,7 +944,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     size_t top_cursor = 0;
                                     zero_cc_emit_brace_init_global(c, init_type, vbuf, 0,
                                                                    size, var_offset,
-                                                                   &top_cursor);
+                                                                   &top_cursor,
+                                                                   has_array_suffix ? 0 : fam_extra);
                                     zero_cc_buf_put_bytes(&c->data_section, vbuf, size);
                                 } else {
                                     /* Allocation failed: zero-fill and skip to } */

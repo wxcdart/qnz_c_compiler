@@ -205,6 +205,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * - RISC-V LP64D ABI: a0 (param_idx=0), real params start at a1 (int_idx=1)
          * - AArch64 AAPCS64 ABI: x8 (Indirect Result Location Register, param_idx=8), real params start at x0 (int_idx=0) */
         bool uses_sret = fn->ret_struct_sz > 16;
+        /* >16B struct/union params: pending hidden-pointer copies to run
+         * after ALL param saves (see the branch below for why). */
+        int32_t big_param_pt_off[64];
+        int32_t big_param_dst_off[64];
+        size_t big_param_size[64];
+        int big_param_copy_count = 0;
         if (uses_sret) {
             if (c->isa == ISA_AARCH64) {
                 ir_emit_param_save_int(8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
@@ -222,7 +228,33 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
                                           (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) && sym->type.size > 8;
 
-            if (is_multi_chunk_struct) {
+            if (is_multi_chunk_struct && sym->type.size > 16 &&
+                !(sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) {
+                /* SysV ABI: a >16B struct/union parameter arrives as a hidden
+                 * pointer in ONE argument slot. Save the pointer into the
+                 * first chunk's frame slot now (while every argument
+                 * register is still live) but defer the pointer->storage
+                 * copy until AFTER the whole param-save loop: the copy loop
+                 * emits fresh temps that the register allocator may place in
+                 * not-yet-saved argument registers (rsi/rdx/...), corrupting
+                 * the later PARAM_SAVE_INTs (c-torture execute/20030914-2). */
+                int32_t pt_off = sym->stack_offset;
+                if (int_idx < BE(c)->conv->int_arg_reg_count) {
+                    ir_emit_param_save_int(int_idx, pt_off);
+                    int_idx++;
+                } else {
+                    int32_t caller_off = 16 + 8 * stack_idx;
+                    ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
+                    ir_emit_store(VREG_0, BE(c)->fp_reg, -pt_off);
+                    stack_idx++;
+                }
+                if (big_param_copy_count < 64) {
+                    big_param_pt_off[big_param_copy_count] = pt_off;
+                    big_param_dst_off[big_param_copy_count] = sym->stack_offset;
+                    big_param_size[big_param_copy_count] = sym->type.size;
+                    big_param_copy_count++;
+                }
+            } else if (is_multi_chunk_struct) {
                 int num_chunks = (int)((sym->type.size + 7) / 8);
                 for (int ch = 0; ch < num_chunks; ch++) {
                     int32_t chunk_off = sym->stack_offset - ch * 8;
@@ -262,6 +294,18 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             int32_t base_spill_offset = c->current_stack_frame + 8;
             c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * 8) + 15) & ~(size_t)15);
             ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
+        }
+
+        /* Deferred hidden-pointer copies (see the param-save loop above):
+         * all argument registers are now saved AND the variadic spill has
+         * captured the arg registers, so the copy loop's temps can be
+         * allocated freely (they may reuse the arg registers). */
+        for (int bp = 0; bp < big_param_copy_count; bp++) {
+            int pt = c->next_temp_id++;
+            ir_emit_load(pt, BE(c)->fp_reg, -big_param_pt_off[bp]);
+            int dst_addr = c->next_temp_id++;
+            ir_emit_lea(dst_addr, BE(c)->fp_reg, -big_param_dst_off[bp]);
+            zc_emit_mem_copy(c, pt, dst_addr, big_param_size[bp]);
         }
     }
 

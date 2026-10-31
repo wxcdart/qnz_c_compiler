@@ -75,7 +75,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
         /* ---- positional: resolve via the shared leaf cursor ---- */
         if (!has_desig) {
             size_t cur = leaf_cursor ? *leaf_cursor : 0;
-            if (!zc_init_resolve_positional(&lit_type, &cur, base_off, &tgt)) {
+            if (!zc_init_resolve_positional(&lit_type, &cur, base_off, 0, &tgt)) {
                 /* Excess elements (C99 6.7.9): warn and ignore the rest. */
                 diag_report_warning_at_token(c, "excess elements in aggregate initializer");
                 desig_err = true;

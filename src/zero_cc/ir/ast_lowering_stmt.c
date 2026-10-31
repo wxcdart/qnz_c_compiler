@@ -808,7 +808,57 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_jmp(c->lowering.epilogue_label);
             return;
         }
-        /* Ensure result is in rax (VREG_0) for return */
+        /* Struct/union return from a non-ident expression (array element,
+         * deref, member, compound literal): the expression lowers to the
+         * ADDRESS of the struct object - storing result_temp would put the
+         * pointer in rax, and a 9-16B return also needs VREG_2. A nested
+         * call already placed the value in the ABI registers/sret buffer.
+         * (c-torture execute/pr82388: `return h[29];` on a 12B struct.) */
+        {
+            ZeroCCType fn_ret_s = zero_cc_get_current_fn_ret_type(c);
+            if ((fn_ret_s.tag == TYPE_STRUCT || fn_ret_s.tag == TYPE_UNION) && fn_ret_s.size > 0) {
+                if (ret_expr->tag == NODE_CALL) {
+                    ir_emit_jmp(c->lowering.epilogue_label);
+                    return;
+                }
+                if (ret_expr->tag == NODE_UNOP &&
+                    (ret_expr->aux.op == '*' || ret_expr->aux.op == TK_STAR) &&
+                    fn_ret_s.size > 8 && fn_ret_s.size <= 16) {
+                    /* `return *p;` on a 9-16B struct: the deref lowering
+                     * only loads the first 8 bytes into result_temp; load
+                     * the full ABI pair straight from the pointee. */
+                    int ptr_t = lower_expr(c, arena, ret_expr->left);
+                    ir_emit_deref(VREG_0, ptr_t);
+                    int roff = c->next_temp_id++;
+                    ir_emit_mov_imm(roff, 8);
+                    int ra2 = c->next_temp_id++;
+                    ir_emit_add(ra2, ptr_t, roff);
+                    int rch2 = c->next_temp_id++;
+                    ir_emit_deref(rch2, ra2);
+                    ir_emit_mov_reg(VREG_2, rch2);
+                    ir_emit_jmp(c->lowering.epilogue_label);
+                    return;
+                }
+                if (ast_expr_is_struct_addr(c, arena, node->left)) {
+                    if (fn_ret_s.size <= 8) {
+                        ir_emit_deref(VREG_0, result_temp);
+                    } else if (fn_ret_s.size <= 16) {
+                        ir_emit_deref(VREG_0, result_temp);
+                        int roff = c->next_temp_id++;
+                        ir_emit_mov_imm(roff, 8);
+                        int ra2 = c->next_temp_id++;
+                        ir_emit_add(ra2, result_temp, roff);
+                        int rch2 = c->next_temp_id++;
+                        ir_emit_deref(rch2, ra2);
+                        ir_emit_mov_reg(VREG_2, rch2);
+                    }
+                } else if (result_temp != VREG_0) {
+                    ir_emit_mov_reg(VREG_0, result_temp);
+                }
+                ir_emit_jmp(c->lowering.epilogue_label);
+                return;
+            }
+        }
         ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
         int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {

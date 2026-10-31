@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T03:20:24Z
+timestamp: 2026-10-31T04:56:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -584,3 +584,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `ir-and-regalloc.md`
 - Sprint 63: union member float-ness (typeinfo-first, name-before-offset)
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 64: MISCOMPILE burn-down to zero (12+5+2 latent bugs); PASS 2,393->2,447, REJECT 519->480
+
+## 2026-10-31 — Updated `frontend-and-types.md`
+- Sprint 64: __*_TYPE__ macros, local inline aggregates, FAM initializers, bitfield value rules
+
+## 2026-10-31 — Updated `ir-and-regalloc.md`
+- Sprint 64: VREG_2 immediate-capture invariant, scalar-to-vector low-byte casts
+
+## 2026-10-31 — Updated `abi-sysv-x86_64.md`
+- Sprint 64: >16B by-value struct args use hidden-pointer convention with deferred callee copies

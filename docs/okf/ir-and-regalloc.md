@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-31T03:20:24Z
+timestamp: 2026-10-31T04:56:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -60,6 +60,8 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
 ### Canonical Secondary Value Register (VREG_2)
 
 All 9–16 byte value passing (struct returns, compound literal evaluation, by-value struct arguments) uses the **canonical virtual register `VREG_2`** for the second 8-byte chunk. The register allocator maps `VREG_2` to the target ISA's ABI secondary return/argument register: `rdx` (physical 2) on x86-64, `x1` (physical 1) on AArch64, `a1` (physical 11) on RISC-V64/32. This single virtual ID eliminates per-ISA conditionals in lowering and ensures the DCE liveness root set (which marks `VREG_0` and `VREG_2` live at function exit) protects the second chunk.
+
+**Immediate-capture invariant (Sprint 64)**: `VREG_0`/`VREG_2` as *value sources* live only until the next instruction that may reuse that physical register — including a plain `ADD`/`LEA` address computation (the allocator legally places its temp on `rdx`). Any copy/store of a 9–16 B value-form result therefore captures the pair into **fresh allocatable temps immediately** (`ir_emit_mov_reg` into `next_temp_id++` temps): `zero_cc_emit_struct_copy_to_addr`'s struct-return fast path (gated to struct/union-typed calls — vector-typed calls return in address form) and every call site that reads `VREG_2` after further lowering. Using the raw `VREG_2` temp id directly as a store source alongside a computed destination address stored the *destination address* as the upper chunk (c-torture `pr92904`, re-exposed on `pr85331`/`pr94591` via `*r = __builtin_shuffle(...)`).
 
 ## OS Syscall Intrinsic (`OP_SYSCALL`, Sprint 43)
 
@@ -129,7 +131,7 @@ The IR is a flat, non-SSA linear array with implicit control flow (`OP_LABEL`/`O
 - **Address-form invariant**: a vector *expression* lowers to the stack address of a temp holding the lanes (per-lane binop/unop result, decayed ident, compound literal, sret buffer, materialized by-value call result). Consumers load through the address; `ast_expr_is_vector_addr` therefore reduces to `type_is_vector`.
 - **Float lanes in the double-width FP model**: `float` lanes widen on load (`VLOADSS`) and narrow on store (`VSTORESS`); scalar float↔int conversions inside a lane use `CVTSS2SD`/`CVTSD2SS`/`CVTSI2SD` as needed. Lane math itself runs in `double` (fadd/fsub/fmul/fdiv).
 - **Comparison results** follow GCC semantics: a comparison of a float-element vector yields an int-element vector, double-element yields a long-element vector (`type_vector_cmp_result`).
-- **Casts**: vector→vector is a same-size bitwise reinterpret (raw 8-byte chunk copy into a fresh temp); vector→scalar requires matching sizes and reads the whole vector with a width-correct load (float targets use the widening FP load); scalar→vector broadcasts.
+- **Casts**: vector→vector is a same-size bitwise reinterpret (raw 8-byte chunk copy into a fresh temp); vector→scalar requires matching sizes and reads the whole vector with a width-correct load (float targets use the widening FP load); scalar→vector produces a fresh **address-form vector object holding the scalar's low `min(sizeof(vector), 8)` bytes as the vector's bit pattern** (NOT a broadcast — c-torture `20050316-1/3`), zeroing the high bytes and converting int→double first for float elements.
 - **ABI**: vectors ≤ 8 B travel in `VREG_0`; 9–16 B in `VREG_0`+`VREG_2` (`label_idx = 0x0100 | size` signals the 9–16 B return width); > 16 B use the hidden `sret` pointer (`callee_uses_sret` extended to vectors). All vectors block parameter promotion (no AL→FP moves).
 - **`__builtin_shuffle(v1, v2, {idx...})`** lowers to a per-lane branchless select: `m = idx & (n-1)`, `from_a = (idx & n) == 0` (via `ir_emit_cond_set(CC_EQ)`), result = `(sel & a[m]) | (~sel & b[m])` with `~sel = xor(sel, -1)` (`ir_emit_not` does not exist).
 - **Compound assignment** (`v += x`, `*w += v`) is per-lane in place, int lanes via load/arith/store with width-correct extension, float lanes via the double FP model; the RHS is read per-lane (vector) or broadcast (scalar).
