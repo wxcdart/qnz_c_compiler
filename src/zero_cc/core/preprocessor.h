@@ -249,7 +249,111 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__linux__", "1");
     zero_cc_cpp_define_obj(cpp, "__unix__", "1");
     zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
+    /* C99 6.10.3.2 / 6.10.8 + GCC-style double-underscore predefined
+     * macros (LP64 Linux, signed char). Literal values, not recursive:
+     * the preprocessor does not self-reference macro definitions. */
+    zero_cc_cpp_define_obj(cpp, "CHAR_BIT", "8");
+    zero_cc_cpp_define_obj(cpp, "__CHAR_BIT__", "8");
+    zero_cc_cpp_define_obj(cpp, "__CHAR_WIDTH__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SCHAR_MIN__", "(-128)");
+    zero_cc_cpp_define_obj(cpp, "__SCHAR_MAX__", "127");
+    zero_cc_cpp_define_obj(cpp, "__SCHAR_WIDTH__", "8");
+    zero_cc_cpp_define_obj(cpp, "__CHAR_MIN__", "(-128)");
+    zero_cc_cpp_define_obj(cpp, "__CHAR_MAX__", "127");
+    zero_cc_cpp_define_obj(cpp, "__SHRT_MIN__", "(-32768)");
+    zero_cc_cpp_define_obj(cpp, "__SHRT_MAX__", "32767");
+    zero_cc_cpp_define_obj(cpp, "__SHRT_WIDTH__", "16");
     zero_cc_cpp_define_obj(cpp, "__INT_MAX__", "2147483647");
+    zero_cc_cpp_define_obj(cpp, "__INT_MIN__", "(-2147483647-1)");
+    zero_cc_cpp_define_obj(cpp, "__INT_WIDTH__", "32");
+    zero_cc_cpp_define_obj(cpp, "__LONG_MAX__", "9223372036854775807L");
+    zero_cc_cpp_define_obj(cpp, "__LONG_MIN__", "(-9223372036854775807L-1)");
+    zero_cc_cpp_define_obj(cpp, "__LONG_WIDTH__", "64");
+    zero_cc_cpp_define_obj(cpp, "__LONG_LONG_MAX__", "9223372036854775807LL");
+    zero_cc_cpp_define_obj(cpp, "__LONG_LONG_MIN__", "(-9223372036854775807LL-1)");
+    zero_cc_cpp_define_obj(cpp, "__LONG_LONG_WIDTH__", "64");
+    zero_cc_cpp_define_obj(cpp, "__SIZE_MAX__", "18446744073709551615UL");
+    zero_cc_cpp_define_obj(cpp, "__PTRDIFF_MAX__", "9223372036854775807L");
+    zero_cc_cpp_define_obj(cpp, "__INTPTR_MAX__", "9223372036854775807L");
+    zero_cc_cpp_define_obj(cpp, "__UINTPTR_MAX__", "18446744073709551615UL");
+    zero_cc_cpp_define_obj(cpp, "__INTMAX_MAX__", "9223372036854775807L");
+    zero_cc_cpp_define_obj(cpp, "__UINTMAX_MAX__", "18446744073709551615UL");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_SHORT__", "2");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_INT__", "4");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_LONG__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_LONG_LONG__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_FLOAT__", "4");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_DOUBLE__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_POINTER__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_SIZE_T__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_PTRDIFF_T__", "8");
+    zero_cc_cpp_define_obj(cpp, "SCHAR_MIN", "(-128)");
+    zero_cc_cpp_define_obj(cpp, "SCHAR_MAX", "127");
+    zero_cc_cpp_define_obj(cpp, "CHAR_MIN", "(-128)");
+    zero_cc_cpp_define_obj(cpp, "CHAR_MAX", "127");
+    zero_cc_cpp_define_obj(cpp, "SHRT_MIN", "(-32768)");
+    zero_cc_cpp_define_obj(cpp, "SHRT_MAX", "32767");
+    zero_cc_cpp_define_obj(cpp, "INT_MIN", "(-2147483647-1)");
+    zero_cc_cpp_define_obj(cpp, "INT_MAX", "2147483647");
+    zero_cc_cpp_define_obj(cpp, "LONG_MIN", "(-9223372036854775807L-1)");
+    zero_cc_cpp_define_obj(cpp, "LONG_MAX", "9223372036854775807L");
+    zero_cc_cpp_define_obj(cpp, "SCHAR_WIDTH", "8");
+    zero_cc_cpp_define_obj(cpp, "CHAR_WIDTH", "8");
+    zero_cc_cpp_define_obj(cpp, "SHRT_WIDTH", "16");
+    zero_cc_cpp_define_obj(cpp, "INT_WIDTH", "32");
+    zero_cc_cpp_define_obj(cpp, "LONG_WIDTH", "64");
+    /* FLT/DBL limits (C99 6.10.3.3 / 6.10.8, IEEE-754) */
+    zero_cc_cpp_define_obj(cpp, "__FLT_RADIX__", "2");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MANT_DIG__", "24");
+    zero_cc_cpp_define_obj(cpp, "__FLT_DIG__", "6");
+    zero_cc_cpp_define_obj(cpp, "__FLT_DECIMAL_DIG__", "9");
+    zero_cc_cpp_define_obj(cpp, "__FLT_EPSILON__", "1.19209289550781250000e-7F");
+    zero_cc_cpp_define_obj(cpp, "__FLT_HAS_DENORM__", "1");
+    zero_cc_cpp_define_obj(cpp, "__FLT_HAS_INFINITY__", "1");
+    zero_cc_cpp_define_obj(cpp, "__FLT_HAS_QUIET_NAN__", "1");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MAX_EXP__", "128");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MIN_EXP__", "(-125)");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MAX_10_EXP__", "38");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MIN_10_EXP__", "(-37)");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MAX__", "3.40282346638528859812e+38F");
+    zero_cc_cpp_define_obj(cpp, "__FLT_MIN__", "1.17549435082228750797e-38F");
+    zero_cc_cpp_define_obj(cpp, "__FLT_DENORM_MIN__", "1.40129846432481707082e-45F");
+    zero_cc_cpp_define_obj(cpp, "__DBL_RADIX__", "2");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MANT_DIG__", "53");
+    zero_cc_cpp_define_obj(cpp, "__DBL_DIG__", "15");
+    zero_cc_cpp_define_obj(cpp, "__DBL_DECIMAL_DIG__", "17");
+    zero_cc_cpp_define_obj(cpp, "__DBL_EPSILON__", "2.22044604925031308085e-16");
+    zero_cc_cpp_define_obj(cpp, "__DBL_HAS_DENORM__", "1");
+    zero_cc_cpp_define_obj(cpp, "__DBL_HAS_INFINITY__", "1");
+    zero_cc_cpp_define_obj(cpp, "__DBL_HAS_QUIET_NAN__", "1");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MAX_EXP__", "1024");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MIN_EXP__", "(-1021)");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MAX_10_EXP__", "308");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MIN_10_EXP__", "(-307)");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MAX__", "1.7976931348623157580412819756850388593900e+307");
+    zero_cc_cpp_define_obj(cpp, "__DBL_MIN__", "2.22507385850720138309e-308");
+    zero_cc_cpp_define_obj(cpp, "__DBL_DENORM_MIN__", "4.94065645841246544177e-324");
+    zero_cc_cpp_define_obj(cpp, "__DECIMAL_DIG__", "17");
+    zero_cc_cpp_define_obj(cpp, "FLT_RADIX", "2");
+    zero_cc_cpp_define_obj(cpp, "FLT_MANT_DIG", "24");
+    zero_cc_cpp_define_obj(cpp, "FLT_DIG", "6");
+    zero_cc_cpp_define_obj(cpp, "FLT_EPSILON", "1.19209289550781250000e-7F");
+    zero_cc_cpp_define_obj(cpp, "FLT_MAX_EXP", "128");
+    zero_cc_cpp_define_obj(cpp, "FLT_MIN_EXP", "(-125)");
+    zero_cc_cpp_define_obj(cpp, "FLT_MAX_10_EXP", "38");
+    zero_cc_cpp_define_obj(cpp, "FLT_MIN_10_EXP", "(-37)");
+    zero_cc_cpp_define_obj(cpp, "FLT_MAX", "3.40282346638528859812e+38F");
+    zero_cc_cpp_define_obj(cpp, "FLT_MIN", "1.17549435082228750797e-38F");
+    zero_cc_cpp_define_obj(cpp, "DBL_RADIX", "2");
+    zero_cc_cpp_define_obj(cpp, "DBL_MANT_DIG", "53");
+    zero_cc_cpp_define_obj(cpp, "DBL_DIG", "15");
+    zero_cc_cpp_define_obj(cpp, "DBL_EPSILON", "2.22044604925031308085e-16");
+    zero_cc_cpp_define_obj(cpp, "DBL_MAX_EXP", "1024");
+    zero_cc_cpp_define_obj(cpp, "DBL_MIN_EXP", "(-1021)");
+    zero_cc_cpp_define_obj(cpp, "DBL_MAX_10_EXP", "308");
+    zero_cc_cpp_define_obj(cpp, "DBL_MIN_10_EXP", "(-307)");
+    zero_cc_cpp_define_obj(cpp, "DBL_MAX", "1.7976931348623157580412819756850388593900e+307");
+    zero_cc_cpp_define_obj(cpp, "DBL_MIN", "2.22507385850720138309e-308");
     /* Atomic memory orders */
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_SEQ_CST", "5");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELAXED", "0");
@@ -510,7 +614,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define CHAR_BIT 8\n"
             "#define SCHAR_MIN (-128)\n#define SCHAR_MAX 127\n"
             "#define UCHAR_MAX 255\n"
-            "#define CHAR_MIN 0\n#define CHAR_MAX 127\n"
+            "#define CHAR_MIN (-128)\n#define CHAR_MAX 127\n"
             "#define SHRT_MIN (-32768)\n#define SHRT_MAX 32767\n"
             "#define USHRT_MAX 65535\n"
             "#define INT_MIN (-2147483647-1)\n#define INT_MAX 2147483647\n"
@@ -857,8 +961,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "float.h") == 0) {
         return strdup(
             "#ifndef _FLOAT_H\n#define _FLOAT_H 1\n"
-            "#define DBL_MAX 1.7976931348623157e+308\n#define DBL_MIN 2.2250738585072014e-308\n#define DBL_EPSILON 2.2204460492503131e-16\n"
-            "#define FLT_MAX 3.402823466e+38F\n#define FLT_MIN 1.175494351e-38F\n#define FLT_EPSILON 1.192092896e-07F\n"
+            "#define DBL_MAX 1.7976931348623157580412819756850388593900e+307\n#define DBL_MIN 2.22507385850720138309e-308\n#define DBL_EPSILON 2.22044604925031308085e-16\n"
+            "#define FLT_MAX 3.40282346638528859812e+38F\n#define FLT_MIN 1.17549435082228750797e-38F\n#define FLT_EPSILON 1.19209289550781250000e-7F\n"
             "#endif\n"
         );
     }

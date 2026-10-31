@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-30T16:55:02Z
+timestamp: 2026-10-31T03:20:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -298,6 +298,22 @@ In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata
 - **Memory Footprint**: `sizeof(ZeroCCFunction)` shrank from ~8.3 KB to 400 bytes, reducing the memory consumed by `c->functions[ZERO_CC_MAX_FUNCTIONS]` from 4.2 MB to 200 KB.
 - **C99/C11 Conformance**: `ZERO_CC_MAX_PARAMS` and `IR_CALL_MAX_ARGS` (`src/zero_cc/ir/ir.h`) are set to 256, comfortably exceeding the C99/C11 translation limit requirement of at least 127 parameters in a function definition/call (ISO/IEC 9899 §5.2.4.1).
 - **Bounds Enforcement & Growth**: `src/zero_cc/jit/compile.h` dynamically reallocates parse-time accumulation buffers using `zero_cc_ensure_param_cap()` in `ctx->tmp_arena`, and reports clean compile errors (`function '%s' has too many parameters (max %d)`) beyond 256. All caller-side argument tracking and stack-argument lowering support up to 256 parameters.
+
+## File-Scope Struct/Union Definition with a Declarator (C99 6.7.2.1)
+
+`struct C { double d; int i; } s1;` — after a struct/union **definition** at file scope, an identifier is a **variable declarator** (optionally comma-separated), not a tag alias. Previously `zero_cc_stmt_typedef_struct` registered the name as a struct-tag alias and created no variable (masked by the two-line form `struct S {...}; struct S a;` — `20000320-1`):
+
+- **Parser** (`src/zero_cc/parser/definitions.h`, LBRACE branch of `zero_cc_stmt_typedef_struct`): the non-typedef path now parses pointer suffixes, multi-dimension array suffixes (unsized → honest reject), `= initializer` (brace list through the shared `zero_cc_emit_brace_init_global` engine — positional/designated/nested all work — or a constant scalar for ≤ 8-byte scalar-ish members), and comma-separated declarators each carrying their own pointer/array suffixes. Storage goes through the same placement rules as the general global path (aligned data section, `.bss` for large zero-init objects ≥ `ZERO_CC_BSS_THRESHOLD`), registration via `add_global_var`. The typedef form (`typedef struct {...} name;`) and anonymous-struct naming are unchanged.
+- **Struct member array dimensions are constant expressions** (C99 6.7.2.1p3): all three member-declaration array-parse sites in `zero_cc_parse_struct_body` previously accepted only a bare `TK_NUM`, so `struct S { char buf[72*1024*1024]; };` failed with "unexpected token in struct/union definition" (`20050622-1`). Each dimension is now `zero_cc_eval_const_expr` (flexible `[]` unchanged).
+
+## C99/C11 + GCC-Style Predefined Macros (Sprint 63)
+
+`zero_cc_cpp_define_builtin_macros()` (`src/zero_cc/core/preprocessor.h`) defines the standard/GCC predefined macro set for LP64 Linux with signed `char`:
+
+- `CHAR_BIT`/`__CHAR_BIT__`/`__CHAR_WIDTH__`; `SCHAR/CHAR/SHRT/INT/LONG/LONG_LONG` MIN/MAX/WIDTH (uppercase + `__UPPER__`); `__SIZE_MAX__`, `__PTRDIFF_MAX__`, `__INTPTR_MAX__`, `__UINTPTR_MAX__`, `__INTMAX_MAX__`, `__UINTMAX_MAX__`; `__SIZEOF_{SHORT,INT,LONG,LONG_LONG,FLOAT,DOUBLE,POINTER,SIZE_T,PTRDIFF_T}__`.
+- FLT/DBL limits (radix, mant dig, dig, decimal dig, epsilon, max/min, denorm min, exp ranges; uppercase + `__UPPER__`). **Floating-limit literals must be exact representable values**: `DBL_MAX`/`__DBL_MAX__` = `1.7976931348623157580412819756850388593900e+307` — the common 17-digit `1.79769313486231580794e+308` is *above* DBL_MAX and rounds to `inf` (which silently corrupted `execute/ieee/unsafe-fp-assoc.c`); `FLT_MAX` = `3.40282346638528859812e+38F`.
+- Pseudo `limits.h` `CHAR_MIN` is `(-128)` (signed-char model, was `0`); pseudo `float.h` uses the same exact literals.
+- These are literal values, not self-referencing — the preprocessor does not expand a macro's definition in terms of itself.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

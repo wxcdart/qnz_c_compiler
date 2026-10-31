@@ -390,7 +390,11 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
                 q++;
             }
             count++;
-            total += (elem_sz < 8) ? elem_sz : 8;
+            /* Each nested group initializes ONE FULL element (e.g. one 16-byte
+             * struct row) - charge the full element size, not an 8-byte cap
+             * (that capped size made `struct S a[] = { {..}, {..} }` infer
+             * too few rows for elements > 8 bytes). */
+            total += elem_sz;
             continue;
         }
         /* A top-level element. */

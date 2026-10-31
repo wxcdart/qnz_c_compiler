@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-30T16:55:02Z
+timestamp: 2026-10-31T03:20:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -575,3 +575,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-30 — Updated `ir-and-regalloc.md`
 - Sprint 62: bit-field arithmetic result reduction (GCC rules + promotion exception), ++/-- bitfield RMW, global-struct by-value returns
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 63 baseline: PASS 2393, REJECT 519, 12 newly-exposed MISCOMPILEs tracked
+
+## 2026-10-31 — Updated `frontend-and-types.md`
+- Sprint 63: file-scope struct/union declarators, const-expr member array dims, predefined macro set
+
+## 2026-10-31 — Updated `ir-and-regalloc.md`
+- Sprint 63: union member float-ness (typeinfo-first, name-before-offset)

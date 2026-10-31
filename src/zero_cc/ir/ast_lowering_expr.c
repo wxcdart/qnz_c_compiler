@@ -4966,12 +4966,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             bool member_is_float = (member_ti && type_is_floating(member_ti) && !member_is_array);
             size_t member_sz = member_ti ? type_size(member_ti) : 0;
             /* Fallback: derive member float-ness from the base struct's layout.
-             * Only for a single (un-chained) member access - for chained
-             * access the typeinfo (aux.extra) is authoritative.
+             * Only when the typeinfo (aux.extra) is unavailable AND for a
+             * single (un-chained) member access - when typeinfo exists it is
+             * authoritative (e.g. a `ull` union member must not be treated
+             * as float just because a double member shares its offset).
              * NOTE: do NOT read innermost->s.str here - for NODE_MEMBER the
              * name (s.str) shares a union with aux.alt (offset), and semantic
-             * analysis overwrites it. Match the member by offset instead. */
-            if (!member_is_float && !member_is_array && innermost &&
+             * analysis overwrites it.  member_name (set by the semantic pass)
+             * is used first: union members ALL share offsets, so offset-only
+             * matching would pick whichever member is recorded first (a
+             * miscompile for `u.ll` on `union { double d; ull ll; }`). */
+            if (!member_ti && !member_is_array && innermost &&
                 base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCType *st = NULL;
                 ZeroCCSym *bs = zero_cc_find_local(c, base_node->s.str);
@@ -4985,15 +4990,28 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 if (st && (st->tag == TYPE_STRUCT || st->tag == TYPE_UNION) && st->member_count <= 64) {
                     size_t in_off = (size_t)innermost->aux.alt;
+                    const char *mname = innermost->member_name;
+                    size_t match = st->member_count; /* none */
                     for (size_t m = 0; m < st->member_count; m++) {
-                        if (st->members[m].offset == in_off) {
-                            if (st->members[m].tag == TYPE_FLOAT || st->members[m].tag == TYPE_DOUBLE) {
-                                member_is_float = true;
-                                member_sz = st->members[m].size ? st->members[m].size :
-                                    (st->members[m].tag == TYPE_FLOAT ? 4 : 8);
-                            }
+                        if (mname && st->members[m].name &&
+                            strcmp(mname, st->members[m].name) == 0) {
+                            match = m;
                             break;
                         }
+                    }
+                    if (match == st->member_count) {
+                        for (size_t m = 0; m < st->member_count; m++) {
+                            if (st->members[m].offset == in_off) {
+                                match = m;
+                                break;
+                            }
+                        }
+                    }
+                    if (match < st->member_count &&
+                        (st->members[match].tag == TYPE_FLOAT || st->members[match].tag == TYPE_DOUBLE)) {
+                        member_is_float = true;
+                        member_sz = st->members[match].size ? st->members[match].size :
+                            (st->members[match].tag == TYPE_FLOAT ? 4 : 8);
                     }
                 }
             }

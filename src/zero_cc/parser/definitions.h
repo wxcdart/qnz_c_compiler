@@ -8,6 +8,13 @@
 /* Forward declaration */
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union);
 
+/* Shared aggregate-initializer engine (init_common.h, included after this
+ * header in the TUs that need it): emits a brace-list into a caller buffer
+ * and returns with the stream positioned after the closing brace. */
+static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
+                                                  uint8_t *buf, size_t buf_off, size_t buf_cap,
+                                                  size_t data_patch_off, size_t *cursor);
+
 /* M3: the struct/union member table is heap-backed (it was a fixed 64-entry
  * array and the 65th+ member was silently dropped). Reserve one slot for the
  * next member; on OOM report a clean fatal diagnostic (had_error => no binary). */
@@ -284,17 +291,18 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
-            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
+             * Dimensions are constant expressions (6.7.2.1p3). */
             while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                 is_array = true;
                 c->token_pos++;
                 size_t dim = 1;
-                if (c->tokens[c->token_pos].type == TK_NUM) {
-                    dim = (size_t)c->tokens[c->token_pos].num_val;
-                    c->token_pos++;
-                } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
+                if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                     is_flexible = true;
                     dim = 0;
+                } else {
+                    int64_t cd = zero_cc_eval_const_expr(c);
+                    if (cd > 0) dim = (size_t)cd;
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -644,18 +652,20 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
-            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+            /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
+             * Dimensions are constant expressions (6.7.2.1p3):
+             * `char buf[72*1024*1024];` is evaluated, not a bare NUM. */
             while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                 is_array = true;
                 c->token_pos++;
                 size_t dim = 1;
-                if (c->tokens[c->token_pos].type == TK_NUM) {
-                    dim = (size_t)c->tokens[c->token_pos].num_val;
-                    c->token_pos++;
-                } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
+                if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                     /* Flexible array member: empty brackets [] (C99 6.7.2.1p18) */
                     is_flexible = true;
                     dim = 0;
+                } else {
+                    int64_t cd = zero_cc_eval_const_expr(c);
+                    if (cd > 0) dim = (size_t)cd;
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -960,17 +970,19 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 int c_ndims = 0;
                 bool c_is_flexible = false;
                 bool c_is_array = false;
-                /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1) */
+                /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
+                 * Dimensions are constant expressions (C99 6.7.2.1p3):
+                 * `char buf[72*1024*1024];` - evaluated, not just a NUM. */
                 while (c->tokens[c->token_pos].type == TK_LBRACKET) {
                     c_is_array = true;
                     c->token_pos++;
                     size_t dim = 1;
-                    if (c->tokens[c->token_pos].type == TK_NUM) {
-                        dim = (size_t)c->tokens[c->token_pos].num_val;
-                        c->token_pos++;
-                    } else if (c->tokens[c->token_pos].type == TK_RBRACKET) {
+                    if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                         c_is_flexible = true;
                         dim = 0;
+                    } else {
+                        int64_t cd = zero_cc_eval_const_expr(c);
+                        if (cd > 0) dim = (size_t)cd;
                     }
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                     if (c_is_flexible) break;
@@ -1288,13 +1300,133 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
-                if (st.struct_name[0] == '\0') {
-                    snprintf(st.struct_name, sizeof(st.struct_name), "%s", alias);
-                }
-                zero_cc_register_struct(c, alias, st);
-                zero_cc_sync_typedefs_with_struct(c, st.struct_name, &st);
                 if (is_typedef) {
+                    /* typedef struct S {...} name; / typedef struct {...} name; */
+                    if (st.struct_name[0] == '\0') {
+                        snprintf(st.struct_name, sizeof(st.struct_name), "%s", alias);
+                    }
+                    zero_cc_register_struct(c, alias, st);
+                    zero_cc_sync_typedefs_with_struct(c, st.struct_name, &st);
                     zero_cc_register_typedef(c, alias, st);
+                } else {
+                    /* C99 6.7.2.1: after a struct/union *definition* an
+                     * identifier is a VARIABLE declarator (optionally
+                     * comma-separated), not a tag alias:
+                     *   struct S { int x; } a, b = { 42 };
+                     * (Previously the name was registered as a struct tag
+                     * alias and no variable was created - latent bug, the
+                     * two-line form `struct S {...}; struct S a;` masked it.) */
+                    ZeroCCType vt = st;
+                    int vptr_depth = 0;
+                    while (c->tokens[c->token_pos].type == TK_STAR) {
+                        vptr_depth++;
+                        c->token_pos++;
+                    }
+                    for (int pd = 0; pd < vptr_depth; pd++) vt = zero_cc_type_ptr(&vt);
+                    int64_t varray_len = 1;
+                    int vdim_count = 0;
+                    int64_t vdims[8];
+                    if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        while (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                            c->token_pos++;
+                            if (c->tokens[c->token_pos].type == TK_RBRACKET) {
+                                diag_report_error_at_token(c,
+                                    "unsized array of %s with no initializer list is not supported",
+                                    is_union ? "union" : "struct");
+                                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                                return;
+                            }
+                            int64_t dim = zero_cc_eval_const_expr(c);
+                            if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                            if (dim < 0) dim = 0;
+                            varray_len *= dim;
+                            if (vdim_count < 8) vdims[vdim_count++] = dim;
+                        }
+                    }
+                    do {
+                        size_t elem_size = vt.size > 0 ? vt.size : 8;
+                        size_t elem_align = vt.align > 0 ? vt.align : 8;
+                        if (elem_align < 8) elem_align = 8;
+                        size_t vsize = (size_t)varray_len * elem_size;
+                        size_t vpad = (elem_align - (c->data_section.length % elem_align)) % elem_align;
+                        for (size_t i = 0; i < vpad; i++) zero_cc_emit_u8(&c->data_section, 0);
+                        size_t var_offset = c->data_section.length;
+                        bool vhas_init = false;
+                        ZeroCCType vreg_type = vt;
+                        for (int d = vdim_count - 1; d >= 0; d--) {
+                            vreg_type = zero_cc_type_array(&vreg_type, (ssize_t)vdims[d]);
+                        }
+                        if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                            c->token_pos++;
+                            vhas_init = true;
+                            if (c->tokens[c->token_pos].type == TK_LBRACE) {
+                                uint8_t *vbuf = calloc(vsize > 0 ? vsize : 1, 1);
+                                if (vbuf) {
+                                    size_t top_cursor = 0;
+                                    zero_cc_emit_brace_init_global(c, vreg_type, vbuf, 0, vsize, var_offset, &top_cursor);
+                                    zero_cc_buf_put_bytes(&c->data_section, vbuf, vsize);
+                                } else {
+                                    for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
+                                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) c->token_pos++;
+                                    if (c->token_pos < c->token_count) c->token_pos++;
+                                }
+                                free(vbuf);
+                            } else {
+                                bool vfl = (vt.tag == TYPE_FLOAT || vt.tag == TYPE_DOUBLE);
+                                uint64_t bits;
+                                if (vfl) { double dv = zero_cc_eval_const_expr_float(c); memcpy(&bits, &dv, sizeof(bits)); }
+                                else { int64_t iv = zero_cc_eval_const_expr(c); bits = (uint64_t)iv; }
+                                for (size_t b = 0; b < (elem_size > 8 ? 8 : elem_size); b++) {
+                                    zero_cc_emit_u8(&c->data_section, (uint8_t)(bits >> (8 * b)));
+                                }
+                                for (size_t i = (elem_size > 8 ? 8 : elem_size); i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
+                            }
+                        } else {
+                            if (!(vhas_init || vsize < ZERO_CC_BSS_THRESHOLD)) {
+                                /* Large zero-init -> .bss (no data-section bytes) */
+                                if (vpad > 0 && c->data_section.length >= vpad) c->data_section.length -= vpad;
+                                size_t bss_pad = (elem_align - (c->bss_size % elem_align)) % elem_align;
+                                c->bss_size += bss_pad;
+                                var_offset = c->bss_size;
+                                c->bss_size += vsize;
+                            } else {
+                                for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
+                            }
+                        }
+                        if (add_global_var(alias, vreg_type, var_offset, vsize, false, vhas_init) < 0) {
+                            diag_report_error_at_token(c, "out of memory registering global variable '%s'", alias);
+                        }
+                        if (c->tokens[c->token_pos].type == TK_COMMA) {
+                            c->token_pos++;
+                            if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+                                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                                break;
+                            }
+                            snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
+                            c->token_pos++;
+                            /* Comma declarator may carry its own pointer/array suffixes */
+                            vt = st;
+                            while (c->tokens[c->token_pos].type == TK_STAR) { vt = zero_cc_type_ptr(&vt); c->token_pos++; }
+                            varray_len = 1; vdim_count = 0;
+                            if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                                while (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                                    c->token_pos++;
+                                    if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                                    else {
+                                        int64_t dim = zero_cc_eval_const_expr(c);
+                                        if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                                        if (dim < 0) dim = 0;
+                                        varray_len *= dim;
+                                        if (vdim_count < 8) vdims[vdim_count++] = dim;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        break;
+                    } while (1);
                 }
             }
             if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;

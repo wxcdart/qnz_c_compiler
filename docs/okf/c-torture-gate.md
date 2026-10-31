@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-30T16:55:02Z
+timestamp: 2026-10-31T03:20:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 62 / Chunk M3 Part 3)
+## 2. Classification Buckets & Baseline (Sprint 63 / Chunk M3 Part 4)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,252** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+10 since Sprint 61: the last ten true C99/C11 miscompiles — `920710-1`, `960801-1`, `20071202-1`, `bitfld-3`, `pr47538`, `pr53084`, `pr60017`, `pr66233`, `alias-3`, `alias-4`) |
-| **`REJECT`** | **658** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (unchanged since Sprint 61) |
-| **`SKIP-C89`** | **685** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero miscompiles remain in the corpus** (was 10: the last two — `alias-3/4` — needed the GNU `alias` attribute; the other eight were C99/C11 correctness bugs, all fixed in Sprint 62) |
-| **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
+| **`PASS`** | **2,393** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+141 since Sprint 62: 129 REJECT→PASS + 13 SKIP-C89→PASS, unblocked by the predefined-macro batch and the four latent-bug fixes) |
+| **`REJECT`** | **519** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 658; the macro batch removed ~139 `use of undeclared identifier` rejections) |
+| **`SKIP-C89`** | **677** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (incl. `pr56866`/`pr85756`, whose real bodies need GNU `asm`) |
+| **`MISCOMPILE`** | **12** | **Newly-exposed latent bugs** (was 0): tests that previously took `exit(0)` fallback branches now compile and diverge — tracked as the next burn-down batch (`20010924-1`, `20050604-1`, `pr108292`, `pr23135`, `pr32244-1`, `pr34971`, `pr55750`, `pr59014-2`, `pr61306-2`, `pr82388`, `pr97386-1`, `stdarg-3`) |
+| **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) — was 3, `pr123864` now passes |
 | **`NO-REF`** | **187** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
-| **`TIMEOUT`** | **0** | **0 TIMEOUTs** (All 10 M1 hangs burned down to 0: 9 PASS, 1 SKIP-C89) |
+| **`TIMEOUT`** | **0** | **0 TIMEOUTs** (the 5 s run budget can flake under external load on the shared box — see the environment note in the CHANGELOG) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |

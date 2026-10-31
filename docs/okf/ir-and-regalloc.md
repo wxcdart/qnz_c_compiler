@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-30T16:55:02Z
+timestamp: 2026-10-31T03:20:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -161,6 +161,14 @@ C11 6.5.7.3p2 converts the result of an arithmetic operation on a bit-field back
 ## Global-Struct By-Value Returns (`lower_stmt_return`, Sprint 62)
 
 `return x;` where `x` is a **file-scope** struct previously fell through to the generic return path (local-ident branch only) and returned just the first 8 bytes in `VREG_0` (c-torture `pr60017`). `lower_stmt_return` (`src/zero_cc/ir/ast_lowering_stmt.c`) now handles global struct/union returns directly: ≤ 16 B loads the full `VREG_0` (+`VREG_2` for 9–16 B) pair from the global; > 16 B does the sret chunk copy into the caller's hidden-pointer buffer. `ZeroCCGlobalVar`-based lookups elsewhere stay alias-transparent (see the frontend page for the GNU `alias` attribute).
+
+## Union-Member Float-ness: Typeinfo First, Name Before Offset (Sprint 63)
+
+Every union member shares offsets, so **offset-only member matching is ambiguous** in a union. The NODE_MEMBER rvalue path (`src/zero_cc/ir/ast_lowering_expr.c`) decides whether to load a member as a float (`VLOADSD`/`VLOADSS`) or an integer (`DEREF`) using (1) the semantic typeinfo (`aux.extra`) and (2) a fallback that derives float-ness from the base type's member table. The fallback previously matched by **offset only**, so `u.ll` on `union { double d; ull ll; }` matched the `double` at offset 0 and loaded 8 bytes through `VLOADSD` + `CVTTSD2SI` — any `ull` bit pattern became a denormal double → 0 (broke `execute/ieee/20000320-1.c`'s double→float rounding table). The invariants now:
+
+- The fallback runs **only when the typeinfo is absent** — when present it is authoritative (a `ull` member must not be demoted to float just because a sibling shares its offset).
+- When the fallback does run, it matches by **member name first** (`innermost->member_name` — `s.str` is clobbered by the offset in `aux.alt`; the semantic pass stashes `member_name` before that), with the legacy first-offset match only as a last resort.
+- The LHS member-store path already uses the typeinfo size (`m_size`) and the RHS float flag, so it was unaffected — but any future per-member attribute must use the same name-first rule.
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 
