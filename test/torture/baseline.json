@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-31T04:55:18Z",
+ "generated": "2026-10-31T07:20:06Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -27,12 +27,12 @@
    "note": ""
   },
   "compile/20000120-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000120-2.c": {
    "class": "SKIP-C89",
@@ -43,12 +43,12 @@
    "note": "                ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
   },
   "compile/20000127-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000211-1.c": {
    "class": "SKIP-C89",
@@ -75,12 +75,12 @@
    "note": "                                ^; Compile error: unexpected token in brace initializer | cfgs: O0-aot,O2-aot"
   },
   "compile/20000314-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000314-2.c": {
    "class": "PASS",
@@ -125,7 +125,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "               ^; Compile error: use of undeclared identifier 'sysctl' | cfgs: O0-aot,O2-aot"
   },
   "compile/20000403-2.c": {
    "class": "PASS",
@@ -176,12 +176,12 @@
    "note": ""
   },
   "compile/20000420-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000420-2.c": {
    "class": "PASS",
@@ -389,28 +389,28 @@
    "note": ""
   },
   "compile/20001109-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001109-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001116-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                          ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001121-1.c": {
    "class": "PASS",
@@ -490,7 +490,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: 'obstack' has no member named 'chunkfun'; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20010107-1.c": {
    "class": "PASS",
@@ -618,12 +618,12 @@
    "note": ""
   },
   "compile/20010327-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                     ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010328-1.c": {
    "class": "PASS",
@@ -655,7 +655,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: switch condition must have integer type [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20010421-1.c": {
    "class": "PASS",
@@ -698,12 +698,12 @@
    "note": ""
   },
   "compile/20010518-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010518-2.c": {
    "class": "PASS",
@@ -751,20 +751,20 @@
    "note": ""
   },
   "compile/20010611-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010701-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010706-1.c": {
    "class": "PASS",
@@ -791,12 +791,12 @@
    "note": ""
   },
   "compile/20010714-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010824-1.c": {
    "class": "PASS",
@@ -865,7 +865,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20011109-1.c": {
    "class": "PASS",
@@ -876,12 +876,12 @@
    "note": ""
   },
   "compile/20011114-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                     ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011114-2.c": {
    "class": "PASS",
@@ -924,12 +924,12 @@
    "note": "                               ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
   },
   "compile/20011130-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011130-2.c": {
    "class": "PASS",
@@ -1100,12 +1100,12 @@
    "note": ""
   },
   "compile/20020304-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020304-2.c": {
    "class": "PASS",
@@ -1156,20 +1156,20 @@
    "note": ""
   },
   "compile/20020318-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020319-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020320-1.c": {
    "class": "REJECT",
@@ -1177,7 +1177,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                     ^; Compile error: static local 'p' initializer must be a constant literal (complex initializers not yet supported) (near 'x') [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20020323-1.c": {
    "class": "PASS",
@@ -1244,12 +1244,12 @@
    "note": ""
   },
   "compile/20020701-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020706-1.c": {
    "class": "PASS",
@@ -1348,12 +1348,12 @@
    "note": ""
   },
   "compile/20021008-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20021015-1.c": {
    "class": "PASS",
@@ -1595,12 +1595,12 @@
    "note": "                ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20030410-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030415-1.c": {
    "class": "SKIP-C89",
@@ -1651,12 +1651,12 @@
    "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20030530-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030604-1.c": {
    "class": "PASS",
@@ -1715,12 +1715,12 @@
    "note": ""
   },
   "compile/20030708-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030716-1.c": {
    "class": "SKIP-C89",
@@ -1763,12 +1763,12 @@
    "note": ""
   },
   "compile/20030902-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                    ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030903-1.c": {
    "class": "SKIP-C89",
@@ -1803,12 +1803,12 @@
    "note": "                ^; Compile error: use of undeclared identifier '__complex' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20030917-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030921-1.c": {
    "class": "PASS",
@@ -2135,7 +2135,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "             ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
   },
   "compile/20040310-1.c": {
    "class": "SKIP-C89",
@@ -2255,12 +2255,12 @@
    "note": ""
   },
   "compile/20040705-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040708-1.c": {
    "class": "REJECT",
@@ -2303,12 +2303,12 @@
    "note": "                                               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20040730-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040817-1.c": {
    "class": "SKIP-C89",
@@ -2335,12 +2335,12 @@
    "note": ""
   },
   "compile/20040907-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040908-1.c": {
    "class": "PASS",
@@ -2412,7 +2412,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/20041211-1.c": {
    "class": "PASS",
@@ -2761,12 +2761,12 @@
    "note": ""
   },
   "compile/20070520-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20070522-1.c": {
    "class": "PASS",
@@ -3009,12 +3009,12 @@
    "note": ""
   },
   "compile/20080628-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080704-1.c": {
    "class": "SKIP-C89",
@@ -3326,12 +3326,12 @@
    "note": ""
   },
   "compile/20110913-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20111209-1.c": {
    "class": "NO-REF",
@@ -3647,28 +3647,28 @@
    "note": ""
   },
   "compile/86.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/900116-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/900216-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/900313-1.c": {
    "class": "SKIP-C89",
@@ -3679,12 +3679,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/900407-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/900516-1.c": {
    "class": "SKIP-C89",
@@ -3716,12 +3716,12 @@
    "note": "                                               ^; Compile error: use of undeclared identifier 't' | cfgs: O0-aot,O2-aot"
   },
   "compile/920410-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920410-2.c": {
    "class": "PASS",
@@ -3766,7 +3766,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                                                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -3782,20 +3782,20 @@
    "note": "<stdin>: error: '__anon_struct_0' has no member named 'i'; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-7.c": {
    "class": "SKIP-C89",
@@ -3843,12 +3843,12 @@
    "note": ""
   },
   "compile/920501-15.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-16.c": {
    "class": "SKIP-C89",
@@ -3867,12 +3867,12 @@
    "note": ""
   },
   "compile/920501-18.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-19.c": {
    "class": "PASS",
@@ -3888,7 +3888,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                                                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-20.c": {
    "class": "SKIP-C89",
@@ -3896,15 +3896,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                             ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                              ^; Compile error: use of undeclared identifier 'setjmp' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-21.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-22.c": {
    "class": "PASS",
@@ -3920,7 +3920,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-3.c": {
    "class": "PASS",
@@ -3939,12 +3939,12 @@
    "note": ""
   },
   "compile/920501-6.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-7.c": {
    "class": "SKIP-TARGET:label_values",
@@ -3960,12 +3960,12 @@
    "note": "                ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-9.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920502-1.c": {
    "class": "SKIP-TARGET:indirect_jumps",
@@ -3991,12 +3991,12 @@
    "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920521-1.c:4: Error: no such instruction: `g'"
   },
   "compile/920529-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920608-1.c": {
    "class": "SKIP-C89",
@@ -4004,15 +4004,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: use of undeclared identifier 'p' | cfgs: O0-aot,O2-aot"
   },
   "compile/920611-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920615-1.c": {
    "class": "PASS",
@@ -4031,12 +4031,12 @@
    "note": "                              ^; Compile error: use of undeclared identifier 'sqrt' | cfgs: O0-aot,O2-aot"
   },
   "compile/920617-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920623-1.c": {
    "class": "PASS",
@@ -4071,12 +4071,12 @@
    "note": "               ^; Compile error: use of undeclared identifier 'XtMalloc' | cfgs: O0-aot,O2-aot"
   },
   "compile/920626-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                  ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920701-1.c": {
    "class": "PASS",
@@ -4241,12 +4241,12 @@
    "note": ""
   },
   "compile/920902-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920909-1.c": {
    "class": "PASS",
@@ -4275,7 +4275,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 'ff' | cfgs: O0-aot,O2-aot"
   },
   "compile/920928-3.c": {
    "class": "PASS",
@@ -4291,7 +4291,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                 ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                                                              ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920928-5.c": {
    "class": "SKIP-C89",
@@ -4318,20 +4318,20 @@
    "note": ""
   },
   "compile/921011-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/921011-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/921012-1.c": {
    "class": "SKIP-C89",
@@ -4411,7 +4411,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/921116-2.c": {
    "class": "SKIP-C89",
@@ -4475,7 +4475,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                             ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                             ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/921227-1.c": {
    "class": "PASS",
@@ -4486,12 +4486,12 @@
    "note": ""
   },
   "compile/930109-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930109-2.c": {
    "class": "PASS",
@@ -4507,7 +4507,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: use of undeclared identifier 'strcmp' | cfgs: O0-aot,O2-aot"
   },
   "compile/930117-1.c": {
    "class": "SKIP-C89",
@@ -4547,12 +4547,12 @@
    "note": ""
   },
   "compile/930217-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930222-1.c": {
    "class": "PASS",
@@ -4597,7 +4597,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "      ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/930503-1.c": {
    "class": "PASS",
@@ -4616,12 +4616,12 @@
    "note": "       ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/930506-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930506-2.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -4629,12 +4629,12 @@
    "note": ""
   },
   "compile/930510-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930513-1.c": {
    "class": "PASS",
@@ -4645,12 +4645,12 @@
    "note": ""
   },
   "compile/930513-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930513-3.c": {
    "class": "PASS",
@@ -4703,7 +4703,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/930603-1.c": {
    "class": "REJECT",
@@ -4711,7 +4711,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                    ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible initializer type for variable 'x' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/930607-1.c": {
    "class": "PASS",
@@ -4775,12 +4775,12 @@
    "note": ""
   },
   "compile/931003-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/931004-1.c": {
    "class": "PASS",
@@ -4839,20 +4839,20 @@
    "note": ""
   },
   "compile/931102-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/931203-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/940611-1.c": {
    "class": "PASS",
@@ -4884,7 +4884,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                       ^; Compile error: use of undeclared identifier 'length' | cfgs: O0-aot,O2-aot"
   },
   "compile/941014-2.c": {
    "class": "SKIP-C89",
@@ -4998,7 +4998,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/950613-1.c": {
    "class": "SKIP-TARGET:label_values",
@@ -5219,7 +5219,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/961010-1.c": {
    "class": "PASS",
@@ -5294,20 +5294,20 @@
    "note": "         ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/980504-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/980506-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/980506-2.c": {
    "class": "PASS",
@@ -5358,12 +5358,12 @@
    "note": ""
   },
   "compile/980816-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/980821-1.c": {
    "class": "PASS",
@@ -5379,7 +5379,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                       ^; Compile error: use of undeclared identifier 'clearTagList' | cfgs: O0-aot,O2-aot"
   },
   "compile/981001-1.c": {
    "class": "PASS",
@@ -5443,12 +5443,12 @@
    "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/990107-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/990117-1.c": {
    "class": "PASS",
@@ -5459,12 +5459,12 @@
    "note": ""
   },
   "compile/990203-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/990517-1.c": {
    "class": "PASS",
@@ -5483,12 +5483,12 @@
    "note": ""
   },
   "compile/990523-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/990527-1.c": {
    "class": "PASS",
@@ -5595,12 +5595,12 @@
    "note": ""
   },
   "compile/991202-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/991208-1.c": {
    "class": "PASS",
@@ -5677,7 +5677,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "        ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/BUG11.c": {
    "class": "SKIP-C89",
@@ -5685,7 +5685,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/BUG12.c": {
    "class": "PASS",
@@ -5696,20 +5696,20 @@
    "note": ""
   },
   "compile/BUG13.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG16.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG17.c": {
    "class": "PASS",
@@ -5728,12 +5728,12 @@
    "note": ""
   },
   "compile/BUG2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG21.c": {
    "class": "PASS",
@@ -5765,7 +5765,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/BUG25.c": {
    "class": "SKIP-C89",
@@ -5776,12 +5776,12 @@
    "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/BUG3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG4.c": {
    "class": "PASS",
@@ -5813,7 +5813,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                          ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/HIcmp.c": {
    "class": "SKIP-C89",
@@ -5821,7 +5821,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/HIset.c": {
    "class": "SKIP-C89",
@@ -5829,7 +5829,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/PYRBUG.c": {
    "class": "PASS",
@@ -5840,12 +5840,12 @@
    "note": ""
   },
   "compile/QIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/QIset.c": {
    "class": "SKIP-C89",
@@ -5853,7 +5853,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
   },
   "compile/SFset.c": {
    "class": "SKIP-C89",
@@ -5861,7 +5861,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/SIcmp.c": {
    "class": "SKIP-C89",
@@ -5869,7 +5869,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                       ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/SIset.c": {
    "class": "SKIP-C89",
@@ -5877,7 +5877,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/UHIcmp.c": {
    "class": "SKIP-C89",
@@ -5885,15 +5885,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                                  ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/UQIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/USIcmp.c": {
    "class": "SKIP-C89",
@@ -5901,7 +5901,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                                ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/a.c": {
    "class": "SKIP-C89",
@@ -5912,12 +5912,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/a1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/a3.c": {
    "class": "SKIP-C89",
@@ -5928,12 +5928,12 @@
    "note": "                 ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/aa.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/aaa.c": {
    "class": "SKIP-C89",
@@ -5973,12 +5973,12 @@
    "note": ""
   },
   "compile/add.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/add386.c": {
    "class": "SKIP-C89",
@@ -5994,7 +5994,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/andm.c": {
    "class": "SKIP-C89",
@@ -6002,7 +6002,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/andmem.c": {
    "class": "SKIP-C89",
@@ -6010,7 +6010,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                       ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/andn.c": {
    "class": "SKIP-C89",
@@ -6021,12 +6021,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/andok.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/andsi.c": {
    "class": "PASS",
@@ -6045,12 +6045,12 @@
    "note": ""
   },
   "compile/aos.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/arr.c": {
    "class": "SKIP-C89",
@@ -6066,15 +6066,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/ase.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/asmgoto-1.c": {
    "class": "SKIP-TARGET:label_values",
@@ -6191,12 +6191,12 @@
    "note": ""
   },
   "compile/b3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/b88.c": {
    "class": "PASS",
@@ -6207,12 +6207,12 @@
    "note": ""
   },
   "compile/bad.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/band.c": {
    "class": "SKIP-C89",
@@ -6268,7 +6268,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "             ^; Compile error: use of undeclared identifier 'bcopy' | cfgs: O0-aot,O2-aot"
   },
   "compile/bf.c": {
    "class": "PASS",
@@ -6279,12 +6279,12 @@
    "note": ""
   },
   "compile/bfins.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bfx.c": {
    "class": "SKIP-C89",
@@ -6295,12 +6295,12 @@
    "note": "            ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/bge.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bit.c": {
    "class": "SKIP-C89",
@@ -6308,7 +6308,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/bitf.c": {
    "class": "SKIP-C89",
@@ -6334,12 +6334,12 @@
    "note": ""
   },
   "compile/bitw.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/blk.c": {
    "class": "SKIP-C89",
@@ -6374,12 +6374,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/bugc.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/builtin_constant_p.c": {
    "class": "REJECT",
@@ -6414,20 +6414,20 @@
    "note": ""
   },
   "compile/c.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/c1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/c2.c": {
    "class": "SKIP-C89",
@@ -6459,7 +6459,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "     ^; Compile error: invalid K&R parameter declaration in function 'bar' | cfgs: O0-aot,O2-aot"
   },
   "compile/calls-void.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -6477,7 +6477,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/charmtst.c": {
    "class": "PASS",
@@ -6488,12 +6488,12 @@
    "note": ""
   },
   "compile/cmb.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/cmp.c": {
    "class": "PASS",
@@ -6692,36 +6692,36 @@
    "note": ""
   },
   "compile/csebug.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/cvt.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/d.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/dbl_parm.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/dblbug.c": {
    "class": "SKIP-C89",
@@ -6729,7 +6729,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/dce-inline-asm-1.c": {
    "class": "SKIP-C89",
@@ -6785,7 +6785,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/dic.c": {
    "class": "PASS",
@@ -6812,12 +6812,12 @@
    "note": ""
   },
   "compile/dimul.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/div.c": {
    "class": "SKIP-C89",
@@ -6846,7 +6846,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/dse.c": {
    "class": "SKIP-C89",
@@ -6862,7 +6862,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/e.c": {
    "class": "SKIP-C89",
@@ -6926,20 +6926,20 @@
    "note": ""
   },
   "compile/flo.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/float.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/flt_const.c": {
    "class": "PASS",
@@ -6966,20 +6966,20 @@
    "note": ""
   },
   "compile/foo.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/forgetcc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/fq.c": {
    "class": "PASS",
@@ -6998,12 +6998,12 @@
    "note": "            ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/g.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/gen_tst.c": {
    "class": "SKIP-C89",
@@ -7030,28 +7030,28 @@
    "note": ""
   },
   "compile/gronk.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/hi.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/hibug.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/i++.c": {
    "class": "PASS",
@@ -7062,12 +7062,12 @@
    "note": ""
   },
   "compile/i.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/ic.c": {
    "class": "PASS",
@@ -7158,12 +7158,12 @@
    "note": "        ^; Compile error: unexpected token in brace initializer (near 'foo') | cfgs: O0-aot,O2-aot"
   },
   "compile/inline-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/inline-asm-1.c": {
    "class": "SKIP-C89",
@@ -7389,12 +7389,12 @@
    "note": ""
   },
   "compile/lll.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/load8.c": {
    "class": "PASS",
@@ -7405,12 +7405,12 @@
    "note": ""
   },
   "compile/loadhicc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/log2.c": {
    "class": "SKIP-C89",
@@ -7426,7 +7426,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: incompatible return type in return statement | cfgs: O0-aot,O2-aot"
   },
   "compile/loop-1.c": {
    "class": "SKIP-C89",
@@ -7453,20 +7453,20 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/m1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/m2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/m5.c": {
    "class": "SKIP-C89",
@@ -7485,12 +7485,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/m68k-byte-addr.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mangle-1.c": {
    "class": "SKIP-C89",
@@ -7501,12 +7501,12 @@
    "note": "              ^; Compile error: expected ';' after declaration of 'x' (near 'asm') | cfgs: O0-aot,O2-aot"
   },
   "compile/mbyte.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mchar.c": {
    "class": "PASS",
@@ -7517,12 +7517,12 @@
    "note": ""
   },
   "compile/mcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mdouble.c": {
    "class": "PASS",
@@ -7622,15 +7622,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'gurka' | cfgs: O0-aot,O2-aot"
   },
   "compile/mregtst.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/msp.c": {
    "class": "PASS",
@@ -7670,7 +7670,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
   },
   "compile/mword1.c": {
    "class": "REJECT",
@@ -7678,23 +7678,23 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/n.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/n1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/nand.c": {
    "class": "SKIP-C89",
@@ -7734,12 +7734,12 @@
    "note": "       ^; Compile error: nested function definition of 'g' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
   },
   "compile/o.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/omit.c": {
    "class": "SKIP-C89",
@@ -7747,7 +7747,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/opout.c": {
    "class": "SKIP-C89",
@@ -7779,23 +7779,23 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/p.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/packed-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/packed-aligned-1.c": {
    "class": "PASS",
@@ -7827,12 +7827,12 @@
    "note": ""
   },
   "compile/pmt.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/poor.c": {
    "class": "PASS",
@@ -7843,12 +7843,12 @@
    "note": ""
   },
   "compile/pp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr100106.c": {
    "class": "PASS",
@@ -8304,12 +8304,12 @@
    "note": ""
   },
   "compile/pr110603.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr110705-1.c": {
    "class": "PASS",
@@ -8530,12 +8530,12 @@
    "note": ""
   },
   "compile/pr113616.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                    ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr113623.c": {
    "class": "REJECT",
@@ -8546,12 +8546,12 @@
    "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr113759.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr115143-1.c": {
    "class": "PASS",
@@ -8793,12 +8793,12 @@
    "note": "                                  ^; Compile error: use of undeclared identifier 'c' [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr13889.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr14692.c": {
    "class": "PASS",
@@ -8889,12 +8889,12 @@
    "note": ""
   },
   "compile/pr17407.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr17408.c": {
    "class": "SKIP-C89",
@@ -8987,12 +8987,12 @@
    "note": "                ^; Compile error: use of undeclared identifier 'strchr' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr19357.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr19736.c": {
    "class": "PASS",
@@ -9391,12 +9391,12 @@
    "note": ""
   },
   "compile/pr26725.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr26781-1.c": {
    "class": "PASS",
@@ -9431,12 +9431,12 @@
    "note": ""
   },
   "compile/pr27087.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr27282.c": {
    "class": "PASS",
@@ -9468,7 +9468,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: invalid operands to binary operator 74; Compile error: invalid operands to binary operator with pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr27528.c": {
    "class": "SKIP-C89",
@@ -9518,12 +9518,12 @@
    "note": ""
   },
   "compile/pr28776-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr28776-2.c": {
    "class": "PASS",
@@ -9765,12 +9765,12 @@
    "note": "           ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/pr32584.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr32606.c": {
    "class": "PASS",
@@ -9882,12 +9882,12 @@
    "note": "Unknown option: -w [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr33641.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr33855.c": {
    "class": "SKIP-C89",
@@ -9895,7 +9895,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                   ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": "                                   ^; Compile error: use of undeclared identifier 'j' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr34029-2.c": {
    "class": "PASS",
@@ -9954,12 +9954,12 @@
    "note": ""
   },
   "compile/pr34334.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                   ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34448.c": {
    "class": "REJECT",
@@ -10002,12 +10002,12 @@
    "note": ""
   },
   "compile/pr34856.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34885.c": {
    "class": "PASS",
@@ -10023,15 +10023,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr34993.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr35006.c": {
    "class": "SKIP-C89",
@@ -10170,20 +10170,20 @@
    "note": ""
   },
   "compile/pr36245.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr36666.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr36817.c": {
    "class": "PASS",
@@ -10281,7 +10281,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                                      ^; Compile error: use of undeclared identifier 'ioctl' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr37382.c": {
    "class": "PASS",
@@ -10521,12 +10521,12 @@
    "note": ""
   },
   "compile/pr38505.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr38554.c": {
    "class": "PASS",
@@ -10542,7 +10542,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                       ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38590-1.c": {
    "class": "PASS",
@@ -10721,12 +10721,12 @@
    "note": "Unknown option: -w [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr39636.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39648.c": {
    "class": "PASS",
@@ -10838,7 +10838,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                        ^; Compile error: static local 'c' initializer must be a constant literal (complex initializers not yet supported) (near 'b') [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr39999.c": {
    "class": "PASS",
@@ -11424,7 +11424,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                      ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr43661.c": {
    "class": "PASS",
@@ -11435,12 +11435,12 @@
    "note": ""
   },
   "compile/pr43679.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr43791.c": {
    "class": "PASS",
@@ -11467,12 +11467,12 @@
    "note": ""
   },
   "compile/pr44038.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                  ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44043.c": {
    "class": "SKIP-C89",
@@ -11491,12 +11491,12 @@
    "note": "<stdin>: error: passing incompatible type for argument 2 of function call; Compile error: use of undeclared identifier 'bswap_32' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44119.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                    ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44197.c": {
    "class": "SKIP-C89",
@@ -11523,12 +11523,12 @@
    "note": ""
   },
   "compile/pr44687.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44707.c": {
    "class": "REJECT",
@@ -11555,12 +11555,12 @@
    "note": ""
   },
   "compile/pr44831.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44891.c": {
    "class": "PASS",
@@ -11627,12 +11627,12 @@
    "note": ""
   },
   "compile/pr45182.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr45412.c": {
    "class": "PASS",
@@ -11762,7 +11762,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/pr46832.c": {
    "class": "PASS",
@@ -11887,12 +11887,12 @@
    "note": ""
   },
   "compile/pr48161.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr48305.c": {
    "class": "PASS",
@@ -11935,12 +11935,12 @@
    "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
   },
   "compile/pr48641.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                          ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr48734.c": {
    "class": "PASS",
@@ -12067,7 +12067,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                      ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": "                                            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr50565-2.c": {
    "class": "SKIP-C89",
@@ -12075,7 +12075,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                      ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": "                                            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr50650.c": {
    "class": "PASS",
@@ -12091,7 +12091,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                          ^; Compile error: void function should not return a value | cfgs: O0-aot,O2-aot"
   },
   "compile/pr51077.c": {
    "class": "PASS",
@@ -12149,15 +12149,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/pr51856.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr52073.c": {
    "class": "PASS",
@@ -12458,12 +12458,12 @@
    "note": ""
   },
   "compile/pr54321.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr54428.c": {
    "class": "REJECT",
@@ -12783,12 +12783,12 @@
    "note": ""
   },
   "compile/pr59102.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'e' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr59119.c": {
    "class": "PASS",
@@ -12871,12 +12871,12 @@
    "note": ""
   },
   "compile/pr59919.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr60071.c": {
    "class": "PASS",
@@ -12980,12 +12980,12 @@
    "note": ""
   },
   "compile/pr62312.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr63282.c": {
    "class": "SKIP-C89",
@@ -13060,12 +13060,12 @@
    "note": "             ^; Compile error: use of undeclared identifier 'p1' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr65540.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr65593.c": {
    "class": "PASS",
@@ -13323,12 +13323,12 @@
    "note": ""
   },
   "compile/pr71112.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr71272.c": {
    "class": "PASS",
@@ -13544,7 +13544,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                               ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr78748.c": {
    "class": "NO-REF",
@@ -13969,7 +13969,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr85704.c": {
    "class": "PASS",
@@ -14147,20 +14147,20 @@
    "note": ""
   },
   "compile/pr89703-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr89703-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr89998-1.c": {
    "class": "PASS",
@@ -14632,12 +14632,12 @@
    "note": ""
   },
   "compile/pret-arg.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pta-1.c": {
    "class": "REJECT",
@@ -14672,12 +14672,12 @@
    "note": "                         ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/q.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/r.c": {
    "class": "SKIP-C89",
@@ -14712,12 +14712,12 @@
    "note": ""
   },
   "compile/rmsc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/round.c": {
    "class": "SKIP-C89",
@@ -14725,7 +14725,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/run.c": {
    "class": "PASS",
@@ -14736,12 +14736,12 @@
    "note": ""
   },
   "compile/s.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/sar.c": {
    "class": "PASS",
@@ -14752,12 +14752,12 @@
    "note": ""
   },
   "compile/sc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/scal.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -14802,12 +14802,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/set386.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/set88.c": {
    "class": "SKIP-C89",
@@ -14831,7 +14831,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                    ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/shft.c": {
    "class": "SKIP-C89",
@@ -14839,7 +14839,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'puts' | cfgs: O0-aot,O2-aot"
   },
   "compile/shift.c": {
    "class": "SKIP-C89",
@@ -14871,7 +14871,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/signext2.c": {
    "class": "SKIP-C89",
@@ -14879,7 +14879,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/sim.c": {
    "class": "PASS",
@@ -14946,12 +14946,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/sizeof-macros-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/sne.c": {
    "class": "PASS",
@@ -14986,12 +14986,12 @@
    "note": ""
   },
   "compile/split-path-10.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/split-path-11.c": {
    "class": "PASS",
@@ -15055,7 +15055,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                                         ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/split-path-7.c": {
    "class": "PASS",
@@ -15119,12 +15119,12 @@
    "note": ""
   },
   "compile/stor.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/store0.c": {
    "class": "PASS",
@@ -15212,15 +15212,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/structs.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/stuct.c": {
    "class": "PASS",
@@ -15244,15 +15244,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/subcse.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/switch-1.c": {
    "class": "PASS",
@@ -15279,12 +15279,12 @@
    "note": ""
   },
   "compile/sync-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/sync-2.c": {
    "class": "PASS",
@@ -15303,12 +15303,12 @@
    "note": ""
   },
   "compile/t.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/test-flow.c": {
    "class": "SKIP-C89",
@@ -15364,7 +15364,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/trunctfdf.c": {
    "class": "PASS",
@@ -15383,12 +15383,12 @@
    "note": "                             ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/udconvert.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/udivmod4.c": {
    "class": "SKIP-C89",
@@ -15415,12 +15415,12 @@
    "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/uns_tst.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/uuarg.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -15484,12 +15484,12 @@
    "note": ""
   },
   "compile/vector-align-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/vector-dup-1.c": {
    "class": "SKIP-C89",
@@ -15548,12 +15548,12 @@
    "note": ""
   },
   "compile/ww.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/x.c": {
    "class": "SKIP-C89",
@@ -15580,12 +15580,12 @@
    "note": ""
   },
   "compile/xc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xcsebug.c": {
    "class": "PASS",
@@ -15601,7 +15601,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: use of undeclared identifier 'fee' | cfgs: O0-aot,O2-aot"
   },
   "compile/xfoo.c": {
    "class": "SKIP-C89",
@@ -15636,20 +15636,20 @@
    "note": ""
   },
   "compile/xneg.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xopt.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xor.c": {
    "class": "SKIP-C89",
@@ -15665,7 +15665,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                   ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/xp.c": {
    "class": "SKIP-C89",
@@ -15756,18 +15756,18 @@
    "note": ""
   },
   "execute/20000112-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000113-1.c": {
    "class": "PASS",
@@ -15935,7 +15935,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: void function should not return a value | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000402-1.c": {
    "class": "PASS",
@@ -15952,18 +15952,18 @@
    "note": ""
   },
   "execute/20000403-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                  ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000412-1.c": {
    "class": "REJECT",
@@ -16397,7 +16397,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000717-4.c": {
    "class": "PASS",
@@ -16442,18 +16442,18 @@
    "note": ""
   },
   "execute/20000726-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000731-1.c": {
    "class": "PASS",
@@ -16540,32 +16540,32 @@
    "note": ""
   },
   "execute/20000808-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000815-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000818-1.c": {
    "class": "PASS",
@@ -16640,7 +16640,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                ^; Compile error: void function should not return a value | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -17285,7 +17285,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                        ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20010711-1.c": {
    "class": "PASS",
@@ -17484,18 +17484,18 @@
    "note": ""
   },
   "execute/20011113-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20011114-1.c": {
    "class": "PASS",
@@ -18170,18 +18170,18 @@
    "note": "                          ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020611-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "REJECT",
+    "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "REJECT",
+    "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "REJECT",
+    "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": "Error: Linking failed [clean -std=c11] | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": ""
   },
   "execute/20020614-1.c": {
    "class": "PASS",
@@ -19132,18 +19132,18 @@
    "note": ""
   },
   "execute/20030914-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030914-2.c": {
    "class": "PASS",
@@ -19610,7 +19610,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                    ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040423-1.c": {
    "class": "SKIP-C89",
@@ -20838,7 +20838,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                  ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20070623-1.c": {
    "class": "PASS",
@@ -21150,18 +21150,18 @@
    "note": ""
   },
   "execute/20080502-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20080506-1.c": {
    "class": "REJECT",
@@ -21192,18 +21192,18 @@
    "note": ""
   },
   "execute/20080519-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20080522-1.c": {
    "class": "PASS",
@@ -21990,18 +21990,18 @@
    "note": ""
   },
   "execute/20170401-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20170419-1.c": {
    "class": "PASS",
@@ -22361,7 +22361,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920415-1.c": {
    "class": "SKIP-TARGET:label_values",
@@ -22407,18 +22407,18 @@
    "note": ""
   },
   "execute/920501-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920501-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -22436,18 +22436,18 @@
    "note": ""
   },
   "execute/920501-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920501-7.c": {
    "class": "SKIP-TARGET:label_values",
@@ -22480,7 +22480,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "        ^; Compile error: use of undeclared identifier 'strcmp' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920506-1.c": {
    "class": "PASS",
@@ -22525,32 +22525,32 @@
    "note": "                                                                  ^; Compile error: use of undeclared identifier 'got' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920604-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920612-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920612-2.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -22686,7 +22686,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                             ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                             ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920730-1.c": {
    "class": "SKIP-C89",
@@ -22801,18 +22801,18 @@
    "note": "                               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920922-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920929-1.c": {
    "class": "PASS",
@@ -22868,7 +22868,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/921016-1.c": {
    "class": "PASS",
@@ -22971,7 +22971,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/921113-1.c": {
    "class": "PASS",
@@ -23041,7 +23041,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/921202-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -23280,7 +23280,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: invalid K&R parameter declaration in function 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930513-2.c": {
    "class": "SKIP-C89",
@@ -23294,7 +23294,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930518-1.c": {
    "class": "SKIP-C89",
@@ -23308,7 +23308,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930526-1.c": {
    "class": "PASS",
@@ -23364,7 +23364,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'inita' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930603-2.c": {
    "class": "PASS",
@@ -23392,7 +23392,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930608-1.c": {
    "class": "REJECT",
@@ -23465,18 +23465,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930622-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                  ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/930628-1.c": {
    "class": "PASS",
@@ -23504,7 +23504,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930702-1.c": {
    "class": "SKIP-C89",
@@ -23532,7 +23532,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930718-1.c": {
    "class": "SKIP-C89",
@@ -23546,7 +23546,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930719-1.c": {
    "class": "SKIP-C89",
@@ -23602,7 +23602,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930921-1.c": {
    "class": "SKIP-C89",
@@ -23616,7 +23616,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930929-1.c": {
    "class": "SKIP-C89",
@@ -23630,7 +23630,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930930-1.c": {
    "class": "SKIP-C89",
@@ -23644,7 +23644,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930930-2.c": {
    "class": "PASS",
@@ -23862,18 +23862,18 @@
    "note": ""
   },
   "execute/931005-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/931009-1.c": {
    "class": "SKIP-C89",
@@ -23887,7 +23887,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "             ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931012-1.c": {
    "class": "SKIP-C89",
@@ -23915,7 +23915,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931018-1.c": {
    "class": "SKIP-C89",
@@ -23929,7 +23929,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931031-1.c": {
    "class": "SKIP-C89",
@@ -23943,7 +23943,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931102-1.c": {
    "class": "SKIP-C89",
@@ -23957,7 +23957,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931102-2.c": {
    "class": "SKIP-C89",
@@ -23971,7 +23971,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/931110-1.c": {
    "class": "PASS",
@@ -24041,7 +24041,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/940122-1.c": {
    "class": "SKIP-C89",
@@ -24055,7 +24055,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/941014-1.c": {
    "class": "PASS",
@@ -24086,46 +24086,46 @@
    "note": "            ^; Compile error: incompatible return type in return statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/941015-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/941021-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/941025-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/941031-1.c": {
    "class": "PASS",
@@ -24184,18 +24184,18 @@
    "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950221-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/950322-1.c": {
    "class": "SKIP-C89",
@@ -24223,7 +24223,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'p1'; did you mean 's1'? | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'func1' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950426-2.c": {
    "class": "PASS",
@@ -24293,7 +24293,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950607-1.c": {
    "class": "PASS",
@@ -24548,32 +24548,32 @@
    "note": ""
   },
   "execute/960209-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960215-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960218-1.c": {
    "class": "SKIP-C89",
@@ -24758,18 +24758,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960405-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960416-1.c": {
    "class": "PASS",
@@ -24786,18 +24786,18 @@
    "note": ""
   },
   "execute/960419-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960419-2.c": {
    "class": "PASS",
@@ -24828,18 +24828,18 @@
    "note": "               ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960513-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                    ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960521-1.c": {
    "class": "REJECT",
@@ -24856,18 +24856,18 @@
    "note": "           ^; Compile error: unknown identifier 'b' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960608-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960801-1.c": {
    "class": "PASS",
@@ -24912,18 +24912,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'exit' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960909-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/961004-1.c": {
    "class": "PASS",
@@ -24968,18 +24968,18 @@
    "note": ""
   },
   "execute/961026-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/961112-1.c": {
    "class": "SKIP-C89",
@@ -25122,18 +25122,18 @@
    "note": ""
   },
   "execute/970923-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                      ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980205.c": {
    "class": "PASS",
@@ -25206,18 +25206,18 @@
    "note": ""
   },
   "execute/980506-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                 ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980506-2.c": {
    "class": "REJECT",
@@ -25234,18 +25234,18 @@
    "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/980506-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980526-1.c": {
    "class": "SKIP-TARGET:label_values",
@@ -25267,18 +25267,18 @@
    "note": ""
   },
   "execute/980526-3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980602-1.c": {
    "class": "PASS",
@@ -25432,7 +25432,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                           ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'pow'; did you mean 'powr'? [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/980716-1.c": {
    "class": "PASS",
@@ -25491,18 +25491,18 @@
    "note": ""
   },
   "execute/981130-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/981206-1.c": {
    "class": "PASS",
@@ -25530,7 +25530,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/990106-2.c": {
    "class": "PASS",
@@ -25589,18 +25589,18 @@
    "note": ""
   },
   "execute/990128-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/990130-1.c": {
    "class": "SKIP-C89",
@@ -25703,7 +25703,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                   ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/990513-1.c": {
    "class": "PASS",
@@ -25804,18 +25804,18 @@
    "note": ""
   },
   "execute/990628-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/990804-1.c": {
    "class": "PASS",
@@ -25857,7 +25857,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                           ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "               ^; Compile error: use of undeclared identifier 'floor'; did you mean 'floorr'? [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/990827-1.c": {
    "class": "PASS",
@@ -26140,32 +26140,32 @@
    "note": "                                            ^; Compile error: unexpected token in brace initializer (near 'd') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/alias-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                 ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/alias-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                    ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/alias-3.c": {
    "class": "PASS",
@@ -26196,18 +26196,18 @@
    "note": ""
   },
   "execute/alias-access-path-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/alias-access-path-2.c": {
    "class": "PASS",
@@ -26747,18 +26747,18 @@
    "note": "                                                                           ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtin-prefetch-4.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/builtin-prefetch-5.c": {
    "class": "REJECT",
@@ -27577,7 +27577,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/cmpsf-1.c": {
    "class": "SKIP-C89",
@@ -27800,18 +27800,18 @@
    "note": "                                     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/conversion.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "               ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/cvt-1.c": {
    "class": "PASS",
@@ -27839,7 +27839,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/divcmp-1.c": {
    "class": "PASS",
@@ -28085,18 +28085,18 @@
    "note": "                                                               ^; Compile error: unsized array of struct with no initializer list is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/float-floor.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/floatunsisf-1.c": {
    "class": "PASS",
@@ -28241,21 +28241,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                      ^; Compile error: use of undeclared identifier 'LDBL_EPSILON' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/20011123-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                      ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/20030331-1.c": {
    "class": "PASS",
@@ -28300,18 +28300,18 @@
    "note": ""
   },
   "execute/ieee/920810-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/930529-1.c": {
    "class": "PASS",
@@ -28395,7 +28395,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/builtin-nan-1.c": {
    "class": "PASS",
@@ -28526,7 +28526,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                                                                                                                                                   ^; Co [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float128-builtin-issignaling-1.c": {
    "class": "SKIP-C89",
@@ -28618,46 +28618,46 @@
    "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/fp-cmp-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                    ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/fp-cmp-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/fp-cmp-3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                   ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/fp-cmp-4.c": {
    "class": "REJECT",
@@ -28730,18 +28730,18 @@
    "note": "                    ^; Compile error: static local 'data' initializer must be a constant literal (complex initializers not yet supported) [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/fp-cmp-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/fp-cmp-7.c": {
    "class": "PASS",
@@ -28811,21 +28811,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                    ^; Compile error: static local 'data' initializer must be a constant literal (complex initializers not yet supported) [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/fp-cmp-9.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/fp-cmp-cond-1.c": {
    "class": "PASS",
@@ -28842,18 +28842,18 @@
    "note": ""
   },
   "execute/ieee/hugeval.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                                                                           ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/inf-1.c": {
    "class": "PASS",
@@ -28940,18 +28940,18 @@
    "note": "                                                          ^; Compile error: unsized array of struct with no initializer list is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/mzero2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/mzero3.c": {
    "class": "PASS",
@@ -29777,7 +29777,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                   ^; Compile error: unexpected token in brace initializer (near 'e') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/mayalias-1.c": {
    "class": "PASS",
@@ -30102,18 +30102,18 @@
    "note": ""
   },
   "execute/multi-ix.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/nest-align-1.c": {
    "class": "NO-REF",
@@ -30244,18 +30244,18 @@
    "note": ""
   },
   "execute/pending-4.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/postmod-1.c": {
    "class": "PASS",
@@ -30412,18 +30412,18 @@
    "note": ""
   },
   "execute/pr10352-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr104196.c": {
    "class": "PASS",
@@ -32159,18 +32159,18 @@
    "note": ""
   },
   "execute/pr23941.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                 ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr24135.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -33440,7 +33440,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                               ^; Compile error: use of undeclared identifier 'e' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr39120.c": {
    "class": "PASS",
@@ -33767,7 +33767,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                    ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr42006.c": {
    "class": "PASS",
@@ -34075,7 +34075,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                              ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr43835.c": {
    "class": "PASS",
@@ -34699,18 +34699,18 @@
    "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr49419.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49644.c": {
    "class": "SKIP-C89",
@@ -37529,18 +37529,18 @@
    "note": ""
   },
   "execute/pr79043.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                 ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr79121.c": {
    "class": "PASS",
@@ -38323,18 +38323,18 @@
    "note": ""
   },
   "execute/pr88714.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr88739.c": {
    "class": "PASS",
@@ -39346,18 +39346,18 @@
    "note": ""
   },
   "execute/regstack-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/restrict-1.c": {
    "class": "PASS",
@@ -39589,32 +39589,32 @@
    "note": ""
   },
   "execute/stdarg-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                     ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/stdarg-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                      ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/stdarg-3.c": {
    "class": "PASS",
@@ -39740,7 +39740,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strct-pack-4.c": {
    "class": "PASS",
@@ -39880,7 +39880,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                          ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                          ^; Compile error: unexpected token in brace initializer (near 'a') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strlen-5.c": {
    "class": "REJECT",
@@ -40090,7 +40090,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/unroll-1.c": {
    "class": "PASS",
@@ -40406,32 +40406,32 @@
    "note": ""
   },
   "execute/va-arg-5.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/va-arg-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/va-arg-7.c": {
    "class": "PASS",
@@ -40487,7 +40487,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                         ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "             ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/va-arg-trap-1.c": {
    "class": "PASS",
@@ -40728,18 +40728,18 @@
    "note": ""
   },
   "execute/zero-struct-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/zero-struct-2.c": {
    "class": "PASS",
@@ -40787,11 +40787,11 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2447,
+  "PASS": 2682,
   "REF-BUG": 2,
-  "REJECT": 480,
+  "REJECT": 322,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 674,
+  "SKIP-C89": 597,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,

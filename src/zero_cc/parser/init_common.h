@@ -503,18 +503,21 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
 }
 
 /* Evaluate a floating-point constant initializer (literal, char literal,
- * unary +/-, parenthesized). Advances token_pos past the consumed value. */
-static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
+ * unary plus/minus, parenthesized, binary add/sub/mul/div - e.g.
+ * `+1.0/0.0`, `1.0/0.0 - 1.0/0.0` (c-torture execute/ieee/fp-cmp-1,
+ * mzero2)).  Advances token_pos past the consumed expression. */
+static double zc_eval_const_fp_additive(ZeroCCCompiler *c);
+static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
+    double v = 0.0;
     double sign = 1.0;
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
         if (c->tokens[c->token_pos].type == TK_MINUS) sign = -sign;
         c->token_pos++;
     }
-    double v = 0.0;
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
         c->token_pos++;
-        v = zero_cc_eval_const_expr_float(c);
+        v = zc_eval_const_fp_additive(c);
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
     } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
         v = c->tokens[c->token_pos].float_val;
@@ -526,7 +529,47 @@ static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
         v = (double)(int)c->tokens[c->token_pos].num_val;
         c->token_pos++;
     }
-    return sign * v;
+    v *= sign;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_STAR || c->tokens[c->token_pos].type == TK_SLASH)) {
+        bool div = (c->tokens[c->token_pos].type == TK_SLASH);
+        c->token_pos++;
+        double sign2 = 1.0;
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
+            if (c->tokens[c->token_pos].type == TK_MINUS) sign2 = -sign2;
+            c->token_pos++;
+        }
+        double r = 0.0;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
+            r = c->tokens[c->token_pos].float_val;
+            c->token_pos++;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
+            r = (double)c->tokens[c->token_pos].num_val;
+            c->token_pos++;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            c->token_pos++;
+            r = zc_eval_const_fp_additive(c);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        }
+        r *= sign2;
+        if (div) v = v / r; else v = v * r;
+    }
+    return v;
+}
+static double zc_eval_const_fp_additive(ZeroCCCompiler *c) {
+    double v = zc_eval_const_fp_multiplicative(c);
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
+        bool sub = (c->tokens[c->token_pos].type == TK_MINUS);
+        c->token_pos++;
+        double r = zc_eval_const_fp_multiplicative(c);
+        if (sub) v = v - r; else v = v + r;
+    }
+    return v;
+}
+static inline double zero_cc_eval_const_expr_float(ZeroCCCompiler *c) {
+    return zc_eval_const_fp_additive(c);
 }
 
 /* C99 6.7.2.1p3: a trailing flexible-array member is initialized from the

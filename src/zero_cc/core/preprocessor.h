@@ -287,6 +287,9 @@ static inline void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_POINTER__", "8");
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_SIZE_T__", "8");
     zero_cc_cpp_define_obj(cpp, "__SIZEOF_PTRDIFF_T__", "8");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_LONG_DOUBLE__", "16");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_WCHAR_T__", "4");
+    zero_cc_cpp_define_obj(cpp, "__SIZEOF_WINT_T__", "4");
     /* GCC-style __*_TYPE__ macros (LP64 Linux). Undefined in the
      * preprocessor, these silently became `int` base types and
      * miscompiled stdint-style code (c-torture execute/pr42833). */

@@ -574,6 +574,20 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
         if (strcmp(c->tokens[*pos].str_val, "__builtin_offsetof") == 0) {
             return zero_cc_eval_builtin_offsetof(c, pos);
         }
+        if (strcmp(c->tokens[*pos].str_val, "__alignof__") == 0) {
+            /* C99 6.5.3.4: __alignof__(E) = alignment of E's type.
+             * E may be a type name (`__alignof__(int)`). */
+            (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
+            ZeroCCType aty;
+            if (zero_cc_tok_is_type_start(c, *pos)) {
+                aty = zero_cc_parse_type_name_at_pos(c, pos);
+            } else {
+                aty = zero_cc_type_of_equality(c, pos);
+            }
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return (int64_t)(aty.align > 0 ? aty.align : 8);
+        }
         /* Enum constants are valid in constant expressions (C99 6.6). */
         const ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[*pos].str_val);
         if (ec) {
@@ -1094,8 +1108,15 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     } else if (t == TK_SHORT) {
         ty = zero_cc_type_int16(); (*pos)++;
     } else if (t == TK_LONG) {
-        ty = zero_cc_type_int64(); (*pos)++;
+        (*pos)++;
         if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) (*pos)++; /* long long */
+        if (*pos < c->token_count &&
+            (c->tokens[*pos].type == TK_DOUBLE_KW || c->tokens[*pos].type == TK_FLOAT_KW)) {
+            (*pos)++;
+            ty = zero_cc_type_long_double();
+        } else {
+            ty = zero_cc_type_int64();
+        }
         if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* long int */
     } else if (t == TK_ATOMIC) {
         (*pos)++;
@@ -1119,9 +1140,15 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
             (*pos)++;
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) {
-            ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
             (*pos)++;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_LONG) (*pos)++; /* long long */
+            if (*pos < c->token_count &&
+                (c->tokens[*pos].type == TK_DOUBLE_KW || c->tokens[*pos].type == TK_FLOAT_KW)) {
+                (*pos)++;
+                ty = zero_cc_type_long_double();
+            } else {
+                ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+            }
             if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* unsigned long int */
         } else {
             if (*pos < c->token_count && c->tokens[*pos].type == TK_INT) (*pos)++; /* [int] */
@@ -1393,9 +1420,15 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             ty = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
             c->token_pos++;
         } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
-            ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
             c->token_pos++;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count &&
+                (c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_FLOAT_KW)) {
+                c->token_pos++;
+                ty = zero_cc_type_long_double();
+            } else {
+                ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+            }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++; /* long [long] int */
         } else {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
@@ -1408,17 +1441,21 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         ty = zero_cc_type_char();
         c->token_pos++;
     } else if (c->tokens[c->token_pos].type == TK_LONG) {
-        // check for long long
-        if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_LONG) {
-            ty = zero_cc_type_int64();
-            c->token_pos += 2;
+        /* C99: long | long long | long double | long float |
+         * [signed|unsigned] long [long] [int] */
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        if (c->token_pos < c->token_count &&
+            (c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_FLOAT_KW)) {
+            c->token_pos++;
+            ty = zero_cc_type_long_double();
+        } else if (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+            if (c->tokens[c->token_pos].type == TK_UNSIGNED) ty = zero_cc_type_uint64();
+            else ty = zero_cc_type_int64();
+            c->token_pos++;
         } else {
             ty = zero_cc_type_int64();
-            c->token_pos++;
-        }
-        if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
-            if (c->tokens[c->token_pos].type == TK_UNSIGNED) ty = zero_cc_type_uint64();
-            c->token_pos++;
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
     } else {
@@ -1570,6 +1607,19 @@ static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c)
 {
     size_t pos = c->token_pos;
     int64_t result = parse_equality(c, &pos);
+    /* C99 6.5.15: conditional operator in constant expressions
+     * (`int a[4 == 4 ? 1 : -1];`, sizeof-macros-1). */
+    if (pos < c->token_count && c->tokens[pos].type == TK_QUESTION) {
+        pos++;
+        int64_t t = parse_equality(c, &pos);
+        if (pos < c->token_count && c->tokens[pos].type == TK_COLON) pos++;
+        int64_t save_pos = c->token_pos;
+        c->token_pos = pos;
+        int64_t f = zero_cc_eval_const_expr(c); /* recurses for nested ? : */
+        pos = c->token_pos;
+        c->token_pos = save_pos;
+        result = result ? t : f;
+    }
     c->token_pos = pos;
     return result;
 }

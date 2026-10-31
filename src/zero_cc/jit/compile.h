@@ -16,6 +16,7 @@
 #include "zero_cc/semantic/diagnostics.h"
 #include "zero_cc/semantic/visitor.h"
 #include "zero_cc/parser/zero_cc_declarator_stack.h"
+#include "zero_cc/parser/definitions.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
 
@@ -33,6 +34,614 @@ static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types,
     *types = ntypes;
     *names = nnames;
     *cap = ncap;
+}
+
+/* Sprint 65: K&R (old-style, C89 6.7.4.2) parameter-declaration statement.
+ * Parses one declaration in the K&R block - a type-specifier run (any
+ * order, `long long`, struct/union/enum tags, typedef names, pointers,
+ * qualifiers), a comma list of declarators `name [dims]`, and the `;`.
+ * Each declarator is recorded in out_names/out_types (array suffixes decay
+ * to pointers - correct for parameters; aux local arrays are modeled as
+ * pointer slots). Returns the number of declarators, or -1 on error (the
+ * token stream is left at the faulting token). */
+static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, ZeroCCType *out_types, int max) {
+    /* C89 K&R blocks commonly carry storage classes (`register tree new, old;`). */
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_REGISTER || c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_AUTO || c->tokens[c->token_pos].type == TK_EXTERN)) {
+        c->token_pos++;
+    }
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+    bool starts_type = (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
+                        t == TK_SIGNED || t == TK_UNSIGNED || t == TK_FLOAT_KW ||
+                        t == TK_DOUBLE_KW || t == TK_STRUCT || t == TK_UNION || t == TK_ENUM ||
+                        t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL ||
+                        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
+                        (t == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val) ||
+                         zero_cc_find_struct(c, c->tokens[c->token_pos].str_val) ||
+                         zero_cc_find_enum(c, c->tokens[c->token_pos].str_val))));
+    if (!starts_type) return -1;
+
+    bool p_is_const = false, p_is_volatile = false;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_RESTRICT)) {
+        if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
+        c->token_pos++;
+    }
+    size_t save = c->token_pos, probe = 0, vec_size = 0;
+    if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+        if (c->token_pos < c->token_count &&
+            (c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_CHAR ||
+             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
+             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
+             c->tokens[c->token_pos].type == TK_FLOAT_KW || c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
+            vec_size = probe;
+        } else {
+            c->token_pos = save;
+            vec_size = 0;
+        }
+    }
+    ZeroCCType pt;
+    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+        pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    } else {
+        ZeroCCTokType t0 = c->tokens[c->token_pos].type;
+        const char *nm = c->tokens[c->token_pos].str_val;
+        ZeroCCType *found = (t0 == TK_IDENT) ? zero_cc_find_typedef(c, nm) : NULL;
+        if (!found && t0 == TK_IDENT) found = zero_cc_find_struct(c, nm);
+        if (!found && t0 == TK_IDENT) found = zero_cc_find_enum(c, nm);
+        if (t0 != TK_IDENT && (t0 == TK_STRUCT || t0 == TK_UNION || t0 == TK_ENUM)) {
+            c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                nm = c->tokens[c->token_pos].str_val;
+                found = (t0 == TK_ENUM) ? zero_cc_find_enum(c, nm) : zero_cc_find_struct(c, nm);
+                if (!found) found = zero_cc_find_typedef(c, nm);
+                c->token_pos++;
+            }
+        } else if (found) {
+            c->token_pos++;
+        }
+        bool p_has_unsigned = (t0 == TK_UNSIGNED), p_has_char = (t0 == TK_CHAR),
+             p_has_short = (t0 == TK_SHORT), p_has_float = (t0 == TK_FLOAT_KW),
+             p_has_double = (t0 == TK_DOUBLE_KW);
+        int p_longs = (t0 == TK_LONG) ? 1 : 0;
+        if (t0 == TK_SIGNED || t0 == TK_UNSIGNED || t0 == TK_SHORT || t0 == TK_LONG ||
+            t0 == TK_INT || t0 == TK_CHAR) {
+            found = NULL;
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_SIGNED ||
+                    c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                    c->tokens[c->token_pos].type == TK_SHORT ||
+                    c->tokens[c->token_pos].type == TK_LONG ||
+                    c->tokens[c->token_pos].type == TK_INT ||
+                    c->tokens[c->token_pos].type == TK_CHAR)) {
+                switch (c->tokens[c->token_pos].type) {
+                    case TK_UNSIGNED: p_has_unsigned = true; break;
+                    case TK_CHAR: p_has_char = true; break;
+                    case TK_SHORT: p_has_short = true; break;
+                    case TK_LONG: p_longs++; break;
+                    default: break;
+                }
+                c->token_pos++;
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { p_has_float = true; c->token_pos++; }
+        else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { p_has_double = true; c->token_pos++; }
+        if (found) {
+            pt = *found;
+        } else if (p_has_float) {
+            pt = zero_cc_type_float();
+        } else if (p_has_double) {
+            pt = zero_cc_type_double();
+        } else if (p_has_char) {
+            pt = zero_cc_type_char();
+        } else if (p_has_short) {
+            pt = zero_cc_type_int16();
+        } else if (p_longs > 0) {
+            pt = zero_cc_type_int64();
+        } else {
+            pt = zero_cc_type_int();
+        }
+        if (p_has_unsigned) {
+            if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
+            else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
+            else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
+            else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
+        }
+    }
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+        if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
+        c->token_pos++;
+    }
+    int ptr_depth = 0;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+        ptr_depth++;
+        c->token_pos++;
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+            c->token_pos++;
+        }
+    }
+    pt.is_const = p_is_const;
+    pt.is_volatile = p_is_volatile;
+    if (vec_size > 0 && !zero_cc_type_is_vector(&pt)) pt = zero_cc_type_vector(&pt, vec_size);
+    for (int pd = 0; pd < ptr_depth; pd++) pt = zero_cc_type_ptr(&pt);
+
+    int count = 0;
+    for (;;) {
+        /* Per-declarator pointer suffixes (`int *a, *b;`): each declarator
+         * may carry its own `*` run with qualifiers. */
+        int d_ptr = 0;
+        bool d_const = pt.is_const, d_volatile = pt.is_volatile;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+            d_ptr++;
+            c->token_pos++;
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+                if (c->tokens[c->token_pos].type == TK_CONST) d_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) d_volatile = true;
+                c->token_pos++;
+            }
+        }
+        if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) return -1;
+        const char *dn = c->tokens[c->token_pos].str_val;
+        c->token_pos++;
+        bool is_array = false;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            is_array = true;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
+            if (c->token_pos < c->token_count) c->token_pos++; /* skip ']' */
+        }
+        if (count >= max) return -1;
+        ZeroCCType dt = pt;
+        dt.is_const = d_const;
+        dt.is_volatile = d_volatile;
+        for (int dp = 0; dp < d_ptr; dp++) dt = zero_cc_type_ptr(&dt);
+        if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
+            dt = zero_cc_type_ptr(&dt);
+        }
+        out_names[count] = dn;
+        out_types[count] = dt;
+        count++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+            c->token_pos++;
+            continue;
+        }
+        break;
+    }
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_SEMI) return -1;
+    c->token_pos++; /* skip ';' */
+    return count;
+}
+
+/* Sprint 65: parse one function declarator's parameter list, starting
+ * at the first token after `name (`.  Handles the K&R (old-style)
+ * shape (bare identifiers + following declaration block) and the
+ * usual prototype form.  Leaves the token at `;`, `{`, or `,`.
+ * Returns false if parsing could not proceed (stream untouched or
+ * advanced to an unrecoverable point - caller should give up).
+ */
+static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
+    const char *fn_name,
+    ZeroCCType **param_types, const char ***param_names, size_t *param_cap,
+    size_t *param_count, bool *is_variadic_fn, bool *has_prototype,
+    ZeroCCASTArena **dim_arena_out, ASTRef dim_exprs[]) {
+    bool kr_handled = false;
+    {
+    size_t q = c->token_pos;
+    int depth = 1;
+    int bare_count = 0;
+    bool kr_shape = true;
+    while (q < c->token_count && depth > 0) {
+        ZeroCCTokType qt = c->tokens[q].type;
+        if (qt == TK_LPAREN) { kr_shape = false; break; }
+        else if (qt == TK_RPAREN) { depth--; if (depth == 0) break; }
+        else if (qt == TK_COMMA) { /* entry separator */ }
+        else if (qt == TK_IDENT) { bare_count++; }
+        else { kr_shape = false; break; }
+        q++;
+    }
+    if (kr_shape && q < c->token_count && depth == 0 && bare_count >= 1 &&
+        c->tokens[c->token_pos].type == TK_IDENT &&
+        c->tokens[q - 1].type == TK_IDENT) {
+        size_t after = q + 1; /* first token after ')' */
+        while (after < c->token_count &&
+               (c->tokens[after].type == TK_REGISTER || c->tokens[after].type == TK_STATIC ||
+                c->tokens[after].type == TK_AUTO || c->tokens[after].type == TK_EXTERN ||
+                c->tokens[after].type == TK_CONST || c->tokens[after].type == TK_VOLATILE ||
+                c->tokens[after].type == TK_RESTRICT)) {
+            after++;
+        }
+        ZeroCCTokType at = (after < c->token_count) ? c->tokens[after].type : TK_EOF;
+        bool next_is_decl = (at == TK_INT || at == TK_CHAR || at == TK_SHORT || at == TK_LONG ||
+                             at == TK_SIGNED || at == TK_UNSIGNED || at == TK_FLOAT_KW ||
+                             at == TK_DOUBLE_KW || at == TK_STRUCT || at == TK_UNION || at == TK_ENUM ||
+                             at == TK_TYPEOF || at == TK_TYPEOF_UNQUAL ||
+                             at == TK_CONST || at == TK_VOLATILE || at == TK_RESTRICT ||
+                             (at == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[after].str_val) ||
+                              zero_cc_find_struct(c, c->tokens[after].str_val) ||
+                              zero_cc_find_enum(c, c->tokens[after].str_val))));
+        if (next_is_decl) {
+            c->kr_aux_count = 0;
+            size_t r = c->token_pos;
+            while (r < q) {
+                if (c->tokens[r].type == TK_IDENT && *param_count < ZERO_CC_MAX_PARAMS) {
+                    zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                    (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[r].str_val);
+                    (*param_types)[*param_count] = zero_cc_type_int(); /* filled by the decl block; int default (C89) */
+                    (*param_count)++;
+                }
+                r++;
+            }
+            c->token_pos = q + 1; /* past ')' */
+            *has_prototype = false; /* old-style: not a prototype */
+            *is_variadic_fn = false;
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type != TK_LBRACE &&
+                   c->tokens[c->token_pos].type != TK_SEMI &&
+                   c->tokens[c->token_pos].type != TK_EOF) {
+                const char *dn[16];
+                ZeroCCType dt[16];
+                int n = zero_cc_parse_kr_decl(c, dn, dt, 16);
+                if (n < 0) {
+                    diag_report_error_at_token(c, "invalid K&R parameter declaration in function '%s'", fn_name);
+                    while (c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type != TK_LBRACE &&
+                           c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                    break;
+                }
+                for (int k = 0; k < n; k++) {
+                    bool matched = false;
+                    for (size_t p = 0; p < *param_count; p++) {
+                        if (strcmp((*param_names)[p], dn[k]) == 0) {
+                            (*param_types)[p] = dt[k];
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (!matched && c->kr_aux_count < 64) {
+                        snprintf(c->kr_aux_names[c->kr_aux_count], 64, "%s", dn[k]);
+                        c->kr_aux_types[c->kr_aux_count] = dt[k];
+                        c->kr_aux_count++;
+                    }
+                }
+            }
+            kr_handled = true;
+        }
+    }
+}
+
+if (!kr_handled) {
+while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
+size_t ppos = c->token_pos;
+*has_prototype = true; /* any entry (param or ...) makes this a prototype */
+if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+    *is_variadic_fn = true;
+    c->token_pos++;
+} else {
+    bool p_is_const = false;
+    bool p_is_volatile = false;
+    while (c->tokens[c->token_pos].type == TK_CONST ||
+           c->tokens[c->token_pos].type == TK_VOLATILE ||
+           c->tokens[c->token_pos].type == TK_RESTRICT) {
+        if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
+        c->token_pos++;
+    }
+    /* GNU vector parameter: probe the `__zc_vector_size__(N)`
+     * marker emitted by the preprocessor (`vector int t`). */
+    size_t p_vec_size = 0;
+    {
+        size_t save = c->token_pos;
+        size_t probe = 0;
+        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            if (c->token_pos < c->token_count &&
+                (c->tokens[c->token_pos].type == TK_INT ||
+                 c->tokens[c->token_pos].type == TK_CHAR ||
+                 c->tokens[c->token_pos].type == TK_SHORT ||
+                 c->tokens[c->token_pos].type == TK_LONG ||
+                 c->tokens[c->token_pos].type == TK_SIGNED ||
+                 c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                 c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+                 c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
+                p_vec_size = probe;
+            } else {
+                c->token_pos = save;
+            }
+        }
+    }
+    ZeroCCType typeof_pt;
+    bool is_typeof_param = false;
+    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
+        is_typeof_param = true;
+        typeof_pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    }
+    if (is_typeof_param || c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
+        c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
+        c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
+        c->tokens[c->token_pos].type == TK_ENUM ||
+        c->tokens[c->token_pos].type == TK_FLOAT_KW ||
+        c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
+        c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
+        c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
+        ZeroCCTokType ptt = is_typeof_param ? TK_TYPEOF : c->tokens[c->token_pos].type;
+        const char *ptname = is_typeof_param ? "" : c->tokens[c->token_pos].str_val;
+        ZeroCCType *pfound = is_typeof_param ? NULL : zero_cc_find_typedef(c, ptname);
+        if (!pfound && !is_typeof_param) pfound = zero_cc_find_struct(c, ptname);
+        if (!pfound && !is_typeof_param) pfound = zero_cc_find_enum(c, ptname);
+        if (!is_typeof_param) c->token_pos++;
+        /* Type-specifier run (C11 6.7.5): keywords may appear in any
+         * order and `long long` is two tokens — consume the whole
+         * run so e.g. `unsigned long long int *v` does not leave the
+         * trailing `int` behind: the next loop iteration would then
+         * re-parse it as a fresh unnamed parameter and the pointer
+         * param would be recorded as `int *`, mis-sizing every
+         * dereference (c-torture execute/961213-1). */
+        bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
+        if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED ||
+                                 ptt == TK_SHORT || ptt == TK_LONG ||
+                                 ptt == TK_CHAR)) {
+            pfound = NULL;
+            bool p_has_unsigned = (ptt == TK_UNSIGNED);
+            bool p_has_char = (ptt == TK_CHAR);
+            bool p_has_short = (ptt == TK_SHORT);
+            int p_longs = (ptt == TK_LONG) ? 1 : 0;
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_SIGNED ||
+                    c->tokens[c->token_pos].type == TK_UNSIGNED ||
+                    c->tokens[c->token_pos].type == TK_SHORT ||
+                    c->tokens[c->token_pos].type == TK_LONG ||
+                    c->tokens[c->token_pos].type == TK_INT ||
+                    c->tokens[c->token_pos].type == TK_CHAR)) {
+                switch (c->tokens[c->token_pos].type) {
+                    case TK_SIGNED: break;
+                    case TK_UNSIGNED: p_has_unsigned = true; break;
+                    case TK_CHAR: p_has_char = true; break;
+                    case TK_SHORT: p_has_short = true; break;
+                    case TK_LONG: p_longs++; break;
+                    case TK_INT: break;
+                    default: break;
+                }
+                c->token_pos++;
+            }
+            if (p_has_char) ptt = TK_CHAR;
+            else if (p_has_short) ptt = TK_SHORT;
+            else if (p_longs > 0) ptt = TK_LONG;
+            else ptt = TK_INT;
+            p_is_unsigned = p_has_unsigned;
+        }
+        if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
+            ptname = c->tokens[c->token_pos].str_val;
+            pfound = zero_cc_find_struct(c, ptname);
+            if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+            c->token_pos++;
+        } else if (ptt == TK_ENUM && c->tokens[c->token_pos].type == TK_IDENT) {
+            ptname = c->tokens[c->token_pos].str_val;
+            pfound = zero_cc_find_enum(c, ptname);
+            if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+            c->token_pos++;
+        }
+        while (c->tokens[c->token_pos].type == TK_CONST ||
+               c->tokens[c->token_pos].type == TK_VOLATILE ||
+               c->tokens[c->token_pos].type == TK_RESTRICT) {
+            if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
+            if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
+            c->token_pos++;
+        }
+        int ptr_depth = 0;
+        bool p_ptr_is_const = false;
+        bool p_ptr_is_volatile = false;
+        bool p_ptr_is_restrict = false;
+        while (c->tokens[c->token_pos].type == TK_STAR) {
+            ptr_depth++;
+            c->token_pos++;
+            while (c->tokens[c->token_pos].type == TK_CONST ||
+                   c->tokens[c->token_pos].type == TK_VOLATILE ||
+                   c->tokens[c->token_pos].type == TK_RESTRICT) {
+                if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_is_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_is_volatile = true;
+                if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_is_restrict = true;
+                c->token_pos++;
+            }
+        }
+        if (c->tokens[c->token_pos].type == TK_LPAREN &&
+            c->token_pos + 1 < c->token_count &&
+            c->tokens[c->token_pos + 1].type == TK_STAR) {
+            /* Function-pointer parameter: `ret_type (*name)(params...)` */
+            c->token_pos++; /* ( */
+            while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                if (*param_count >= ZERO_CC_MAX_PARAMS) {
+                    diag_report_error_at_token(c,
+                        "function '%s' has too many parameters (max %d)",
+                        fn_name, ZERO_CC_MAX_PARAMS);
+                } else {
+                    zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                    (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
+                    /* ABI: an 8-byte pointer in a register; the pointed-to
+                     * signature is not modeled (calls go through the
+                     * value). Marked func-ptr for later codegen hooks. */
+                    ZeroCCType pt = zero_cc_type_int64();
+                    ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                    fpt.is_func_ptr = true;
+                    (*param_types)[*param_count] = fpt;
+                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
+                    (*param_count)++;
+                }
+            }
+            c->token_pos++; /* name */
+            if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
+            /* Skip the parameter list (depth-counted) */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pdepth = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && pdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                    c->token_pos++;
+                }
+            }
+            /* fall through to the comma/stuck-token handling below */
+        }
+        /* Parameter type - shared by named and unnamed parameters
+         * (C99 6.7.6.3): an unnamed parameter still constrains
+         * the caller. Previously unnamed params were silently
+         * dropped, so `int f(int);` parsed as a 0-parameter
+         * prototype and legal calls were rejected. */
+        ZeroCCType pt;
+        if (is_typeof_param) {
+            pt = typeof_pt;
+        } else if (pfound) {
+            pt = *pfound;
+            snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
+        } else if (ptt == TK_FLOAT_KW) {
+            pt = zero_cc_type_float();
+        } else if (ptt == TK_DOUBLE_KW) {
+            pt = zero_cc_type_double();
+        } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
+            pt = zero_cc_type_char();
+        } else if (ptt == TK_SHORT) {
+            pt = zero_cc_type_int16();
+        } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
+            pt = zero_cc_type_int();
+        } else if (ptt == TK_LONG) {
+            pt = zero_cc_type_int64();
+        } else {
+            pt = zero_cc_type_int64();
+        }
+        if (p_is_unsigned) {
+            if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
+            else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
+            else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
+            else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
+        }
+        pt.is_const = p_is_const;
+        pt.is_volatile = p_is_volatile;
+        /* Vector marker: wrap the scalar element in the vector type
+         * (pointer suffixes, if any, apply on top). */
+        if (p_vec_size > 0) {
+            pt = zero_cc_type_vector(&pt, p_vec_size);
+        }
+        for (int pd = 0; pd < ptr_depth; pd++) {
+            pt = zero_cc_type_ptr(&pt);
+            if (pd == ptr_depth - 1) {
+                pt.is_const = p_ptr_is_const;
+                pt.is_volatile = p_ptr_is_volatile;
+                pt.is_restrict = p_ptr_is_restrict;
+            }
+        }
+        /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
+         * makes the declaration a prototype but adds no parameter. */
+        bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
+                              ptr_depth == 0);
+        if (!is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
+            if (*param_count >= ZERO_CC_MAX_PARAMS) {
+                diag_report_error_at_token(c,
+                    "function '%s' has too many parameters (max %d)",
+                    fn_name, ZERO_CC_MAX_PARAMS);
+            } else {
+                zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
+                (*param_types)[*param_count] = pt;
+                zero_cc_add_local(c, (*param_names)[*param_count], pt);
+                (*param_count)++;
+            }
+            c->token_pos++;
+            /* Array parameter (C99 6.7.6.3p7): the OUTERMOST array
+             * dimension is adjusted to a pointer; remaining
+             * dimensions form the pointed-to array type
+             * (`int m[][4]` -> `int (*)[4]`).  Previously the
+             * `[...]` suffixes were skipped by the stuck-token
+             * guard below and the param kept its element type, so
+             * the pointer value was later sign-extended as a
+             * 32-bit int (movslq) and truncated at runtime. */
+            if (*param_count > 0 && c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_LBRACKET) {
+                ssize_t dims[8];
+                int ndims = 0;
+                while (c->token_pos < c->token_count &&
+                       c->tokens[c->token_pos].type == TK_LBRACKET &&
+                       ndims < 8) {
+                    ssize_t d = 0;
+                    c->token_pos++; /* '[' */
+                    if (c->token_pos < c->token_count &&
+                        c->tokens[c->token_pos].type == TK_NUM &&
+                        c->token_pos + 1 < c->token_count &&
+                        c->tokens[c->token_pos + 1].type == TK_RBRACKET) {
+                        d = (ssize_t)c->tokens[c->token_pos].num_val;
+                        c->token_pos++;
+                    } else {
+                        /* VLA dimension expression (C99 6.7.6.2): parse
+                         * the bracket content as an expression; it is
+                         * evaluated in parameter order at function entry
+                         * (for its side effects - the storage lives in
+                         * the caller's frame). */
+                        size_t dim_start = c->token_pos;
+                        while (c->token_pos < c->token_count &&
+                               c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
+                        size_t dim_end = c->token_pos; /* the ']' */
+                        d = 0;
+                        if (dim_start < dim_end && dim_exprs[*param_count - 1] == AST_NULL) {
+                            if (!*dim_arena_out) {
+                                *dim_arena_out = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                                if (*dim_arena_out) zero_cc_ast_arena_init(*dim_arena_out, 64);
+                            }
+                            if (*dim_arena_out) {
+                                size_t saved_pos = c->token_pos;
+                                c->token_pos = dim_start;
+                                dim_exprs[*param_count - 1] = parse_expr_ast_internal(c, *dim_arena_out);
+                                c->token_pos = (dim_end < c->token_count) ? dim_end : saved_pos;
+                            }
+                        }
+                    }
+                    if (c->token_pos < c->token_count &&
+                        c->tokens[c->token_pos].type == TK_RBRACKET) {
+                        c->token_pos++; /* ']' */
+                    }
+                    dims[ndims++] = d;
+                }
+                ZeroCCType t = (*param_types)[*param_count - 1];
+                /* Later dimension tokens are inner: build the
+                 * pointed-to array type innermost-first. */
+                for (int i = ndims - 1; i >= 1; i--) {
+                    t = zero_cc_type_array(&t, dims[i]);
+                }
+                (*param_types)[*param_count - 1] = zero_cc_type_ptr(&t);
+            }
+        } else if (!is_void_param && *param_count < ZERO_CC_MAX_PARAMS &&
+                   c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_COMMA ||
+                    c->tokens[c->token_pos].type == TK_RPAREN)) {
+            /* Unnamed parameter: record the type with an empty
+             * name so the prototype keeps its parameter count.
+             * No add_local (nothing to bind); the degenerate
+             * `f(int [])` unnamed-array form skips the array
+             * adjustment above. */
+            zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+            (*param_names)[*param_count] = "";
+            (*param_types)[*param_count] = pt;
+            (*param_count)++;
+        } else if (!is_void_param && *param_count >= ZERO_CC_MAX_PARAMS &&
+                   c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_COMMA ||
+                    c->tokens[c->token_pos].type == TK_RPAREN)) {
+            diag_report_error_at_token(c,
+                "function '%s' has too many parameters (max %d)",
+                fn_name, ZERO_CC_MAX_PARAMS);
+        }
+    }
+}
+if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+if (c->token_pos == ppos) c->token_pos++;
+}
+if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+}
+    return true;
 }
 
 static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
@@ -96,12 +705,31 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
         fn_ret_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
     } else if (c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION) {
+        bool fn_ret_is_union = (c->tokens[c->token_pos].type == TK_UNION);
         c->token_pos++;
-        if (c->tokens[c->token_pos].type == TK_IDENT) {
-            ZeroCCType *st = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
-            if (!st) st = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
-            if (st) fn_ret_type = *st;
+        if (c->tokens[c->token_pos].type == TK_LBRACE) {
+            /* Sprint 65: inline struct/union definition as the return type:
+             * `struct st { ... } f (params) { ... }` (the `;` after the
+             * body is omitted - the declarator continues the declaration). */
+            fn_ret_type = zero_cc_parse_struct_body(c, fn_ret_is_union);
+        } else if (c->tokens[c->token_pos].type == TK_IDENT) {
+            char fn_st_name[128];
+            snprintf(fn_st_name, sizeof(fn_st_name), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_LBRACE) {
+                /* Named inline definition: register the tag from the body. */
+                ZeroCCType st = zero_cc_parse_struct_body(c, fn_ret_is_union);
+                if (st.struct_name[0] == '\0') {
+                    snprintf(st.struct_name, sizeof(st.struct_name), "%s", fn_st_name);
+                }
+                zero_cc_register_struct(c, fn_st_name, st);
+                zero_cc_sync_globals_with_struct(c, fn_st_name, &st);
+                fn_ret_type = st;
+            } else {
+                ZeroCCType *st = zero_cc_find_struct(c, fn_st_name);
+                if (!st) st = zero_cc_find_typedef(c, fn_st_name);
+                if (st) fn_ret_type = *st;
+            }
         }
     } else if (c->tokens[c->token_pos].type == TK_ENUM) {
         c->token_pos++;
@@ -194,6 +822,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     ZeroCCType *param_types = (ZeroCCType *)arena_alloc(ctx->tmp_arena, param_cap * sizeof(ZeroCCType));
     const char **param_names = (const char **)arena_alloc(ctx->tmp_arena, param_cap * sizeof(const char *));
     size_t param_count = 0;
+    size_t first_param_count = 0; /* params of the 1st declarator (multi-decl) */
     /* C99 6.7.6.2: VLA parameter dimension expressions (one per param,
      * 0 = none) - parsed into a private arena, evaluated at entry. */
     ZeroCCASTArena *dim_arena = NULL;
@@ -259,329 +888,109 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (c->tokens[c->token_pos].type != TK_LPAREN) return;
         c->token_pos++;
 
-        while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
-        size_t ppos = c->token_pos;
-        has_prototype = true; /* any entry (param or ...) makes this a prototype */
-        if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
-            is_variadic_fn = true;
-            c->token_pos++;
-        } else {
-            bool p_is_const = false;
-            bool p_is_volatile = false;
-            while (c->tokens[c->token_pos].type == TK_CONST ||
-                   c->tokens[c->token_pos].type == TK_VOLATILE ||
-                   c->tokens[c->token_pos].type == TK_RESTRICT) {
-                if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
-                if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
-                c->token_pos++;
-            }
-            /* GNU vector parameter: probe the `__zc_vector_size__(N)`
-             * marker emitted by the preprocessor (`vector int t`). */
-            size_t p_vec_size = 0;
+        /* Sprint 65: parameter list (incl. K&R old-style). */
+        if (!zero_cc_parse_fn_param_block(c, ctx, fn_name,
+                &param_types, &param_names, &param_cap, &param_count,
+                &is_variadic_fn, &has_prototype, &dim_arena, dim_exprs)) return;
+
+        /* C99 6.7.5: a declaration may introduce several declarators
+         * (`void d0(void), d1(void);`, `double bar(void), c;`).  Each
+         * comma-separated declarator after the first reuses the base
+         * return type.  Function declarators re-parse their own
+         * parameter list; variable declarators get their own storage. */
+        first_param_count = param_count;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+            size_t save = c->token_pos;
+            c->token_pos++; /* ',' */
             {
-                size_t save = c->token_pos;
                 size_t probe = 0;
-                if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
-                    if (c->token_pos < c->token_count &&
-                        (c->tokens[c->token_pos].type == TK_INT ||
-                         c->tokens[c->token_pos].type == TK_CHAR ||
-                         c->tokens[c->token_pos].type == TK_SHORT ||
-                         c->tokens[c->token_pos].type == TK_LONG ||
-                         c->tokens[c->token_pos].type == TK_SIGNED ||
-                         c->tokens[c->token_pos].type == TK_UNSIGNED ||
-                         c->tokens[c->token_pos].type == TK_FLOAT_KW ||
-                         c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
-                        p_vec_size = probe;
-                    } else {
-                        c->token_pos = save;
-                    }
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+                       strcmp(c->tokens[c->token_pos].str_val, "__zc_aligned__") == 0) {
+                    zero_cc_parse_aligned_attr(c, &c->token_pos, &probe);
                 }
             }
-            ZeroCCType typeof_pt;
-            bool is_typeof_param = false;
-            if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
-                is_typeof_param = true;
-                typeof_pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
-            }
-            if (is_typeof_param || c->tokens[c->token_pos].type == TK_IDENT || c->tokens[c->token_pos].type == TK_INT ||
-                c->tokens[c->token_pos].type == TK_CHAR || c->tokens[c->token_pos].type == TK_VOID ||
-                c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
-                c->tokens[c->token_pos].type == TK_ENUM ||
-                c->tokens[c->token_pos].type == TK_FLOAT_KW ||
-                c->tokens[c->token_pos].type == TK_DOUBLE_KW || c->tokens[c->token_pos].type == TK_BOOL_KW ||
-                c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
-                c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG) {
-                ZeroCCTokType ptt = is_typeof_param ? TK_TYPEOF : c->tokens[c->token_pos].type;
-                const char *ptname = is_typeof_param ? "" : c->tokens[c->token_pos].str_val;
-                ZeroCCType *pfound = is_typeof_param ? NULL : zero_cc_find_typedef(c, ptname);
-                if (!pfound && !is_typeof_param) pfound = zero_cc_find_struct(c, ptname);
-                if (!pfound && !is_typeof_param) pfound = zero_cc_find_enum(c, ptname);
-                if (!is_typeof_param) c->token_pos++;
-                /* Type-specifier run (C11 6.7.5): keywords may appear in any
-                 * order and `long long` is two tokens — consume the whole
-                 * run so e.g. `unsigned long long int *v` does not leave the
-                 * trailing `int` behind: the next loop iteration would then
-                 * re-parse it as a fresh unnamed parameter and the pointer
-                 * param would be recorded as `int *`, mis-sizing every
-                 * dereference (c-torture execute/961213-1). */
-                bool p_is_unsigned = (!is_typeof_param && ptt == TK_UNSIGNED);
-                if (!is_typeof_param && (ptt == TK_SIGNED || ptt == TK_UNSIGNED ||
-                                         ptt == TK_SHORT || ptt == TK_LONG ||
-                                         ptt == TK_CHAR)) {
-                    pfound = NULL;
-                    bool p_has_unsigned = (ptt == TK_UNSIGNED);
-                    bool p_has_char = (ptt == TK_CHAR);
-                    bool p_has_short = (ptt == TK_SHORT);
-                    int p_longs = (ptt == TK_LONG) ? 1 : 0;
+            if (c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos].type == TK_IDENT &&
+                c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+                char fn2_name[128];
+                snprintf(fn2_name, sizeof(fn2_name), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++; /* name */
+                c->token_pos++; /* ( */
+                size_t p2_base = param_count;
+                if (!zero_cc_parse_fn_param_block(c, ctx, fn2_name,
+                        &param_types, &param_names, &param_cap, &param_count,
+                        &is_variadic_fn, &has_prototype, &dim_arena, dim_exprs)) return;
+                /* Register this declarator's own prototype (C99 6.7.5);
+                 * its params occupy [p2_base, param_count) in the shared
+                 * buffers, so the next declarator appends cleanly. */
+                if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                    ZeroCCFunction *fn2 = &c->functions[c->function_count++];
+                    memset(fn2, 0, sizeof(*fn2));
+                    snprintf(fn2->name, sizeof(fn2->name), "%s", fn2_name);
+                    fn2->text_offset = 0;
+                    fn2->param_count = param_count - p2_base;
+                    fn2->return_type = fn_ret_type;
+                    fn2->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||
+                                          (fn_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret_type)));
+                    fn2->ret_struct_sz = fn_ret_type.size;
+                    fn2->is_prototype = true;
+                    fn2->has_prototype = has_prototype;
+                    fn2->is_inline = fn_inline;
+                    fn2->is_static = fn_static;
+                    if (fn2->param_count > 0) {
+                        Arena *farena = zero_cc_get_fn_arena(c);
+                        fn2->param_names = (const char **)arena_alloc(farena, fn2->param_count * sizeof(const char *));
+                        fn2->param_types = (ZeroCCType *)arena_alloc(farena, fn2->param_count * sizeof(ZeroCCType));
+                        for (size_t i = 0; i < fn2->param_count; i++) {
+                            fn2->param_types[i] = param_types[p2_base + i];
+                            fn2->param_names[i] = param_names[p2_base + i];
+                        }
+                    }
+                }
+            } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                /* Variable declarator sharing the base type: name [*] [dims...].
+                 * Allocate storage (file-scope non-extern object). */
+                char vname[128];
+                snprintf(vname, sizeof(vname), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                ZeroCCType vt = fn_ret_type;
+                int pd = 0;
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                    vt = zero_cc_type_ptr(&vt);
+                    pd++;
+                    c->token_pos++;
                     while (c->token_pos < c->token_count &&
-                           (c->tokens[c->token_pos].type == TK_SIGNED ||
-                            c->tokens[c->token_pos].type == TK_UNSIGNED ||
-                            c->tokens[c->token_pos].type == TK_SHORT ||
-                            c->tokens[c->token_pos].type == TK_LONG ||
-                            c->tokens[c->token_pos].type == TK_INT ||
-                            c->tokens[c->token_pos].type == TK_CHAR)) {
-                        switch (c->tokens[c->token_pos].type) {
-                            case TK_SIGNED: break;
-                            case TK_UNSIGNED: p_has_unsigned = true; break;
-                            case TK_CHAR: p_has_char = true; break;
-                            case TK_SHORT: p_has_short = true; break;
-                            case TK_LONG: p_longs++; break;
-                            case TK_INT: break;
-                            default: break;
-                        }
+                           (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE))
                         c->token_pos++;
-                    }
-                    if (p_has_char) ptt = TK_CHAR;
-                    else if (p_has_short) ptt = TK_SHORT;
-                    else if (p_longs > 0) ptt = TK_LONG;
-                    else ptt = TK_INT;
-                    p_is_unsigned = p_has_unsigned;
                 }
-                if ((ptt == TK_STRUCT || ptt == TK_UNION) && c->tokens[c->token_pos].type == TK_IDENT) {
-                    ptname = c->tokens[c->token_pos].str_val;
-                    pfound = zero_cc_find_struct(c, ptname);
-                    if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
+                int64_t vlen = 1;
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                     c->token_pos++;
-                } else if (ptt == TK_ENUM && c->tokens[c->token_pos].type == TK_IDENT) {
-                    ptname = c->tokens[c->token_pos].str_val;
-                    pfound = zero_cc_find_enum(c, ptname);
-                    if (!pfound) pfound = zero_cc_find_typedef(c, ptname);
-                    c->token_pos++;
-                }
-                while (c->tokens[c->token_pos].type == TK_CONST ||
-                       c->tokens[c->token_pos].type == TK_VOLATILE ||
-                       c->tokens[c->token_pos].type == TK_RESTRICT) {
-                    if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
-                    if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
-                    c->token_pos++;
-                }
-                int ptr_depth = 0;
-                bool p_ptr_is_const = false;
-                bool p_ptr_is_volatile = false;
-                bool p_ptr_is_restrict = false;
-                while (c->tokens[c->token_pos].type == TK_STAR) {
-                    ptr_depth++;
-                    c->token_pos++;
-                    while (c->tokens[c->token_pos].type == TK_CONST ||
-                           c->tokens[c->token_pos].type == TK_VOLATILE ||
-                           c->tokens[c->token_pos].type == TK_RESTRICT) {
-                        if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_is_const = true;
-                        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_is_volatile = true;
-                        if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_is_restrict = true;
-                        c->token_pos++;
+                    int64_t d = 1;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) {
+                        d = zero_cc_eval_const_expr(c);
                     }
+                    if (d > 1) vlen *= d;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 }
-                if (c->tokens[c->token_pos].type == TK_LPAREN &&
-                    c->token_pos + 1 < c->token_count &&
-                    c->tokens[c->token_pos + 1].type == TK_STAR) {
-                    /* Function-pointer parameter: `ret_type (*name)(params...)` */
-                    c->token_pos++; /* ( */
-                    while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
-                    if (c->tokens[c->token_pos].type == TK_IDENT) {
-                        if (param_count >= ZERO_CC_MAX_PARAMS) {
-                            diag_report_error_at_token(c,
-                                "function '%s' has too many parameters (max %d)",
-                                fn_name, ZERO_CC_MAX_PARAMS);
-                        } else {
-                            zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
-                            param_names[param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-                            /* ABI: an 8-byte pointer in a register; the pointed-to
-                             * signature is not modeled (calls go through the
-                             * value). Marked func-ptr for later codegen hooks. */
-                            ZeroCCType pt = zero_cc_type_int64();
-                            ZeroCCType fpt = zero_cc_type_ptr(&pt);
-                            fpt.is_func_ptr = true;
-                            param_types[param_count] = fpt;
-                            zero_cc_add_local(c, param_names[param_count], fpt);
-                            param_count++;
-                        }
-                    }
-                    c->token_pos++; /* name */
-                    if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
-                    /* Skip the parameter list (depth-counted) */
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-                        int pdepth = 1;
-                        c->token_pos++;
-                        while (c->token_pos < c->token_count && pdepth > 0) {
-                            if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
-                            else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
-                            c->token_pos++;
-                        }
-                    }
-                    /* fall through to the comma/stuck-token handling below */
+                size_t vsize = (vt.size > 0 ? vt.size : 8) * (size_t)vlen;
+                size_t valign = vt.align > 0 ? vt.align : 8;
+                if (valign < 8) valign = 8;
+                size_t vpad = (valign - (c->data_section.length % valign)) % valign;
+                for (size_t i = 0; i < vpad; i++) zero_cc_emit_u8(&c->data_section, 0);
+                size_t voff = c->data_section.length;
+                for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
+                if (add_global_var(vname, vt, voff, vsize, false, true) < 0) {
+                    diag_report_error_at_token(c, "out of memory registering global variable");
                 }
-                /* Parameter type - shared by named and unnamed parameters
-                 * (C99 6.7.6.3): an unnamed parameter still constrains
-                 * the caller. Previously unnamed params were silently
-                 * dropped, so `int f(int);` parsed as a 0-parameter
-                 * prototype and legal calls were rejected. */
-                ZeroCCType pt;
-                if (is_typeof_param) {
-                    pt = typeof_pt;
-                } else if (pfound) {
-                    pt = *pfound;
-                    snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
-                } else if (ptt == TK_FLOAT_KW) {
-                    pt = zero_cc_type_float();
-                } else if (ptt == TK_DOUBLE_KW) {
-                    pt = zero_cc_type_double();
-                } else if (ptt == TK_CHAR || ptt == TK_BOOL_KW) {
-                    pt = zero_cc_type_char();
-                } else if (ptt == TK_SHORT) {
-                    pt = zero_cc_type_int16();
-                } else if (ptt == TK_INT || ptt == TK_SIGNED || ptt == TK_UNSIGNED) {
-                    pt = zero_cc_type_int();
-                } else if (ptt == TK_LONG) {
-                    pt = zero_cc_type_int64();
-                } else {
-                    pt = zero_cc_type_int64();
-                }
-                if (p_is_unsigned) {
-                    if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
-                    else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
-                    else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
-                    else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
-                }
-                pt.is_const = p_is_const;
-                pt.is_volatile = p_is_volatile;
-                /* Vector marker: wrap the scalar element in the vector type
-                 * (pointer suffixes, if any, apply on top). */
-                if (p_vec_size > 0) {
-                    pt = zero_cc_type_vector(&pt, p_vec_size);
-                }
-                for (int pd = 0; pd < ptr_depth; pd++) {
-                    pt = zero_cc_type_ptr(&pt);
-                    if (pd == ptr_depth - 1) {
-                        pt.is_const = p_ptr_is_const;
-                        pt.is_volatile = p_ptr_is_volatile;
-                        pt.is_restrict = p_ptr_is_restrict;
-                    }
-                }
-                /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
-                 * makes the declaration a prototype but adds no parameter. */
-                bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
-                                      ptr_depth == 0);
-                if (!is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
-                    if (param_count >= ZERO_CC_MAX_PARAMS) {
-                        diag_report_error_at_token(c,
-                            "function '%s' has too many parameters (max %d)",
-                            fn_name, ZERO_CC_MAX_PARAMS);
-                    } else {
-                        zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
-                        param_names[param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-                        param_types[param_count] = pt;
-                        zero_cc_add_local(c, param_names[param_count], pt);
-                        param_count++;
-                    }
-                    c->token_pos++;
-                    /* Array parameter (C99 6.7.6.3p7): the OUTERMOST array
-                     * dimension is adjusted to a pointer; remaining
-                     * dimensions form the pointed-to array type
-                     * (`int m[][4]` -> `int (*)[4]`).  Previously the
-                     * `[...]` suffixes were skipped by the stuck-token
-                     * guard below and the param kept its element type, so
-                     * the pointer value was later sign-extended as a
-                     * 32-bit int (movslq) and truncated at runtime. */
-                    if (param_count > 0 && c->token_pos < c->token_count &&
-                        c->tokens[c->token_pos].type == TK_LBRACKET) {
-                        ssize_t dims[8];
-                        int ndims = 0;
-                        while (c->token_pos < c->token_count &&
-                               c->tokens[c->token_pos].type == TK_LBRACKET &&
-                               ndims < 8) {
-                            ssize_t d = 0;
-                            c->token_pos++; /* '[' */
-                            if (c->token_pos < c->token_count &&
-                                c->tokens[c->token_pos].type == TK_NUM &&
-                                c->token_pos + 1 < c->token_count &&
-                                c->tokens[c->token_pos + 1].type == TK_RBRACKET) {
-                                d = (ssize_t)c->tokens[c->token_pos].num_val;
-                                c->token_pos++;
-                            } else {
-                                /* VLA dimension expression (C99 6.7.6.2): parse
-                                 * the bracket content as an expression; it is
-                                 * evaluated in parameter order at function entry
-                                 * (for its side effects - the storage lives in
-                                 * the caller's frame). */
-                                size_t dim_start = c->token_pos;
-                                while (c->token_pos < c->token_count &&
-                                       c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
-                                size_t dim_end = c->token_pos; /* the ']' */
-                                d = 0;
-                                if (dim_start < dim_end && dim_exprs[param_count - 1] == AST_NULL) {
-                                    if (!dim_arena) {
-                                        dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
-                                        if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
-                                    }
-                                    if (dim_arena) {
-                                        size_t saved_pos = c->token_pos;
-                                        c->token_pos = dim_start;
-                                        dim_exprs[param_count - 1] = parse_expr_ast_internal(c, dim_arena);
-                                        c->token_pos = (dim_end < c->token_count) ? dim_end : saved_pos;
-                                    }
-                                }
-                            }
-                            if (c->token_pos < c->token_count &&
-                                c->tokens[c->token_pos].type == TK_RBRACKET) {
-                                c->token_pos++; /* ']' */
-                            }
-                            dims[ndims++] = d;
-                        }
-                        ZeroCCType t = param_types[param_count - 1];
-                        /* Later dimension tokens are inner: build the
-                         * pointed-to array type innermost-first. */
-                        for (int i = ndims - 1; i >= 1; i--) {
-                            t = zero_cc_type_array(&t, dims[i]);
-                        }
-                        param_types[param_count - 1] = zero_cc_type_ptr(&t);
-                    }
-                } else if (!is_void_param && param_count < ZERO_CC_MAX_PARAMS &&
-                           c->token_pos < c->token_count &&
-                           (c->tokens[c->token_pos].type == TK_COMMA ||
-                            c->tokens[c->token_pos].type == TK_RPAREN)) {
-                    /* Unnamed parameter: record the type with an empty
-                     * name so the prototype keeps its parameter count.
-                     * No add_local (nothing to bind); the degenerate
-                     * `f(int [])` unnamed-array form skips the array
-                     * adjustment above. */
-                    zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, param_count + 1);
-                    param_names[param_count] = "";
-                    param_types[param_count] = pt;
-                    param_count++;
-                } else if (!is_void_param && param_count >= ZERO_CC_MAX_PARAMS &&
-                           c->token_pos < c->token_count &&
-                           (c->tokens[c->token_pos].type == TK_COMMA ||
-                            c->tokens[c->token_pos].type == TK_RPAREN)) {
-                    diag_report_error_at_token(c,
-                        "function '%s' has too many parameters (max %d)",
-                        fn_name, ZERO_CC_MAX_PARAMS);
-                }
+                (void)pd;
+                /* After a variable declarator the remaining list items are
+                 * variables too - keep the loop (same branch). */
+            } else {
+                c->token_pos = save;
+                break;
             }
         }
-        if (c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-        if (c->token_pos == ppos) c->token_pos++;
-        }
-        if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
     } else {
         return;
     }
@@ -593,7 +1002,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             memset(fn, 0, sizeof(*fn));
             snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
             fn->text_offset = 0;
-            fn->param_count = param_count;
+            fn->param_count = first_param_count;
             fn->return_type = fn_ret_type;
             fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||
                                   (fn_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret_type)));
@@ -604,11 +1013,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
-            if (param_count > 0) {
+            if (first_param_count > 0) {
                 Arena *farena = zero_cc_get_fn_arena(c);
-                fn->param_names = (const char **)arena_alloc(farena, param_count * sizeof(const char *));
-                fn->param_types = (ZeroCCType *)arena_alloc(farena, param_count * sizeof(ZeroCCType));
-                for (size_t i = 0; i < param_count; i++) {
+                fn->param_names = (const char **)arena_alloc(farena, first_param_count * sizeof(const char *));
+                fn->param_types = (ZeroCCType *)arena_alloc(farena, first_param_count * sizeof(ZeroCCType));
+                for (size_t i = 0; i < first_param_count; i++) {
                     fn->param_types[i] = param_types[i];
                     fn->param_names[i] = param_names[i];
                 }
@@ -678,6 +1087,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         int int_reg_idx = 0;
         int stack_arg_idx = 0;
 
+        /* Sprint 65: K&R aux locals (non-parameter names declared in the
+         * parameter-declaration block, e.g. `int f(a) int a; char buf[10];`). */
+        for (int a = 0; a < c->kr_aux_count; a++) {
+            zero_cc_add_local(c, c->kr_aux_names[a], c->kr_aux_types[a]);
+        }
+        c->kr_aux_count = 0;
+
         for (size_t p = 0; p < param_count; p++) {
             ZeroCCSym *sym = zero_cc_add_local(c, param_names[p], param_types[p]);
             sym->is_param = true;
@@ -721,15 +1137,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             TypeInfo *ret_t = zero_cc_type_to_typeinfo(perm, f->return_type);
             if (f->is_external && f->is_object) {
                 /* Extern *variable* declarations (`extern int j;`,
-                 * `extern struct A a;`) register a function-table entry with
-                 * the variable's type in return_type; they must appear as
-                 * variables.  Extern *functions* (incl. __builtin_* routines
-                 * registered during lowering, e.g. memcpy/abort) fall through
-                 * to the function registration below: a later function
-                 * calling the same name must see a callable type
-                 * (registering the return type as SYMBOL_VAR made
-                 * `__builtin_popcount` an "int variable" and broke its second
-                 * use - c-torture compile/fold-popcount-1.c). */
+                 * `extern unsigned long aa[];`) register a function-table
+                 * entry with the variable's type in return_type; they must
+                 * appear as variables.  Array externs keep their array type
+                 * so `*aa` lowers to a single load, not a value-load +
+                 * deref (c-torture execute/20000403-1). */
                 scope_put_symbol(global_scope_root, f->name, SYMBOL_VAR, ret_t);
                 continue;
             }
@@ -755,6 +1167,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
         for (size_t i = 0; i < global_var_count; i++) {
             TypeInfo *gv_ti = zero_cc_type_to_typeinfo(perm, global_vars[i].type);
+
             scope_put_symbol(global_scope_root, global_vars[i].name, SYMBOL_VAR, gv_ti);
         }
 

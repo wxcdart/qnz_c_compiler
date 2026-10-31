@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T04:56:50Z
+timestamp: 2026-10-31T07:20:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -596,3 +596,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `abi-sysv-x86_64.md`
 - Sprint 64: >16B by-value struct args use hidden-pointer convention with deferred callee copies
+
+## 2026-10-31 — Updated `c-torture-gate.md`
+- Sprint 65: file-scope REJECT burn-down (K&R, const pointer inits, long double) + 5 MISCOMPILE fixes; PASS 2,447->2,682, REJECT 480->322
+
+## 2026-10-31 — Updated `ir-and-regalloc.md`
+- Sprint 65: u64-aware int->float conversion helper (zc_emit_int_to_double), sticky-bit collapse join fix, zero-size struct phantom load/store fix

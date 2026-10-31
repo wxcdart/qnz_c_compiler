@@ -56,6 +56,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             break;
         }
         case TYPE_ARRAY: {
+
             // FIX: Guard against NULL base pointer
             if (!t.base) {
                 ti = type_array_of(perm, type_void(perm), t.array_len);

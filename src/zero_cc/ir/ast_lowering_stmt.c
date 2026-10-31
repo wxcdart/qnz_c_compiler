@@ -872,11 +872,12 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             if (result_temp != VREG_0) {
                 ir_emit_mov_reg(VREG_0, result_temp);
             }
-            /* If function returns float/double, convert int to float */
+            /* If function returns float/double, convert int to float
+             * (u64-aware: cvtsi2sd misreads unsigned 64-bit sources). */
             if (fn_ret_type.tag == TYPE_FLOAT || fn_ret_type.tag == TYPE_DOUBLE) {
-                final_float_temp = c->next_temp_id++;
-                ir_emit_cvtsi2sd((uint16_t)final_float_temp, (uint16_t)result_temp);
-                c->last_expr_is_float = 1;
+                ZeroCCASTNode *ret_node = zero_cc_ast_get(arena, node->left);
+                TypeInfo *src_ti = ret_node ? ast_node_get_typeinfo(c, ret_node) : NULL;
+                final_float_temp = zc_emit_int_to_double(c, result_temp, src_ti);
             }
         } else {
             /* Expression is float/double. If function returns integer, convert float to int */

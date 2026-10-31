@@ -451,7 +451,15 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
                                matching_reloc->target_global_idx >= 0 &&
                                matching_reloc->target_global_idx < (int)global_var_count) {
                         const char *tgt_name = global_vars[matching_reloc->target_global_idx].name;
-                        fprintf(comp->asm_out, "\t.quad\t%s\n", tgt_name);
+                        /* target_data_offset = gv->data_offset + extra: the
+                         * extra (member/element offset) becomes a symbol
+                         * addend, e.g. `.quad arr+16` (const-addr-expr-1). */
+                        size_t extra = matching_reloc->target_data_offset -
+                                       global_vars[matching_reloc->target_global_idx].data_offset;
+                        if (extra > 0)
+                            fprintf(comp->asm_out, "\t.quad\t%s+%zu\n", tgt_name, extra);
+                        else
+                            fprintf(comp->asm_out, "\t.quad\t%s\n", tgt_name);
                     } else {
                         fprintf(comp->asm_out, "\t.quad\t0\n");
                     }
@@ -1479,15 +1487,19 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 }
             } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
                        dr->target_global_idx < (int)global_var_count) {
-                /* &global: target the global variable's own symbol (value = data_offset) */
+                /* &global: target the global variable's own symbol (value = data_offset).
+                 * target_data_offset may carry a member/element extra offset
+                 * (`&((arr + N)->member)`) - emitted as the reloc addend. */
                 const char *tname = global_vars[dr->target_global_idx].name;
                 int sym_idx = 0;
                 for (int j = 0; j < elf_ctx.symbol_count; j++) {
                     if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, tname) == 0) { sym_idx = j + 1; break; }
                 }
                 if (sym_idx > 0) {
+                    int64_t extra = (int64_t)dr->target_data_offset -
+                                    (int64_t)global_vars[dr->target_global_idx].data_offset;
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                              sym_idx, reloc_type_data_abs, 0);
+                                              sym_idx, reloc_type_data_abs, extra);
                 }
             } else if (dr->target_kind == 2 && dr->target_extern_name[0]) {
                 /* &extern-global (defined in another TU): target the UND symbol

@@ -13,6 +13,49 @@ static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const Z
     else ir_emit_mov_global(temp, gv->name);
 }
 
+/* C99 6.3.1.5 integer -> floating conversion, u64-aware (see header). */
+int zc_emit_int_to_double(ZeroCCCompiler *c, int src_temp, const TypeInfo *src_ti) {
+    bool u64 = src_ti && type_size(src_ti) == 8 &&
+               ((src_ti->kind == TYPE_KIND_LONG && (src_ti->modifiers & TYPE_MOD_UNSIGNED) != 0) ||
+                src_ti->kind == TYPE_KIND_POINTER ||
+                (src_ti->modifiers & TYPE_MOD_UNSIGNED) != 0);
+    int fp_res = c->next_temp_id++;
+    if (!u64) {
+        ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)src_temp);
+        c->last_expr_is_float = 1;
+        return fp_res;
+    }
+    /* uint64 -> double: positive values convert directly; for values with
+     * the high bit set, ((v >> 1) | (v & 1)) * 2.0 preserves the value.
+     * (The >> must be logical: OP_SHR is.) */
+    int zero_temp = c->next_temp_id++;
+    ir_emit_mov_imm(zero_temp, 0);
+    int is_ge = c->next_temp_id++;
+    ir_emit_cmp(src_temp, zero_temp);
+    ir_emit_cond_set(is_ge, CC_GE);
+    uint16_t neg_label = c->ir_next_label++;
+    uint16_t done_label = c->ir_next_label++;
+    ir_emit_je((uint16_t)is_ge, neg_label);
+    ir_emit_cvtsi2sd((uint16_t)fp_res, (uint16_t)src_temp);
+    ir_emit_jmp(done_label);
+    ir_emit_label(neg_label);
+    int one_temp = c->next_temp_id++;
+    ir_emit_mov_imm(one_temp, 1);
+    int odd_temp = c->next_temp_id++;
+    ir_emit_and(odd_temp, src_temp, one_temp);
+    int shr_temp = c->next_temp_id++;
+    ir_emit((Instr){.op = OP_SHR, .temp_dest = (uint16_t)shr_temp,
+        .temp_src1 = (uint16_t)src_temp, .temp_src2 = (uint16_t)one_temp});
+    int adj_temp = c->next_temp_id++;
+    ir_emit_or(adj_temp, shr_temp, odd_temp);
+    int half_d = c->next_temp_id++;
+    ir_emit_cvtsi2sd((uint16_t)half_d, (uint16_t)adj_temp);
+    ir_emit_fadd((uint16_t)fp_res, (uint16_t)half_d, (uint16_t)half_d);
+    ir_emit_label(done_label);
+    c->last_expr_is_float = 1;
+    return fp_res;
+}
+
 /* Infer the C99 narrow-int width of an operand expression when it can be
  * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
  * pointer / non-int). Used for binop result-width marking and signed >>.
@@ -1354,8 +1397,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             } else {
                 /* TLS statics are registered globals (is_tls) - the address
                  * op below selects OP_TLS_LEA (AOT) automatically. */
+
                 ZeroCCGlobalVar *gv = find_global_var(name);
                 if (gv) {
+
                     int addr_temp = c->next_temp_id++;
                     ir_emit_global_addr(c, addr_temp, gv);
                     /* Arrays, structs and vectors decay/return address, scalars load value */
@@ -1395,6 +1440,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 ZeroCCFunction *fn = zero_cc_find_function(c, name);
                 if (fn) {
+
                     int temp = c->next_temp_id++;
                     ir_emit_mov_global(temp, fn->name);
                     if (fn->is_external) {
@@ -1413,6 +1459,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_vloadsd((uint16_t)ftemp, (uint16_t)temp);
                             c->last_expr_is_float = 1;
                             return ftemp;
+                        }
+                        if (fn->return_type.tag == TYPE_ARRAY) {
+                            /* Extern array (`extern unsigned long aa[];`): the
+                             * identifier decays to the array's address - no
+                             * value load (a load + later deref would
+                             * double-indirect through the first element;
+                             * c-torture execute/20000403-1). */
+                            c->last_expr_is_float = 0;
+                            return temp;
                         }
                         int val_temp = c->next_temp_id++;
                         size_t ext_sz = fn->return_type.size > 0 ? fn->return_type.size : 8;
@@ -2523,6 +2578,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                      * pointer value with no load. */
                     TypeInfo *op_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
                     TypeInfo *ti = ast_node_get_typeinfo(c, node);
+
                     if (ti && type_is_vector(ti)) {
                         /* Dereference of a pointer-to-vector: the vector value
                          * is in address form - the pointer itself is the value
@@ -2567,6 +2623,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                     }
                     if (is_struct && p_size > 16) {
+                        c->last_expr_is_float = 0;
+                        return operand_temp;
+                    }
+                    /* Zero-size struct (C11 6.7.2.1p17: `struct g {}`) -
+                     * the dereference has no bytes to load; yielding the
+                     * pointer itself keeps the lvalue usable and, crucially,
+                     * must NOT emit an 8-byte read past the empty object
+                     * (c-torture execute/zero-struct-1: the phantom load
+                     * read 8 bytes of a zero-size object and the matching
+                     * store scribbled on whatever follows it). */
+                    if (is_struct && p_size == 0) {
                         c->last_expr_is_float = 0;
                         return operand_temp;
                     }
@@ -2659,6 +2726,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_not(result_temp, operand_temp);
                     break;
                 default:
+                    /* Unary + (identity): keep the operand's float-ness so a
+                     * following mixed int/FP op does not cvtsi2sd the bits
+                     * (c-torture execute/ieee/mzero2: `+1.00 / pzero`). An FP
+                     * operand must move through an FP-class temp (fmov), not
+                     * a GP mov_reg. */
+                    if (c->last_expr_is_float) {
+                        ir_emit_fmov((uint16_t)result_temp, (uint16_t)operand_temp);
+                        return result_temp;
+                    }
                     ir_emit_mov_reg(result_temp, operand_temp);
                     break;
             }
@@ -2676,7 +2752,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     }
                 }
             }
-            c->last_expr_is_float = 0;
+            if (node->aux.op != TK_PLUS && node->aux.op != '+')
+                c->last_expr_is_float = 0;
             return result_temp;
         }
 
@@ -2863,6 +2940,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int cond_sticky = c->next_temp_id++;
                             ir_emit_cmp(has_sticky, zero_sticky);
                             ir_emit_cond_set(cond_sticky, CC_NE);
+                            /* Seed the collapsed result with the identity so
+                             * the join has a defined value on BOTH paths -
+                             * defining it only inside the taken branch left an
+                             * undefined temp when the branch was skipped
+                             * (c-torture execute/conversion: (float)2^63). */
+                            int clean_res = c->next_temp_id++;
+                            ir_emit_mov_reg(clean_res, result);
                             uint16_t skip_sticky = c->ir_next_label++;
                             ir_emit_je((uint16_t)cond_sticky, skip_sticky);
                             int bit31 = c->next_temp_id++;
@@ -2871,7 +2955,6 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_or(or_res, result, bit31);
                             int mask_hi = c->next_temp_id++;
                             ir_emit_mov_imm(mask_hi, ~0x7FFFFFFFLL);
-                            int clean_res = c->next_temp_id++;
                             ir_emit_and(clean_res, or_res, mask_hi);
                             result = clean_res;
                             ir_emit_label(skip_sticky);
@@ -3456,6 +3539,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (p_size == 4 && !target_ti) {
                     TypeInfo *rhs_ti = (rhs_node) ? ast_node_get_typeinfo(c, rhs_node) : NULL;
                     if (rhs_ti && type_size(rhs_ti) > 0) p_size = type_size(rhs_ti);
+                }
+
+                /* Zero-size struct target (`*((struct g*)p) = ...` with
+                 * `struct g {}`): the store has no bytes to write. The LHS
+                 * address (with any side effects, e.g. p++) and the RHS were
+                 * lowered above for their side effects; emit no store - an
+                 * 8-byte store here scribbles past the empty object
+                 * (c-torture execute/zero-struct-1). */
+                if (p_size == 0 && target_ti &&
+                    (target_ti->kind == TYPE_KIND_STRUCT || target_ti->kind == TYPE_KIND_UNION)) {
+                    c->last_expr_is_float = 0;
+                    return right_temp;
                 }
 
                 /* Pointer compound assignment scaling (p += n / p -= n) */

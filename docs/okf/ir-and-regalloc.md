@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-31T04:56:50Z
+timestamp: 2026-10-31T07:20:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active

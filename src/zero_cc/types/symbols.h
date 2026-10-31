@@ -52,6 +52,13 @@ typedef struct ZeroCCCompiler {
     int32_t current_stack_frame;
     size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
     size_t anon_struct_seq;               /* unique name counter for anonymous struct/union definitions */
+    /* Sprint 65: K&R (old-style) definitions - aux locals declared in the
+     * parameter-declaration block (non-parameter names) are stashed here at
+     * parse time and added as locals in the prologue after the parameters
+     * (the local table is reset between parse and prologue emission). */
+    char kr_aux_names[64][64];
+    ZeroCCType kr_aux_types[64];
+    int kr_aux_count;
 
     ZeroCCTypedef typedefs[ZERO_CC_MAX_TYPEDEFS];
     size_t typedef_count;

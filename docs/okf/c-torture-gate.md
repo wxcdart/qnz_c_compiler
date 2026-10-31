@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-10-31T04:56:50Z
+timestamp: 2026-10-31T07:20:38Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,16 +40,16 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 64 / MISCOMPILE Burn-Down Complete)
+## 2. Classification Buckets & Baseline (Sprint 65 / File-Scope REJECT Burn-Down)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,447** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+54 since Sprint 63: 12 MISCOMPILE→PASS + 39 REJECT→PASS + 3 SKIP-C89→PASS) |
-| **`REJECT`** | **480** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 519) — the next burn-down target (Chunk R1–R4) |
-| **`SKIP-C89`** | **674** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (3 moved to PASS by the macro batch) |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (was 12 newly-exposed latent bugs in Sprint 63; all 12 + 5 newly-exposed + 2 re-exposed latent bugs fixed in Sprint 64) |
+| **`PASS`** | **2,682** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+235 since Sprint 64: 5 MISCOMPILE→PASS + 230 REJECT→PASS) |
+| **`REJECT`** | **322** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 480) — the ongoing burn-down target (dominant: `expected identifier in declaration`, `use of undeclared identifier`, `unexpected token at file scope`, `unexpected token 'X' in statement`) |
+| **`SKIP-C89`** | **597** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (5 latent bugs — uint64→float conversion, sticky-bit join, zero-size struct phantom bytes, long double, unary `+` float — all fixed in Sprint 65) |
 | **`REF-BUG`** | **2** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure) |
 | **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, etc.) |
@@ -204,6 +204,12 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **9 `REJECT`→PASS** from the same batch: `20000605-1`, `20030914-2`, `20040703-1`, `20050826-2`, `20071030-1`, `pr67226`, `pr93434`, `va-arg-4`, `961223-1` (GNU89 inline; needs `-fgnu89-inline` reference).
     - **Result**: MISCOMPILE **12 → 0** across all 3,940 tests; REJECT **519 → 480**; PASS **2,393 → 2,447**. All transitions are improvements (12 MISCOMPILE→PASS, 39 REJECT→PASS, 3 SKIP-C89→PASS); `make test` 156/156, `make test-opt` 117/117, `make test-isa-qemu` 44/44, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
     - **Next**: the REJECT burn-down (480 remaining; dominant signatures: `unexpected token at file scope`, `use of undeclared identifier`, `expected identifier in declaration`).
+
+- **Sprint 65 — File-Scope REJECT Burn-Down + 5 MISCOMPILE Fixes** (2026-11-01):
+    - **5 `MISCOMPILE` fixes**: `execute/conversion.c` (**unsigned 64-bit → float/double** — `cvtsi2sd` is a *signed* conversion; the shared `zc_emit_int_to_double` helper emits `v ≥ 0 ? cvtsi2sd(v) : cvtsi2sd((v>>1)|(v&1)) * 2.0` for u64/pointer sources, wired into float-return conversions; plus the **sticky-bit collapse join** bug — the uint64→float cast seeded its collapsed result only inside the taken branch, leaving the join temp undefined on the skip path, `(float) 2^63` → 0), `execute/zero-struct-1.c` (**zero-size struct** `struct g {}` — `*(struct g*)p = …` emitted phantom 8-byte load/store past the empty object, clobbering the adjacent global; zero-size deref now yields the pointer with no bytes moved), `execute/960215-1.c` (**`long double`** — `is_long_double` flag, 16B/16-align type lowered through the 64-bit double path, type-name + global-initializer support), `execute/ieee/mzero2.c` (**unary `+` on floats** must preserve `last_expr_is_float`, not `cvtsi2sd` the float bits), `execute/regstack-1.c` (K&R + constant-init batch).
+    - **~230 `REJECT`→PASS**: **K&R old-style function definitions** (~85 tests, `zero_cc_parse_kr_decl` prototype registration, storage-class/qualifier-tolerant parameter detection), extern array suffixes + duplicate-global fix, pointer-leading comma declarators, `zero_cc_sync_globals_with_struct` (forward-declared struct completion), `__alignof__` constant expressions, array typedefs `typedef T name[N];`, multi-declarator function prototypes (per-declarator param slices, no `is_external`), mixed-declaration function prototypes, full constant pointer-expression initializers (`&g[N]`, `&"s"[N]`, pointer±pointer difference, cast prefixes), FP constant-expression initializers (`+1.0/0.0`), `? :` in constant array sizes, FNV-1a global-variable hash (the O(N) strcmp scan was a time bomb once hundreds of new globals were unblocked).
+    - **Result**: REJECT **480 → 322**; PASS **2,447 → 2,682**; MISCOMPILE **0 → 0**; no PASS→bad, no TIMEOUT. `make test` 156/156, `make test-opt` 117/117, `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
+    - **Next**: continue the REJECT burn-down (322 remaining; dominant: `expected identifier in declaration`, `use of undeclared identifier`, `unexpected token at file scope`, `unexpected token 'X' in statement`).
 
 ---
 

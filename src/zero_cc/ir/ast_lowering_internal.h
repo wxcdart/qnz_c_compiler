@@ -34,6 +34,14 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
 
+/* C99 6.3.1.5: integer -> floating conversion. cvtsi2sd reads 64-bit
+ * *unsigned* sources (unsigned long / pointers) as signed, so values with
+ * the high bit set come out as (v - 2^64); the u64-aware path computes
+ * cvtsi2sd((v>>1)|(v&1)) * 2.0 instead. Returns the fresh FP temp and sets
+ * c->last_expr_is_float. If the source is not a 64-bit unsigned, this is a
+ * plain cvtsi2sd. */
+int zc_emit_int_to_double(ZeroCCCompiler *c, int src_temp, const TypeInfo *src_ti);
+
 /* Resolve a local variable's symbol using the index stashed at parse time
  * (node->aux.step = index into c->locals + 1, 0 = not stashed), falling
  * back to a by-name lookup.  The by-name table is latest-wins: with sibling

@@ -62,6 +62,14 @@ static inline ZeroCCType zero_cc_type_double(void) {
     t.tag = TYPE_DOUBLE; t.size = 8; t.align = 8;
     return t;
 }
+/* C99 long double: the x86-64 SysV object is 16 bytes (80-bit extended
+ * precision, 16-byte alignment); the compiler's value model lowers it
+ * through the 64-bit double path. */
+static inline ZeroCCType zero_cc_type_long_double(void) {
+    ZeroCCType t = zero_cc_type_double();
+    t.size = 16; t.align = 16; t.is_long_double = true;
+    return t;
+}
 static inline ZeroCCType zero_cc_type_nullptr(void) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_NULLPTR; t.size = 8; t.align = 8;

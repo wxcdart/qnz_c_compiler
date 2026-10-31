@@ -65,6 +65,9 @@ typedef struct ZeroCCType {
     bool is_restrict;
     bool is_vla;
     bool is_func_ptr;
+    /* C99 long double: 16-byte object (x86-64 SysV) but lowered with the
+     * 64-bit double value model. */
+    bool is_long_double;
     /* Function type marker: the type denotes a function, not an object
      * (e.g. the alias in `typedef int f(void);`).  Applying a pointer
      * declarator on top of it yields a function pointer (is_func_ptr).
