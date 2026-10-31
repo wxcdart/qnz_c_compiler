@@ -605,17 +605,27 @@ static void riscv64_emit_vloadss(ZeroCCCompiler *c, int dst, int base, int32_t o
         riscv_emit_u32(c, rv64_R(scratch, RV_REG(base), scratch, 0, 0));
         riscv_emit_u32(c, rv64_I(RV_REG(dst), scratch, 2, 0, 0x07));
     }
+    /* fcvt.d.s fd, fd - widen single to double (double FP model; a raw flw
+     * leaves the float bit pattern in the low half of the 64-bit register,
+     * i.e. a denormalized double - isa_qemu 07_float). */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(dst), 0, 0x21, 0));
 }
 
 static void riscv64_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offset) {
-    /* fsw fs, offset(base) */
+    /* fcvt.s.d f15, fs then fsw f15, offset(base) - narrow WITH ROUNDING
+     * before the 32-bit store (a raw fsw truncates the low 32 bits of the
+     * double bit pattern; the low half of the 2.5 double is 0x00000000).
+     * f15 is the backend FP scratch (outside the allocatable f0-f7 pool);
+     * fcvt.s.d with fs == f15 is a valid in-place narrowing. */
+    const int scratch = 15;
+    riscv_emit_u32(c, rv64_FP(scratch, RV_REG(src), 1, 0x20, 7));  /* fcvt.s.d f15, fs */
     if (offset >= -2048 && offset <= 2047) {
-        riscv_emit_u32(c, rv64_S(RV_REG(base), RV_REG(src), 2, (int16_t)offset, 0x27));
+        riscv_emit_u32(c, rv64_S(RV_REG(base), scratch, 2, (int16_t)offset, 0x27));
     } else {
-        int scratch = (base != RV64_T0) ? RV64_T0 : RV64_T1;
-        riscv64_emit_mov_imm(c, scratch, offset);
-        riscv_emit_u32(c, rv64_R(scratch, RV_REG(base), scratch, 0, 0));
-        riscv_emit_u32(c, rv64_S(scratch, RV_REG(src), 2, 0, 0x27));
+        int scratch_gpr = (base != RV64_T0) ? RV64_T0 : RV64_T1;
+        riscv64_emit_mov_imm(c, scratch_gpr, offset);
+        riscv_emit_u32(c, rv64_R(scratch_gpr, RV_REG(base), scratch_gpr, 0, 0));
+        riscv_emit_u32(c, rv64_S(scratch_gpr, scratch, 2, 0, 0x27));
     }
 }
 
@@ -684,8 +694,10 @@ static void riscv64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
 }
 
 static void riscv64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
-    /* fcvt.s.d fd, fs (rm=0) - narrow double to single (GNU vector per-lane) */
-    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 0, 0x29, 0));
+    /* fcvt.s.d fd, fs (rs2=1, rm=7) - narrow double to single (GNU vector
+     * per-lane). Note the encoding is NOT the mirror of fcvt.d.s: the
+     * assembler encodes fcvt.s.d as f7=0x20, rs2=1, f3=7. */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 1, 0x20, 7));
 }
 
 static void riscv64_emit_const(ZeroCCCompiler *c, int64_t value) {
@@ -1055,12 +1067,17 @@ static void riscv64_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int slot
 /* param_save_fp reg_idx, offset - save incoming FP parameter fa0..fa7 to -offset(s0) (or SP+delta) */
 static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot, int is_single) {
     if (reg_idx < 0 || reg_idx >= 8) return;
+    /* The caller packs FP arguments into conv->fp_arg_regs (f10-f17 in
+     * zerocc's RISC-V table) - map the index through it, like the
+     * aarch64/x86 backends do (a raw reg_idx saved f0-f7, i.e. garbage,
+     * for every non-promoted FP parameter). */
+    int src_reg = BE(c)->conv->fp_arg_regs[reg_idx];
     int base = zero_cc_frame_base_reg(c);
     int32_t disp = zero_cc_frame_disp(c, -slot);
     if (is_single && c->isa != ISA_RISCV32) {
-        riscv64_emit_vstoress(c, reg_idx, base, disp);
+        riscv64_emit_vstoress(c, src_reg, base, disp);
     } else {
-        riscv64_emit_store_fp(c, reg_idx, base, disp);
+        riscv64_emit_store_fp(c, src_reg, base, disp);
     }
 }
 

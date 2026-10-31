@@ -909,8 +909,12 @@ static void aarch64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
-     * This enables IEEE-correct condition codes (mi/ls/gt/ge) for FP. */
-    arm64_emit_u32(c, 0x1E612000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
+     * This enables IEEE-correct condition codes (mi/ls/gt/ge) for FP.
+     * Base is 0x1E602000 (fcmpe d0,d0) - the Rm (second operand) field
+     * is bits 16-19 and must NOT be preset: with 0x1E612000, a src2 of 0
+     * (or any even reg) silently compared against the wrong register
+     * (c-torture/isa_qemu 07_float cvti clamp regression). */
+    arm64_emit_u32(c, 0x1E602000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5));
 }
 
 static void aarch64_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
