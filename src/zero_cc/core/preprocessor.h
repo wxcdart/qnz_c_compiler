@@ -2272,6 +2272,20 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             while (*p && (isalnum((unsigned char)*p) || *p == '_') && il < 127) ident[il++] = *p++;
             ident[il] = '\0';
 
+            /* Wide/UTF string literal prefixes: `L'X'`, `L"s"`, `u"s"`,
+             * `U"s"`, `u8"s"` are single lexical units - the prefix is NOT
+             * an identifier, so a `#define L 264` must not rewrite `L'X'`
+             * into `264'X'` (c-torture 970214-1). Emit verbatim; the quote
+             * handling below will copy the literal itself. */
+            if ((*p == '"' || *p == '\'' ) &&
+                ((il == 1 && ident[0] == 'L') ||
+                 (il == 1 && ident[0] == 'u') ||
+                 (il == 1 && ident[0] == 'U') ||
+                 (il == 2 && ident[0] == 'u' && ident[1] == '8'))) {
+                zero_cc_buf_put_bytes(out, ident, il);
+                continue;
+            }
+
             /* Handle special predefined macros with dynamic values */
             if (strcmp(ident, "__FILE__") == 0) {
                 zero_cc_buf_putc(out, '"');

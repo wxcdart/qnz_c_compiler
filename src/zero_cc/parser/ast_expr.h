@@ -838,7 +838,40 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 }
                 ty = zero_cc_type_of_equality(c, &pos);
             }
-            if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+            /* `sizeof (a, b)` - comma operator inside the parens: the
+             * operand's type is that of the LAST expression (C99 6.5.17). */
+            if (has_paren) {
+                while (pos < c->token_count && c->tokens[pos].type == TK_COMMA) {
+                    pos++;
+                    ty = zero_cc_type_of_equality(c, &pos);
+                }
+            }
+            /* Compound literal operand: `sizeof (struct s){ 1, 2 }` - the
+             * closing paren (if any) precedes the brace group; the value is
+             * the type size. */
+            bool sz_paren_done = false;
+            {
+                size_t probe = pos;
+                if (has_paren && probe < c->token_count &&
+                    c->tokens[probe].type == TK_RPAREN) {
+                    probe++;
+                }
+                while (probe < c->token_count && c->tokens[probe].type == TK_STAR) probe++;
+                if (probe < c->token_count && c->tokens[probe].type == TK_LBRACE) {
+                    pos = probe;
+                    int bd = 0;
+                    while (pos < c->token_count) {
+                        if (c->tokens[pos].type == TK_LBRACE) bd++;
+                        else if (c->tokens[pos].type == TK_RBRACE) {
+                            bd--;
+                            if (bd == 0) { pos++; break; }
+                        }
+                        pos++;
+                    }
+                    sz_paren_done = has_paren;
+                }
+            }
+            if (has_paren && !sz_paren_done && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
             c->token_pos = pos;
             size_t sz = ty.size;
 

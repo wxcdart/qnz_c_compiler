@@ -171,6 +171,17 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
         ZeroCCGlobalVar *gv = find_global_var(name);
         if (gv && gv->type.size > 0) { ty = gv->type; found = true; }
     }
+    if (!found) {
+        /* Function name (not a call): decays to a function pointer
+         * (C99 6.3.2.1) - sizeof of the name is the pointer size. */
+        bool fn_call = (*pos + 1 < c->token_count &&
+                        c->tokens[*pos + 1].type == TK_LPAREN);
+        ZeroCCFunction *fn = fn_call ? NULL : zero_cc_find_function(c, name);
+        if (fn) {
+            (*pos)++;
+            return 8;
+        }
+    }
     if (!found) return 0;
     /* Only a plain `ident` or `ident[...]` operand is handled here.  A
      * member access (`->`/`.`), call, or inc/dec suffix means the operand
@@ -228,6 +239,16 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
         ZeroCCGlobalVar *gv = find_global_var(name);
         if (gv && gv->type.align > 0) { ty = gv->type; found = true; }
     }
+    if (!found) {
+        /* Function name (not a call): pointer alignment. */
+        bool fn_call = (*pos + 1 < c->token_count &&
+                        c->tokens[*pos + 1].type == TK_LPAREN);
+        ZeroCCFunction *fn = fn_call ? NULL : zero_cc_find_function(c, name);
+        if (fn) {
+            (*pos)++;
+            return 8;
+        }
+    }
     if (!found) return 0;
     /* See zero_cc_sizeof_ident_size: postfix continuations after the
      * identifier must be handled by the expression-type walker. */
@@ -274,7 +295,39 @@ static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
         }
         ty = zero_cc_type_of_equality(c, pos);
     }
-    if (has_paren && c->tokens[*pos].type == TK_RPAREN) {
+    /* `sizeof (a, b)` - comma operator inside the parens: the operand's
+     * type is that of the LAST expression (C99 6.5.17). */
+    if (has_paren) {
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) {
+            (*pos)++;
+            ty = zero_cc_type_of_equality(c, pos);
+        }
+    }
+    /* Compound literal operand: `sizeof (struct s){ 1, 2 }` - the closing
+     * paren (if any) precedes the brace group; value is the type size. */
+    bool sz_paren_done = false;
+    {
+        size_t probe = *pos;
+        if (has_paren && probe < c->token_count &&
+            c->tokens[probe].type == TK_RPAREN) {
+            probe++;
+        }
+        while (probe < c->token_count && c->tokens[probe].type == TK_STAR) probe++;
+        if (probe < c->token_count && c->tokens[probe].type == TK_LBRACE) {
+            *pos = probe;
+            int bd = 0;
+            while (*pos < c->token_count) {
+                if (c->tokens[*pos].type == TK_LBRACE) bd++;
+                else if (c->tokens[*pos].type == TK_RBRACE) {
+                    bd--;
+                    if (bd == 0) { (*pos)++; break; }
+                }
+                (*pos)++;
+            }
+            sz_paren_done = has_paren;
+        }
+    }
+    if (has_paren && !sz_paren_done && c->tokens[*pos].type == TK_RPAREN) {
         (*pos)++;
     }
     return ty.size;
@@ -573,6 +626,60 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_IDENT) {
         if (strcmp(c->tokens[*pos].str_val, "__builtin_offsetof") == 0) {
             return zero_cc_eval_builtin_offsetof(c, pos);
+        }
+        if (strcmp(c->tokens[*pos].str_val, "__builtin_constant_p") == 0) {
+            /* GCC extension: 1 if the argument is a constant expression
+             * (C99 6.6: literals, enum constants, sizeof/alignof, NULL,
+             * true/false, and arithmetic on those) and 0 for anything else
+             * (plain identifiers, calls, addresses, side effects).
+             * pr61159: `typedef char check[2*!__builtin_constant_p(x)-1];`.
+             * Skip the argument (balanced parens), then probe it: any
+             * non-enum identifier or call-like token makes it non-constant. */
+            (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
+            size_t a0 = *pos, a1 = *pos;
+            int pd = 0;
+            bool const_ok = true;
+            while (a1 < c->token_count) {
+                ZeroCCTokType at = c->tokens[a1].type;
+                if (at == TK_LPAREN) pd++;
+                else if (at == TK_RPAREN) {
+                    if (pd == 0) break;
+                    pd--;
+                } else if (at == TK_COMMA && pd == 0) {
+                    break;
+                } else if (at == TK_IDENT && pd == 0) {
+                    const char *an = c->tokens[a1].str_val;
+                    if (strcmp(an, "true") != 0 && strcmp(an, "false") != 0 &&
+                        strcmp(an, "NULL") != 0 && strcmp(an, "nullptr") != 0 &&
+                        !zero_cc_find_enum_const(c, an) &&
+                        strcmp(an, "__alignof__") != 0 &&
+                        strcmp(an, "__builtin_offsetof") != 0) {
+                        const_ok = false;
+                    }
+                }
+                a1++;
+            }
+            /* Skip past the argument for the caller (to matching ')'). */
+            *pos = a1;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return const_ok ? 1 : 0;
+        }
+        if (strcmp(c->tokens[*pos].str_val, "__builtin_choose_expr") == 0) {
+            /* GCC extension: __builtin_choose_expr(cond, a, b) picks a or b
+             * at compile time from the constant cond (pr19449: `int z =
+             * __builtin_choose_expr (!__builtin_constant_p (y), 3, 4);`).
+             * Evaluate all three arguments (each must be constant in this
+             * context) and select. */
+            (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
+            int64_t cond = parse_equality(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+            int64_t a = parse_equality(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+            int64_t b = parse_equality(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return cond != 0 ? a : b;
         }
         if (strcmp(c->tokens[*pos].str_val, "__alignof__") == 0) {
             /* C99 6.5.3.4: __alignof__(E) = alignment of E's type.
@@ -976,10 +1083,11 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             }
             return ty;
         }
-        /* Check for function */
+        /* Check for function: the operand decays to a function pointer
+         * (C99 6.3.2.1) - sizeof of a function name is the pointer size. */
         ZeroCCFunction *fn = zero_cc_find_function(c, name);
         if (fn) {
-            return fn->return_type;
+            return zero_cc_type_ptr(&fn->return_type);
         }
         /* Check for typedef/struct */
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);

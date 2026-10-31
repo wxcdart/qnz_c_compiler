@@ -85,6 +85,7 @@ typedef struct {
         int param_count;               /* Number of inlined parameters */
         const char *param_names[8];    /* Parameter names */
         int param_temps[8];            /* Evaluated argument temps */
+        bool param_is_func_ptr[8];     /* Param is a function pointer (indirect calls through it must stay indirect) */
     } inlining;
 } LoweringState;
 

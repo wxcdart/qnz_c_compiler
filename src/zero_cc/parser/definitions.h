@@ -1345,6 +1345,8 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                 c->token_pos++;
                 if (is_typedef) {
                     /* typedef struct S {...} name; / typedef struct {...} *name;
+                     * Array-suffixed declarators too: `typedef struct T
+                     * {...} jb[1];` (the typedef names an ARRAY of T).
                      * Comma declarators allowed: `typedef struct T {...} a, *pa;` */
                     do {
                         if (st.struct_name[0] == '\0') {
@@ -1355,6 +1357,18 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                         zero_cc_sync_globals_with_struct(c, st.struct_name, &st);
                         ZeroCCType tt = st;
                         for (int pd = 0; pd < dcl_ptr_depth; pd++) tt = zero_cc_type_ptr(&tt);
+                        /* Array suffixes on the declarator (C99 6.7.5): the
+                         * typedef names an array of the (pointer) type. */
+                        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                            c->token_pos++;
+                            int64_t td = 1;
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) {
+                                td = zero_cc_eval_const_expr(c);
+                            }
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                            ZeroCCType elem = tt;
+                            tt = zero_cc_type_array(&elem, td);
+                        }
                         zero_cc_register_typedef(c, alias, tt);
                         dcl_ptr_depth = 0;
                         if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_COMMA) break;
@@ -1611,6 +1625,39 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
             while (c->tokens[c->token_pos].type == TK_STAR) {
                 ptr_depth++;
                 c->token_pos++;
+            }
+            /* Function pointer typedef over an opaque struct:
+             * `typedef struct JSObjectMap *(*Op)(struct JSObject *);`
+             * (c-torture pta-1). The skipped stars belong to the
+             * declarator `(*Op)`, so the type is pointer-to-function.
+             * `typedef struct Foo *Op;` (plain pointer alias) must not
+             * take this branch - it requires the `(*` shape. */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+                c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
+                c->token_pos++; /* '(' */
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                char fp_alias[128] = "";
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                    snprintf(fp_alias, sizeof(fp_alias), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                    int pdepth = 1;
+                    c->token_pos++;
+                    while (c->token_pos < c->token_count && pdepth > 0) {
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                        else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                        c->token_pos++;
+                    }
+                }
+                if (is_typedef && fp_alias[0] != '\0') {
+                    ZeroCCType fp_type = zero_cc_type_ptr(&st);
+                    fp_type.is_func_ptr = true;
+                    zero_cc_register_typedef(c, fp_alias, fp_type);
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                return;
             }
             for (int pd = 0; pd < ptr_depth; pd++) {
                 st = zero_cc_type_ptr(&st);
@@ -1870,7 +1917,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
                 c->token_pos++;
             }
         }
-        ZeroCCType fp_type = zero_cc_type_ptr(&ttype);
+        ZeroCCType fp_type = zero_cc_type_ptr(&base_ttype);
         fp_type.is_func_ptr = true;
         if (alias[0] != '\0') {
             zero_cc_register_typedef(c, alias, fp_type);

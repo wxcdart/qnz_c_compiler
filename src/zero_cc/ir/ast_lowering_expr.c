@@ -56,6 +56,148 @@ int zc_emit_int_to_double(ZeroCCCompiler *c, int src_temp, const TypeInfo *src_t
     return fp_res;
 }
 
+/* Does the node denote a compile-time constant expression?  Used by
+ * __builtin_constant_p (c-torture execute/bcp-1): literals and
+ * sub-expressions built only from them are constant; anything touching an
+ * identifier, call, member, or side effect is not. */
+static bool zc_node_is_const_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    (void)c;
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    switch (n->tag) {
+        case NODE_INT:
+        case NODE_FLOAT:
+        case NODE_STRING:
+        case NODE_NULLPTR:
+        case NODE_BOOL:
+            return true;
+        case NODE_CAST:
+            return zc_node_is_const_expr(c, arena, n->left);
+        case NODE_UNOP:
+            switch (n->aux.op) {
+                case TK_PLUS: case TK_MINUS: case TK_BANG: case TK_TILDE:
+                    return zc_node_is_const_expr(c, arena, n->left);
+                default:
+                    return false;
+            }
+        case NODE_BINOP:
+            switch (n->aux.op) {
+                case TK_PLUS: case TK_MINUS: case TK_STAR: case TK_SLASH:
+                case TK_PERCENT: case TK_AMP: case TK_PIPE: case TK_CARET:
+                case TK_SHL: case TK_SHR:
+                case TK_EQ: case TK_NE: case TK_LT: case TK_GT:
+                case TK_LE: case TK_GE:
+                case TK_LOGAND: case TK_LOGOR:
+                    return zc_node_is_const_expr(c, arena, n->left) &&
+                           zc_node_is_const_expr(c, arena, n->right);
+                default:
+                    return false;
+            }
+        case NODE_TERNARY:
+            return zc_node_is_const_expr(c, arena, n->left) &&
+                   zc_node_is_const_expr(c, arena, n->right) &&
+                   zc_node_is_const_expr(c, arena, (ASTRef)n->aux.alt);
+        case NODE_INDEX: {
+            ZeroCCASTNode *base = zero_cc_ast_get(arena, n->left);
+            return (base && base->tag == NODE_STRING) &&
+                   zc_node_is_const_expr(c, arena, n->right);
+        }
+        default:
+            return false;
+    }
+}
+
+/* Evaluate an AST node as a compile-time integer constant, recognizing
+ * the __builtin_constant_p / __builtin_choose_expr builtins (which are
+ * themselves constant expressions).  Returns 1 (with *out set) when the
+ * node is a constant, 0 otherwise.  Used by __builtin_choose_expr's
+ * runtime lowering to decide which operand to evaluate. */
+static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                              ASTRef ref, int64_t *out) {
+    (void)c;
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    switch (n->tag) {
+        case NODE_INT:
+        case NODE_BOOL:
+            *out = n->int_val;
+            return true;
+        case NODE_FLOAT:
+            *out = (int64_t)n->float_val;
+            return true;
+        case NODE_CAST:
+            return zc_ast_const_eval(c, arena, n->left, out);
+        case NODE_UNOP:
+            if (!zc_ast_const_eval(c, arena, n->left, out)) return false;
+            switch (n->aux.op) {
+                case TK_PLUS: break;
+                case TK_MINUS: *out = -*out; break;
+                case TK_BANG: *out = !*out; break;
+                case TK_TILDE: *out = ~*out; break;
+                default: return false;
+            }
+            return true;
+        case NODE_BINOP: {
+            int64_t l, r;
+            if (!zc_ast_const_eval(c, arena, n->left, &l)) return false;
+            if (!zc_ast_const_eval(c, arena, n->right, &r)) return false;
+            switch (n->aux.op) {
+                case TK_PLUS: *out = l + r; break;
+                case TK_MINUS: *out = l - r; break;
+                case TK_STAR: *out = l * r; break;
+                case TK_SLASH: if (r == 0) return false; *out = l / r; break;
+                case TK_PERCENT: if (r == 0) return false; *out = l % r; break;
+                case TK_AMP: *out = l & r; break;
+                case TK_PIPE: *out = l | r; break;
+                case TK_CARET: *out = l ^ r; break;
+                case TK_SHL: *out = l << r; break;
+                case TK_SHR: *out = l >> r; break;
+                case TK_EQ: *out = (l == r); break;
+                case TK_NE: *out = (l != r); break;
+                case TK_LT: *out = (l < r); break;
+                case TK_GT: *out = (l > r); break;
+                case TK_LE: *out = (l <= r); break;
+                case TK_GE: *out = (l >= r); break;
+                case TK_LOGAND: *out = (l && r); break;
+                case TK_LOGOR: *out = (l || r); break;
+                default: return false;
+            }
+            return true;
+        }
+        case NODE_TERNARY: {
+            int64_t cond, t, f;
+            if (!zc_ast_const_eval(c, arena, n->left, &cond)) return false;
+            if (cond) return zc_ast_const_eval(c, arena, n->right, out);
+            return zc_ast_const_eval(c, arena, (ASTRef)n->aux.alt, out);
+        }
+        case NODE_CALL: {
+            ZeroCCASTNode *cal = zero_cc_ast_get(arena, n->left);
+            if (!cal || cal->tag != NODE_IDENT || !cal->s.str) return false;
+            if (strcmp(cal->s.str, "__builtin_constant_p") == 0) {
+                *out = zc_node_is_const_expr(c, arena, n->right) ? 1 : 0;
+                return true;
+            }
+            if (strcmp(cal->s.str, "__builtin_choose_expr") == 0) {
+                ASTRef r1 = n->right;
+                if (r1 == AST_NULL) return false;
+                ZeroCCASTNode *an1 = zero_cc_ast_get(arena, r1);
+                ASTRef r2 = an1 ? an1->next : AST_NULL;
+                ZeroCCASTNode *an2 = (r2 != AST_NULL) ? zero_cc_ast_get(arena, r2) : NULL;
+                ASTRef r3 = an2 ? an2->next : AST_NULL;
+                if (r2 == AST_NULL || r3 == AST_NULL) return false;
+                int64_t cond;
+                if (!zc_ast_const_eval(c, arena, r1, &cond)) return false;
+                return zc_ast_const_eval(c, arena, cond ? r2 : r3, out);
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 /* Infer the C99 narrow-int width of an operand expression when it can be
  * determined cheaply: 1/2/4 (with *sign set) or 0 (unknown / 8-byte /
  * pointer / non-int). Used for binop result-width marking and signed >>.
@@ -6075,17 +6217,54 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             /* __builtin_constant_p(expr) returns 1 if expr is a compile-time
-             * constant, 0 otherwise. Conservative: return 1 only for integer
-             * literals, 0 otherwise. */
+             * constant, 0 otherwise (execute/bcp-1). */
             if (callee_is_ident && callee->s.str &&
                 strcmp(callee->s.str, "__builtin_constant_p") == 0) {
                 ASTRef cp_arg = node->right;
-                ZeroCCASTNode *an = zero_cc_ast_get(arena, cp_arg);
-                int res = (an && an->tag == NODE_INT) ? 1 : 0;
+                int res = zc_node_is_const_expr(c, arena, cp_arg) ? 1 : 0;
                 int temp = c->next_temp_id++;
                 ir_emit_mov_imm(temp, res);
                 c->last_expr_is_float = 0;
                 return temp;
+            }
+
+            /* __builtin_choose_expr(cond, a, b) - the condition is a
+             * constant expression (it may itself contain
+             * __builtin_constant_p).  When it folds at compile time, lower
+             * ONLY the selected operand (execute/pr19449: the unselected
+             * `y++` must not be evaluated).  A genuinely dynamic condition
+             * evaluates both operands and selects at runtime. */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_choose_expr") == 0) {
+                ASTRef r1 = node->right;
+                ZeroCCASTNode *an1 = (r1 != AST_NULL) ? zero_cc_ast_get(arena, r1) : NULL;
+                ASTRef r2 = an1 ? an1->next : AST_NULL;
+                ZeroCCASTNode *an2 = (r2 != AST_NULL) ? zero_cc_ast_get(arena, r2) : NULL;
+                ASTRef r3 = an2 ? an2->next : AST_NULL;
+                int64_t cval = 0;
+                if (zc_ast_const_eval(c, arena, r1, &cval) &&
+                    r2 != AST_NULL && r3 != AST_NULL) {
+                    int sel = lower_expr(c, arena, cval ? r2 : r3);
+                    return sel;
+                }
+                /* Dynamic: evaluate both, select with a conditional
+                 * move (cv != 0 ? bv : av). */
+                int cv = lower_expr(c, arena, r1);
+                int av = (r2 != AST_NULL) ? lower_expr(c, arena, r2) : 0;
+                int bv = (r3 != AST_NULL) ? lower_expr(c, arena, r3) : 0;
+                int sel = c->next_temp_id++;
+                ir_emit_mov_reg(sel, av);
+                int zt = c->next_temp_id++;
+                ir_emit_mov_imm(zt, 0);
+                ir_emit_cmp(cv, zt);
+                int nz = c->next_temp_id++;
+                ir_emit_cond_set((uint16_t)nz, CC_NE);
+                uint16_t done_lbl = (uint16_t)c->ir_next_label++;
+                ir_emit_je((uint16_t)nz, done_lbl);
+                ir_emit_mov_reg(sel, bv);
+                ir_emit_label(done_lbl);
+                c->last_expr_is_float = 0;
+                return sel;
             }
 
             /* __builtin_classify_type(expr) returns the GCC type_class enum code:
@@ -7117,8 +7296,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                  * (a[i](), p->cb(), ...) - its lowered value IS the function
                  * pointer to call through. */
                 ZeroCCGlobalVar *callee_gv = (callee_is_ident && !callee_fn && !callee_sym) ? find_global_var(name) : NULL;
+                /* An inlined body may call through its own function-pointer
+                 * parameter by name (`fun(depth)` inside an inlined
+                 * `g(int (*fun)(int))`): in the caller's scope `fun` is
+                 * neither a function nor a local, so without this check the
+                 * call would be emitted as a DIRECT call to a symbol named
+                 * `fun` (c-torture execute/pr42231, O2 inlining). */
+                bool callee_is_inlined_fnptr = false;
+                if (callee_is_ident && !callee_fn && c->lowering.inlining.active_depth > 0) {
+                    for (int p = 0; p < c->lowering.inlining.param_count; p++) {
+                        if (c->lowering.inlining.param_names[p] &&
+                            c->lowering.inlining.param_is_func_ptr[p] &&
+                            strcmp(name, c->lowering.inlining.param_names[p]) == 0) {
+                            callee_is_inlined_fnptr = true;
+                            break;
+                        }
+                    }
+                }
                 bool is_indirect_call = !callee_is_ident || (callee_fn == NULL &&
-                    (callee_sym != NULL || (callee_gv != NULL && callee_gv->type.is_func_ptr)));
+                    (callee_sym != NULL || (callee_gv != NULL && callee_gv->type.is_func_ptr) ||
+                     callee_is_inlined_fnptr));
 
                 /* Register genuinely-called externs (mapped __builtin_*
                  * routines like memcpy/memset/abort/exit, implicit-declaration
@@ -7205,9 +7402,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int prev_param_count = c->lowering.inlining.param_count;
                             const char *prev_param_names[8];
                             int prev_param_temps[8];
+                            bool prev_param_is_func_ptr[8];
                             for (int p = 0; p < 8; p++) {
                                 prev_param_names[p] = c->lowering.inlining.param_names[p];
                                 prev_param_temps[p] = c->lowering.inlining.param_temps[p];
+                                prev_param_is_func_ptr[p] = c->lowering.inlining.param_is_func_ptr[p];
                             }
 
                             /* Setup new inlining context */
@@ -7219,6 +7418,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             for (int p = 0; p < (int)callee_fn->param_count && p < 8; p++) {
                                 c->lowering.inlining.param_names[p] = callee_fn->param_names[p];
                                 c->lowering.inlining.param_temps[p] = inlined_param_temps[p];
+                                c->lowering.inlining.param_is_func_ptr[p] =
+                                    (callee_fn->param_types &&
+                                     callee_fn->param_types[p].is_func_ptr);
                             }
 
                             /* Lower inlined body statements into IR */
@@ -7235,6 +7437,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             for (int p = 0; p < 8; p++) {
                                 c->lowering.inlining.param_names[p] = prev_param_names[p];
                                 c->lowering.inlining.param_temps[p] = prev_param_temps[p];
+                                c->lowering.inlining.param_is_func_ptr[p] = prev_param_is_func_ptr[p];
                             }
 
                             c->last_expr_is_float = (callee_fn->return_type.tag == TYPE_FLOAT ||

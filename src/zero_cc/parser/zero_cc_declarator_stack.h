@@ -281,25 +281,32 @@ static inline void zero_cc_parse_param_list(
                 c->token_pos++;
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
-                c->token_pos++;
                 /* Array parameter: `int f(int a[n])` decays to `int *a`,
                  * but the dimension expression is evaluated at call entry
                  * (C99 6.7.6.2) - parse and keep it (VLA parameter
-                 * dimension) instead of discarding the brackets. */
-                size_t dim_start = c->token_pos;
-                int bdepth = 1;
-                while (c->token_pos < c->token_count && bdepth > 0) {
-                    if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
-                    else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
+                 * dimension) instead of discarding the brackets.
+                 * Multiple suffixes (`int m[][4]`, `int[][fn3()]` pr77754):
+                 * the OUTERMOST dimension decays to a pointer; the inner
+                 * ones form the pointed-to array type. */
+                int n_suffs = 0;
+                while (c->token_pos < c->token_count &&
+                       c->tokens[c->token_pos].type == TK_LBRACKET &&
+                       n_suffs < 8) {
                     c->token_pos++;
-                }
-                size_t dim_end = c->token_pos; /* just past ']' */
-                if (dim_start + 1 < dim_end) {
-                    size_t saved_pos = c->token_pos;
-                    c->token_pos = dim_start;
-                    param_dim_expr = parse_expr_ast_internal(c, arena);
-                    c->token_pos = dim_end;
-                    (void)saved_pos;
+                    size_t dim_start = c->token_pos;
+                    int bdepth = 1;
+                    while (c->token_pos < c->token_count && bdepth > 0) {
+                        if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
+                        else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
+                        c->token_pos++;
+                    }
+                    size_t dim_end = c->token_pos; /* just past ']' */
+                    if (n_suffs == 0 && dim_start + 1 < dim_end) {
+                        c->token_pos = dim_start;
+                        param_dim_expr = parse_expr_ast_internal(c, arena);
+                        c->token_pos = dim_end;
+                    }
+                    n_suffs++;
                 }
                 param_ptr_depth++;
             }
@@ -539,12 +546,18 @@ static inline bool zero_cc_parse_declarator(
     return true;
 }
 
-/* Check if declarator is a function declaration/definition */
+/* Check if declarator is a function declaration/definition. The name-level
+ * direct declarator must be a function suffix AND the name level must have
+ * no pointer prefix: `int f(void)` is a function, but `int *f(void)` and
+ * `int (*f)(void)` are pointer-to-function VARIABLES - a name-level `*`
+ * turns the function into a pointer-to-function (c-torture 930608-1:
+ * `double (* const a[])(double) = {&f};` was mis-parsed as a function). */
 static inline bool zero_cc_declarator_is_function(const ZeroCCDeclarator *d) {
     if (!d || d->name == NULL) return false;
     size_t nl = d->name_level;
     if (nl < d->num_levels && d->levels[nl].suffix_count > 0) {
-        return d->levels[nl].suffixes[0].kind == ZERO_CC_DECL_CHUNK_FUNCTION;
+        return d->levels[nl].suffixes[0].kind == ZERO_CC_DECL_CHUNK_FUNCTION &&
+               d->levels[nl].prefix_count == 0;
     }
     return false;
 }

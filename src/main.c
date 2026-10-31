@@ -460,6 +460,18 @@ static void emit_asm_data_sections(ZeroCCCompiler *comp) {
                             fprintf(comp->asm_out, "\t.quad\t%s+%zu\n", tgt_name, extra);
                         else
                             fprintf(comp->asm_out, "\t.quad\t%s\n", tgt_name);
+                    } else if (matching_reloc->target_kind == 2 &&
+                               matching_reloc->target_extern_name[0] != '\0') {
+                        /* External symbol (undefined in this TU). */
+                        fprintf(comp->asm_out, "\t.quad\t%s\n",
+                                matching_reloc->target_extern_name);
+                    } else if (matching_reloc->target_kind == 3 &&
+                               matching_reloc->target_extern_name[0] != '\0') {
+                        /* Function symbol - a function pointer initializer
+                         * (`int (*fp)(void) = foo;` / `{&f}`) needs a
+                         * reloc against the function, not a literal 0. */
+                        fprintf(comp->asm_out, "\t.quad\t%s\n",
+                                matching_reloc->target_extern_name);
                     } else {
                         fprintf(comp->asm_out, "\t.quad\t0\n");
                     }
@@ -1513,6 +1525,22 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 if (sym_idx == 0) {
                     elf_writer_add_symbol(&elf_ctx, dr->target_extern_name,
                                           ELF_STB_GLOBAL, ELF_STT_NOTYPE,
+                                          SHN_UNDEF, 0, 0);
+                    sym_idx = elf_ctx.symbol_count;
+                }
+                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                          sym_idx, reloc_type_data_abs, 0);
+            } else if (dr->target_kind == 3 && dr->target_extern_name[0]) {
+                /* Function pointer initializer: reloc against the function
+                 * symbol (defined in this TU or UND). */
+                int sym_idx = 0;
+                for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                    if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset,
+                               dr->target_extern_name) == 0) { sym_idx = j + 1; break; }
+                }
+                if (sym_idx == 0) {
+                    elf_writer_add_symbol(&elf_ctx, dr->target_extern_name,
+                                          ELF_STB_GLOBAL, ELF_STT_FUNC,
                                           SHN_UNDEF, 0, 0);
                     sym_idx = elf_ctx.symbol_count;
                 }

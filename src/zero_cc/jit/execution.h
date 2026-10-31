@@ -127,13 +127,29 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         if (dr->data_patch_offset + 8 > data_len) continue;
         uintptr_t target;
         if (dr->target_kind == 1) {
-            target = (uintptr_t)((char *)mem + data_offset + dr->target_data_offset);
+            /* Global object target: respect BSS placement (the target's
+             * data_offset is within the .bss page, not .data). */
+            ZeroCCGlobalVar *tv = &global_vars[dr->target_global_idx];
+            target = (uintptr_t)((char *)mem +
+                (tv->is_bss ? bss_offset : data_offset) +
+                dr->target_data_offset);
         } else if (dr->target_kind == 2) {
             /* Extern object defined in another TU: resolved against the
              * (merged) global registry at patch time. */
             ZeroCCGlobalVar *eg = find_global_var(dr->target_extern_name);
             target = eg ? (uintptr_t)((char *)mem +
                 (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
+        } else if (dr->target_kind == 3) {
+            /* Function pointer initializer: the function's text offset in
+             * the JIT image (kind 3 targets are always local functions -
+             * extern function-pointer initializers resolve at the linker). */
+            target = 0;
+            for (size_t fi = 0; fi < c->function_count; fi++) {
+                if (strcmp(c->functions[fi].name, dr->target_extern_name) == 0) {
+                    target = (uintptr_t)((char *)mem + c->functions[fi].text_offset);
+                    break;
+                }
+            }
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset + dr->target_data_offset);
         }

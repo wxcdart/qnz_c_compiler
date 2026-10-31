@@ -54,7 +54,8 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
     ZeroCCTokType t = c->tokens[c->token_pos].type;
     bool starts_type = (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
                         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_FLOAT_KW ||
-                        t == TK_DOUBLE_KW || t == TK_STRUCT || t == TK_UNION || t == TK_ENUM ||
+                        t == TK_DOUBLE_KW || t == TK_VOID ||
+                        t == TK_STRUCT || t == TK_UNION || t == TK_ENUM ||
                         t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL ||
                         t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
                         (t == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val) ||
@@ -105,7 +106,7 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         }
         bool p_has_unsigned = (t0 == TK_UNSIGNED), p_has_char = (t0 == TK_CHAR),
              p_has_short = (t0 == TK_SHORT), p_has_float = (t0 == TK_FLOAT_KW),
-             p_has_double = (t0 == TK_DOUBLE_KW);
+             p_has_double = (t0 == TK_DOUBLE_KW), p_has_void = (t0 == TK_VOID);
         int p_longs = (t0 == TK_LONG) ? 1 : 0;
         if (t0 == TK_SIGNED || t0 == TK_UNSIGNED || t0 == TK_SHORT || t0 == TK_LONG ||
             t0 == TK_INT || t0 == TK_CHAR) {
@@ -129,8 +130,11 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         }
         if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { p_has_float = true; c->token_pos++; }
         else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { p_has_double = true; c->token_pos++; }
+        else if (c->tokens[c->token_pos].type == TK_VOID) { p_has_void = true; c->token_pos++; }
         if (found) {
             pt = *found;
+        } else if (p_has_void) {
+            pt = zero_cc_type_void();
         } else if (p_has_float) {
             pt = zero_cc_type_float();
         } else if (p_has_double) {
@@ -260,7 +264,8 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
         ZeroCCTokType at = (after < c->token_count) ? c->tokens[after].type : TK_EOF;
         bool next_is_decl = (at == TK_INT || at == TK_CHAR || at == TK_SHORT || at == TK_LONG ||
                              at == TK_SIGNED || at == TK_UNSIGNED || at == TK_FLOAT_KW ||
-                             at == TK_DOUBLE_KW || at == TK_STRUCT || at == TK_UNION || at == TK_ENUM ||
+                             at == TK_DOUBLE_KW || at == TK_VOID ||
+                             at == TK_STRUCT || at == TK_UNION || at == TK_ENUM ||
                              at == TK_TYPEOF || at == TK_TYPEOF_UNQUAL ||
                              at == TK_CONST || at == TK_VOLATILE || at == TK_RESTRICT ||
                              (at == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[after].str_val) ||
@@ -449,50 +454,9 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 c->token_pos++;
             }
         }
-        if (c->tokens[c->token_pos].type == TK_LPAREN &&
-            c->token_pos + 1 < c->token_count &&
-            c->tokens[c->token_pos + 1].type == TK_STAR) {
-            /* Function-pointer parameter: `ret_type (*name)(params...)` */
-            c->token_pos++; /* ( */
-            while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
-                if (*param_count >= ZERO_CC_MAX_PARAMS) {
-                    diag_report_error_at_token(c,
-                        "function '%s' has too many parameters (max %d)",
-                        fn_name, ZERO_CC_MAX_PARAMS);
-                } else {
-                    zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
-                    (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-                    /* ABI: an 8-byte pointer in a register; the pointed-to
-                     * signature is not modeled (calls go through the
-                     * value). Marked func-ptr for later codegen hooks. */
-                    ZeroCCType pt = zero_cc_type_int64();
-                    ZeroCCType fpt = zero_cc_type_ptr(&pt);
-                    fpt.is_func_ptr = true;
-                    (*param_types)[*param_count] = fpt;
-                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
-                    (*param_count)++;
-                }
-            }
-            c->token_pos++; /* name */
-            if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
-            /* Skip the parameter list (depth-counted) */
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-                int pdepth = 1;
-                c->token_pos++;
-                while (c->token_pos < c->token_count && pdepth > 0) {
-                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
-                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
-                    c->token_pos++;
-                }
-            }
-            /* fall through to the comma/stuck-token handling below */
-        }
-        /* Parameter type - shared by named and unnamed parameters
-         * (C99 6.7.6.3): an unnamed parameter still constrains
-         * the caller. Previously unnamed params were silently
-         * dropped, so `int f(int);` parsed as a 0-parameter
-         * prototype and legal calls were rejected. */
+        /* Compute the parameter's base type NOW (before the function-
+         * pointer branch) so `ret (*name)(params)` can use `ret` as the
+         * pointed-to function's return type (921208-1). */
         ZeroCCType pt;
         if (is_typeof_param) {
             pt = typeof_pt;
@@ -522,8 +486,6 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         }
         pt.is_const = p_is_const;
         pt.is_volatile = p_is_volatile;
-        /* Vector marker: wrap the scalar element in the vector type
-         * (pointer suffixes, if any, apply on top). */
         if (p_vec_size > 0) {
             pt = zero_cc_type_vector(&pt, p_vec_size);
         }
@@ -535,11 +497,80 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 pt.is_restrict = p_ptr_is_restrict;
             }
         }
+        bool fn_ptr_param_done = false;
+        if (c->tokens[c->token_pos].type == TK_LPAREN &&
+            c->token_pos + 1 < c->token_count &&
+            c->tokens[c->token_pos + 1].type == TK_STAR) {
+            /* Function-pointer parameter: `ret_type (*name)(params...)` */
+            c->token_pos++; /* ( */
+            while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_IDENT) {
+                if (*param_count >= ZERO_CC_MAX_PARAMS) {
+                    diag_report_error_at_token(c,
+                        "function '%s' has too many parameters (max %d)",
+                        fn_name, ZERO_CC_MAX_PARAMS);
+                } else {
+                    zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                    (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
+                    /* ABI: an 8-byte pointer in a register.  The pointee
+                     * carries the function's RETURN type (the declared
+                     * base type `ret` in `ret (*name)(params)`) so an
+                     * indirect call `(*name)(args)` knows whether the
+                     * result arrives in XMM0 (float/double) or RAX
+                     * (c-torture execute/921208-1, pr42231). */
+                    ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                    fpt.is_func_ptr = true;
+                    (*param_types)[*param_count] = fpt;
+                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
+                    (*param_count)++;
+                    fn_ptr_param_done = true; /* the named branch must not re-record */
+                }
+            }
+            c->token_pos++; /* name */
+            if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
+            /* Skip the parameter list (depth-counted) */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pdepth = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && pdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                    c->token_pos++;
+                }
+            }
+            /* fall through to the comma/stuck-token handling below */
+        }
         /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
          * makes the declaration a prototype but adds no parameter. */
         bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
                               ptr_depth == 0);
-        if (!is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
+        /* Abstract declarator: `int ( int foo )` - a parenthesized
+         * function parameter list on an anonymous declarator (C99
+         * 6.7.6.1); the parameter is a pointer to function
+         * (20010313-1). */
+        if (!fn_ptr_param_done && !is_void_param && c->token_pos < c->token_count &&
+            c->tokens[c->token_pos].type == TK_LPAREN &&
+            (c->token_pos + 1 >= c->token_count ||
+             c->tokens[c->token_pos + 1].type != TK_STAR)) {
+            int pdepth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                    pdepth--;
+                    if (pdepth == 0) { c->token_pos++; break; }
+                }
+                c->token_pos++;
+            }
+            if (*param_count < ZERO_CC_MAX_PARAMS) {
+                zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                (*param_names)[*param_count] = "";
+                ZeroCCType ptt2 = zero_cc_type_int64();
+                ZeroCCType fpt2 = zero_cc_type_ptr(&ptt2);
+                fpt2.is_func_ptr = true;
+                (*param_types)[*param_count] = fpt2;
+                (*param_count)++;
+            }
+        } else if (!fn_ptr_param_done && !is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
             if (*param_count >= ZERO_CC_MAX_PARAMS) {
                 diag_report_error_at_token(c,
                     "function '%s' has too many parameters (max %d)",
@@ -613,17 +644,56 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 }
                 (*param_types)[*param_count - 1] = zero_cc_type_ptr(&t);
             }
-        } else if (!is_void_param && *param_count < ZERO_CC_MAX_PARAMS &&
+        } else if (!fn_ptr_param_done && !is_void_param && *param_count < ZERO_CC_MAX_PARAMS &&
                    c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_COMMA ||
+                   (c->tokens[c->token_pos].type == TK_LBRACKET ||
+                    c->tokens[c->token_pos].type == TK_COMMA ||
                     c->tokens[c->token_pos].type == TK_RPAREN)) {
             /* Unnamed parameter: record the type with an empty
              * name so the prototype keeps its parameter count.
-             * No add_local (nothing to bind); the degenerate
-             * `f(int [])` unnamed-array form skips the array
-             * adjustment above. */
+             * No add_local (nothing to bind).  Array suffixes are
+             * consumed and adjusted like the named case (C99
+             * 6.7.6.3p7): `int m[]` -> `int *`, `int[][N]` ->
+             * `int (*)[N]`, `int[][fn3()]` (pr77754) -> pointer to
+             * an (inner) array. */
+            ssize_t u_dims[8];
+            int u_ndims = 0;
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_LBRACKET &&
+                   u_ndims < 8) {
+                ssize_t d = 0;
+                c->token_pos++; /* '[' */
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_NUM &&
+                    c->token_pos + 1 < c->token_count &&
+                    c->tokens[c->token_pos + 1].type == TK_RBRACKET) {
+                    d = (ssize_t)c->tokens[c->token_pos].num_val;
+                    c->token_pos++;
+                } else {
+                    /* VLA / empty dimension: skip to the matching ']' */
+                    int bdepth = 1;
+                    while (c->token_pos < c->token_count && bdepth > 0) {
+                        if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
+                        else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
+                        c->token_pos++;
+                    }
+                    d = 0;
+                }
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_RBRACKET) {
+                    c->token_pos++; /* ']' */
+                }
+                u_dims[u_ndims++] = d;
+            }
             zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
             (*param_names)[*param_count] = "";
+            if (u_ndims > 0) {
+                ZeroCCType t = pt;
+                for (int i = u_ndims - 1; i >= 1; i--) {
+                    t = zero_cc_type_array(&t, u_dims[i] > 0 ? u_dims[i] : 1);
+                }
+                pt = zero_cc_type_ptr(&t);
+            }
             (*param_types)[*param_count] = pt;
             (*param_count)++;
         } else if (!is_void_param && *param_count >= ZERO_CC_MAX_PARAMS &&
@@ -909,11 +979,35 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     zero_cc_parse_aligned_attr(c, &c->token_pos, &probe);
                 }
             }
+            /* A pointer-leading declarator re-derives its own chain:
+             * `T *a, *b;` and `T *f1(void), *f2(void);` (the star is part
+             * of THIS declarator, not the shared base type). Skip stars +
+             * qualifiers to find the name; stars2 is applied to the type
+             * in the variable branch below. */
+            int stars2 = 0;
+            {
+                size_t p2 = c->token_pos;
+                while (p2 < c->token_count && c->tokens[p2].type == TK_STAR) {
+                    stars2++;
+                    p2++;
+                    while (p2 < c->token_count &&
+                           (c->tokens[p2].type == TK_CONST ||
+                            c->tokens[p2].type == TK_VOLATILE ||
+                            c->tokens[p2].type == TK_RESTRICT)) p2++;
+                }
+                if (p2 < c->token_count && c->tokens[p2].type == TK_IDENT) {
+                    c->token_pos = p2; /* position at the name */
+                }
+            }
             if (c->token_pos + 1 < c->token_count &&
                 c->tokens[c->token_pos].type == TK_IDENT &&
                 c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                 char fn2_name[128];
                 snprintf(fn2_name, sizeof(fn2_name), "%s", c->tokens[c->token_pos].str_val);
+                /* Pointer-to-function declarator: the skipped leading
+                 * stars apply to the return type of THIS declarator. */
+                ZeroCCType fn2_ret = fn_ret_type;
+                for (int s2 = 0; s2 < stars2; s2++) fn2_ret = zero_cc_type_ptr(&fn2_ret);
                 c->token_pos++; /* name */
                 c->token_pos++; /* ( */
                 size_t p2_base = param_count;
@@ -929,10 +1023,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     snprintf(fn2->name, sizeof(fn2->name), "%s", fn2_name);
                     fn2->text_offset = 0;
                     fn2->param_count = param_count - p2_base;
-                    fn2->return_type = fn_ret_type;
-                    fn2->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||
-                                          (fn_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret_type)));
-                    fn2->ret_struct_sz = fn_ret_type.size;
+                    fn2->return_type = fn2_ret;
+                    fn2->returns_struct = (fn2_ret.tag == TYPE_STRUCT || fn2_ret.tag == TYPE_UNION ||
+                                          (fn2_ret.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn2_ret)));
+                    fn2->ret_struct_sz = fn2_ret.size;
                     fn2->is_prototype = true;
                     fn2->has_prototype = has_prototype;
                     fn2->is_inline = fn_inline;
@@ -954,6 +1048,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 snprintf(vname, sizeof(vname), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
                 ZeroCCType vt = fn_ret_type;
+                for (int s2 = 0; s2 < stars2; s2++) vt = zero_cc_type_ptr(&vt);
                 int pd = 0;
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
                     vt = zero_cc_type_ptr(&vt);

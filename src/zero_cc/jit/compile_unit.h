@@ -273,6 +273,55 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
             a->off += n * esz;
         }
+        /* Dot/arrow member chains (`&v.d.b`, `&p->m`, pr43784): each member
+         * adds its offset; the pointee type updates (arrays decay) for the
+         * next step.  Arrow on an array/pointer decays to the struct. */
+        if (gv) {
+            ZeroCCType mt = gv->type;
+            if (mt.tag == TYPE_ARRAY && mt.base) mt = *mt.base;
+            for (;;) {
+                if (c->token_pos >= c->token_count ||
+                    (c->tokens[c->token_pos].type != TK_DOT &&
+                     c->tokens[c->token_pos].type != TK_ARROW)) {
+                    break;
+                }
+                bool arrow = (c->tokens[c->token_pos].type == TK_ARROW);
+                c->token_pos++;
+                if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+                    c->token_pos = save; return false;
+                }
+                const char *mnm = c->tokens[c->token_pos].str_val;
+                c->token_pos++;
+                /* Arrow requires a pointer-to-struct (or array); dot may see
+                 * an array base which decays. */
+                if (arrow && mt.tag == TYPE_ARRAY && mt.base) mt = *mt.base;
+                if (arrow && mt.tag == TYPE_PTR && mt.base) mt = *mt.base;
+                if (mt.tag == TYPE_ARRAY && mt.base) mt = *mt.base;
+                if (mt.tag != TYPE_STRUCT && mt.tag != TYPE_UNION) {
+                    c->token_pos = save; return false;
+                }
+                bool found = false;
+                ZeroCCType next_mt = zero_cc_type_void();
+                bool has_next = false;
+                for (size_t mi = 0; mi < mt.member_count; mi++) {
+                    if (strcmp(mt.members[mi].name, mnm) == 0) {
+                        a->off += (int64_t)mt.members[mi].offset;
+                        if (mt.members[mi].base) {
+                            next_mt = *mt.members[mi].base;
+                            has_next = true;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) { c->token_pos = save; return false; }
+                bool more_chain = (c->token_pos < c->token_count &&
+                    (c->tokens[c->token_pos].type == TK_DOT ||
+                     c->tokens[c->token_pos].type == TK_ARROW));
+                if (more_chain && !has_next) { c->token_pos = save; return false; }
+                mt = next_mt;
+            }
+        }
         return true;
     }
     if (c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -280,6 +329,12 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
          * IDENT (+N|-N)* (->member)?  (const-addr-expr-1). */
         c->token_pos++;
         int depth = 1;
+        /* Nested opening parens: `((B + 1)->m)` / `(B + (N))`. */
+        while (c->token_pos < c->token_count &&
+               c->tokens[c->token_pos].type == TK_LPAREN) {
+            depth++;
+            c->token_pos++;
+        }
         if (c->token_pos >= c->token_count ||
             c->tokens[c->token_pos].type != TK_IDENT) {
             c->token_pos = save; return false;
@@ -311,39 +366,36 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
             } else if (tt == TK_LPAREN) {
                 depth++;
                 c->token_pos++;
+            } else if (tt == TK_ARROW || tt == TK_DOT) {
+                /* `(B + N)->m` / `B.m` inside the parens
+                 * (const-addr-expr-1: `&((arr + 1)->uaattrid)`). */
+                bool arrow = (tt == TK_ARROW);
+                c->token_pos++;
+                if (c->token_pos >= c->token_count ||
+                    c->tokens[c->token_pos].type != TK_IDENT) {
+                    c->token_pos = save; return false;
+                }
+                const char *mnm = c->tokens[c->token_pos].str_val;
+                c->token_pos++;
+                if (!bgv) { c->token_pos = save; return false; }
+                ZeroCCType mt = bgv->type;
+                if (mt.tag == TYPE_ARRAY && mt.base) mt = *mt.base;
+                if (arrow && mt.tag == TYPE_PTR && mt.base) mt = *mt.base;
+                if (mt.tag != TYPE_STRUCT && mt.tag != TYPE_UNION) {
+                    c->token_pos = save; return false;
+                }
+                bool mfound = false;
+                for (size_t mi = 0; mi < mt.member_count; mi++) {
+                    if (strcmp(mt.members[mi].name, mnm) == 0) {
+                        off += (int64_t)mt.members[mi].offset;
+                        mfound = true;
+                        break;
+                    }
+                }
+                if (!mfound) { c->token_pos = save; return false; }
             } else {
                 c->token_pos = save; return false;
             }
-        }
-        /* Optional ->member step */
-        if (c->token_pos < c->token_count &&
-            (c->tokens[c->token_pos].type == TK_ARROW || c->tokens[c->token_pos].type == TK_DOT)) {
-            c->token_pos++;
-            if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
-                c->token_pos = save; return false;
-            }
-            const char *mnm = c->tokens[c->token_pos].str_val;
-            c->token_pos++;
-            if (!bgv) { c->token_pos = save; return false; }
-            ZeroCCType mt = bgv->type;
-            if (mt.tag == TYPE_ARRAY && mt.base) mt = *mt.base;
-            if (mt.tag != TYPE_STRUCT && mt.tag != TYPE_UNION) {
-                c->token_pos = save; return false;
-            }
-            bool found = false;
-            for (size_t mi = 0; mi < mt.member_count; mi++) {
-                if (strcmp(mt.members[mi].name, mnm) == 0) {
-                    off += (int64_t)mt.members[mi].offset;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) { c->token_pos = save; return false; }
-            a->kind = 1;
-            a->gidx = (int)(bgv - global_vars);
-            a->off = (int64_t)bgv->data_offset + off;
-            a->esz = 1;
-            return true;
         }
         if (depth != 0) { c->token_pos = save; return false; }
         if (!bgv) { c->token_pos = save; return false; }
@@ -406,10 +458,26 @@ static inline int zc_eval_const_ptr_expr(ZeroCCCompiler *c, ZCPAddr *out, int64_
 static inline int zc_try_paren_ptr_init(ZeroCCCompiler *c, ZCPAddr *cpa, int64_t *diff_out) {
     size_t save = c->token_pos;
     if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_LPAREN) return 0;
-    c->token_pos++;
-    int r = zc_eval_const_ptr_expr(c, cpa, diff_out);
-    if (r != 0 && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+    /* The leading paren may be a cast `(T *)` rather than a wrapper:
+     * `(int *) &((arr + 1)->m)` (const-addr-expr-1).  Detect it and let
+     * zc_eval's cast loop consume it in place. */
+    size_t q = c->token_pos + 1;
+    bool looks_cast = false;
+    if (q < c->token_count && zero_cc_tok_is_type_start(c, q)) {
+        size_t q2 = q;
+        (void)zero_cc_parse_type_name_at_pos(c, &q2);
+        while (q2 < c->token_count && c->tokens[q2].type == TK_STAR) q2++;
+        if (q2 < c->token_count && c->tokens[q2].type == TK_RPAREN) looks_cast = true;
+    }
+    int r;
+    if (looks_cast) {
+        r = zc_eval_const_ptr_expr(c, cpa, diff_out);
+    } else {
         c->token_pos++;
+        r = zc_eval_const_ptr_expr(c, cpa, diff_out);
+        if (r != 0 && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            c->token_pos++;
+        }
     }
     if (r != 0) return r;
     c->token_pos = save;
@@ -907,7 +975,27 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         break;
                     }
                     ZeroCCType decl_type = zero_cc_declarator_apply(&d, gtype);
+                    /* Unsized array declarator (`double (*a[])(double) = {&f};`):
+                     * the bound is inferred from a brace initializer - count
+                     * top-level elements. Element width for a function-pointer
+                     * array is 8 (a pointer). */
+                    bool pdecl_unsized = zero_cc_declarator_has_array(&d);
+                    int64_t pdecl_arr_len = 1;
+                    if (pdecl_unsized) {
+                        pdecl_arr_len = 0;
+                        for (int i = 0; i < d.top; i++) {
+                            if (d.stack[i].kind == ZERO_CC_DECL_CHUNK_ARRAY && d.stack[i].array_len > 0) {
+                                pdecl_arr_len = (int64_t)d.stack[i].array_len;
+                            }
+                        }
+                    }
+                    size_t elem_w = 8;
                     size_t vsize = decl_type.size > 0 ? decl_type.size : 8;
+                    if (pdecl_unsized && pdecl_arr_len <= 0) {
+                        /* Infer below from the brace list; default 1 slot so a
+                         * missing initializer still reserves 8 bytes. */
+                        vsize = 8;
+                    }
                     size_t valign = decl_type.align > 0 ? decl_type.align : 8;
                     if (valign < 8) valign = 8;
                     size_t vpad = (valign - (c->data_section.length % valign)) % valign;
@@ -917,9 +1005,98 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                         c->token_pos++; /* = */
                         vinit = true;
-                        if (c->tokens[c->token_pos].type == TK_IDENT &&
-                            zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
-                            c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                        bool brace_init = (c->token_pos < c->token_count &&
+                                           c->tokens[c->token_pos].type == TK_LBRACE);
+                        if (brace_init && pdecl_unsized && pdecl_arr_len <= 0) {
+                            /* Count top-level elements of the brace list
+                             * (trailing comma does not add one). */
+                            size_t q = c->token_pos + 1;
+                            int64_t cnt = 0;
+                            int depth = 0;
+                            bool trailing = false;
+                            while (q < c->token_count) {
+                                ZeroCCTokType qt = c->tokens[q].type;
+                                if (qt == TK_LBRACE) {
+                                    depth++;
+                                    if (depth == 1) trailing = false;
+                                } else if (qt == TK_RBRACE) {
+                                    if (depth == 0) break;
+                                    depth--;
+                                } else if (depth == 0) {
+                                    if (qt == TK_COMMA) { cnt++; trailing = true; }
+                                    else trailing = false;
+                                }
+                                q++;
+                            }
+                            if (cnt > 0 && trailing) { /* trailing comma */ }
+                            else cnt++; /* elements = commas + 1 */
+                            pdecl_arr_len = (cnt > 0) ? cnt : 1;
+                            vsize = (size_t)pdecl_arr_len * elem_w;
+                        }
+                        if (brace_init) {
+                            /* `{&f, &g}` / `{0}`: one 8-byte slot per element,
+                             * each a function address (data reloc, kind 3). */
+                            c->token_pos++; /* '{' */
+                            size_t slots = pdecl_arr_len > 0 ? (size_t)pdecl_arr_len : 1;
+                            for (size_t slot = 0; slot < slots; slot++) {
+                                size_t slot_off = voff + slot * elem_w;
+                                zero_cc_emit_u64(&c->data_section, 0);
+                                if (c->token_pos >= c->token_count ||
+                                    c->tokens[c->token_pos].type == TK_RBRACE) break;
+                                bool is_addr = (c->tokens[c->token_pos].type == TK_AMP);
+                                if (is_addr) c->token_pos++;
+                                if (c->token_pos < c->token_count &&
+                                    c->tokens[c->token_pos].type == TK_IDENT &&
+                                    zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
+                                    c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                    char fn_name[128];
+                                    snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
+                                    c->token_pos++;
+                                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                    dr->data_patch_offset = slot_off;
+                                    dr->target_kind = 3; /* function symbol */
+                                    dr->rodata_offset = 0;
+                                    dr->target_data_offset = 0;
+                                    dr->target_global_idx = -1;
+                                    snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fn_name);
+                                } else {
+                                    /* Skip any other constant element. */
+                                    int64_t iv = 0;
+                                    if (c->tokens[c->token_pos].type == TK_NUM) {
+                                        iv = c->tokens[c->token_pos].num_val;
+                                        c->token_pos++;
+                                    } else {
+                                        while (c->token_pos < c->token_count &&
+                                               c->tokens[c->token_pos].type != TK_COMMA &&
+                                               c->tokens[c->token_pos].type != TK_RBRACE) c->token_pos++;
+                                    }
+                                    for (size_t b = 0; b < elem_w; b++)
+                                        zero_cc_emit_u8(&c->data_section, (uint8_t)((uint64_t)iv >> (8 * b)));
+                                }
+                                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                            }
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+                        } else if (c->tokens[c->token_pos].type == TK_AMP &&
+                                   c->token_pos + 1 < c->token_count &&
+                                   c->tokens[c->token_pos + 1].type == TK_IDENT &&
+                                   zero_cc_find_function(c, c->tokens[c->token_pos + 1].str_val) &&
+                                   c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                            /* `int (*fp)(void) = &foo;`: address of a function. */
+                            c->token_pos++; /* '&' */
+                            char fn_name[128];
+                            snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
+                            c->token_pos++;
+                            zero_cc_emit_u64(&c->data_section, 0);
+                            ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                            dr->data_patch_offset = voff;
+                            dr->target_kind = 3; /* function symbol */
+                            dr->rodata_offset = 0;
+                            dr->target_data_offset = 0;
+                            dr->target_global_idx = -1;
+                            snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fn_name);
+                        } else if (c->tokens[c->token_pos].type == TK_IDENT &&
+                                   zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
+                                   c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                             /* `int (*fp)(void) = foo;`: function designator
                              * decays to its address (data reloc, kind 3). */
                             char fn_name[128];
@@ -935,11 +1112,17 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fn_name);
                         } else {
                             int64_t iv = zero_cc_eval_const_expr(c);
-                            for (size_t b = 0; b < 8; b++)
+                            for (size_t b = 0; b < elem_w; b++)
                                 zero_cc_emit_u8(&c->data_section, (uint8_t)((uint64_t)iv >> (8 * b)));
                         }
                     } else {
                         zero_cc_emit_u64(&c->data_section, 0);
+                    }
+                    /* Record the inferred bound in the registered type so
+                     * `a[0]` etc. see the right element size/extent. */
+                    if (pdecl_unsized && pdecl_arr_len > 0 && decl_type.tag == TYPE_ARRAY) {
+                        decl_type.array_len = (size_t)pdecl_arr_len;
+                        decl_type.size = (size_t)pdecl_arr_len * (decl_type.base ? decl_type.base->size : 8);
                     }
                     if (add_global_var(d.name, decl_type, voff, vsize, is_static, vinit) < 0) {
                         diag_report_error_at_token(c, "out of memory registering global variable");
@@ -988,7 +1171,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                (gtype.tag == TYPE_INT32 || gtype.tag == TYPE_UINT32));
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                             has_array_suffix = true;
-                            /* Multi-dimensional: T name[d1][d2]... (C99 6.7.9) */
+                            /* Multi-dimensional: T name[d1][d2]... (C99 6.7.9).
+                             * An unsized dimension may be the FIRST one
+                             * (`char ca[][4] = {{...},{...}}`, C99 6.7.5.3) -
+                             * its bound is inferred from the initializer; do
+                             * NOT stop parsing the remaining dimensions. */
                             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                                 c->token_pos++;
                                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
@@ -996,8 +1183,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                      * size is implied by the initializer. */
                                     c->token_pos++;
                                     array_unsized = true;
-                                    if (dim_count < 8) dims[dim_count++] = 1; /* patched after counting */
-                                    break;
+                                    if (dim_count < 8) dims[dim_count++] = 0; /* patched after counting */
+                                    continue;
                                 }
                                 int64_t dim = zero_cc_eval_const_expr(c);
                                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
@@ -1024,25 +1211,74 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             c->token_pos + 1 < c->token_count &&
                             c->tokens[c->token_pos].type == TK_ASSIGN &&
                             c->tokens[c->token_pos + 1].type == TK_LBRACE) {
-                            /* Count top-level elements of the brace list */
+                            /* Count top-level elements of the brace list. A
+                             * trailing comma (`{ a, b, }`) does not add an
+                             * element - drop it from the count (c-torture
+                             * strlen-5: `char ca[][4] = {{...}, {...}, };`
+                             * inferred [3] instead of [2]). When the
+                             * unsized bound is not the innermost one
+                             * (`char ca[][4]`), top-level scalar elements
+                             * fill the known inner dimensions, so divide by
+                             * their product. */
                             size_t q = c->token_pos + 2;
                             int64_t commas = 0;
                             int depth = 1;
                             bool empty = true;
+                            bool trailing_comma = false;
+                            bool top_level_baced = false;
                             while (q < c->token_count && depth > 0) {
                                 ZeroCCTokType qt = c->tokens[q].type;
                                 if (qt == TK_LBRACE) {
+                                    if (depth == 1) {
+                                        top_level_baced = true;
+                                        trailing_comma = false; /* a new element follows */
+                                    }
                                     depth++;
                                 } else if (qt == TK_RBRACE) {
                                     depth--;
                                     if (depth == 0) break;
                                 } else if (depth == 1) {
                                     empty = false;
-                                    if (qt == TK_COMMA) commas++;
+                                    if (qt == TK_COMMA) {
+                                        commas++;
+                                        trailing_comma = true;
+                                    } else {
+                                        trailing_comma = false;
+                                    }
                                 }
                                 q++;
                             }
-                            array_len = empty ? 1 : (commas + 1);
+                            if (commas > 0 && trailing_comma) commas--;
+                            int64_t count = empty ? 1 : (commas + 1);
+                            if (!top_level_baced) {
+                                /* Flat initializer: elements fill the known
+                                 * (non-inferred) dimensions. */
+                                int64_t known = 1;
+                                for (int di = 0; di < dim_count; di++) {
+                                    if (dims[di] > 0) known *= dims[di];
+                                }
+                                if (known > 1) count = (count + known - 1) / known;
+                            }
+                            /* If the inferred bound is not the innermost
+                             * (`char ca[][4]`), top-level elements are rows:
+                             * multiply back the known inner dimensions so
+                             * `array_len * elem_size` covers the object. */
+                            int64_t inner = 1;
+                            bool seen_unsized = false;
+                            for (int di = 0; di < dim_count; di++) {
+                                if (dims[di] == 0) {
+                                    seen_unsized = true;
+                                    continue;
+                                }
+                                if (seen_unsized) inner *= dims[di];
+                            }
+                            array_len = count * inner;
+                            /* Record the inferred bound in the dims slot so
+                             * the per-dimension type rebuild below is right
+                             * (the unsized slot currently holds 0). */
+                            for (int di = 0; di < dim_count; di++) {
+                                if (dims[di] == 0) dims[di] = count;
+                            }
                         }
                         size_t size = (size_t)array_len * elem_size;
 
@@ -1741,7 +1977,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             ZeroCCType reg_type = gtype;
                             for (int d = dim_count - 1; d >= 0; d--) {
                                 int64_t dv = dims[d];
-                                if (array_unsized && d == 0) dv = array_len; /* size inferred */
+                                if (dv == 0 && array_unsized) dv = (d == 0) ? array_len : 1; /* size inferred */
                                 reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
@@ -1811,7 +2047,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             ZeroCCType reg_type = gtype;
                             for (int d = dim_count - 1; d >= 0; d--) {
                                 int64_t dv = dims[d];
-                                if (array_unsized && d == 0) dv = array_len; /* size inferred */
+                                if (dv == 0 && array_unsized) dv = (d == 0) ? array_len : 1; /* size inferred */
                                 reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
                             if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
