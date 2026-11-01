@@ -490,8 +490,18 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
                 return NULL;
             }
         } else if (is_relational || is_equality) {
-            /* Comparison between pointers returns int */
+            /* Comparison between pointers returns int. A pointer may also be
+             * compared to a null pointer constant (an integer constant 0):
+             * `p == 0` / `p != 0`.  Allow pointer-integer equality/relational
+             * (lenient: this also admits `p == 5`, which C11 6.5.9p6 forbids
+             * but GCC warns on rather than rejecting outright). */
             if (type_is_pointer(lp) && type_is_pointer(rp)) {
+                return type_int(perm);
+            }
+            if (type_is_pointer(lp) && type_is_integer(rp)) {
+                return type_int(perm);
+            }
+            if (type_is_integer(lp) && type_is_pointer(rp)) {
                 return type_int(perm);
             }
         }
