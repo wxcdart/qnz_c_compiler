@@ -178,13 +178,17 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
     }
     if (!found) {
         /* Function name (not a call): decays to a function pointer
-         * (C99 6.3.2.1) - sizeof of the name is the pointer size. */
+         * (C99 6.3.2.1) - sizeof of the name is the pointer size.  An extern
+         * OBJECT registered in the function table (is_object) holds the
+         * variable's type in return_type: use it so `sizeof extern_arr[i]`
+         * computes the element size instead of a dangling 8 (c-torture
+         * split-path-6). */
         bool fn_call = (*pos + 1 < c->token_count &&
                         c->tokens[*pos + 1].type == TK_LPAREN);
         ZeroCCFunction *fn = fn_call ? NULL : zero_cc_find_function(c, name);
         if (fn) {
-            (*pos)++;
-            return 8;
+            if (fn->is_object) { ty = fn->return_type; found = true; }
+            else { (*pos)++; return 8; }
         }
     }
     if (!found) return 0;
@@ -202,7 +206,10 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
         }
     }
     (*pos)++; /* consume the identifier */
-    if (c->tokens[*pos].type == TK_LBRACKET) {
+    /* Chained subscripts (a[i], a[i][j], p[i]): each `[...]` reduces the
+     * type to its element/pointee, so `sizeof a[i][j]` yields the innermost
+     * element size (c-torture split-path-6 uses a single subscript). */
+    while (c->tokens[*pos].type == TK_LBRACKET) {
         /* a[expr] -> element size */
         size_t q = *pos;
         q++; /* [ */
@@ -213,10 +220,9 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
             q++;
         }
         *pos = q; /* past ] */
-        if (ty.tag == TYPE_ARRAY && ty.base && ty.base->size > 0) {
-            return ty.base->size;
+        if ((ty.tag == TYPE_ARRAY || ty.tag == TYPE_PTR) && ty.base) {
+            ty = *ty.base;
         }
-        return ty.size;
     }
     return ty.size;
 }
@@ -245,13 +251,14 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
         if (gv && gv->type.align > 0) { ty = gv->type; found = true; }
     }
     if (!found) {
-        /* Function name (not a call): pointer alignment. */
+        /* Function name (not a call): pointer alignment. Extern objects
+         * (is_object) hold the variable type in return_type. */
         bool fn_call = (*pos + 1 < c->token_count &&
                         c->tokens[*pos + 1].type == TK_LPAREN);
         ZeroCCFunction *fn = fn_call ? NULL : zero_cc_find_function(c, name);
         if (fn) {
-            (*pos)++;
-            return 8;
+            if (fn->is_object) { ty = fn->return_type; found = true; }
+            else { (*pos)++; return 8; }
         }
     }
     if (!found) return 0;

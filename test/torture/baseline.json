@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T23:06:46Z",
+ "generated": "2026-11-01T23:32:20Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -15050,12 +15050,12 @@
    "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/split-path-6.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                         ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/split-path-7.c": {
    "class": "PASS",
@@ -16634,13 +16634,13 @@
     "O0-aot": "REJECT",
     "O0-jit": "TIMEOUT",
     "O1-aot": "REJECT",
-    "O1-jit": "TIMEOUT",
+    "O1-jit": "REJECT",
     "O2-aot": "REJECT",
     "O2-jit": "REJECT",
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -40787,9 +40787,9 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2990,
+  "PASS": 2991,
   "REF-BUG": 3,
-  "REJECT": 44,
+  "REJECT": 43,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 550,
   "SKIP-PTR": 1,
