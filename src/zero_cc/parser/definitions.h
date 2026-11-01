@@ -8,6 +8,7 @@
 
 /* Forward declaration */
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union);
+static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 
 /* Sprint 65: a variable (or function parameter/return) declared BEFORE its
  * struct's definition (e.g. `struct a b;` ... `struct a { ... };`) holds an
@@ -234,10 +235,35 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             continue;
         }
 
-        /* Nested struct/union/enum or anonymous member */
-        if (mt == TK_STRUCT || mt == TK_UNION || mt == TK_ENUM) {
+        /* Nested struct/union/enum or anonymous member.  A run of leading
+         * qualifiers may precede the keyword (`const struct S *p;`): probe
+         * past them so the branch fires, then consume them here. */
+        {
+            size_t st_probe = c->token_pos;
+            bool st_lead_const = false;
+            bool st_lead_volatile = false;
+            while (st_probe < c->token_count &&
+                   (c->tokens[st_probe].type == TK_CONST ||
+                    c->tokens[st_probe].type == TK_VOLATILE ||
+                    c->tokens[st_probe].type == TK_RESTRICT)) st_probe++;
+            mt = (st_probe != c->token_pos && st_probe < c->token_count &&
+                  (c->tokens[st_probe].type == TK_STRUCT ||
+                   c->tokens[st_probe].type == TK_UNION ||
+                   c->tokens[st_probe].type == TK_ENUM)) ?
+                 c->tokens[st_probe].type : mt;
+            if (mt == TK_STRUCT || mt == TK_UNION || mt == TK_ENUM) {
             bool is_enum = (mt == TK_ENUM);
             bool inner_is_union = (mt == TK_UNION);
+            /* Consume the leading qualifiers probed above (they precede
+             * the struct keyword when present). */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                if (c->tokens[c->token_pos].type == TK_CONST) st_lead_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) st_lead_volatile = true;
+                c->token_pos++;
+            }
             c->token_pos++;
             char inner_tag[128] = "";
             if (c->tokens[c->token_pos].type == TK_IDENT) {
@@ -389,9 +415,21 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->bit_width = is_bitfield ? bit_width : (uint8_t)(base_size * 8);
                     m->is_signed = true;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
-                    /* Pointer members also record the pointee (C5): `t *p`
-                     * members need m->base so `o.p->field` resolves. */
-                    m->base = zero_cc_type_alloc_base(&inner_type);
+                    /* A leading qualifier on a struct/union/enum member
+                     * attaches to the BASE type (C99 6.7.3): `const struct S *p`
+                     * is a pointer to const S, so the pointee must carry it
+                     * (previously dropped - `t.p = &const_global` REJECTed as
+                     * an incompatible assignment, c-torture 20040708-1). */
+                    ZeroCCType pt = inner_type;
+                    if (is_ptr) {
+                        if (st_lead_const) pt.is_const = true;
+                        if (st_lead_volatile) pt.is_volatile = true;
+                        m->base = zero_cc_type_alloc_base(&pt);
+                    } else {
+                        m->base = zero_cc_type_alloc_base(&inner_type);
+                        m->is_const = st_lead_const;
+                        m->is_volatile = st_lead_volatile;
+                    }
                     if (!is_ptr && !is_bitfield && (is_array || is_flexible)) {
                         m->tag = TYPE_ARRAY; /* array-of-struct member in union */
                         if (ndims > 1) {
@@ -462,8 +500,19 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_flexible = is_flexible;
                     m->is_bitfield = false;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
-                    /* Pointer members also record the pointee (C5). */
-                    m->base = zero_cc_type_alloc_base(&inner_type);
+                    /* Leading qualifier on a struct/union/enum member attaches
+                     * to the base type: `const struct S *p` = pointer to
+                     * const S (see the union branch above). */
+                    ZeroCCType pt = inner_type;
+                    if (is_ptr) {
+                        if (st_lead_const) pt.is_const = true;
+                        if (st_lead_volatile) pt.is_volatile = true;
+                        m->base = zero_cc_type_alloc_base(&pt);
+                    } else {
+                        m->base = zero_cc_type_alloc_base(&inner_type);
+                        m->is_const = st_lead_const;
+                        m->is_volatile = st_lead_volatile;
+                    }
                     if (!is_ptr && (is_array || is_flexible)) {
                         /* Array of struct/union/enum member (`struct S arr[N]`):
                          * store as TYPE_ARRAY with the element type as base so
@@ -483,6 +532,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
             }
             if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
             continue;
+            }
         }
 
         bool member_is_const = false;
@@ -787,7 +837,20 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                          * member (`t *p`): base = the pointee (C5) so the
                          * named struct's fields are available. */
                         if (td) {
-                            m->base = zero_cc_type_alloc_base(td);
+                            {
+                            ZeroCCType pt = *td;
+                            /* Leading qualifier attaches to the base type:
+                             * `const T *p` = pointer to const T (c-torture
+                             * 20040708-1, 961004-1). */
+                            if (is_ptr) {
+                                if (member_is_const) pt.is_const = true;
+                                if (member_is_volatile) pt.is_volatile = true;
+                            } else {
+                                m->is_const = member_is_const;
+                                m->is_volatile = member_is_volatile;
+                            }
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                         }
                     }
                     else m->tag = TYPE_INT32;
@@ -795,7 +858,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         if (!m->base) {
                             ZeroCCType dummy;
                             memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = (mt == TK_VOID && ptr_depth > 1) ? TYPE_VOID : m->tag;
+                            dummy.tag = (mt == TK_VOID) ? TYPE_VOID : m->tag;
+                            /* `void *` (depth 1) has a VOID pointee too -
+                             * typing it int64 made `&g.pv` incompatible
+                             * with `void **` (c-torture pr42730/pta-1). */
                             dummy.size = base_size;
                             dummy.align = base_align;
                             dummy.is_const = member_is_const;
@@ -948,7 +1014,20 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             /* By-value member: base = the struct itself. Pointer
                              * member (`t *p`): base = the pointee (C5). */
                             if (td) {
-                                m->base = zero_cc_type_alloc_base(td);
+                                {
+                            ZeroCCType pt = *td;
+                            /* Leading qualifier attaches to the base type:
+                             * `const T *p` = pointer to const T (c-torture
+                             * 20040708-1, 961004-1). */
+                            if (is_ptr) {
+                                if (member_is_const) pt.is_const = true;
+                                if (member_is_volatile) pt.is_volatile = true;
+                            } else {
+                                m->is_const = member_is_const;
+                                m->is_volatile = member_is_volatile;
+                            }
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                             }
                         }
                         else m->tag = TYPE_INT32;
@@ -972,7 +1051,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (!m->base) {
                                 ZeroCCType dummy;
                                 memset(&dummy, 0, sizeof(dummy));
-                                dummy.tag = (mt == TK_VOID && ptr_depth > 1) ? TYPE_VOID : m->tag;
+                                dummy.tag = (mt == TK_VOID) ? TYPE_VOID : m->tag;
+                            /* `void *` (depth 1) has a VOID pointee too -
+                             * typing it int64 made `&g.pv` incompatible
+                             * with `void **` (c-torture pr42730/pta-1). */
                                 dummy.size = base_size;
                                 dummy.align = base_align;
                                 dummy.is_const = member_is_const;
@@ -1112,21 +1194,43 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (!td) td = zero_cc_find_struct(c, type_ident);
                             if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                             else m->tag = TYPE_STRUCT;
-                            if (td && !c_is_ptr) {
-                                m->base = zero_cc_type_alloc_base(td);
+                            if (td) {
+                                {
+                            ZeroCCType pt = *td;
+                            /* Leading qualifier attaches to the base type:
+                             * `const T *p` = pointer to const T (c-torture
+                             * 20040708-1, 961004-1).  Keyed off c_is_ptr:
+                             * in a comma list the CURRENT declarator's
+                             * pointer-ness decides (not the first one's). */
+                            if (c_is_ptr) {
+                                if (member_is_const) pt.is_const = true;
+                                if (member_is_volatile) pt.is_volatile = true;
+                            } else {
+                                m->is_const = member_is_const;
+                                m->is_volatile = member_is_volatile;
+                            }
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                             }
                         }
                         else m->tag = TYPE_INT32;
                         if (c_is_ptr) {
-                            ZeroCCType dummy;
-                            memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = (mt == TK_VOID && c_ptr_depth > 1) ? TYPE_VOID : m->tag;
-                            dummy.size = base_size;
-                            dummy.align = base_align;
-                            dummy.is_const = member_is_const;
-                            dummy.is_volatile = member_is_volatile;
+                            /* Only synthesize a dummy pointee when the type
+                             * wasn't a named struct/typedef (m->base already
+                             * holds the real pointee then - clobbering it
+                             * with an anonymous struct broke `A *e, *f;`
+                             * comma lists, c-torture pr113623). */
+                            if (!m->base) {
+                                ZeroCCType dummy;
+                                memset(&dummy, 0, sizeof(dummy));
+                                dummy.tag = (mt == TK_VOID) ? TYPE_VOID : m->tag;
+                                dummy.size = base_size;
+                                dummy.align = base_align;
+                                dummy.is_const = member_is_const;
+                                dummy.is_volatile = member_is_volatile;
+                                m->base = zero_cc_type_alloc_base(&dummy);
+                            }
                             m->tag = TYPE_PTR;
-                            m->base = zero_cc_type_alloc_base(&dummy);
                             zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
                             if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (!c_is_bitfield && (c_is_array || c_is_flexible)) {
@@ -1246,21 +1350,43 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             if (!td) td = zero_cc_find_struct(c, type_ident);
                             if (td && td->tag == TYPE_UNION) m->tag = TYPE_UNION;
                             else m->tag = TYPE_STRUCT;
-                            if (td && !c_is_ptr) {
-                                m->base = zero_cc_type_alloc_base(td);
+                            if (td) {
+                                {
+                            ZeroCCType pt = *td;
+                            /* Leading qualifier attaches to the base type:
+                             * `const T *p` = pointer to const T (c-torture
+                             * 20040708-1, 961004-1).  Keyed off c_is_ptr:
+                             * in a comma list the CURRENT declarator's
+                             * pointer-ness decides (not the first one's). */
+                            if (c_is_ptr) {
+                                if (member_is_const) pt.is_const = true;
+                                if (member_is_volatile) pt.is_volatile = true;
+                            } else {
+                                m->is_const = member_is_const;
+                                m->is_volatile = member_is_volatile;
+                            }
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                             }
                         }
                         else m->tag = TYPE_INT32;
                         if (c_is_ptr) {
-                            ZeroCCType dummy;
-                            memset(&dummy, 0, sizeof(dummy));
-                            dummy.tag = (mt == TK_VOID && c_ptr_depth > 1) ? TYPE_VOID : m->tag;
-                            dummy.size = base_size;
-                            dummy.align = base_align;
-                            dummy.is_const = member_is_const;
-                            dummy.is_volatile = member_is_volatile;
+                            /* Only synthesize a dummy pointee when the type
+                             * wasn't a named struct/typedef (m->base already
+                             * holds the real pointee then - clobbering it
+                             * with an anonymous struct broke `A *e, *f;`
+                             * comma lists, c-torture pr113623). */
+                            if (!m->base) {
+                                ZeroCCType dummy;
+                                memset(&dummy, 0, sizeof(dummy));
+                                dummy.tag = (mt == TK_VOID) ? TYPE_VOID : m->tag;
+                                dummy.size = base_size;
+                                dummy.align = base_align;
+                                dummy.is_const = member_is_const;
+                                dummy.is_volatile = member_is_volatile;
+                                m->base = zero_cc_type_alloc_base(&dummy);
+                            }
                             m->tag = TYPE_PTR;
-                            m->base = zero_cc_type_alloc_base(&dummy);
                             zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
                             if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (c_is_array || c_is_flexible) {
@@ -1777,7 +1903,13 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                     }
                 }
                 if (is_typedef && fp_alias[0] != '\0') {
-                    ZeroCCType fp_type = zero_cc_type_ptr(&st);
+                    /* C99 6.7.5.3: the `ptr_depth` stars before `(` belong
+                     * to the RETURN type (a `typedef struct S *(*Op)(args);`
+                     * call returns struct S*), so the funcptr's pointee is
+                     * the fully-starred type (c-torture pta-1). */
+                    ZeroCCType ret_t = st;
+                    for (int pd = 0; pd < ptr_depth; pd++) ret_t = zero_cc_type_ptr(&ret_t);
+                    ZeroCCType fp_type = zero_cc_type_ptr(&ret_t);
                     fp_type.is_func_ptr = true;
                     zero_cc_register_typedef(c, fp_alias, fp_type);
                 }
@@ -1906,8 +2038,43 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
 }
 
+/* Probe whether the array dimension starting at c->token_pos (up to the
+ * matching ']') is a constant expression.  Used to split plain array
+ * typedefs from VLA typedefs: an identifier that is not an enum constant
+ * / const global / true / false / NULL, or a call-like `ident (`, makes
+ * the dimension runtime.  A false "VLA" verdict on a constant is harmless
+ * (the size expression evaluates to the same value at runtime); a false
+ * "constant" verdict is not (the value would be 0). */
+static inline bool zc_typedef_dim_is_const(ZeroCCCompiler *c, size_t start) {
+    size_t p = start;
+    int pd = 0;
+    while (p < c->token_count) {
+        ZeroCCTokType t = c->tokens[p].type;
+        if (t == TK_LPAREN) {
+            pd++;
+        } else if (t == TK_RPAREN) {
+            if (pd == 0) break;
+            pd--;
+        } else if (t == TK_RBRACKET && pd == 0) {
+            break;
+        } else if (t == TK_IDENT) {
+            const char *nm = c->tokens[p].str_val;
+            bool known = (strcmp(nm, "true") == 0 || strcmp(nm, "false") == 0 ||
+                          strcmp(nm, "NULL") == 0 || strcmp(nm, "nullptr") == 0 ||
+                          strcmp(nm, "__alignof__") == 0 ||
+                          zero_cc_find_enum_const(c, nm) != NULL ||
+                          zc_const_global_scalar(c, nm, NULL, NULL, NULL));
+            bool call_like = (p + 1 < c->token_count &&
+                              c->tokens[p + 1].type == TK_LPAREN);
+            if (!known || call_like) return false;
+        }
+        p++;
+    }
+    return true;
+}
+
 /* Scalar Typedef */
-static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
+static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     c->token_pos++; /* consume TK_TYPEDEF */
     ZeroCCTokType t = c->tokens[c->token_pos].type;
     ZeroCCType ttype; memset(&ttype, 0, sizeof(ttype));
@@ -2034,11 +2201,17 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
         }
     }
     ZeroCCType base_ttype = ttype; /* pre-pointer-wrap, per comma declarator */
-    bool is_ptr = false;
-    while (c->tokens[c->token_pos].type == TK_STAR) { is_ptr = true; c->token_pos++; }
-    if (is_ptr) { ttype = zero_cc_type_ptr(&ttype); }
+    int ttype_star_count = 0;
+    while (c->tokens[c->token_pos].type == TK_STAR) { ttype_star_count++; c->token_pos++; }
+    for (int ts = 0; ts < ttype_star_count; ts++) ttype = zero_cc_type_ptr(&ttype);
+    bool is_ptr = (ttype_star_count > 0);
 
-    /* Function pointer typedef: typedef RetType (*Alias)(params...); */
+    /* Function pointer typedef: typedef RetType (*Alias)(params...);
+     * C99 6.7.5.3 spiral rule: the stars BEFORE `(` belong to the RETURN
+     * type - `T * (*f)(args)` is a pointer to a function returning T*.
+     * The funcptr's pointee must therefore be the fully-starred return
+     * type, not the bare base (c-torture pta-1: `JSObject *(*Op)(...)`
+     * calls came back as by-value structs and REJECTed on assignment). */
     if (c->tokens[c->token_pos].type == TK_LPAREN) {
         c->token_pos++; /* consume '(' */
         while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
@@ -2057,7 +2230,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
                 c->token_pos++;
             }
         }
-        ZeroCCType fp_type = zero_cc_type_ptr(&base_ttype);
+        ZeroCCType fp_type = zero_cc_type_ptr(&ttype);
         fp_type.is_func_ptr = true;
         if (alias[0] != '\0') {
             zero_cc_register_typedef(c, alias, fp_type);
@@ -2085,23 +2258,70 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c) {
                     vec_attr_size = probe;
                 }
             }
-            /* C99 6.7.8: array typedef `typedef T name[N];` / `typedef char A28[28];` */
+            /* C99 6.7.8: array typedef `typedef T name[N];` / `typedef char A28[28];`
+             * Non-constant dimensions are VLA typedefs (C99 6.7.8p5):
+             * the alias carries the dimension expression and `sizeof name`
+             * is evaluated at runtime (c-torture pr54552-1, 20040411-1). */
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                 int64_t t_dims[8];
+                bool t_vla[8];
+                size_t t_vla_expr[8]; /* ASTRef of the runtime dimension */
                 int t_dim_count = 0;
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                     c->token_pos++;
                     int64_t td = 0;
+                    bool td_vla = false;
+                    size_t td_expr = 0;
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) {
-                        td = zero_cc_eval_const_expr(c);
+                        if (zc_typedef_dim_is_const(c, c->token_pos)) {
+                            td = zero_cc_eval_const_expr(c);
+                        } else {
+                            td_expr = parse_expr_ast_internal(c, arena);
+                            td_vla = true;
+                        }
                     }
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                        c->token_pos++;
+                    } else {
+                        /* Malformed dimension: skip to ']' or ';' to recover. */
+                        while (c->token_pos < c->token_count &&
+                               c->tokens[c->token_pos].type != TK_RBRACKET &&
+                               c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                        if (c->token_pos < c->token_count &&
+                            c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                        break;
+                    }
                     if (td < 0) td = 0;
-                    if (t_dim_count < 8) t_dims[t_dim_count++] = td;
+                    if (t_dim_count < 8) {
+                        t_dims[t_dim_count] = td;
+                        t_vla[t_dim_count] = td_vla;
+                        t_vla_expr[t_dim_count] = td_expr;
+                        t_dim_count++;
+                    }
                 }
                 ZeroCCType tt2 = ttype;
                 for (int d = t_dim_count - 1; d >= 0; d--) {
                     tt2 = zero_cc_type_array(&tt2, (ssize_t)t_dims[d]);
+                }
+                /* VLA dimension: mark it, keep the outermost runtime
+                 * expression, and put the STATIC factor (element size times
+                 * the product of the constant dims) in `size` so
+                 * `sizeof name` = vla_dim * size at runtime. */
+                if (t_dim_count > 0) {
+                    int first_vla = -1;
+                    int64_t static_prod = (ttype.size > 0) ? (int64_t)ttype.size : 1;
+                    for (int d = 0; d < t_dim_count; d++) {
+                        if (t_vla[d]) {
+                            if (first_vla < 0) first_vla = d;
+                        } else {
+                            static_prod *= t_dims[d];
+                        }
+                    }
+                    if (first_vla >= 0) {
+                        tt2.is_vla = true;
+                        tt2.vla_dim = t_vla_expr[first_vla];
+                        tt2.size = (size_t)(static_prod > 0 ? static_prod : 1);
+                    }
                 }
                 ttype = tt2;
             }

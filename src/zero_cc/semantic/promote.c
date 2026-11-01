@@ -217,7 +217,7 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
         case TYPE_KIND_STRUCT:
         case TYPE_KIND_UNION:
         case TYPE_KIND_ENUM:
-            if (t1->details.record.tag && t2->details.record.tag) {
+                    if (t1->details.record.tag && t2->details.record.tag) {
                 return strcmp(t1->details.record.tag, t2->details.record.tag) == 0;
             }
             if (!t1->details.record.tag && !t2->details.record.tag) {

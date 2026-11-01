@@ -579,6 +579,88 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         return AST_NULL;
     }
 
+    /* GNU asm statement:
+     *   __asm__ [ __volatile__ | volatile ] ( "template"* [: ops]* ) ;
+     *   __asm__ [ __volatile__ | volatile ] "template"* [: ops]* ;
+     * The template (and the whole operand group) may be wrapped in a
+     * single paren pair.  Empty templates (compiler barriers such as
+     * `"" : : : "memory"` or clobber-only forms) lower to a no-op.  A
+     * non-empty template emits machine instructions ZeroCC has no model
+     * for, so it is a clean reject (c-torture execute/990413-2 uses i387
+     * fpatan/fsqrt). */
+    if (t == TK_IDENT && c->tokens[c->token_pos].str_val &&
+        (strcmp(c->tokens[c->token_pos].str_val, "__asm__") == 0 ||
+         strcmp(c->tokens[c->token_pos].str_val, "__asm") == 0)) {
+        c->token_pos++;
+        if (c->token_pos < c->token_count &&
+            ((c->tokens[c->token_pos].type == TK_IDENT &&
+              c->tokens[c->token_pos].str_val &&
+              (strcmp(c->tokens[c->token_pos].str_val, "__volatile__") == 0)) ||
+             c->tokens[c->token_pos].type == TK_VOLATILE)) {
+            c->token_pos++;
+        }
+        bool asm_paren = false;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            asm_paren = true;
+            c->token_pos++;
+        }
+        /* Template: one or more adjacent string literals. */
+        bool asm_nonempty = false;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
+            for (const char *ch = c->tokens[c->token_pos].str_val; *ch; ch++) {
+                if (*ch != ' ' && *ch != '\t' && *ch != '\n' && *ch != '\r') {
+                    asm_nonempty = true;
+                    break;
+                }
+            }
+            c->token_pos++;
+        }
+        /* Operand lists: `: "constraint" (expr) , ...` - consume each
+         * constraint string and (for output/input) its parenthesized
+         * expression; clobbers are bare strings. */
+        bool asm_bail = false;
+        while (c->token_pos < c->token_count &&
+               c->tokens[c->token_pos].type != TK_SEMI &&
+               !(asm_paren && c->tokens[c->token_pos].type == TK_RPAREN)) {
+            ZeroCCTokType ot = c->tokens[c->token_pos].type;
+            if (ot == TK_COLON || ot == TK_COLONCOLON || ot == TK_COMMA) {
+                c->token_pos++;
+            } else if (ot == TK_STRING) {
+                c->token_pos++;
+            } else if (ot == TK_LPAREN) {
+                c->token_pos++;
+                (void)parse_expr_ast_internal(c, arena);
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            } else {
+                asm_bail = true;
+                break;
+            }
+        }
+        if (asm_bail) {
+            /* Desynced: skip to the ';' at bracket depth 0 (an inner
+             * `)` from an operand list must not end the skip). */
+            int depth = 0;
+            while (c->token_pos < c->token_count) {
+                ZeroCCTokType bt = c->tokens[c->token_pos].type;
+                if (bt == TK_LPAREN || bt == TK_LBRACKET || bt == TK_LBRACE) depth++;
+                else if (bt == TK_RPAREN || bt == TK_RBRACKET || bt == TK_RBRACE) {
+                    if (depth == 0 && asm_paren) break;
+                    if (depth > 0) depth--;
+                } else if (bt == TK_SEMI && depth == 0) break;
+                c->token_pos++;
+            }
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        if (asm_nonempty) {
+            diag_report_error_at_token(c,
+                "GNU asm statement with a non-empty template is not supported");
+            c->had_error = 1;
+        }
+        return AST_NULL;
+    }
+
     /* Goto statement: goto label; */
     if (t == TK_GOTO) {
         c->token_pos++;
@@ -624,7 +706,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_ENUM) {
             zero_cc_stmt_typedef_enum(c);
         } else {
-            zero_cc_stmt_typedef_scalar(c);
+            zero_cc_stmt_typedef_scalar(c, arena);
         }
         return AST_NULL;
     }
@@ -1675,7 +1757,15 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     }
 
                     const char *next_vname = next_decl.name;
-                    ZeroCCType next_base = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                    /* An inline anonymous struct/union (`union { ... } a, b;`)
+                     * must give EVERY comma declarator the defined type -
+                     * falling through to zero_cc_resolve_base_type with the
+                     * keyword token as the "name" typed the second
+                     * declarator as long (and, after the incomplete-tag
+                     * materialization, as an empty union: c-torture
+                     * execute/bswap-1.c, cbrt.c segfaulted in AOT). */
+                    ZeroCCType next_base = has_anon_struct ? anon_struct_type :
+                        (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
                     /* C99 6.7.2.3 suffix complex applies to every
                      * comma declarator: `double _Complex a, b;`. */
                     if (suffix_complex && !zero_cc_type_is_complex(&next_base)) {

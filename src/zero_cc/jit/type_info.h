@@ -321,7 +321,27 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
     if (type_tok == TK_STRUCT || type_tok == TK_UNION) {
         ZeroCCType *st = type_name ? zero_cc_find_struct(c, type_name) : NULL;
         if (!st && type_name) st = zero_cc_find_typedef(c, type_name);
-        return st ? *st : zero_cc_type_int64();
+        if (st) return *st;
+        /* Forward reference to a not-yet-defined struct/union tag: give it
+         * an incomplete (zero-size) identity instead of silently falling
+         * back to long - `struct S *p;` with S undefined must be a pointer
+         * TO S, not long* (c-torture pr46388: member assignment REJECTed
+         * as incompatible).  A later definition re-registers the tag with
+         * the complete layout (zero_cc_register_struct replaces by name
+         * and the sync helpers refresh dependent types). */
+        if (type_name &&
+            strcmp(type_name, "struct") != 0 && strcmp(type_name, "union") != 0 &&
+            strcmp(type_name, "enum") != 0) {
+            ZeroCCType inc;
+            memset(&inc, 0, sizeof(inc));
+            inc.tag = (type_tok == TK_UNION) ? TYPE_UNION : TYPE_STRUCT;
+            inc.size = 0;
+            inc.align = 1;
+            snprintf(inc.struct_name, sizeof(inc.struct_name), "%s", type_name);
+            zero_cc_register_struct(c, type_name, inc);
+            return inc;
+        }
+        return zero_cc_type_int64();
     }
     if (type_tok == TK_ENUM) {
         ZeroCCType *et = type_name ? zero_cc_find_enum(c, type_name) : NULL;

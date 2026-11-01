@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-10-31T22:09:32Z
+timestamp: 2026-11-01T03:20:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -632,3 +632,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-10-31 — Updated `frontend-and-types.md`
 - Sprint 69: math.h virtual header + stdio.h/va_end notes
+
+## 2026-11-01 — Updated `frontend-and-types.md`
+- Sprint 70: type-identity invariants (const members, K&R stars, comma declarators, funcptr typedef spiral rule, incomplete struct materialization, param tag preservation, anonymous aggregate comma declarators, bswap64, label-table growth)
+
+## 2026-11-01 — Updated `c-torture-gate.md`
+- Sprint 70 baseline: PASS 2920, REJECT 103, MISCOMPILE 0

@@ -7176,6 +7176,44 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return t_result;
             }
 
+            /* __builtin_bswap64(x) - byte-swap a 64-bit value:
+             * byte i of the result is byte (7-i) of x.
+             * (c-torture execute/bswap-1.c - previously emitted as an
+             * undefined external call and segfaulted at runtime). */
+            if (callee_is_ident && callee->s.str &&
+                strcmp(callee->s.str, "__builtin_bswap64") == 0) {
+                ASTRef b64_arg = node->right;
+                int s_a = lower_expr(c, arena, b64_arg);
+                int s_ff = c->next_temp_id++; ir_emit_mov_imm(s_ff, 0xFF);
+                int s_b[8];
+                int sh[8] = {0, 8, 16, 24, 32, 40, 48, 56};
+                int shd[8] = {56, 48, 40, 32, 24, 16, 8, 0};
+                for (int i = 0; i < 8; i++) {
+                    int s_s = c->next_temp_id++; ir_emit_mov_imm(s_s, sh[i]);
+                    int s_t = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_SHR,.temp_dest=(uint16_t)s_t,
+                        .temp_src1=(uint16_t)s_a,.temp_src2=(uint16_t)s_s});
+                    s_b[i] = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_AND,.temp_dest=(uint16_t)s_b[i],
+                        .temp_src1=(uint16_t)s_t,.temp_src2=(uint16_t)s_ff});
+                }
+                int s_r = c->next_temp_id++;
+                for (int i = 0; i < 8; i++) {
+                    int s_s = c->next_temp_id++; ir_emit_mov_imm(s_s, shd[i]);
+                    int s_t = c->next_temp_id++;
+                    ir_emit((Instr){.op=OP_SHL,.temp_dest=(uint16_t)s_t,
+                        .temp_src1=(uint16_t)s_b[i],.temp_src2=(uint16_t)s_s});
+                    if (i == 0) {
+                        ir_emit_mov_reg(s_r, s_t);
+                        continue;
+                    }
+                    ir_emit((Instr){.op=OP_OR,.temp_dest=(uint16_t)s_r,
+                        .temp_src1=(uint16_t)s_r,.temp_src2=(uint16_t)s_t});
+                }
+                c->last_expr_is_float = 0;
+                return s_r;
+            }
+
             /* __builtin_ffs(x) - return 1 + index of least significant set
              * bit (1-indexed), or 0 if x == 0.  Branchless bit scan:
              * result = 0; for i in 0..31: if ((x>>i)&1) && result==0:

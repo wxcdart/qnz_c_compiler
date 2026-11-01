@@ -64,7 +64,13 @@ static void sem_register_label(SemContext *ctx, const char *name, size_t len) {
     if (len == 0) len = strlen(name);
     if (ctx->label_count >= ctx->label_cap) {
         size_t newcap = ctx->label_cap ? ctx->label_cap * 2 : 16;
-        ctx->labels = (char **)arena_alloc(ctx->tmp_arena, newcap * sizeof(char *));
+        char **newlabels = (char **)arena_alloc(ctx->tmp_arena, newcap * sizeof(char *));
+        if (!newlabels) return;
+        /* Carry over the existing entries - dropping them left the grown
+         * table full of NULLs and sem_find_label segfaulted on the first
+         * strlen (c-torture compile/jmp.c: a chain of >= 9 labels). */
+        for (size_t i = 0; i < ctx->label_count; i++) newlabels[i] = ctx->labels[i];
+        ctx->labels = newlabels;
         ctx->label_cap = newcap;
     }
     char *copy = (char *)arena_alloc(ctx->tmp_arena, len + 1);
@@ -78,6 +84,7 @@ bool sem_find_label(SemContext *ctx, const char *name, size_t len) {
     if (!ctx || !name) return false;
     if (len == 0) len = strlen(name);
     for (size_t i = 0; i < ctx->label_count; i++) {
+        if (!ctx->labels[i]) continue;
         size_t l = strlen(ctx->labels[i]);
         if (l == len && memcmp(ctx->labels[i], name, len) == 0) return true;
     }

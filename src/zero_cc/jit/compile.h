@@ -178,19 +178,15 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
         c->token_pos++;
     }
-    int ptr_depth = 0;
-    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
-        ptr_depth++;
-        c->token_pos++;
-        while (c->token_pos < c->token_count &&
-               (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
-            c->token_pos++;
-        }
-    }
+    /* Pointer stars are consumed PER-DECLARATOR in the loop below
+     * (`int *a, b;` - each declarator owns its own `*` run).  Applying a
+     * base `*` run here as well would over-count: `int *o1, *o2;` would
+     * type o1 as int* but o2 as int** (Sprint 70, c-torture 961004-1: the
+     * K&R params came out with mismatched types and every cross
+     * assignment REJECTed as incompatible). */
     pt.is_const = p_is_const;
     pt.is_volatile = p_is_volatile;
     if (vec_size > 0 && !zero_cc_type_is_vector(&pt)) pt = zero_cc_type_vector(&pt, vec_size);
-    for (int pd = 0; pd < ptr_depth; pd++) pt = zero_cc_type_ptr(&pt);
 
     int count = 0;
     for (;;) {
@@ -503,7 +499,15 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             pt = typeof_pt;
         } else if (pfound) {
             pt = *pfound;
-            snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
+            /* An explicit `struct`/`union` keyword means ptname IS the tag
+             * (adopt it - e.g. the struct was found via an alias).  For a
+             * plain identifier (typedef name), keep the type's own tag:
+             * overwriting it with the alias broke compatibility with the
+             * real tag (c-torture pr49474: `gfc_actual_arglist *lst` param
+             * vs `struct gfc_formal_arglist *` return - incompatible). */
+            if (ptt == TK_STRUCT || ptt == TK_UNION) {
+                snprintf(pt.struct_name, sizeof(pt.struct_name), "%s", ptname);
+            }
         } else if (ptt == TK_FLOAT_KW) {
             pt = zero_cc_type_float();
         } else if (ptt == TK_DOUBLE_KW) {

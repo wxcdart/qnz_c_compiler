@@ -58,6 +58,12 @@ typedef struct ZeroCCType {
     size_t align;
     struct ZeroCCType *base;              /* For PTR and ARRAY */
     size_t array_len;                     /* For ARRAY */
+    /* VLA typedef dimension (C99 6.7.8: `typedef T name[expr];` with a
+     * non-constant expr): arena index of the dimension AST expression,
+     * 0 (AST_NULL) when not a VLA.  `size` then holds the STATIC factor
+     * (element size times the product of the constant dims), so
+     * `sizeof name` = vla_dim * size, evaluated at runtime. */
+    size_t vla_dim;
     ZeroCCStructMember *members;     /* For STRUCT/UNION (heap; NULL when none) */
     size_t members_cap;              /* capacity of the heap members array */
     bool is_atomic;                       /* For _Atomic */

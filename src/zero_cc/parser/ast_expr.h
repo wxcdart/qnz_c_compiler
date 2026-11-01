@@ -947,6 +947,21 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->token_pos = pos;
             size_t sz = ty.size;
 
+            /* VLA typedef operand (`sizeof T` with `typedef double T[n];`):
+             * the size is (runtime dimension) * (static factor in ty.size).
+             * Emit the product as an expression, not a constant. */
+            if (ty.is_vla && ty.tag == TYPE_ARRAY && ty.vla_dim != 0) {
+                ASTRef es_ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+                ZeroCCASTNode *en = zero_cc_ast_get(arena, es_ref);
+                en->int_val = (int64_t)(sz > 0 ? sz : 1);
+                ASTRef sr = zero_cc_ast_alloc_node(arena, NODE_BINOP);
+                ZeroCCASTNode *sn = zero_cc_ast_get(arena, sr);
+                sn->left = (ASTRef)ty.vla_dim;
+                sn->right = es_ref;
+                sn->aux.op = (uint32_t)TK_STAR;
+                return sr;
+            }
+
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
             ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
             n->int_val = (int64_t)sz;

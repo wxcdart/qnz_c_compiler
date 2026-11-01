@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-10-31T22:07:43Z",
+ "generated": "2026-11-01T03:18:28Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -349,12 +349,12 @@
    "note": "                         ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20000827-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                       ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000922-1.c": {
    "class": "PASS",
@@ -437,12 +437,12 @@
    "note": ""
   },
   "compile/20001205-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001212-1.c": {
    "class": "PASS",
@@ -650,12 +650,12 @@
    "note": ""
   },
   "compile/20010408-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: switch condition must have integer type [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010421-1.c": {
    "class": "PASS",
@@ -807,12 +807,12 @@
    "note": ""
   },
   "compile/20010903-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010903-2.c": {
    "class": "SKIP-C89",
@@ -993,7 +993,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                  ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20011229-2.c": {
    "class": "PASS",
@@ -1779,12 +1779,12 @@
    "note": ""
   },
   "compile/20030904-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: incompatible initializer type for variable 'e' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030907-1.c": {
    "class": "PASS",
@@ -2002,12 +2002,12 @@
    "note": ""
   },
   "compile/20040101-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040109-1.c": {
    "class": "PASS",
@@ -2263,12 +2263,12 @@
    "note": ""
   },
   "compile/20040708-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040709-1.c": {
    "class": "PASS",
@@ -2609,12 +2609,12 @@
    "note": ""
   },
   "compile/20060109-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20060202-1.c": {
    "class": "SKIP-C89",
@@ -2641,12 +2641,12 @@
    "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20060217-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20060309-1.c": {
    "class": "PASS",
@@ -3097,12 +3097,12 @@
    "note": ""
   },
   "compile/20081108-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20081108-2.c": {
    "class": "PASS",
@@ -3230,7 +3230,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                                 ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/20090917-1.c": {
    "class": "SKIP-C89",
@@ -3267,7 +3267,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": "                          ^; Compile error: use of undeclared identifier 'buffer_uptodate' | cfgs: O0-aot,O2-aot"
   },
   "compile/20101216-1.c": {
    "class": "SKIP-C89",
@@ -3766,7 +3766,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                         ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -3920,7 +3920,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "                                               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-3.c": {
    "class": "PASS",
@@ -5083,7 +5083,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                                                        ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": "                                                                                        ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/951004-1.c": {
    "class": "PASS",
@@ -5214,12 +5214,12 @@
    "note": "       ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/961004-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/961010-1.c": {
    "class": "PASS",
@@ -5571,12 +5571,12 @@
    "note": ""
   },
   "compile/991026-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: incompatible initializer type for variable 'pu' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/991026-2.c": {
    "class": "PASS",
@@ -5829,7 +5829,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": "                                                           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/PYRBUG.c": {
    "class": "PASS",
@@ -5848,12 +5848,12 @@
    "note": ""
   },
   "compile/QIset.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/SFset.c": {
    "class": "SKIP-C89",
@@ -5861,7 +5861,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": "                                                           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/SIcmp.c": {
    "class": "SKIP-C89",
@@ -5877,7 +5877,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": "                                                       ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
   },
   "compile/UHIcmp.c": {
    "class": "SKIP-C89",
@@ -7190,12 +7190,12 @@
    "note": ""
   },
   "compile/jmp.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/jumptab.c": {
    "class": "SKIP-C89",
@@ -7426,7 +7426,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                      ^; Compile error: incompatible return type in return statement | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/loop-1.c": {
    "class": "SKIP-C89",
@@ -7665,20 +7665,20 @@
    "note": ""
   },
   "compile/mword.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mword1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/n.c": {
    "class": "PASS",
@@ -8538,12 +8538,12 @@
    "note": ""
   },
   "compile/pr113623.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr113759.c": {
    "class": "PASS",
@@ -8610,12 +8610,12 @@
    "note": ""
   },
   "compile/pr116600.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr117358.c": {
    "class": "PASS",
@@ -8708,12 +8708,12 @@
    "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
   },
   "compile/pr123386.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr123703.c": {
    "class": "NO-REF",
@@ -8905,12 +8905,12 @@
    "note": "              ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr17529.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr17558.c": {
    "class": "PASS",
@@ -9592,12 +9592,12 @@
    "note": ""
   },
   "compile/pr30311.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr30338.c": {
    "class": "PASS",
@@ -9725,12 +9725,12 @@
    "note": ""
   },
   "compile/pr32372.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: incompatible initializer type for variable 's' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr32399.c": {
    "class": "PASS",
@@ -9762,7 +9762,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                              ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/pr32584.c": {
    "class": "PASS",
@@ -10018,12 +10018,12 @@
    "note": ""
   },
   "compile/pr34966.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34993.c": {
    "class": "PASS",
@@ -10058,12 +10058,12 @@
    "note": ""
   },
   "compile/pr35318.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr35431.c": {
    "class": "SKIP-C89",
@@ -11225,12 +11225,12 @@
    "note": ""
   },
   "compile/pr42398.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42559.c": {
    "class": "SKIP-TARGET:label_values",
@@ -11254,12 +11254,12 @@
    "note": ""
   },
   "compile/pr42705.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: incompatible initializer type for variable 'ptr' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42708-1.c": {
    "class": "PASS",
@@ -11286,12 +11286,12 @@
    "note": ""
   },
   "compile/pr42730.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42749.c": {
    "class": "PASS",
@@ -11480,7 +11480,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44063.c": {
    "class": "SKIP-C89",
@@ -11531,12 +11531,12 @@
    "note": ""
   },
   "compile/pr44707.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44784.c": {
    "class": "PASS",
@@ -11728,12 +11728,12 @@
    "note": "             ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr46388.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr46461.c": {
    "class": "PASS",
@@ -11927,12 +11927,12 @@
    "note": "                                                                       ^; Compile error: static local 'array' initializer must be a constant literal (complex initializers not yet supported) | cfgs: O0-aot,O2-aot"
   },
   "compile/pr48596.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr48641.c": {
    "class": "PASS",
@@ -12022,12 +12022,12 @@
    "note": ""
   },
   "compile/pr49474.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr49710.c": {
    "class": "PASS",
@@ -12474,12 +12474,12 @@
    "note": ""
   },
   "compile/pr54552-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr54559.c": {
    "class": "PASS",
@@ -12570,12 +12570,12 @@
    "note": ""
   },
   "compile/pr55921.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr55955.c": {
    "class": "PASS",
@@ -13180,12 +13180,12 @@
    "note": ""
   },
   "compile/pr68538.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                  ^; Compile error: incompatible initializer type for variable 'queue' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr69102.c": {
    "class": "REJECT",
@@ -13964,12 +13964,12 @@
    "note": "                   ^; Compile error: use of undeclared identifier 'lab' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr85401.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr85704.c": {
    "class": "PASS",
@@ -14640,12 +14640,12 @@
    "note": ""
   },
   "compile/pta-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/ptr-conv-1.c": {
    "class": "PASS",
@@ -15601,7 +15601,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: use of undeclared identifier 'fee' | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'fee' | cfgs: O0-aot,O2-aot"
   },
   "compile/xfoo.c": {
    "class": "SKIP-C89",
@@ -16632,15 +16632,15 @@
    "class": "SKIP-C89",
    "configs": {
     "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "REJECT",
     "O1-jit": "TIMEOUT",
     "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
+    "O2-jit": "TIMEOUT",
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                ^; Compile error: void function should not return a value | cfgs: O0-aot,O0-jit,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -17414,18 +17414,18 @@
    "note": ""
   },
   "execute/20011008-3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20011019-1.c": {
    "class": "PASS",
@@ -18027,7 +18027,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                        ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020413-1.c": {
    "class": "PASS",
@@ -19599,18 +19599,18 @@
    "note": ""
   },
   "execute/20040411-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040423-1.c": {
    "class": "SKIP-C89",
@@ -21014,18 +21014,18 @@
    "note": ""
   },
   "execute/20071211-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20071213-1.c": {
    "class": "PASS",
@@ -21080,18 +21080,18 @@
    "note": ""
   },
   "execute/20080117-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20080122-1.c": {
    "class": "SKIP-C89",
@@ -22717,18 +22717,18 @@
    "note": "                                  ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920810-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920812-1.c": {
    "class": "SKIP-C89",
@@ -22960,18 +22960,18 @@
    "note": "          ^; Compile error: unexpected token in brace initializer (near 'abort') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/921112-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/921113-1.c": {
    "class": "PASS",
@@ -25220,18 +25220,18 @@
    "note": ""
   },
   "execute/980506-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980506-3.c": {
    "class": "PASS",
@@ -25703,7 +25703,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: GNU asm statement with a non-empty template is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/990513-1.c": {
    "class": "PASS",
@@ -26630,18 +26630,18 @@
    "note": ""
   },
   "execute/bswap-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/bswap-2.c": {
    "class": "PASS",
@@ -27538,18 +27538,18 @@
    "note": ""
   },
   "execute/cbrt.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ccmp-tree-1.c": {
    "class": "PASS",
@@ -33731,7 +33731,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                               ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                               ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr42006.c": {
    "class": "PASS",
@@ -35046,18 +35046,18 @@
    "note": ""
   },
   "execute/pr54985.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "              ^; Compile error: incompatible initializer type for variable 'item' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr55137.c": {
    "class": "PASS",
@@ -37745,18 +37745,18 @@
    "note": ""
   },
   "execute/pr81588.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr81913.c": {
    "class": "PASS",
@@ -40751,11 +40751,11 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 186,
-  "PASS": 2873,
+  "PASS": 2920,
   "REF-BUG": 3,
-  "REJECT": 144,
+  "REJECT": 103,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 570,
+  "SKIP-C89": 564,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,

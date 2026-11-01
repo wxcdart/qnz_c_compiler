@@ -135,7 +135,7 @@ static inline bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
             zero_cc_stmt_typedef_enum(c);
             return true;
         } else {
-            zero_cc_stmt_typedef_scalar(c);
+            zero_cc_stmt_typedef_scalar(c, c->tu_ast_arena);
             return true;
         }
     }

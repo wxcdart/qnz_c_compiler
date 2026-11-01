@@ -1310,6 +1310,35 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
     return is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
 }
 
+/* Consume one array-dimension bracket group `[...]` in a type-NAME context
+ * (*pos at '[').  Returns the length when the dimension is a single numeric
+ * literal, else -1: an expression dimension (`sizeof (T)`, `2*8`, `n`) has
+ * a runtime value that is irrelevant to a type name (casts reinterpret the
+ * pointer; named declarations go through the declarator stack, which keeps
+ * the real dimension expression). */
+static inline ssize_t zc_consume_type_dim(ZeroCCCompiler *c, size_t *pos) {
+    (*pos)++; /* '[' */
+    ssize_t alen = 0;
+    bool numeric = false;
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
+        alen = (ssize_t)c->tokens[*pos].num_val;
+        numeric = true;
+        (*pos)++;
+    } else if (*pos < c->token_count && c->tokens[*pos].type != TK_RBRACKET) {
+        int pd = 0, bd = 0;
+        while (*pos < c->token_count) {
+            ZeroCCTokType dt = c->tokens[*pos].type;
+            if (dt == TK_LPAREN) pd++;
+            else if (dt == TK_RPAREN) { if (pd == 0) break; pd--; }
+            else if (dt == TK_LBRACKET) bd++;
+            else if (dt == TK_RBRACKET) { if (bd == 0) break; bd--; }
+            (*pos)++;
+        }
+    }
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+    return numeric ? alen : -1;
+}
+
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
@@ -1338,8 +1367,22 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             const char *name = c->tokens[*pos].str_val;
             ZeroCCType *st = zero_cc_find_struct(c, name);
             if (!st) st = zero_cc_find_typedef(c, name);
-            if (st) ty = *st;
-            else ty = zero_cc_type_int64();
+            if (st) {
+                ty = *st;
+            } else if (strcmp(name, "struct") != 0 && strcmp(name, "union") != 0 &&
+                       strcmp(name, "enum") != 0) {
+                /* Forward reference: materialize an incomplete (zero-size)
+                 * type so globals/pointees keep the struct's identity
+                 * instead of silently becoming long (c-torture pr46388). */
+                memset(&ty, 0, sizeof(ty));
+                ty.tag = (t == TK_UNION) ? TYPE_UNION : TYPE_STRUCT;
+                ty.size = 0;
+                ty.align = 1;
+                snprintf(ty.struct_name, sizeof(ty.struct_name), "%s", name);
+                zero_cc_register_struct(c, name, ty);
+            } else {
+                ty = zero_cc_type_int64();
+            }
             (*pos)++;
         } else {
             ty = zero_cc_type_int64();
@@ -1477,13 +1520,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         }
         ssize_t inner_arr_len = -1;
         while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-            (*pos)++;
-            ssize_t alen = 0;
-            if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
-                alen = (ssize_t)c->tokens[*pos].num_val;
-                (*pos)++;
-            }
-            if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+            ssize_t alen = zc_consume_type_dim(c, pos);
+            if (alen < 0) alen = 0;
             inner_arr_len = (inner_arr_len < 0) ? alen : inner_arr_len * alen;
         }
         if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
@@ -1498,13 +1536,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             is_func = true;
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
             while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-                (*pos)++;
-                ssize_t arr_len = 0;
-                if (*pos < c->token_count && c->tokens[*pos].type == TK_NUM) {
-                    arr_len = (ssize_t)c->tokens[*pos].num_val;
-                    (*pos)++;
-                }
-                if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                ssize_t arr_len = zc_consume_type_dim(c, pos);
+                if (arr_len < 0) arr_len = 0;
                 ZeroCCType elem_ty = ty;
                 ty = zero_cc_type_array(&elem_ty, arr_len);
             }
@@ -1608,8 +1641,22 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             const char *name = c->tokens[c->token_pos].str_val;
             ZeroCCType *st = zero_cc_find_struct(c, name);
             if (!st) st = zero_cc_find_typedef(c, name);
-            if (st) ty = *st;
-            else ty = zero_cc_type_int64();
+            if (st) {
+                ty = *st;
+            } else if (strcmp(name, "struct") != 0 && strcmp(name, "union") != 0 &&
+                       strcmp(name, "enum") != 0) {
+                /* Forward reference: register an incomplete (zero-size)
+                 * type so the struct keeps its identity instead of
+                 * silently becoming long (c-torture pr46388). */
+                memset(&ty, 0, sizeof(ty));
+                ty.tag = (c->tokens[c->token_pos - 1].type == TK_UNION) ? TYPE_UNION : TYPE_STRUCT;
+                ty.size = 0;
+                ty.align = 1;
+                snprintf(ty.struct_name, sizeof(ty.struct_name), "%s", name);
+                zero_cc_register_struct(c, name, ty);
+            } else {
+                ty = zero_cc_type_int64();
+            }
             c->token_pos++;
         } else {
             ty = zero_cc_type_int64();

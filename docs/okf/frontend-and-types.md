@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-10-31T22:09:32Z
+timestamp: 2026-11-01T03:20:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -211,6 +211,21 @@ ZeroCC employs a C-only declarator state machine in `src/zero_cc/parser/zero_cc_
 - **Integration**:
   - Local block declarations in `src/zero_cc/parser/ast_stmt.h` use `zero_cc_parse_declarator`, unifying pointer prefixes, function pointer declarations, array dimensions, VLAs, and comma-separated multi-declarator statements (`int *m1, m_arr[5] = {10, 20}, *m2;`).
   - Standalone regression test: `test/expr/declarator_stack.c` and `test/jit/declarator_stack.c`.
+
+## Type-Identity Invariants (Sprint 70)
+
+The same logical type reaching the semantic layer through different parser paths with different tags/widths manifests as `incompatible types in assignment` REJECTs on perfectly legal code (and, once parsing succeeds, as segfaults). The invariants that closed the Sprint 70 cluster:
+
+- **Leading struct/union/enum member qualifiers attach to the base type** (`parser/definitions.h`): the TK_STRUCT member branch runs *before* the generic qualifier scan, so `const struct S *p;` members must probe-and-consume a leading `const`/`volatile`/`restrict` run and propagate it to the pointee (pointer members) or the member itself (value members). Without the probe, the qualifier is silently eaten and `t.p = &x;` REJECTs (c-torture `20040708-1`).
+- **K&R parameter pointer stars are per-declarator only** (`jit/compile.h` `zero_cc_parse_kr_decl`): a base `*` run folded into the prototype type *and* re-consumed per declarator double-counts — `long long *o1, *o2;` typed o2 as `long long**` (c-torture `961004-1`, `mword1`). Each declarator owns its own star run; the prototype carries no stars of its own.
+- **Comma-declarator pointer wrap must not clobber a real struct/typedef base** (`parser/definitions.h`): the anonymous-dummy pointee synthesis for `A *e, *f;` struct members runs only when `m->base` is unset — otherwise f/g/h lose the struct identity (c-torture `pr113623`). In comma lists the *current* declarator's `c_is_ptr` decides where leading qualifiers land.
+- **`void *` pointee tag is `TYPE_VOID` at any depth** (`parser/definitions.h`): the old `ptr_depth > 1` guard made depth-1 `void *` struct members `ptr_to(int64)`; `&g.pv` then failed to match `void **` (c-torture `pr42730`). Loads/stores size off the pointer width, not the pointee tag.
+- **C99 6.7.5.3 spiral rule for function-pointer typedefs**: stars before `(` belong to the **return type** — `typedef T *(*Op)(args);` is a pointer to a function returning `T *`. Both typedef paths (scalar base and struct base) must wrap the return type with the consumed star depth before building the funcptr pointee, or `obj = ops->get(obj);` calls come back as by-value structs (c-torture `pta-1`).
+- **Incomplete struct/union tags materialize as zero-size identity types**, never as the `int64` fallback (`jit/type_info.h` `zero_cc_resolve_base_type`, `parser/const_eval.h` ×2): a forward-declared `struct S *p` is a pointer **to S** (tag `S`), not `long *`; a later `struct S { ... };` replaces the entry by name and the existing dependent-type sync refreshes users. Guard the materialization against the keyword strings (`struct`/`union`/`enum` as names), or keyword-typed members register junk zero-size types (c-torture `pr46388`, the 10-test `expected identifier in extern declaration` cluster).
+- **Function parameters keep the resolved type's own tag**: the param parser must not overwrite `struct_name` with the *written* type name — a typedef param (`gfc_actual_arglist *lst`, typedef of `struct gfc_formal_arglist`) keeps tag `gfc_formal_arglist` so `return lst;` matches (c-torture `pr49474`). Adopt the written name only for explicit `struct`/`union` keywords, where the name *is* the tag.
+- **Comma declarators of inline anonymous aggregates reuse the parsed body** (`parser/ast_stmt.h`): `union { ... } a, b;` — the second declarator must use `anon_struct_type`, not re-resolve from the keyword token; re-resolution yields `long` (pre-Sprint-70) or, with incomplete-tag materialization enabled, an *empty* union whose member loads alias 32-bit float slots and segfault in AOT (c-torture `bswap-1`, `cbrt`).
+- **`__builtin_bswap64` is a compiler builtin** (`ir/ast_lowering_expr.c`): byte-extract (8× SHR/AND) + shift-to-`8·(7−i)` + OR, branch-free like its 16/32-bit siblings — never an undefined external call (runtime segfault). Watch the shift table: byte *i* of the input moves to position `7−i`, so the shift is `56−8·i` (the i=0 byte goes to the **top**, not the bottom).
+- **Semantic label-table growth must preserve entries** (`semantic/visitor.c` `sem_register_label`): growing the arena-allocated `char **labels` without copying the old pointers leaves the grown table full of NULLs and `sem_find_label` segfaults the **compiler** on `strlen(NULL)` the moment a function gains ≥ 9 labels (c-torture `compile/jmp.c` — a 13-label goto chain).
 
 ## Block-Scope `static` Locals (Sprint 37)
 
