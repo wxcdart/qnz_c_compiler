@@ -2331,6 +2331,20 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
         t = c->tokens[c->token_pos].type;
     }
 
+    /* Type qualifiers on the typedef base (C99 6.7.5 flexible order): a
+     * leading `const`/`volatile` (`typedef const int Q;`, c-torture
+     * pr22013-1) was not handled, so the typedef alias was never
+     * registered and every later use of the name was an undeclared
+     * identifier. Record the leading qualifiers and re-read the base
+     * token; trailing qualifiers are handled after the base type. */
+    bool td_const = false, td_volatile = false;
+    while (t == TK_CONST || t == TK_VOLATILE) {
+        if (t == TK_CONST) td_const = true;
+        if (t == TK_VOLATILE) td_volatile = true;
+        c->token_pos++;
+        t = c->tokens[c->token_pos].type;
+    }
+
     /* GNU vector attribute leading the typedef base:
      * `typedef __attribute__((__vector_size__(16))) short V;` */
     size_t vec_attr_size = 0;
@@ -2443,6 +2457,17 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
         }
     }
     ZeroCCType base_ttype = ttype; /* pre-pointer-wrap, per comma declarator */
+    /* Trailing type qualifiers before the pointer run (C99 6.7.5):
+     * `typedef int const Q;` / `typedef char volatile V;`. */
+    if (td_const) ttype.is_const = true;
+    if (td_volatile) ttype.is_volatile = true;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE)) {
+        if (c->tokens[c->token_pos].type == TK_CONST) ttype.is_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE) ttype.is_volatile = true;
+        c->token_pos++;
+    }
     int ttype_star_count = 0;
     while (c->tokens[c->token_pos].type == TK_STAR) { ttype_star_count++; c->token_pos++; }
     for (int ts = 0; ts < ttype_star_count; ts++) ttype = zero_cc_type_ptr(&ttype);

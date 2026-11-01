@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T22:47:11Z",
+ "generated": "2026-11-01T23:06:46Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -9141,12 +9141,12 @@
    "note": ""
   },
   "compile/pr22013-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 's' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr22269.c": {
    "class": "PASS",
@@ -11310,12 +11310,12 @@
    "note": ""
   },
   "compile/pr42956.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                         ^; Compile error: use of undeclared identifier 'e' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42998.c": {
    "class": "PASS",
@@ -40787,11 +40787,11 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2988,
+  "PASS": 2990,
   "REF-BUG": 3,
-  "REJECT": 45,
+  "REJECT": 44,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 551,
+  "SKIP-C89": 550,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
