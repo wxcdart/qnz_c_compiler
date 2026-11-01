@@ -172,6 +172,47 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
  * chunk - a 128KB by-value struct argument (c-torture execute/pr23135) is
  * 16K chunks and would blow both the JIT compile time and the 16-bit
  * per-function temp budget. A fixed set of temps is reused per iteration. */
+/* Store the LOW `rem` (1..7) bytes of the 64-bit value `val` starting at
+ * address temp `base_addr`.  rem 1,2,4 are a single narrow store; rem 3,5,6,7
+ * spill the value to a scratch frame slot and copy byte-by-byte -
+ * extracting a byte at offset >= 2 needs a shift temp, whose allocation
+ * collides with live values in large functions and silently drops the byte
+ * (c-torture execute/va-arg-22: an 11-byte struct's 3rd tail byte was
+ * stored twice as the first). Shared by the struct-copy / 9-16B
+ * secondary-register store paths in ast_lowering_expr.c and
+ * ast_lowering_stmt.c. */
+static inline void zc_store_low_bytes(ZeroCCCompiler *c, int val, int base_addr, size_t rem) {
+    if (rem <= 2 || rem == 4) {
+        if (rem == 4) ir_emit_store_32(val, base_addr);
+        else if (rem == 2) ir_emit_store_16(val, base_addr);
+        else ir_emit_store_byte(val, base_addr);
+        return;
+    }
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    c->current_stack_frame += 8;
+    int32_t scratch = c->current_stack_frame;
+    ir_emit_store(val, BE(c)->fp_reg, -scratch);
+    int sa = c->next_temp_id++;
+    ir_emit_lea(sa, BE(c)->fp_reg, -scratch);
+    for (size_t b = 0; b < rem; b++) {
+        int bv = c->next_temp_id++;
+        int saddr = sa;
+        int da = base_addr;
+        if (b) {
+            int t = c->next_temp_id++;
+            ir_emit_mov_imm(t, (int)b);
+            saddr = c->next_temp_id++;
+            ir_emit_add(saddr, sa, t);
+            int t2 = c->next_temp_id++;
+            ir_emit_mov_imm(t2, (int)b);
+            da = c->next_temp_id++;
+            ir_emit_add(da, base_addr, t2);
+        }
+        ir_emit_load_byte(bv, saddr);
+        ir_emit_store_byte(bv, da);
+    }
+}
+
 static void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
     if (n == 0) return;
     size_t full = n / 8;
@@ -198,9 +239,33 @@ static void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
         ir_emit_jne(cnt, loop);
     }
     if (tail > 0) {
-        if (tail >= 4) { ir_emit_load_32(v, s); ir_emit_store_32(v, d); }
-        else if (tail >= 2) { ir_emit_load_16(v, s); ir_emit_store_16(v, d); }
-        else { ir_emit_load_byte(v, s); ir_emit_store_byte(v, d); }
+        /* Tail: copy ALL `tail` bytes, decomposed into 4+2+1 units -
+         * a single 4/2/1 unit drops the bytes beyond its width (a
+         * 35-byte struct lost its 35th byte; c-torture
+         * execute/va-arg-22). */
+        size_t rem = tail;
+        if (rem >= 4) {
+            ir_emit_load_32(v, s);
+            ir_emit_store_32(v, d);
+            int o4 = c->next_temp_id++;
+            ir_emit_mov_imm(o4, 4);
+            ir_emit_add(s, s, o4);
+            ir_emit_add(d, d, o4);
+            rem -= 4;
+        }
+        if (rem >= 2) {
+            ir_emit_load_16(v, s);
+            ir_emit_store_16(v, d);
+            int o2 = c->next_temp_id++;
+            ir_emit_mov_imm(o2, 2);
+            ir_emit_add(s, s, o2);
+            ir_emit_add(d, d, o2);
+            rem -= 2;
+        }
+        if (rem >= 1) {
+            ir_emit_load_byte(v, s);
+            ir_emit_store_byte(v, d);
+        }
     }
 }
 

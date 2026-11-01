@@ -71,7 +71,13 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
     for (size_t i = 0; i < alloc; i++) zero_cc_emit_u8(&c->data_section, 0);
     char mangled[48];
     snprintf(mangled, sizeof(mangled), "__sl_%zu", c->static_local_seq++);
-    if (add_global_var(mangled, t, off, alloc, true, false) < 0) {
+    /* An initializer (even a brace aggregate) keeps the object in .data:
+     * has_init=false routes >=256B statics to .bss and the baked bytes
+     * are silently zeroed at runtime (c-torture execute/ieee/fp-cmp-8:
+     * `static struct try const data[14] = { NAN, ... };` read as 0.0). */
+    bool has_init = (c->token_pos < c->token_count &&
+                     c->tokens[c->token_pos].type == TK_ASSIGN);
+    if (add_global_var(mangled, t, off, alloc, true, has_init) < 0) {
         diag_report_error_at_token(c, "out of memory registering static local '%s'", sym->name);
         return false;
     }
@@ -88,6 +94,26 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
  * A non-literal initializer leaves the stream where the caller skips
  * it and reports the diagnostic (the run then fails, no binary). */
 static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym) {
+    /* Aggregate brace initializer (C99 6.7.9): `static struct S d[] =
+     * { {...}, ... };` / `static const int tab[] = { 1, 2, 3 };` - run the
+     * global brace walker directly into the reserved data region (c-torture
+     * execute/ieee/fp-cmp-4/5/8 family, pr38016, loop-ivopts-1).  The
+     * region was zero-filled at register time, so elided leaves stay zero. */
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE &&
+        (sym->type.tag == TYPE_ARRAY || sym->type.tag == TYPE_STRUCT ||
+         sym->type.tag == TYPE_UNION)) {
+        size_t total = (sym->type.size > 0) ? sym->type.size : 8;
+        if (sym->static_data_offset + total > c->data_section.length) return false;
+        size_t cursor = 0;
+        /* buf_off carries the object's base (writes land directly in the
+         * data section), so data_patch_off must be 0 - the walker makes
+         * relocs at data_patch_off + abs_off where abs_off is already
+         * buffer-absolute. */
+        zero_cc_emit_brace_init_global(c, sym->type, c->data_section.data,
+                                       sym->static_data_offset, c->data_section.length,
+                                       0, &cursor, 0);
+        return true;
+    }
     /* Empty initializer `{}` (C23): zero-fill static local storage */
     if (c->token_pos + 1 < c->token_count &&
         c->tokens[c->token_pos].type == TK_LBRACE &&
@@ -1202,6 +1228,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
         bool decl_is_unsigned = false;
+        bool decl_is_long_double = false;
         bool suffix_complex = false;
         ZeroCCType typeof_base_type_early;
         memset(&typeof_base_type_early, 0, sizeof(typeof_base_type_early));
@@ -1295,6 +1322,16 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             }
         } else if (type_tok == TK_LONG) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
+                /* `long double` (C99 6.2.5): model as the 16-byte
+                 * is_long_double type, not a plain double (c-torture
+                 * execute/ieee/copysign1/2: sizeof(long double) locals
+                 * and full-size memcmps). */
+                type_start_pos = c->token_pos;
+                type_tok = TK_DOUBLE_KW;
+                decl_is_long_double = true;
+                c->token_pos++;
+            }
             if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
                 decl_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
                 c->token_pos++;
@@ -1414,6 +1451,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             if (is_function) {
                 /* Build canonical return type and function TypeInfo */
                 ZeroCCType base_ret = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                if (decl_is_long_double && base_ret.tag == TYPE_DOUBLE) {
+                    base_ret = zero_cc_type_long_double();
+                }
                 if (suffix_complex && !zero_cc_type_is_complex(&base_ret)) {
                     base_ret = zero_cc_type_complex(&base_ret);
                 }
@@ -1510,6 +1550,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
 
                 ZeroCCType base_decl = has_anon_struct ? anon_struct_type :
                     (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
+                if (decl_is_long_double && base_decl.tag == TYPE_DOUBLE) {
+                    base_decl = zero_cc_type_long_double();
+                }
                 if (suffix_complex && !zero_cc_type_is_complex(&base_decl)) {
                     base_decl = zero_cc_type_complex(&base_decl);
                 }
@@ -1727,15 +1770,6 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     } /* !is_static_local */
                 }
 
-                /* Sprint 37 v1: static locals with multiple comma declarators
-                 * are not yet supported. */
-                if (sym->is_static_local &&
-                    c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
-                    diag_report_error_at_token(c,
-                        "static local '%s' with multiple declarators not yet supported", vname);
-                    while (c->token_pos < c->token_count &&
-                           c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
-                }
                 if (sym->is_static_local &&
                     c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
                     c->token_pos++;
@@ -1795,6 +1829,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                         diag_report_error_at_token(c, "out of memory allocating local variable '%s'", next_vname);
                         return AST_NULL;
                     }
+                    if (is_static_local && !nhas_any_vla) {
+                        /* Sprint 37: each comma declarator of a static
+                         * declaration gets its own data object + mirror. */
+                        zero_cc_static_local_register(c, next_sym);
+                    }
                     if (is_extern) {
                         next_sym->is_extern = true;
                         next_sym->stack_offset = 0;
@@ -1836,7 +1875,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                         c->token_pos++;
                         ASTRef next_init = AST_NULL;
-                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+                        if (next_sym->is_static_local) {
+                            /* Static local: bake into the data section (same
+                             * contract as the first declarator - the value
+                             * arrives via the prologue mirror load). */
+                            if (!zero_cc_static_local_patch_init(c, next_sym)) {
+                                diag_report_error_at_token(c,
+                                    "static local '%s' initializer must be a constant literal "
+                                    "(complex initializers not yet supported)", next_vname);
+                                while (c->token_pos < c->token_count &&
+                                       c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                            }
+                        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
                             size_t elem_count = 0;
                             size_t next_init_cursor = 0;
                             ASTRef head_expr = parse_brace_init_list_ast(c, arena, next_type, 0,

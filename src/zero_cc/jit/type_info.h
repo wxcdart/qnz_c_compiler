@@ -62,7 +62,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_INT64: ti = type_long(perm); break;
         case TYPE_UINT64: ti = type_ulong(perm); break;
         case TYPE_FLOAT: ti = type_float(perm); break;
-        case TYPE_DOUBLE: ti = type_double(perm); break;
+        case TYPE_DOUBLE: ti = type_double(perm); if (t.is_long_double) ti->is_long_double = true; break;
         case TYPE_PTR: {
             // FIX: Guard against NULL base pointer (incomplete types like FILE*)
             if (!t.base) {
@@ -126,12 +126,20 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                                        : 0;
                 } else if (t.members[i].tag == TYPE_PTR) {
                     /* Pointer member: the member's own type is the pointer
-                     * (C5). m->base is the pointee (may be NULL → ptr→void). */
+                     * (C5). m->base is the pointee (may be NULL → ptr→void).
+                     * A function-pointer member's base carries is_func (the
+                     * function type); preserve it so the field's TypeInfo is
+                     * pointer→function, not pointer→(return type) - without
+                     * it `arr[i].f()` through a struct member loses the
+                     * return type and an FP return is read from RAX
+                     * (c-torture execute/ieee/fp-cmp-8). */
                     memset(&mt, 0, sizeof(mt));
                     mt.tag = TYPE_PTR;
                     mt.size = t.members[i].size ? t.members[i].size : 8;
                     mt.align = t.members[i].align ? t.members[i].align : 8;
                     mt.base = t.members[i].base;
+                    mt.is_func_ptr = t.members[i].is_func_ptr ||
+                                     (t.members[i].base && t.members[i].base->is_func);
                 } else if (t.members[i].tag == TYPE_USER_0) {
                     /* GNU vector member: the member's own type is the vector
                      * (base = the element type, size = total width). */

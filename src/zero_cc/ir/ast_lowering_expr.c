@@ -876,9 +876,7 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 ir_emit_add(cur_dst, dst_addr, off_t);
                 size_t rem = struct_sz - 8;
                 if (rem >= 8) ir_emit_store_64(pair1, cur_dst);
-                else if (rem >= 4) ir_emit_store_32(pair1, cur_dst);
-                else if (rem >= 2) ir_emit_store_16(pair1, cur_dst);
-                else ir_emit_store_byte(pair1, cur_dst);
+                else zc_store_low_bytes(c, pair1, cur_dst, rem);
             }
             return;
         }
@@ -925,10 +923,65 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             ir_emit_mov_reg(ch2, reg2);
             ch_val = ch2;
         }
-        if (rem >= 8) ir_emit_store_64(ch_val, cur_dst);
-        else if (rem >= 4) ir_emit_store_32(ch_val, cur_dst);
-        else if (rem >= 2) ir_emit_store_16(ch_val, cur_dst);
-        else ir_emit_store_byte(ch_val, cur_dst);
+        if (rem >= 8) {
+            ir_emit_store_64(ch_val, cur_dst);
+        } else if (rem == 4 || rem == 2 || rem == 1) {
+            /* Tail width matches the single narrow load above. */
+            if (rem == 4) ir_emit_store_32(ch_val, cur_dst);
+            else if (rem == 2) ir_emit_store_16(ch_val, cur_dst);
+            else ir_emit_store_byte(ch_val, cur_dst);
+        } else if ((src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION)) || src_is_vec) {
+            /* Tail of 3,5,6,7 bytes from a local frame object: byte-by-byte
+             * via a frame-relative LEA (no shifts - the 8-byte load's value
+             * would need shuffles, and those temps trip the allocator in
+             * large functions; c-torture execute/va-arg-22). */
+            int tail_a = c->next_temp_id++;
+            ir_emit_lea(tail_a, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
+            for (size_t b = 0; b < rem; b++) {
+                int sv = c->next_temp_id++;
+                int sa = tail_a;
+                int da = cur_dst;
+                if (b) {
+                    int t = c->next_temp_id++;
+                    ir_emit_mov_imm(t, (int)b);
+                    sa = c->next_temp_id++;
+                    ir_emit_add(sa, tail_a, t);
+                    int t2 = c->next_temp_id++;
+                    ir_emit_mov_imm(t2, (int)b);
+                    da = c->next_temp_id++;
+                    ir_emit_add(da, cur_dst, t2);
+                }
+                ir_emit_load_byte(sv, sa);
+                ir_emit_store_byte(sv, da);
+            }
+        } else if (rhs_is_struct_addr || rhs_is_vec_addr) {
+            /* Tail of 3,5,6,7 bytes from a memory source: byte-by-byte (an
+             * 8-byte load would overrun the object). */
+            for (size_t b = 0; b < rem; b++) {
+                int sv = c->next_temp_id++;
+                int sa = rhs_temp;
+                size_t soff = (size_t)(i * 8 + b);
+                if (soff) {
+                    int t = c->next_temp_id++;
+                    ir_emit_mov_imm(t, (int)soff);
+                    sa = c->next_temp_id++;
+                    ir_emit_add(sa, rhs_temp, t);
+                }
+                ir_emit_load_byte(sv, sa);
+                int da = cur_dst;
+                if (b) {
+                    int t = c->next_temp_id++;
+                    ir_emit_mov_imm(t, (int)b);
+                    da = c->next_temp_id++;
+                    ir_emit_add(da, cur_dst, t);
+                }
+                ir_emit_store_byte(sv, da);
+            }
+        } else {
+            /* Small struct (<8B) by-value / register-pair result: the value
+             * lives in a temp - store its low rem bytes (shifted). */
+            zc_store_low_bytes(c, ch_val, cur_dst, rem);
+        }
     }
 }
 
@@ -3931,6 +3984,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     uint16_t ho_lbl = c->ir_next_label++;
                     uint16_t ha_lbl = c->ir_next_label++;
                     ir_emit_je((uint16_t)hd, ho_lbl);
+                    /* hp = ap[0] = the ADDRESS of the save slot; the slot
+                     * holds the hidden POINTER to the caller's copy. The
+                     * va_arg value for a >16B struct is that hidden pointer
+                     * (an address the consumers copy from; see
+                     * ast_expr_is_struct_addr) - one dereference of the slot. */
                     ir_emit_deref(result_temp, hp);
                     int hn8 = c->next_temp_id++;
                     ir_emit_mov_imm(hn8, -8);
@@ -5151,6 +5209,17 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     } else {
                         ir_emit_vstoresd(addr_temp, (uint16_t)right_temp);
                     }
+                    if (elem_size == 16) {
+                        /* long double element: 16-byte storage, 8-byte value -
+                         * zero the top half (c-torture ieee/copysign2). */
+                        int z8 = c->next_temp_id++;
+                        ir_emit_mov_imm(z8, 0);
+                        int o8 = c->next_temp_id++;
+                        ir_emit_mov_imm(o8, 8);
+                        int zaddr = c->next_temp_id++;
+                        ir_emit_add(zaddr, addr_temp, o8);
+                        ir_emit_store_64((uint16_t)z8, (uint16_t)zaddr);
+                    }
                     c->last_expr_is_float = 1;
                 } else {
                     bool is_elem_struct = (elem_ti && (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION));
@@ -5271,6 +5340,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         } else {
                             ir_emit_fstore((uint16_t)op_res, TEMP_NONE, -sym->stack_offset);
                         }
+                        if (sym->type.is_long_double) {
+                            /* Zero the top 8 bytes of the 16-byte slot: the
+                             * value is an 8-byte double and the top half is
+                             * otherwise stale stack (c-torture ieee/copysign*
+                             * memcmp the full sizeof(long double)). */
+                            int z8 = c->next_temp_id++;
+                            ir_emit_mov_imm(z8, 0);
+                            ir_emit_store(z8, BE(c)->fp_reg, -sym->stack_offset + 8);
+                        }
                         c->last_expr_is_float = 1;
                         return op_res;
                     } else {
@@ -5281,6 +5359,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             ir_emit_vstoress((uint16_t)addr, (uint16_t)float_temp);
                         } else {
                             ir_emit_fstore((uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                        }
+                        if (sym->type.is_long_double) {
+                            int z8 = c->next_temp_id++;
+                            ir_emit_mov_imm(z8, 0);
+                            ir_emit_store(z8, BE(c)->fp_reg, -sym->stack_offset + 8);
                         }
                         c->last_expr_is_float = 1;
                         return float_temp;
@@ -5392,11 +5475,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
                                     int val2 = c->next_temp_id++;
                                     size_t rem = sym->type.size - 8;
-                                    if (rem == 1) ir_emit_load_byte(val2, addr2);
-                                    else if (rem == 2) ir_emit_load_16(val2, addr2);
-                                    else if (rem == 4) ir_emit_load_32(val2, addr2);
-                                    else ir_emit_deref(val2, addr2);
-                                    ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                    if (rem == 8) {
+                                        ir_emit_deref(val2, addr2);
+                                        ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                    } else {
+                                        if (rem == 1) ir_emit_load_byte(val2, addr2);
+                                        else if (rem == 2) ir_emit_load_16(val2, addr2);
+                                        else if (rem == 4) ir_emit_load_32(val2, addr2);
+                                        else ir_emit_deref(val2, addr2);
+                                        /* Store exactly rem bytes - a full
+                                         * 8-byte store scribbles the bytes
+                                         * adjacent to the destination slot
+                                         * (c-torture execute/va-arg-22). */
+                                        int dst_a = c->next_temp_id++;
+                                        ir_emit_lea(dst_a, TEMP_NONE, -(sym->stack_offset - 8));
+                                        zc_store_low_bytes(c, val2, dst_a, rem);
+                                    }
                                 }
                             } else {
                                 lower_assign_conv_zt(c, right_temp, &sym->type);
@@ -5411,11 +5505,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     if (rem >= 8) {
                                         ir_emit_store(reg2, BE(c)->fp_reg, tail_off);
                                     } else {
+                                        /* Copy exactly the remaining rem
+                                         * (1..7) bytes of the secondary
+                                         * register - a single narrow store
+                                         * drops the extra bytes (c-torture
+                                         * execute/va-arg-22: an 11-byte
+                                         * struct lost its 11th byte). */
                                         int dst_addr = c->next_temp_id++;
                                         ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
-                                        if (rem >= 4) ir_emit_store_32(reg2, dst_addr);
-                                        else if (rem >= 2) ir_emit_store_16(reg2, dst_addr);
-                                        else ir_emit_store_byte(reg2, dst_addr);
+                                        zc_store_low_bytes(c, reg2, dst_addr, rem);
                                     }
                                 }
                             }
@@ -7176,6 +7274,38 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 return t_result;
             }
 
+            /* __builtin_inf() / __builtin_inff() / __builtin_nan(s) /
+             * __builtin_nanf(s): FP special constants (c-torture
+             * ieee/copysign1/2). The string argument (when present) is
+             * ignored; ZeroCC models float as double, so the result is
+             * always an 8-byte double constant - the caller's conversion
+             * does any narrowing. Previously emitted as undefined external
+             * calls (runtime crash). */
+            if (callee_is_ident && callee->s.str &&
+                (strcmp(callee->s.str, "__builtin_inf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_inff") == 0 ||
+                 strcmp(callee->s.str, "__builtin_infl") == 0 ||
+                 strcmp(callee->s.str, "__builtin_nan") == 0 ||
+                 strcmp(callee->s.str, "__builtin_nanf") == 0 ||
+                 strcmp(callee->s.str, "__builtin_nanl") == 0)) {
+                bool is_nan = (strcmp(callee->s.str, "__builtin_nan") == 0 ||
+                               strcmp(callee->s.str, "__builtin_nanf") == 0 ||
+                               strcmp(callee->s.str, "__builtin_nanl") == 0);
+                uint64_t fpbits = is_nan ? 0x7FF8000000000000ULL : 0x7FF0000000000000ULL;
+                double fpc; memcpy(&fpc, &fpbits, sizeof(fpc));
+                size_t fpad = (8 - (c->rodata_section.length % 8)) % 8;
+                if (fpad) {
+                    uint8_t z8[8] = {0};
+                    zero_cc_buf_put_bytes(&c->rodata_section, z8, fpad);
+                }
+                size_t fro_off = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, &fpc, sizeof(double));
+                int ft = c->next_temp_id++;
+                ir_emit_fmov_imm((uint16_t)ft, (int64_t)fro_off);
+                c->last_expr_is_float = 1;
+                return ft;
+            }
+
             /* __builtin_bswap64(x) - byte-swap a 64-bit value:
              * byte i of the result is byte (7-i) of x.
              * (c-torture execute/bswap-1.c - previously emitted as an
@@ -8290,9 +8420,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 } else if (callee_gv && callee_gv->type.tag == TYPE_PTR && callee_gv->type.base) {
                     call_ret_type = *callee_gv->type.base;
                 } else {
-                    TypeInfo *ret_ti = ast_node_get_typeinfo(c, node);
-                    if (ret_ti) {
-                        call_ret_type = typeinfo_to_zero_cc_type(ret_ti);
+                    /* General-expression callee (p->f(), arr[i].g(), ...):
+                     * derive the signature from the callee's own type when
+                     * it is (a pointer to) a function - without this the
+                     * return type defaults to int and an FP return is read
+                     * from RAX instead of XMM0 (c-torture execute/ieee/
+                     * fp-cmp-8: `tests[j].pos(x, y, 1.0, 2.0)` passed as an
+                     * argument to printf). */
+                    TypeInfo *c_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
+                    if (c_ti && c_ti->kind == TYPE_KIND_POINTER &&
+                        c_ti->details.pointer.base &&
+                        c_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION) {
+                        call_ret_type = typeinfo_to_zero_cc_type(
+                            c_ti->details.pointer.base->details.function.ret);
+                    } else if (c_ti && c_ti->kind == TYPE_KIND_FUNCTION) {
+                        call_ret_type = typeinfo_to_zero_cc_type(c_ti->details.function.ret);
+                    } else {
+                        TypeInfo *ret_ti = ast_node_get_typeinfo(c, node);
+                        if (ret_ti) {
+                            call_ret_type = typeinfo_to_zero_cc_type(ret_ti);
+                        }
                     }
                 }
 

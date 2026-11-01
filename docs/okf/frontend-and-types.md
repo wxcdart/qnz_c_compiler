@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-01T03:20:30Z
+timestamp: 2026-11-01T06:08:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -73,6 +73,8 @@ C99 6.7.2.3 complex floating types are first-class:
 
 - When parsing function pointer typedefs (`typedef RetType (*Alias)(params...);` in `src/zero_cc/parser/definitions.h`) or inline local function pointer declarations (`RetType (*fn)(params...) = init;` in `src/zero_cc/parser/ast_stmt.h`):
   - The symbol's `ZeroCCType` has `tag = TYPE_PTR`, `size = 8`, `align = 8`, `is_func_ptr = true`, and `base` pointing to a heap/arena-allocated `ZeroCCType` representing the **return type** (`RetType`).
+- **Struct members of function-pointer type (Sprint 71)**: `struct Ops { void (*f)(void); };` — the member parser sets `ZeroCCStructMember.is_func_ptr` for `type (*name)(params);` members, and `zero_cc_type_to_typeinfo` propagates it: a pointer struct member with `is_func_ptr` converts to `TYPE_KIND_POINTER` → `TYPE_KIND_FUNCTION` (the pointee is the **function**, not the return type). Without it, `arr[i].f()` calls default the return type to `int` and FP results are read from `RAX` instead of `XMM0`.
+- **Indirect / general-expression call return typing (Sprint 71)**: when the `NODE_CALL` callee is not a simple identifier/symbol/global, the lowering derives `call_ret_type` from the callee's own `TypeInfo` when it is (pointer-to-)function — this is what makes funcptr-struct-member and other general-expression callees return FP/struct results from the right registers. Pitfall: `ast_node_get_typeinfo` takes a `ZeroCCASTNode*`; an `ASTRef` must first be converted with `zero_cc_ast_get(arena, node->left)`.
 - Function and prototype `NODE_DECL` nodes attach a proper `TYPE_KIND_FUNCTION` `TypeInfo *` via `decl_node_set_type(ctx, func_node, fn_ti)`.
 - In `zero_cc_type_to_typeinfo()` (`src/zero_cc/jit/type_info.h`):
   - If `zt.tag == TYPE_PTR && zt.is_func_ptr`, it constructs `TYPE_KIND_POINTER` → `TYPE_KIND_FUNCTION` whose `.details.function.ret` preserves the return `TypeInfo` (including `TYPE_STRUCT` with its full byte size).
@@ -231,7 +233,7 @@ The same logical type reaching the semantic layer through different parser paths
 
 Block-scope `static` locals (C99 6.9.2) are implemented as **data-section objects with a per-call stack mirror**:
 - At parse time (`src/zero_cc/parser/ast_stmt.h`), each `static` local is registered in the global-var table under a mangled name `__sl_<seq>` (`c->static_local_seq`) at an 8-byte-aligned `data_section` offset; the local symbol keeps a normal frame slot as a per-call mirror (`ZeroCCSym.is_static_local`, `.static_data_offset`, `.static_global_name`).
-- Initializers must be constant literals (int/float/char, optional sign); the bytes are patched into `data_section` at parse time and the initializer is deliberately **not** attached to the AST, so it never re-runs per call. Complex initializers and multi-declarator `static` lists are rejected with diagnostics; `static` + VLA is an error.
+- Initializers: scalar constant literals (int/float/char, optional sign) are patched into `data_section` at parse time and deliberately **not** attached to the AST, so they never re-run per call. **Aggregate initializers (Sprint 71)**: `static struct X const data[14] = { … };` (arrays, structs, unions — the ieee `fp-cmp-4/5/8` family) run the shared `zero_cc_emit_brace_init_global` engine directly into the reserved `.data` region (`zero_cc_static_local_patch_init`), with **`data_patch_off = 0`** — the buffer offset already carries `static_data_offset` and passing it again double-offsets the data relocations. Two invariants: `has_init` must be detected from the following `=` token **before** `zero_cc_add_global_var` (an initialized ≥256 B static otherwise routes to `.bss` via `ZERO_CC_BSS_THRESHOLD` and is silently zeroed), and function-pointer elements resolve via `zero_cc_find_function` and emit data reloc **kind 3** against the function symbol (including local static functions of the same TU). Multiple comma declarators each register; `static` + VLA is an error.
 - Lowering (`src/zero_cc/ir/ast_lowering.c`) emits `data → slot` chunked 8-byte copies in the prologue (before the body) and `slot → data` in the shared epilogue block (every return jumps to the epilogue label, natural fallthrough reaches it). All existing frame-relative access sites are unchanged.
 - **Return-value protection**: the epilogue mirror-out runs *after* the return value is materialized in `VREG_0`, and its allocator temps may be mapped onto the return register. Therefore, when a function has ≥1 static local, an extra 8-byte frame slot (`lowering.static_local_rt_off`, reserved before the frame size is computed) saves/restores `VREG_0` around the mirror-out. FP results live in XMM registers, which the integer-only mirror-out cannot touch.
 - A function containing a static local always declares a local, so the inliner's local-decl filter already excludes it — no duplicated data objects across inlined copies are possible.

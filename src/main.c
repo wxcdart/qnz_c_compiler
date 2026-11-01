@@ -313,6 +313,23 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                  strcmp(arg, "-pie") == 0 || strcmp(arg, "-no-pie") == 0) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (not applicable to zerocc's static output)\n", arg);
         }
+        else if (strcmp(arg, "-w") == 0 || strcmp(arg, "-Wno-pragma-float") == 0) {
+            /* Warning controls (Sprint 70): -w suppresses all warnings -
+             * zerocc's diagnostics are error-shaped and not gated on a
+             * warning level, so accepting it is a no-op. */
+            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (warning control)\n", arg);
+        }
+        else if (strncmp(arg, "--param", 7) == 0) {
+            /* Tuning knobs (Sprint 70): --param=NAME=VALUE or
+             * --param NAME VALUE - both forms ignored. */
+            if (arg[7] == '=') {
+                if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (tuning knob)\n", arg);
+            } else {
+                /* Consume the value argument too. */
+                if (i + 1 < argc) i++;
+                if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '--param' (tuning knob)\n");
+            }
+        }
         else if (arg[0] != '-') {
             if (opts->input_count < ZERO_CC_MAX_INPUTS) {
                 opts->input_files[opts->input_count++] = arg;

@@ -584,6 +584,20 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
  * `+1.0/0.0`, `1.0/0.0 - 1.0/0.0` (c-torture execute/ieee/fp-cmp-1,
  * mzero2)).  Advances token_pos past the consumed expression. */
 static double zc_eval_const_fp_additive(ZeroCCCompiler *c);
+
+/* IEEE-754 exact negation = flip bit 63.  `v *= -1.0` is NOT equivalent
+ * for NaN: on x86-64 `mulsd` clears the sign bit of a NaN result, so a
+ * constant like `-__builtin_nan("")` lost its sign (c-torture
+ * execute/ieee/copysign1/2 compare copysign's bit-surgery result against
+ * the table with memcmp).  Sign-flip is exact for every class (±0,
+ * ±inf, ±NaN). */
+static inline double zc_fp_negate(double v) {
+    uint64_t b;
+    memcpy(&b, &v, sizeof(b));
+    b ^= 0x8000000000000000ULL;
+    memcpy(&v, &b, sizeof(v));
+    return v;
+}
 static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
     double v = 0.0;
     double sign = 1.0;
@@ -619,6 +633,32 @@ static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
         v = (double)(int)c->tokens[c->token_pos].num_val;
         c->token_pos++;
     } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+        /* FP special constants (Sprint 70, c-torture ieee/copysign1/2):
+         * __builtin_inf() / __builtin_inff() -> +/-INFINITY, __builtin_nan(s)
+         * / __builtin_nanf(s) -> quiet NaN. The string argument (when
+         * present) is consumed and ignored; the call parens are optional
+         * in the constant context. */
+        const char *nm = c->tokens[c->token_pos].str_val;
+        if (strcmp(nm, "__builtin_inf") == 0 || strcmp(nm, "__builtin_inff") == 0 ||
+            strcmp(nm, "__builtin_infl") == 0 ||
+            strcmp(nm, "__builtin_nan") == 0 || strcmp(nm, "__builtin_nanf") == 0 ||
+            strcmp(nm, "__builtin_nanl") == 0) {
+            bool is_nan = (strcmp(nm, "__builtin_nan") == 0 ||
+                           strcmp(nm, "__builtin_nanf") == 0 ||
+                           strcmp(nm, "__builtin_nanl") == 0);
+            c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pd = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && pd > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pd++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pd--;
+                    c->token_pos++;
+                }
+            }
+            uint64_t fpbits = is_nan ? 0x7FF8000000000000ULL : 0x7FF0000000000000ULL;
+            memcpy(&v, &fpbits, sizeof(v));
+        } else {
         /* Earlier global's value: `double d = (double) a;` where
          * `const char a = 0x42;` (Sprint 68). */
         bool g_is_f = false;
@@ -628,8 +668,9 @@ static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
             v = g_is_f ? g_d : (double)g_i;
             c->token_pos++;
         }
+        }
     }
-    v *= sign;
+    if (sign < 0.0) v = zc_fp_negate(v);
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_STAR || c->tokens[c->token_pos].type == TK_SLASH)) {
         bool div = (c->tokens[c->token_pos].type == TK_SLASH);
@@ -652,7 +693,7 @@ static double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
             r = zc_eval_const_fp_additive(c);
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
         }
-        r *= sign2;
+        if (sign2 < 0.0) r = zc_fp_negate(r);
         if (div) v = v / r; else v = v * r;
     }
     return v;
@@ -779,7 +820,7 @@ static int zc_eval_const_cx_primary(ZeroCCCompiler *c, double *re, double *im) {
         c->token_pos = save;
         return 0;
     }
-    v *= sign; s *= sign;
+    if (sign < 0.0) { v = zc_fp_negate(v); s = zc_fp_negate(s); }
     *re = v; *im = s;
     return 1;
 }
@@ -1101,6 +1142,34 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                     }
                 }
             }
+        } else if (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_IDENT &&
+                   zero_cc_find_function(c, c->tokens[c->token_pos].str_val)) {
+            /* Function name as a pointer member initializer (C99 6.7.9: a
+             * function designator decays to a pointer).  Emit a kind-3
+             * data reloc against the function symbol (c-torture
+             * execute/ieee/fp-cmp-5/8: `static struct { int (*pos)(...); }
+             * t[] = { { f, g }, ... };`). */
+            char fnm[128];
+            snprintf(fnm, sizeof(fnm), "%s", c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                dr->target_kind = 3; /* function symbol */
+                dr->rodata_offset = 0;
+                dr->target_data_offset = 0;
+                dr->target_global_idx = -1;
+                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fnm);
+            }
+            if (cursor) {
+                if (has_desig) {
+                    size_t nc = tgt.leaf_idx + 1;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
+            }
         } else {
             /* Scalar constant value (int/char/float/enum/sizeof). */
             bool is_f = (c->tokens[c->token_pos].type == TK_FLOAT ||
@@ -1109,6 +1178,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
              * first leaf of that aggregate (C99 6.7.9p14). */
             size_t off = tgt.abs_off;
             size_t w = tgt.is_scalar ? tgt.scalar_sz : 0;
+            size_t wfull = w; /* pre-clamp object width (16 for long double) */
             bool is_bf = tgt.is_bitfield;
             uint8_t boff = tgt.bit_offset;
             uint8_t bw = tgt.bit_width;
@@ -1118,6 +1188,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                                                  &is_bf, &boff, &bw, NULL);
                 off += loff;
                 w = lsz ? lsz : 4;
+                wfull = w;
                 if (cursor) {
                     if (has_desig) {
                         size_t cnt = is_range ? (size_t)(desig_hi - desig_lo + 1) : 1;
@@ -1140,6 +1211,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                     }
                 }
             }
+            size_t wv = (w < 8) ? w : 8; /* value width actually written */
             if (is_f) {
                 double dv = zero_cc_eval_const_expr_float(c);
                 uint64_t bits = 0;
@@ -1151,8 +1223,14 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 }
                 for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
                     size_t eo = off + (size_t)k * step;
-                    for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
+                    for (size_t i = 0; i < wv && eo + i < buf_cap; i++) {
                         buf[eo + i] = (uint8_t)(bits >> (8 * i));
+                    }
+                    /* A long double member is 16 bytes but the value is an
+                     * 8-byte double - zero the top half so full-size
+                     * memcmps see clean storage (c-torture ieee/copysign*). */
+                    for (size_t i = wv; i < wfull && eo + i < buf_cap; i++) {
+                        buf[eo + i] = 0;
                     }
                 }
             } else {

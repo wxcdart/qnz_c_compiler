@@ -448,9 +448,38 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 int num_chunks = (sym->type.size + 7) / 8;
                                 if (src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION)) {
                                     for (int i = 0; i < num_chunks; i++) {
-                                        int chunk_temp = c->next_temp_id++;
-                                        ir_emit_load(chunk_temp, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
-                                        ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                                        size_t rem = sym->type.size - (size_t)(i * 8);
+                                        if (rem >= 8) {
+                                            int chunk_temp = c->next_temp_id++;
+                                            ir_emit_load(chunk_temp, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
+                                            ir_emit_store(chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                                        } else {
+                                            /* Tail chunk (rem 1..7): copy exactly
+                                             * rem bytes - a fixed 8-byte chunk
+                                             * overwrites the bytes adjacent to
+                                             * the destination slot (c-torture
+                                             * execute/va-arg-22). */
+                                            int tail_a = c->next_temp_id++;
+                                            ir_emit_lea(tail_a, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
+                                            int dst_a = c->next_temp_id++;
+                                            ir_emit_lea(dst_a, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
+                                            for (size_t b = 0; b < rem; b++) {
+                                                int bv = c->next_temp_id++;
+                                                int sa = tail_a, da = dst_a;
+                                                if (b) {
+                                                    int t = c->next_temp_id++;
+                                                    ir_emit_mov_imm(t, (int)b);
+                                                    sa = c->next_temp_id++;
+                                                    ir_emit_add(sa, tail_a, t);
+                                                    int t2 = c->next_temp_id++;
+                                                    ir_emit_mov_imm(t2, (int)b);
+                                                    da = c->next_temp_id++;
+                                                    ir_emit_add(da, dst_a, t2);
+                                                }
+                                                ir_emit_load_byte(bv, sa);
+                                                ir_emit_store_byte(bv, da);
+                                            }
+                                        }
                                     }
                                 } else {
                                     /* System V AMD64 ABI: sret buffer pointer in result_temp.
@@ -480,21 +509,48 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                         if (rem >= 8) {
                                             ir_emit_deref(chunk_temp, addr_temp);
                                             ir_emit_store(chunk_temp, BE(c)->fp_reg, dst_off);
-                                        } else if (rem >= 4) {
+                                        } else if (rem == 4) {
                                             ir_emit_load_32(chunk_temp, addr_temp);
                                             int dst_addr = c->next_temp_id++;
                                             ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_32(chunk_temp, dst_addr);
-                                        } else if (rem >= 2) {
+                                        } else if (rem == 2) {
                                             ir_emit_load_16(chunk_temp, addr_temp);
                                             int dst_addr = c->next_temp_id++;
                                             ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_16(chunk_temp, dst_addr);
-                                        } else {
+                                        } else if (rem == 1) {
                                             ir_emit_load_byte(chunk_temp, addr_temp);
                                             int dst_addr = c->next_temp_id++;
                                             ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_byte(chunk_temp, dst_addr);
+                                        } else {
+                                            /* Tail of 3,5,6,7 bytes: byte-by-byte -
+                                             * a single narrow load/store drops
+                                             * the extra bytes (c-torture
+                                             * execute/va-arg-22: `A35 c = *p;`
+                                             * lost the 35th byte). */
+                                            for (size_t b = 0; b < rem; b++) {
+                                                int bv = c->next_temp_id++;
+                                                int sa = addr_temp;
+                                                if (b) {
+                                                    int t = c->next_temp_id++;
+                                                    ir_emit_mov_imm(t, (int)b);
+                                                    sa = c->next_temp_id++;
+                                                    ir_emit_add(sa, addr_temp, t);
+                                                }
+                                                ir_emit_load_byte(bv, sa);
+                                                int dst_addr = c->next_temp_id++;
+                                                ir_emit_lea(dst_addr, TEMP_NONE, dst_off);
+                                                int da = dst_addr;
+                                                if (b) {
+                                                    int t = c->next_temp_id++;
+                                                    ir_emit_mov_imm(t, (int)b);
+                                                    da = c->next_temp_id++;
+                                                    ir_emit_add(da, dst_addr, t);
+                                                }
+                                                ir_emit_store_byte(bv, da);
+                                            }
                                         }
                                     }
                                 }
@@ -568,11 +624,18 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
                                     int val2 = c->next_temp_id++;
                                     size_t rem = sym->type.size - 8;
-                                    if (rem == 1) ir_emit_load_byte(val2, addr2);
-                                    else if (rem == 2) ir_emit_load_16(val2, addr2);
-                                    else if (rem == 4) ir_emit_load_32(val2, addr2);
-                                    else ir_emit_deref(val2, addr2);
-                                    ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                    if (rem == 8) {
+                                        ir_emit_deref(val2, addr2);
+                                        ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                    } else {
+                                        if (rem == 1) ir_emit_load_byte(val2, addr2);
+                                        else if (rem == 2) ir_emit_load_16(val2, addr2);
+                                        else if (rem == 4) ir_emit_load_32(val2, addr2);
+                                        else ir_emit_deref(val2, addr2);
+                                        int dst_a = c->next_temp_id++;
+                                        ir_emit_lea(dst_a, TEMP_NONE, -(sym->stack_offset - 8));
+                                        zc_store_low_bytes(c, val2, dst_a, rem);
+                                    }
                                 }
                             } else {
                                 ZeroCCASTNode *lnode = zero_cc_ast_get(arena, node->left);
@@ -592,8 +655,12 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
                                         /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2)
                                          * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
-                                         * via regalloc_get_reg_for_temp. */
-                                        ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                         * via regalloc_get_reg_for_temp. Store only the remaining
+                                         * (size-8) bytes - a full 8-byte store scribbles the bytes
+                                         * adjacent to the slot (c-torture execute/va-arg-22). */
+                                        int dst_addr = c->next_temp_id++;
+                                        ir_emit_lea(dst_addr, TEMP_NONE, -(sym->stack_offset - 8));
+                                        zc_store_low_bytes(c, VREG_2, dst_addr, sym->type.size - 8);
                                     }
                                 }
                             }

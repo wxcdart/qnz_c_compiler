@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-10-31T22:09:32Z
+timestamp: 2026-11-01T06:08:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -63,6 +63,10 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
 All 9–16 byte value passing (struct returns, compound literal evaluation, by-value struct arguments) uses the **canonical virtual register `VREG_2`** for the second 8-byte chunk. The register allocator maps `VREG_2` to the target ISA's ABI secondary return/argument register: `rdx` (physical 2) on x86-64, `x1` (physical 1) on AArch64, `a1` (physical 11) on RISC-V64/32. This single virtual ID eliminates per-ISA conditionals in lowering and ensures the DCE liveness root set (which marks `VREG_0` and `VREG_2` live at function exit) protects the second chunk.
 
 **Immediate-capture invariant (Sprint 64)**: `VREG_0`/`VREG_2` as *value sources* live only until the next instruction that may reuse that physical register — including a plain `ADD`/`LEA` address computation (the allocator legally places its temp on `rdx`). Any copy/store of a 9–16 B value-form result therefore captures the pair into **fresh allocatable temps immediately** (`ir_emit_mov_reg` into `next_temp_id++` temps): `zero_cc_emit_struct_copy_to_addr`'s struct-return fast path (gated to struct/union-typed calls — vector-typed calls return in address form) and every call site that reads `VREG_2` after further lowering. Using the raw `VREG_2` temp id directly as a store source alongside a computed destination address stored the *destination address* as the upper chunk (c-torture `pr92904`, re-exposed on `pr85331`/`pr94591` via `*r = __builtin_shuffle(...)`).
+
+**Narrow-tail stores: spill + byte-copy, never shift temps (Sprint 71)**: `zc_store_low_bytes` (`ir/ast_lowering_internal.h`, shared by `ast_lowering_expr.c` and `ast_lowering_stmt.c`) stores the low `rem` (1..7) bytes of a 64-bit value at an address temp. rem 1/2/4 are single `store_32/16/byte` ops. rem 3/5/6/7 **spill the value to a scratch frame slot and copy byte-by-byte** — the original shift-based version (right-shift the value by `8·offset` into a fresh temp, then a narrow store) hit the same latent LRA/redundant-move-elimination collision as the Sprint-69 `va_list` shadow: in large functions the shift-amount temp's register was assigned to a *live value* (`mov %rbx, %rcx` landed over the constant 16), so byte 2 was stored as byte 0 and an 11-byte struct silently lost its 3rd tail byte (c-torture `execute/va-arg-22`). Branch-free byte copies over a scratch slot are the robust form for any sub-word extraction from a register value; do not reintroduce shift-immediates as allocatable temps in lowering.
+
+**`zc_emit_mem_copy` tail completeness (Sprint 71)**: the 8-byte-chunked mem copy's `n % 8` remainder must be copied **completely** — decomposed into 4+2+1 units advancing both pointers. A single 4/2/1-byte tail store silently drops bytes for sizes 31/33/35/42/50 (35-byte structs copied 34). The same rule applies to every chunked struct-copy tail in the codebase (`zero_cc_emit_struct_copy_to_addr`, `lower_stmt_decl` local-struct initializers): a blind 8-byte store/load at a tail offset either loses the remainder or scribbles the adjacent object.
 
 ## OS Syscall Intrinsic (`OP_SYSCALL`, Sprint 43)
 

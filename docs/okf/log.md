@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-01T03:20:31Z
+timestamp: 2026-11-01T06:08:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -638,3 +638,18 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-01 — Updated `c-torture-gate.md`
 - Sprint 70 baseline: PASS 2920, REJECT 103, MISCOMPILE 0
+
+## 2026-11-01 — Updated `c-torture-gate.md`
+- Sprint 71: baseline PASS 2,946 / REJECT 80 / MISCOMPILE 0 (last MISCOMPILE va-arg-22 fixed: struct-copy tail family + 9-16B VREG_2 tails + va_arg >16B one-deref rule)
+
+## 2026-11-01 — Updated `abi-sysv-x86_64.md`
+- Sprint 71: struct-copy tail completeness (4+2+1 / byte-by-byte), 9-16B VREG_2 tail = exactly size-8 bytes via zc_store_low_bytes, va_arg >16B hidden pointer = one deref
+
+## 2026-11-01 — Updated `frontend-and-types.md`
+- Sprint 71: static-local aggregate/funcptr brace initializers (.data direct, has_init pre-detection, data_patch_off=0), funcptr struct members (is_func_ptr propagation), indirect-call return typing from callee TypeInfo
+
+## 2026-11-01 — Updated `ir-and-regalloc.md`
+- Sprint 71: zc_store_low_bytes — spill+byte-copy, never shift temps (LRA shift-temp collision), zc_emit_mem_copy 4+2+1 tail
+
+## 2026-11-01 — Updated `global-data-relocs.md`
+- Sprint 71: ZeroCCDataReloc kinds 0-4 documented (kind 3 = function symbol for funcptr data initializers)

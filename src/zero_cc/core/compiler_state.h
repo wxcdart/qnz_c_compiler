@@ -64,6 +64,11 @@ typedef struct {
     char *filename;
     size_t line_num;
     int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
+    int expand_depth; /* macro expansion nesting (mutual-recursion guard) */
+    /* True while pre-expanding a macro argument (C99 6.10.3.4p3): a '#' at
+     * line start in the argument text is a plain token (e.g. k(#),
+     * k(#undef k) - c-torture compile/921227-1), NOT a directive. */
+    int arg_expand_depth;
     char *once_files[ONCE_FILES_MAX];
     size_t once_file_count;
 

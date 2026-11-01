@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-01T03:20:31Z
+timestamp: 2026-11-01T06:08:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 70)
+## 2. Classification Buckets & Baseline (Sprint 71)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,920** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+47 since Sprint 69: the type-identity fixes — const members, K&R stars, comma declarators, funcptr typedefs, incomplete struct tags — plus `bswap-1` (new `__builtin_bswap64` + local-anonymous-union fix) and `cbrt` (same union fix) ) |
-| **`REJECT`** | **103** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 144) — the ongoing burn-down target (dominant: no-`Compile error`-line failures ~15, `expected identifier in extern declaration` ~10, `unexpected token in struct/union definition` ~8, `static local 'data' initializer must be a constant literal` ~8 (the ieee `fp-cmp-4*` family), `unexpected token in brace initializer` ~4, `expected expression in argument list` ~3, `'case' statement not in switch statement` ~3, VLA-in-nested-block ~2, `goto crosses a VLA` ~2) |
-| **`SKIP-C89`** | **564** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held since Sprint 68). Sprint 70 mid-burn-down note: `bswap-1`/`cbrt` compiled-but-segfaulted once the type fixes un-rejected them — the AOT crash was a real bug (local-anonymous-union comma declarator typed as an empty union) and was fixed at the root, not re-rejected. |
+| **`PASS`** | **2,946** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+26 since Sprint 70: static-local aggregate/function-pointer initializers, funcptr-struct-member + indirect-call return typing, preprocessor macro-arity/argument-expansion edge cases, and the struct-copy / 9–16B secondary-register tail family that fixed the last `MISCOMPILE`, `execute/va-arg-22.c`) |
+| **`REJECT`** | **80** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 103) — the ongoing burn-down target |
+| **`SKIP-C89`** | **560** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held since Sprint 68). Sprint 71 note: `execute/va-arg-22.c` (multi-size variadic struct sequence) was the sole `MISCOMPILE` after the Sprint-70 static-local fixes un-rejected its neighbours; it resolved to a family of struct-copy / register-pair tail bugs (see Sprint 71 log entry) and is now PASS on all 8 configs. |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`: its gcc -O1 reference trips the test's own FORTIFY `__OPTIMIZE__` abort while ZeroCC completes correctly — the reference-crash rule (Sprint 69) classifies a clean ZeroCC run (rc==0) as REF-BUG whenever the reference died, requiring surviving-output equality only when the reference printed before dying. |
 | **`NO-REF`** | **186** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `unwrapped`: 2, `arm`: 1) |
-| **`TIMEOUT`** | **9** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
+| **`TIMEOUT`** | **10** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |
@@ -233,6 +233,26 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **Function-name hash** (`types/symbol_mgmt.h`, `types/symbols.h`): `compile/limits-externdecl.c` (100,000 `extern int x();`) was the last `TIMEOUT` — `zero_cc_find_function`'s O(n) strcmp scan on every registration ≈ 5×10⁹ comparisons (8.6 s). Incremental open-addressing hash with same-name chains (proto/def prefer-definition semantics preserved) makes it O(1): 0.31 s parse, fast clean REJECT on the 100k-element initializer (test stays `SKIP-C89`-class). **Gate-caught bug**: the first lookup probed only the home bucket, so collision-displaced names were silently unfindable → 30 latent `MISCOMPILE`s (crashes) in the first full run; the lookup now probes the full linear sequence until an empty slot. Small-TU tests never collide at the 256-bucket initial cap, so unit suites stayed green while the gate caught it.
     - **Result**: PASS **2,708 → 2,789**; REJECT **298 → 223**; MISCOMPILE **0 → 0**; TIMEOUT **0 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117/117 (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK (8/8 categories), style 0 errors. Baseline re-recorded (`--update-baseline`), confirmed on two consecutive full runs.
     - **Next**: continue the REJECT burn-down (223 remaining; dominant: `expected identifier in declaration` ~76, `unexpected token 'X' in statement`, `incompatible types in assignment`, `expected identifier in extern declaration`, `unexpected token in struct/union definition`, `expected expression in argument list`).
+
+- **Sprint 68/69/70 — Inlined-Member Fix, glibc `va_list` Shadow + Freestanding `math.h`, Type-Identity Burn-Down** (2026-10-31 → 2026-11-01, see [`docs/CHANGELOG.md`](../CHANGELOG.md) for full entries):
+    - **Sprint 68**: last `MISCOMPILE` (`20071120-1` O2/O3 inlined-function member access), x86-64 FP arg-reg count, global-pointer init sentinel, constant-evaluator casts, array-decay binop typing. PASS **2,789 → 2,865**; REJECT **223 → 151**; MISCOMPILE **0**.
+    - **Sprint 69**: glibc x86-64 `va_list` shadow for extern variadic libc calls (branch-free offsets — the branchy first version miscompiled at -O1+), `va_end` argument evaluation, freestanding `math.h` virtual header, ELF unreferenced-prototype hygiene, gate REF-BUG reference-crash rule. PASS **2,865 → 2,873**; REJECT **151 → 144**.
+    - **Sprint 70**: type-identity burn-down (const members, K&R stars, comma declarators, funcptr typedefs, incomplete struct tags, VLA typedefs, GNU asm, `__builtin_bswap64`, ≥9-label crash). PASS **2,873 → 2,920**; REJECT **144 → 103**; MISCOMPILE **0**.
+
+- **Sprint 71 — Static-Local Aggregate/Funcptr Initializers, Preprocessor Macro Edge Cases & Struct-Copy Tail Family** (2026-11-01):
+    - **Last `MISCOMPILE` fixed: `execute/va-arg-22.c`** (multi-size variadic struct sequence, 11/13/14/15/16/31/32/35/72-byte structs). A chain of struct-copy / register-pair tail bugs, each exposed by the previous fix:
+      1. `zc_emit_mem_copy` (`ir/ast_lowering_internal.h`) copied only **one** 4/2/1-byte unit for the `n % 8` tail — sizes 31/33/35/42/50 lost tail bytes. Now decomposed into 4+2+1 units advancing both pointers.
+      2. `zero_cc_emit_struct_copy_to_addr` (`ir/ast_lowering_expr.c`) had the same single-unit tail in its 8-byte-chunked copies (source-aware: local-frame byte-by-byte, memory byte-by-byte reloads, register-value via `zc_store_low_bytes`), and its **9–16B by-value call-result pair path stored only one narrow unit of the `VREG_2` half** (an 11-byte struct lost byte 11).
+      3. `NODE_ASSIGN` / `lower_stmt_decl` 9–16B local-struct paths: the `VREG_2` (secondary register) tail stored a single 4/2/1-byte unit — or, in the declaration-initializer path, a **full 8-byte store** that scribbled the adjacent stack slot.
+      4. `zc_store_low_bytes` (new shared helper, `ir/ast_lowering_internal.h`): the rem ∈ {3,5,6,7} case originally right-shifted the value by `8·offset` into a fresh temp — the shift-amount temp's allocation **collided with a live value** in large functions (the LRA/redundant-move-elimination fragility), silently storing byte 0 three times instead of bytes 0/1/2. Now spills the value to a scratch frame slot and copies byte-by-byte (branch-free, no shift temps).
+      5. `NODE_VA_ARG` >16B hidden pointer: the value is exactly **one dereference** of the va_list save slot (the slot holds the hidden pointer to the caller's struct copy; no deref returns the address, double deref returns the struct's first 8 bytes).
+      Also: `true`/`false` removed from the keyword table (plain C identifiers unless `<stdbool.h>` provides them).
+    - **Static-local aggregate / function-pointer initializers** (`parser/ast_stmt.h`, `parser/init_common.h`, `jit/compile.h`, `parser/definitions.h`): `static struct X const data[14] = { … };` locals with brace initializers now run `zero_cc_emit_brace_init_global` directly into the reserved `.data` region (`data_patch_off = 0` — the buffer offset already carries `static_data_offset`); `has_init` is detected from the following `=` **before** `add_global_var` so large initialized statics are not routed to `.bss` (and zeroed); multiple comma declarators each register; function-pointer elements emit data reloc **kind 3** against the function symbol (incl. local static functions). Fixes the ieee `fp-cmp-4/5/8{,f,l}` family + `pr38016`.
+    - **Funcptr-struct-member + indirect-call return typing** (`types/type_system.h` `ZeroCCStructMember.is_func_ptr`, `parser/definitions.h`, `jit/type_info.h`, `ir/ast_lowering_expr.c`): `struct { void (*f)(void); } arr[i].f()` calls lost function-ness (pointee = return type, not a function) and defaulted to `int` return (FP results read from RAX). Member `is_func_ptr` now propagates through the pointer→function TypeInfo; general-expression callees derive `call_ret_type` from the callee's own TypeInfo when it is (pointer-to-)function.
+    - **Preprocessor macro edge cases** (`core/preprocessor.h`, `core/compiler_state.h`): function-like macros with the **wrong argument count are not invocations** (C99 6.10.3p2 — emit the raw text); `#` at the start of a line **inside macro-argument pre-expansion is not a directive** (`arg_expand_depth` guard — `k(#)` / `k(#undef k)` in `compile/921227-1.c`); **trailing empty macro arguments count** (`F(0,)` has two arguments, `execute/bitops-1.c`'s `DECLS(0,)`).
+    - **Driver option acceptance** (`src/main.c`): `-w`, `-Wno-pragma-float`, `--param=…` accepted-and-ignored (build-system compatibility; 7 REJECT tests).
+    - **Result**: PASS **2,920 → 2,946**; REJECT **103 → 80**; MISCOMPILE **1 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117 ok (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
+    - **Next**: continue the REJECT burn-down (80 remaining). Known honest REJECT: `compile/20001226-1.c` (label collection fixed; the expanded function exceeds the 16-bit per-function temp-id budget) and the `limits-*` stress tests.
 
 ---
 

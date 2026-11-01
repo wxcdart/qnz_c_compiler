@@ -270,7 +270,7 @@ size_t type_size(const TypeInfo *t) {
         case TYPE_KIND_FLOAT:
             return 4;
         case TYPE_KIND_DOUBLE:
-            return 8;
+            return t->is_long_double ? 16 : 8;
         case TYPE_KIND_POINTER:
             return 8; // x86_64 target
         case TYPE_KIND_ARRAY:
@@ -310,7 +310,7 @@ size_t type_align(const TypeInfo *t) {
         case TYPE_KIND_FLOAT:
             return 4;
         case TYPE_KIND_DOUBLE:
-            return 8;
+            return t->is_long_double ? 16 : 8;
         case TYPE_KIND_POINTER:
             return 8;
         case TYPE_KIND_ARRAY:

@@ -4,7 +4,7 @@ title: Global Variables, Data Section & Pointer Relocations
 description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), block-scope static locals (unsized arrays, pointer-to-string initializers, per-call stack mirror), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
 resource: backend/global-data-relocs
 tags: [globals, data-section, relocations, jit, aot, elf, initialization]
-timestamp: 2026-10-23T04:25:11Z
+timestamp: 2026-11-01T06:08:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -31,10 +31,17 @@ ZeroCC supports file-scope variable declarations in both JIT (`--run`) and AOT (
 ```c
 typedef struct {
     size_t data_patch_offset;   /* byte offset within .data of the 8-byte pointer */
-    int    target_kind;         /* 0 = .rodata + rodata_offset, 1 = .data + target_data_offset */
+    int    target_kind;         /* 0 = .rodata + rodata_offset
+                                  1 = .data + target_data_offset
+                                  2 = object defined in another TU (target_extern_name)
+                                  3 = a function symbol by name (target_extern_name)
+                                  4 = absolute offset within this TU's .data (address of an object) */
     size_t rodata_offset;
     size_t target_data_offset;
     int    target_global_idx;   /* index into global_vars[] when kind == 1 */
+    char  *target_extern_name;  /* kinds 2/3 (kind 3: function-pointer data initializers,
+                                  e.g. `static struct test const tests[] = {{ fn, ... }}` —
+                                  including local static functions of the same TU) */
 } ZeroCCDataReloc;
 ```
 

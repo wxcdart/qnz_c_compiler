@@ -93,25 +93,34 @@ bool sem_find_label(SemContext *ctx, const char *name, size_t len) {
 
 static void sem_collect_labels_impl(SemContext *ctx, ASTRef ref, int depth) {
     if (!ctx || !ctx->ast_arena || ref == AST_NULL || depth > 128) return;
-    ZeroCCASTNode *n = zero_cc_ast_get(ctx->ast_arena, ref);
-    if (!n) return;
-    if (n->tag == NODE_LABEL) {
-        sem_register_label(ctx, n->s.str, n->s_len);
+    /* Walk the sibling chain iteratively: a block of N statements is a
+     * next-linked list, and recursing per statement would blow the depth
+     * guard on large bodies (c-torture compile/20001226-1: 4096 statements
+     * - the labels at the tail were never collected and every goto to them
+     * REJECTed as "label used but not defined").  Only the tree depth
+     * (left/right/aux nesting) counts against the guard. */
+    ASTRef cur = ref;
+    while (ctx && ctx->ast_arena && cur != AST_NULL && depth <= 128) {
+        ZeroCCASTNode *n = zero_cc_ast_get(ctx->ast_arena, cur);
+        if (!n) break;
+        if (n->tag == NODE_LABEL) {
+            sem_register_label(ctx, n->s.str, n->s_len);
+        }
+        /* Tag-aware child edges: aux.step/aux.alt only exist on NODE_FOR
+         * (step, body) and NODE_IF / NODE_TERNARY (else).  On every other
+         * tag they alias s.str / int_val in the payload union — following
+         * them walks garbage thin-pointers (the label/goto name length ends
+         * up in aux.step). */
+        if (n->left != AST_NULL) sem_collect_labels_impl(ctx, n->left, depth + 1);
+        if (n->right != AST_NULL) sem_collect_labels_impl(ctx, n->right, depth + 1);
+        if (n->tag == NODE_FOR) {
+            if (n->aux.step != AST_NULL) sem_collect_labels_impl(ctx, n->aux.step, depth + 1);
+            if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
+        } else if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
+            if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
+        }
+        cur = n->next;
     }
-    /* Tag-aware child edges: aux.step/aux.alt only exist on NODE_FOR
-     * (step, body) and NODE_IF / NODE_TERNARY (else).  On every other
-     * tag they alias s.str / int_val in the payload union — following
-     * them walks garbage thin-pointers (the label/goto name length ends
-     * up in aux.step). */
-    if (n->left != AST_NULL) sem_collect_labels_impl(ctx, n->left, depth + 1);
-    if (n->right != AST_NULL) sem_collect_labels_impl(ctx, n->right, depth + 1);
-    if (n->tag == NODE_FOR) {
-        if (n->aux.step != AST_NULL) sem_collect_labels_impl(ctx, n->aux.step, depth + 1);
-        if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
-    } else if (n->tag == NODE_IF || n->tag == NODE_TERNARY) {
-        if (n->aux.alt != AST_NULL) sem_collect_labels_impl(ctx, n->aux.alt, depth + 1);
-    }
-    if (n->next != AST_NULL) sem_collect_labels_impl(ctx, n->next, depth + 1);
 }
 
 void sem_collect_labels(SemContext *ctx, ASTRef root) {

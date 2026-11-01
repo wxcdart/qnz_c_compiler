@@ -92,6 +92,7 @@ struct TypeInfo {
             size_t      field_count;
         } record;
     } details;
+    bool is_long_double; /* C99 6.2.5: long double (16-byte storage, 8-byte value) */
 };
 
 /** Allocate a new TypeInfo from the permanent arena */

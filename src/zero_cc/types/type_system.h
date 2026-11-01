@@ -49,6 +49,9 @@ typedef struct ZeroCCStructMember {
     bool is_volatile;
     bool is_atomic;
     bool is_complex;   /* C99 6.2.5: _Complex T member (base = element type) */
+    bool is_long_double; /* C99 6.2.5: long double member (16B, value in low 8B) */
+    bool is_func_ptr;  /* Member is `T (*name)(args)` - base holds the RETURN
+                        * type; the TypeInfo field must be pointer→function. */
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {

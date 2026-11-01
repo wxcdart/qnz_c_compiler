@@ -583,8 +583,8 @@ static inline const char *zc_builtin_math_h(void) {
         "#define M_PI 3.14159265358979323846\n"
         "#define M_E 2.7182818284590452354\n"
         "#define HUGE_VAL 1e309\n"
-        "#define INFINITY (__builtin_inff(0.0))\n"
-        "#define NAN 0.0/0.0\n"
+        "#define INFINITY (__builtin_inf())\n"
+        "#define NAN (__builtin_nan(\"\"))\n"
         "double sin(double);\ndouble cos(double);\ndouble tan(double);\n"
         "double asin(double);\ndouble acos(double);\ndouble atan(double);\n"
         "double atan2(double, double);\n"
@@ -2042,7 +2042,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             continue;
         }
 
-        if (at_line_start) {
+        if (at_line_start && cpp->arg_expand_depth == 0) {
             const char *look = p;
             while (*look && isspace((unsigned char)*look) && *look != '\n') look++;
             if (*look == '#') {
@@ -2359,6 +2359,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
             char ident[128]; size_t il = 0;
             while (*p && (isalnum((unsigned char)*p) || *p == '_') && il < 127) ident[il++] = *p++;
             ident[il] = '\0';
+            const char *ident_at = p - il; /* source position of the ident */
 
             /* Wide/UTF string literal prefixes: `L'X'`, `L"s"`, `u"s"`,
              * `U"s"`, `u8"s"` are single lexical units - the prefix is NOT
@@ -2515,10 +2516,20 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
 
             ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, ident);
             if (m) {
+                if (cpp->expand_depth > 32) {
+                    /* Mutual-recursion guard (e.g. #define A(x) B(x) /
+                     * #define B(x) A(x)): the single blue-paint slot cannot
+                     * cut a mutual cycle, so cap the expansion nesting and
+                     * leave the macro name as a plain identifier. */
+                    zero_cc_buf_puts(out, ident);
+                    continue;
+                }
                 if (m->param_count < 0) {
                     int prev_expanding = cpp->expanding_macro_index;
                     cpp->expanding_macro_index = (int)(m - cpp->macros);
+                    cpp->expand_depth++;
                     zero_cc_cpp_process_text(cpp, m->replacement, out);
+                    cpp->expand_depth--;
                     cpp->expanding_macro_index = prev_expanding;
                 } else {
                     const char *ws_skip = p;
@@ -2548,12 +2559,55 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             memcpy(arg_str, arg_s, arg_l);
                             arg_str[arg_l] = '\0';
                             if (arg_count < 64) {
+                                /* C99 6.10.3.4p3: macro invocations within
+                                 * an argument are completely expanded before
+                                 * the argument is substituted (c-torture
+                                 * compile/20050423-1: TEN(TEN(a += b; ...))).
+                                 * The outer macro stays blue (expanding_macro
+                                 * index unchanged) so self-reference cannot
+                                 * loop; the depth guard bounds mutual cycles. */
+                                if (arg_l > 0) {
+                                    ZeroCCBuffer arg_src, arg_out;
+                                    zero_cc_buf_init(&arg_src, arg_l + 2);
+                                    zero_cc_buf_init(&arg_out, arg_l + 16);
+                                    zero_cc_buf_puts(&arg_src, arg_str);
+                                    zero_cc_buf_putc(&arg_src, 0);
+                                    cpp->expand_depth++;
+                                    cpp->arg_expand_depth++;
+                                    zero_cc_cpp_process_text(cpp, arg_src.data, &arg_out);
+                                    cpp->arg_expand_depth--;
+                                    cpp->expand_depth--;
+                                    zero_cc_buf_putc(&arg_out, 0);
+                                    free(arg_str);
+                                    arg_str = (char *)malloc(arg_out.length + 1);
+                                    if (arg_str) {
+                                        memcpy(arg_str, arg_out.data, arg_out.length + 1);
+                                    } else {
+                                        arg_str = (char *)malloc(1);
+                                        if (arg_str) arg_str[0] = 0;
+                                    }
+                                    zero_cc_buf_free(&arg_src);
+                                    zero_cc_buf_free(&arg_out);
+                                }
                                 args[arg_count++] = arg_str;
                             } else {
                                 free(arg_str);
                             }
                         }
-                        if (*p == ',') p++;
+                        if (*p == ',') {
+                            p++;
+                            /* Trailing empty argument: `F(0,)` has TWO
+                             * arguments (second empty) - C99 6.10.3.2. */
+                            const char *q = p;
+                            while (*q && isspace((unsigned char)*q)) q++;
+                            if (*q == ')' && arg_count < 64) {
+                                char *e = (char *)malloc(1);
+                                if (e) {
+                                    e[0] = 0;
+                                    args[arg_count++] = e;
+                                }
+                            }
+                        }
                     }
                     if (*p == ')') p++;
 
@@ -2579,6 +2633,19 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             args[m->param_count - 1] = strdup("");
                             arg_count = m->param_count;
                         }
+                    }
+
+                    /* C99 6.10.3p2: a function-like macro with the wrong
+                     * number of arguments is NOT an invocation - the name
+                     * is not replaced.  Without this, `k(1,2)` for
+                     * `#define k(a) #a` silently expands on the first arg
+                     * (c-torture compile/921227-1: gcc leaves the text
+                     * as-is so the outer stringification yields
+                     * "k(1,2)"). */
+                    if (!m->is_variadic && arg_count != m->param_count) {
+                        for (int k = 0; k < arg_count; k++) free(args[k]);
+                        for (const char *q = ident_at; q < p; q++) zero_cc_buf_putc(out, *q);
+                        continue;
                     }
 
                     /* Token pasting buffer */
@@ -2690,6 +2757,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     zero_cc_buf_init(&temp_buf, 256);
                     int prev_expanding = cpp->expanding_macro_index;
                     cpp->expanding_macro_index = (int)(m - cpp->macros);
+                    cpp->expand_depth++;
                     while (*b) {
                         /* Token pasting: ## (C11 6.10.3.3): whitespace on
                          * both sides of ## is discarded so the adjacent
@@ -2814,6 +2882,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                     /* Any still-pending paste (## at end of body) has no
                      * operand; the text is discarded (constraint violation). */
                     zero_cc_cpp_process_text(cpp, temp_buf.data, out);
+                    cpp->expand_depth--;
                     zero_cc_buf_free(&temp_buf);
                         cpp->expanding_macro_index = prev_expanding;
                         for (int k = 0; k < arg_count; k++) free(args[k]);
