@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-01T06:08:04Z
+timestamp: 2026-11-01T19:11:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -67,6 +67,8 @@ All 9–16 byte value passing (struct returns, compound literal evaluation, by-v
 **Narrow-tail stores: spill + byte-copy, never shift temps (Sprint 71)**: `zc_store_low_bytes` (`ir/ast_lowering_internal.h`, shared by `ast_lowering_expr.c` and `ast_lowering_stmt.c`) stores the low `rem` (1..7) bytes of a 64-bit value at an address temp. rem 1/2/4 are single `store_32/16/byte` ops. rem 3/5/6/7 **spill the value to a scratch frame slot and copy byte-by-byte** — the original shift-based version (right-shift the value by `8·offset` into a fresh temp, then a narrow store) hit the same latent LRA/redundant-move-elimination collision as the Sprint-69 `va_list` shadow: in large functions the shift-amount temp's register was assigned to a *live value* (`mov %rbx, %rcx` landed over the constant 16), so byte 2 was stored as byte 0 and an 11-byte struct silently lost its 3rd tail byte (c-torture `execute/va-arg-22`). Branch-free byte copies over a scratch slot are the robust form for any sub-word extraction from a register value; do not reintroduce shift-immediates as allocatable temps in lowering.
 
 **`zc_emit_mem_copy` tail completeness (Sprint 71)**: the 8-byte-chunked mem copy's `n % 8` remainder must be copied **completely** — decomposed into 4+2+1 units advancing both pointers. A single 4/2/1-byte tail store silently drops bytes for sizes 31/33/35/42/50 (35-byte structs copied 34). The same rule applies to every chunked struct-copy tail in the codebase (`zero_cc_emit_struct_copy_to_addr`, `lower_stmt_decl` local-struct initializers): a blind 8-byte store/load at a tail offset either loses the remainder or scribbles the adjacent object.
+
+**Static-local address-of routes to the data section, not the stack mirror (Sprint 72)**: Sprint-37 static locals use a `.data` object (`__sl_N`) plus a per-call stack mirror (value accesses stay frame-relative; prologue/epilogue copy data↔slot). The mirror slot is **per-call and dead after return**, so an address-taken static must be reached through its stable data-section object. A pre-scan (`zero_cc_prescan_static_addr_taken`, run before lowering) sets `ZeroCCSym.static_addr_taken` on any static whose address is materialized (directly or through a member chain); for those, the mirror in/out is skipped and the `zc_sym_addr`/`zc_sym_load`/`zc_sym_store` helpers (`ir/ast_lowering_internal.h`) emit `ir_emit_mov_global` against `static_global_name` (plus the constant `extra` byte offset) instead of `ir_emit_lea`/`ir_emit_load`/`ir_emit_store` against the frame slot. Value-only statics and non-static locals keep the frame slot (a no-op). Without this, `static struct V *baz(){ static struct V v; return &v; }` returned the mirror slot address — a use-after-return pointer (c-torture `execute/20041218-1.c` aborted).
 
 ## OS Syscall Intrinsic (`OP_SYSCALL`, Sprint 43)
 

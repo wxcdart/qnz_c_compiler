@@ -48,6 +48,158 @@ static void static_local_chunk_addr(ZeroCCCompiler *c, const ZeroCCSym *ss,
     }
 }
 
+/* =========================================================================
+ * Sprint 72: pre-scan for address-taken static locals
+ *
+ * A `static` block-scope local is normally a data-section object mirrored
+ * into a per-call stack slot (Sprint 37). That mirror is UNSOUND when the
+ * object's ADDRESS is materialized in the function (address-of, array
+ * decay, or a member/pointer escape): the escaped pointer must be the
+ * stable data-section object, and every access (value AND address) must
+ * target it - a frame-relative slot is invalid once the function returns
+ * (c-torture execute/20041218-1: `static struct V v; return &v;` handed
+ * out a dead stack address and the epilogue mirror-out clobbered the
+ * object a callee had written).
+ *
+ * We therefore run a pre-scan over the body BEFORE lowering and mark every
+ * static local whose address can be materialized (sym->static_addr_taken).
+ * For marked statics the mirror is skipped and all accesses go to the data
+ * section directly. The scan is conservative (marks whole arrays, marks on
+ * any `&`), which is safe: over-marking only loses the mirror fast path.
+ * ========================================================================= */
+/* If `operand` is the operand of an address-of, mark the static local it
+ * names (walking through member chains to the base identifier).  Marks ALL
+ * static locals with the name (shadowing is rare; over-marking is safe). */
+static void zc_prescan_mark_addr_of(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef operand) {
+    if (operand == AST_NULL) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, operand);
+    if (!n) return;
+    if (n->tag == NODE_MEMBER) {
+        zc_prescan_mark_addr_of(c, arena, n->left);
+        return;
+    }
+    if (n->tag == NODE_IDENT && n->s.str) {
+        for (size_t i = 0; i < c->local_count; i++) {
+            ZeroCCSym *s = &c->locals[i];
+            if (s->is_static_local && strcmp(s->name, n->s.str) == 0) {
+                s->static_addr_taken = true;
+            }
+        }
+    }
+}
+
+/* Recursively visit every expression/statement sub-node of `ref`, marking
+ * statics whose address is taken via `&`. */
+static void zc_prescan_visit(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return;
+    switch (n->tag) {
+        case NODE_UNOP:
+            if (n->aux.op == '&' || n->aux.op == TK_AMP) zc_prescan_mark_addr_of(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->left);
+            break;
+        case NODE_BINOP:
+        case NODE_COMMA:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_ASSIGN:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_TERNARY:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            zc_prescan_visit(c, arena, n->aux.alt);
+            break;
+        case NODE_CAST:
+        case NODE_MEMBER:
+            zc_prescan_visit(c, arena, n->left);
+            break;
+        case NODE_INDEX:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_CALL: {
+            zc_prescan_visit(c, arena, n->left);
+            ASTRef a = n->right;
+            while (a != AST_NULL) {
+                ZeroCCASTNode *an = zero_cc_ast_get(arena, a);
+                zc_prescan_visit(c, arena, a);
+                a = an ? an->next : AST_NULL;
+            }
+            break;
+        }
+        case NODE_COMPOUND_LIT:
+        case NODE_VA_ARG:
+        case NODE_VA_START:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_STMT_EXPR:
+            zc_prescan_visit(c, arena, n->left);
+            break;
+        case NODE_BLOCK: {
+            ASTRef s = n->left;
+            while (s != AST_NULL) {
+                ZeroCCASTNode *sn = zero_cc_ast_get(arena, s);
+                zc_prescan_visit(c, arena, s);
+                s = sn ? sn->next : AST_NULL;
+            }
+            break;
+        }
+        case NODE_EXPR_STMT:
+        case NODE_RETURN:
+        case NODE_LABEL:
+            zc_prescan_visit(c, arena, n->left);
+            break;
+        case NODE_IF:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            zc_prescan_visit(c, arena, n->aux.alt);
+            break;
+        case NODE_WHILE:
+        case NODE_DO_WHILE:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_FOR:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            zc_prescan_visit(c, arena, n->aux.alt);   /* body */
+            zc_prescan_visit(c, arena, n->aux.step);  /* step */
+            break;
+        case NODE_SWITCH:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_CASE:
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
+        case NODE_DEFAULT:
+        case NODE_DECL:
+        case NODE_STATIC_ASSERT:
+            zc_prescan_visit(c, arena, n->left);
+            break;
+        default:
+            break;
+    }
+}
+
+/* Mark every static local in the current function whose address can be
+ * materialized: any static array (decays to a pointer) and any static that
+ * appears as the operand of `&` (directly or as the base of a member chain).
+ * Must run before lowering so the flag is visible to every access site. */
+static void zero_cc_prescan_static_addr_taken(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef body) {
+    for (size_t i = 0; i < c->local_count; i++) {
+        ZeroCCSym *s = &c->locals[i];
+        if (s->is_static_local && s->type.tag == TYPE_ARRAY) s->static_addr_taken = true;
+    }
+    zc_prescan_visit(c, arena, body);
+}
+
 /* data -> stack slot (prologue) */
 static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
@@ -448,6 +600,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * allocator temps that may be mapped onto the return register, and the
      * return value is already live in VREG_0 by the time the epilogue runs.
      * (Must happen before the frame size is computed below.) */
+    /* Sprint 72: mark statics whose address is materialized (must precede
+     * lowering so every access site sees the flag). */
+    zero_cc_prescan_static_addr_taken(c, arena, root);
+
     c->lowering.static_local_rt_off = 0;
     for (size_t i = 0; i < c->local_count; i++) {
         if (c->locals[i].is_static_local) {
@@ -459,9 +615,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     /* Sprint 37: static locals - data section -> stack slot, once per call,
-     * before any body statement can read the (mirrored) slot. */
+     * before any body statement can read the (mirrored) slot.  Sprint 72:
+     * skip the mirror for address-taken statics - their slot is never used
+     * (every access goes to the data section directly). */
     for (size_t i = 0; i < c->local_count; i++) {
-        if (c->locals[i].is_static_local) static_local_mirror_in(c, &c->locals[i]);
+        if (c->locals[i].is_static_local && !c->locals[i].static_addr_taken)
+            static_local_mirror_in(c, &c->locals[i]);
     }
 
     /* Lower AST to IR (instruction selection) */
@@ -488,7 +647,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     if (c->lowering.static_local_rt_off != 0) {
         ir_emit_store(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
         for (size_t i = 0; i < c->local_count; i++) {
-            if (c->locals[i].is_static_local) static_local_mirror_out(c, &c->locals[i]);
+            /* Sprint 72: skip the mirror-out for address-taken statics - the
+             * slot is stale scratch and flushing it would clobber the data
+             * section object a callee may have written through the escaped
+             * pointer. */
+            if (c->locals[i].is_static_local && !c->locals[i].static_addr_taken)
+                static_local_mirror_out(c, &c->locals[i]);
         }
         ir_emit_load(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
     }

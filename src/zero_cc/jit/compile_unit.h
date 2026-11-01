@@ -770,6 +770,24 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->token_pos++; /* skip _Thread_local / __thread */
             }
             size_t after_extern = c->token_pos;
+            /* Sprint 72: a specifier run may follow `extern` (C99 6.7.1):
+             * `extern inline int f(void);`, `extern __inline__ u32 f(int)
+             * { ... }`, `extern const int x;`.  Skip the run so the type
+             * name is found.  If the declaration turns out to be a function
+             * (identifier + parens after the type), the position resets to
+             * after_extern and the normal top-level path handles it (that
+             * path skips the same specifier run, and the function parser
+             * re-skips static/inline/_Noreturn itself). */
+            {
+                size_t probe = after_extern;
+                for (int k = 0; k < 8 && probe < c->token_count; k++) {
+                    ZeroCCTokType pk = c->tokens[probe].type;
+                    if (pk == TK_INLINE || pk == TK_STATIC || pk == TK_CONST ||
+                        pk == TK_VOLATILE || pk == TK_NORETURN || pk == TK_THREAD_LOCAL) probe++;
+                    else break;
+                }
+                c->token_pos = probe;
+            }
             /* Anonymous struct/union extern: `extern struct { ... } name;` */
             bool ext_is_union = (c->tokens[c->token_pos].type == TK_UNION);
             /* Parse type and identifier */
@@ -779,10 +797,75 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                  * declarator name follows the closing brace. */
                 ext_type = zero_cc_parse_struct_body(c, ext_is_union);
             }
+            /* Trailing qualifiers between the type name and the declarator:
+             * `extern int const x;` (C99 6.7.1 - specifier order is free). */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
             ZeroCCType base_ext_type = (ext_type.tag == TYPE_PTR && ext_type.base) ? *ext_type.base : ext_type;
             if (c->tokens[c->token_pos].type == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                 /* Extern function declaration/prototype: let function parser handle it */
                 c->token_pos = after_extern;
+            } else if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                       c->token_pos + 1 < c->token_count &&
+                       c->tokens[c->token_pos + 1].type == TK_STAR) {
+                /* Sprint 72: function-pointer variable
+                 * (`extern int (*gp)(const char*);`) or array of function
+                 * pointers (`extern void (*f[])(void);`).  Parse the
+                 * declarator; a true function declarator
+                 * (`extern void (*g(void))(void);`) resets for the function
+                 * parser, otherwise the name is registered as an extern
+                 * OBJECT with the declarator-applied type (no storage). */
+                ZeroCCASTArena darena;
+                ZeroCCDeclarator d;
+                zero_cc_ast_arena_init(&darena, 256);
+                if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d) || !d.name ||
+                    zero_cc_declarator_is_function(&d)) {
+                    zero_cc_ast_arena_free(&darena);
+                    c->token_pos = after_extern;
+                } else {
+                    ZeroCCType dt = zero_cc_declarator_apply(&d, ext_type);
+                    char ext_name[128];
+                    snprintf(ext_name, sizeof(ext_name), "%s", d.name);
+                    if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *fn = &c->functions[c->function_count++];
+                        fn->text_offset = 0; /* External, no code */
+                        snprintf(fn->name, sizeof(fn->name), "%s", ext_name);
+                        fn->return_type = dt;
+                        fn->is_external = true;
+                        fn->is_prototype = true;
+                        fn->is_object = true; /* extern variable, not a function */
+                    }
+                    zero_cc_ast_arena_free(&darena);
+                    /* Comma declarators share the applied type. */
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                        c->token_pos++;
+                        while (c->token_pos < c->token_count &&
+                               (c->tokens[c->token_pos].type == TK_CONST ||
+                                c->tokens[c->token_pos].type == TK_VOLATILE ||
+                                c->tokens[c->token_pos].type == TK_STAR)) c->token_pos++;
+                        if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+                            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                            break;
+                        }
+                        char ext_name2[128];
+                        snprintf(ext_name2, sizeof(ext_name2), "%s", c->tokens[c->token_pos].str_val);
+                        c->token_pos++;
+                        if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                            ZeroCCFunction *fn = &c->functions[c->function_count++];
+                            fn->text_offset = 0;
+                            snprintf(fn->name, sizeof(fn->name), "%s", ext_name2);
+                            fn->return_type = dt;
+                            fn->is_external = true;
+                            fn->is_prototype = true;
+                            fn->is_object = true;
+                        }
+                    }
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                    continue;
+                }
             } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 ZeroCCType cur_ext_type = ext_type;
                 while (c->tokens[c->token_pos].type == TK_IDENT) {

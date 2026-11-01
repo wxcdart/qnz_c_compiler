@@ -644,8 +644,7 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
         ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
         ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(base_node->s.str);
         if (sym && !sym->is_extern) {
-            addr = c->next_temp_id++;
-            ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+            addr = zc_sym_addr(c, sym, 0);  /* Sprint 72: data section for address-taken statics */
         } else if (ggv) {
             addr = c->next_temp_id++;
             ir_emit_global_addr(c, addr, ggv);
@@ -706,13 +705,13 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
     if (operand->tag == NODE_IDENT) {
         ZeroCCSym *sym = zero_cc_find_local(c, operand->s.str);
         if (sym && !sym->is_extern) {
-            int addr_temp = c->next_temp_id++;
             if (sym->is_vla) {
+                int addr_temp = c->next_temp_id++;
                 ir_emit_load(addr_temp, BE(c)->fp_reg, -sym->stack_offset);
-            } else {
-                ir_emit_lea(addr_temp, TEMP_NONE, -sym->stack_offset);
+                return addr_temp;
             }
-            return addr_temp;
+            /* Sprint 72: address-taken statics live in the data section. */
+            return zc_sym_addr(c, sym, 0);
         }
         ZeroCCGlobalVar *gv = find_global_var(operand->s.str);
         if (gv) {
@@ -757,6 +756,19 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         if (!base_is_ptr && base_node && base_node->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
             if (sym && !sym->is_extern) {
+                if (zc_sym_uses_data_section(sym)) {
+                    /* Sprint 72: address-taken static member address goes to
+                     * the data-section object + member offset. */
+                    ir_emit_mov_global((uint16_t)addr_temp, sym->static_global_name);
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(off_temp, member_offset);
+                        int sum_temp = c->next_temp_id++;
+                        ir_emit_add(sum_temp, addr_temp, off_temp);
+                        return sum_temp;
+                    }
+                    return addr_temp;
+                }
                 int32_t total_offset = -sym->stack_offset + member_offset;
                 ir_emit_lea(addr_temp, TEMP_NONE, total_offset);
                 return addr_temp;
@@ -1620,38 +1632,35 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     /* C99 _Complex: address-form value (16-byte object,
                      * real half first) - like a vector, consumers load
                      * the parts from this address. */
-                    int temp = c->next_temp_id++;
-                    ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    int temp = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                     c->last_expr_is_float = 0;
                     return temp;
                 }
                 if (sym->type.tag == TYPE_FLOAT) {
-                    int addr = c->next_temp_id++;
-                    ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                    int addr = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                     int temp = c->next_temp_id++;
                     ir_emit_vloadss((uint16_t)temp, (uint16_t)addr);
                     c->last_expr_is_float = 1;
                     return temp;
                 } else if (sym->type.tag == TYPE_DOUBLE) {
-                    /* Float load via IR for proper register allocation */
+                    /* Float load via IR for proper register allocation.
+                     * Sprint 72: address-based (data section for address-
+                     * taken statics, frame slot otherwise). */
+                    int a = zc_sym_addr(c, sym, 0);
                     int temp = c->next_temp_id++;
-                    ir_emit_fload((uint16_t)temp, TEMP_NONE, -sym->stack_offset);
+                    ir_emit_vloadsd((uint16_t)temp, (uint16_t)a);
                     c->last_expr_is_float = 1;
                     return temp;
                 } else if (sym->type.tag == TYPE_ARRAY && !sym->is_vla) {
-                    /* Fixed-size array decays to pointer via LEA */
-                    int temp = c->next_temp_id++;
-                    ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    /* Fixed-size array decays to pointer (Sprint 72: data
+                     * section for address-taken statics). */
+                    int temp = zc_sym_addr(c, sym, 0);
                     c->last_expr_is_float = 0;
                     return temp;
                 } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
                     /* GNU vector: decays to its address, like an array.
-                     * Consumers needing the by-value vector (arithmetic,
-                     * assignment, call args, returns) load it from this
-                     * address (see the vector cases in the NODE_INDEX /
-                     * NODE_ASSIGN / NODE_CALL / NODE_RETURN lowering). */
-                    int temp = c->next_temp_id++;
-                    ir_emit_lea(temp, BE(c)->fp_reg, -sym->stack_offset);
+                     * Sprint 72: data section for address-taken statics. */
+                    int temp = zc_sym_addr(c, sym, 0);
                     c->last_expr_is_float = 0;
                     return temp;
                 } else if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
@@ -1667,24 +1676,24 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                      * value must NOT be an address here (va-arg-4.c). */
                     if (sym->type.size <= 8) {
                         int temp = c->next_temp_id++;
-                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                        zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
                         c->last_expr_is_float = 0;
                         return temp;
                     } else if (sym->type.size <= 16) {
                         int temp = c->next_temp_id++;
-                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
-                        ir_emit_load(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                        zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
+                        zc_sym_load(c, sym, 8, VREG_2);  /* Sprint 72 */
                         c->last_expr_is_float = 0;
                         return temp;
                     } else {
                         int temp = c->next_temp_id++;
-                        ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                        zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
                         c->last_expr_is_float = 0;
                         return temp;
                     }
                 } else {
                     int temp = c->next_temp_id++;
-                    ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                    zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
                     /* 32-bit int semantics: extend narrow int locals to full
                      * 64-bit width (sign/zero per type) so overflowed values
                      * compare and store correctly. No-op for ptr/8-byte. */
@@ -2693,11 +2702,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             int one_f = c->next_temp_id++;
                             int res_temp = c->next_temp_id++;
                             if (sym->type.tag == TYPE_FLOAT) {
-                                int addr = c->next_temp_id++;
-                                ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                                int addr = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                                 ir_emit_vloadss((uint16_t)val_temp, (uint16_t)addr);
                             } else {
-                                ir_emit_fload((uint16_t)val_temp, TEMP_NONE, -sym->stack_offset);
+                                int a = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
+                                ir_emit_vloadsd((uint16_t)val_temp, (uint16_t)a);
                             }
                             ir_emit_mov_imm(one_i, 1);
                             ir_emit_cvtsi2sd((uint16_t)one_f, (uint16_t)one_i);
@@ -2707,11 +2716,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                 ir_emit_fsub((uint16_t)res_temp, (uint16_t)val_temp, (uint16_t)one_f);
                             }
                             if (sym->type.tag == TYPE_FLOAT) {
-                                int addr = c->next_temp_id++;
-                                ir_emit_lea(addr, BE(c)->fp_reg, -sym->stack_offset);
+                                int addr = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                                 ir_emit_vstoress((uint16_t)addr, (uint16_t)res_temp);
                             } else {
-                                ir_emit_fstore((uint16_t)res_temp, TEMP_NONE, -sym->stack_offset);
+                                int a = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
+                                ir_emit_vstoresd((uint16_t)a, (uint16_t)res_temp);
                             }
                             c->last_expr_is_float = 1;
                             return (node->flags & 1) ? val_temp : res_temp;
@@ -2723,14 +2732,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         int res_temp = c->next_temp_id++;
 
                         /* Load current variable value from stack */
-                        ir_emit_load(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        zc_sym_load(c, sym, 0, val_temp);  /* Sprint 72 */
                         /* Step: sizeof(*x) for pointer locals (C11 6.5.6), else 1 */
                         ir_emit_mov_imm(one_temp, (node->aux.op == TK_INC) ? step : -step);
                         /* res = val ± step */
                         ir_emit_add(res_temp, val_temp, one_temp);
                         zero_cc_emit_int_extend(c, res_temp, &sym->type);
                         /* Store new value back to stack */
-                        ir_emit_store(res_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        zc_sym_store(c, sym, 0, res_temp);  /* Sprint 72 */
 
                         c->last_expr_is_float = 0;
                         /* Postfix x++ / x-- yields the OLD value; prefix
@@ -5449,8 +5458,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                             right_temp = op_res;
                         }
                         if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16 && !is_compound) {
-                            int dst_addr = c->next_temp_id++;
-                            ir_emit_lea(dst_addr, TEMP_NONE, -sym->stack_offset);
+                            int dst_addr = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                             zero_cc_emit_struct_copy_to_addr(c, arena, dst_addr, sym->type.size, node->right, right_temp);
                         } else {
                             bool rhs_is_struct_addr = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
@@ -5462,11 +5470,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     else if (sym->type.size == 2) ir_emit_load_16(val_temp, right_temp);
                                     else if (sym->type.size == 4) ir_emit_load_32(val_temp, right_temp);
                                     else ir_emit_deref(val_temp, right_temp);
-                                    ir_emit_store(val_temp, BE(c)->fp_reg, -sym->stack_offset);
+                                    zc_sym_store(c, sym, 0, val_temp);  /* Sprint 72 */
                                 } else {
                                     int val1 = c->next_temp_id++;
                                     ir_emit_deref(val1, right_temp);
-                                    ir_emit_store(val1, BE(c)->fp_reg, -sym->stack_offset);
+                                    zc_sym_store(c, sym, 0, val1);  /* Sprint 72 */
 
                                     int off8 = c->next_temp_id++;
                                     ir_emit_mov_imm(off8, 8);
@@ -5477,7 +5485,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                     size_t rem = sym->type.size - 8;
                                     if (rem == 8) {
                                         ir_emit_deref(val2, addr2);
-                                        ir_emit_store(val2, BE(c)->fp_reg, -(sym->stack_offset - 8));
+                                        zc_sym_store(c, sym, 8, val2);  /* Sprint 72 */
                                     } else {
                                         if (rem == 1) ir_emit_load_byte(val2, addr2);
                                         else if (rem == 2) ir_emit_load_16(val2, addr2);
@@ -5487,23 +5495,28 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                          * 8-byte store scribbles the bytes
                                          * adjacent to the destination slot
                                          * (c-torture execute/va-arg-22). */
-                                        int dst_a = c->next_temp_id++;
-                                        ir_emit_lea(dst_a, TEMP_NONE, -(sym->stack_offset - 8));
+                                        int dst_a;
+                                        if (zc_sym_uses_data_section(sym)) {
+                                            dst_a = zc_sym_addr(c, sym, 8);  /* Sprint 72 */
+                                        } else {
+                                            dst_a = c->next_temp_id++;
+                                            ir_emit_lea(dst_a, TEMP_NONE, -(sym->stack_offset - 8));
+                                        }
                                         zc_store_low_bytes(c, val2, dst_a, rem);
                                     }
                                 }
                             } else {
                                 lower_assign_conv_zt(c, right_temp, &sym->type);
-                                ir_emit_store(right_temp, BE(c)->fp_reg, -sym->stack_offset);
+                                zc_sym_store(c, sym, 0, right_temp);  /* Sprint 72 */
                                 if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
                                     /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
-                                    ir_emit_store(VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                                    zc_sym_store(c, sym, 4, VREG_2);  /* Sprint 72 */
                                 } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
                                     int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
                                     size_t rem = sym->type.size - 8;
                                     int32_t tail_off = -(sym->stack_offset - 8);
                                     if (rem >= 8) {
-                                        ir_emit_store(reg2, BE(c)->fp_reg, tail_off);
+                                        zc_sym_store(c, sym, 8, reg2);  /* Sprint 72 */
                                     } else {
                                         /* Copy exactly the remaining rem
                                          * (1..7) bytes of the secondary
@@ -5511,8 +5524,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                                          * drops the extra bytes (c-torture
                                          * execute/va-arg-22: an 11-byte
                                          * struct lost its 11th byte). */
-                                        int dst_addr = c->next_temp_id++;
-                                        ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
+                                        int dst_addr;
+                                        if (zc_sym_uses_data_section(sym)) {
+                                            dst_addr = zc_sym_addr(c, sym, 8);  /* Sprint 72 */
+                                        } else {
+                                            dst_addr = c->next_temp_id++;
+                                            ir_emit_lea(dst_addr, TEMP_NONE, tail_off);
+                                        }
                                         zc_store_low_bytes(c, reg2, dst_addr, rem);
                                     }
                                 }

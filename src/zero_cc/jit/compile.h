@@ -204,22 +204,54 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
                 c->token_pos++;
             }
         }
+        /* Sprint 72: function-pointer K&R parameter (`void * (*chunkfun)
+         * ();` - c-torture compile/cp.c): the declarator is
+         * `(*name)(params)`; the parameter's type is a pointer to a
+         * function whose return type is the base + this declarator's
+         * star run. */
+        bool d_func_ptr = false;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
+            c->token_pos + 1 < c->token_count &&
+            c->tokens[c->token_pos + 1].type == TK_STAR) {
+            c->token_pos++; /* ( */
+            c->token_pos++; /* * */
+            d_func_ptr = true;
+        }
         if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) return -1;
         const char *dn = c->tokens[c->token_pos].str_val;
         c->token_pos++;
         bool is_array = false;
-        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
-            is_array = true;
-            c->token_pos++;
-            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
-            if (c->token_pos < c->token_count) c->token_pos++; /* skip ']' */
+        if (d_func_ptr) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            /* Skip the parameter list `( ... )` (depth-counted) */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pdepth = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && pdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                    c->token_pos++;
+                }
+            }
+        } else {
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                is_array = true;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
+                if (c->token_pos < c->token_count) c->token_pos++; /* skip ']' */
+            }
         }
         if (count >= max) return -1;
         ZeroCCType dt = pt;
         dt.is_const = d_const;
         dt.is_volatile = d_volatile;
         for (int dp = 0; dp < d_ptr; dp++) dt = zero_cc_type_ptr(&dt);
-        if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
+        if (d_func_ptr) {
+            /* `ret * (*name) ()` - pointer to function returning `ret *` */
+            ZeroCCType fpt = zero_cc_type_ptr(&dt);
+            fpt.is_func_ptr = true;
+            dt = fpt;
+        } else if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
             dt = zero_cc_type_ptr(&dt);
         }
         out_names[count] = dn;

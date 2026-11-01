@@ -64,6 +64,58 @@ static inline ZeroCCSym *lowering_local_sym(ZeroCCCompiler *c, const ZeroCCASTNo
 void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size);
 void emit_return_jumps(ZeroCCCompiler *c);
 
+/* Sprint 72: a static local whose ADDRESS is materialized in this function
+ * (sym->static_addr_taken, set by the pre-scan) must be reached through its
+ * stable data-section object, not its frame-relative mirror slot - the slot
+ * is dead once the function returns and the epilogue mirror is skipped for
+ * such statics. Value-only statics (and every non-static local) keep the
+ * frame slot, so this is a no-op for the common case. */
+static inline int zc_sym_uses_data_section(const ZeroCCSym *sym) {
+    return sym && sym->is_static_local && sym->static_addr_taken;
+}
+
+/* Materialize the address of a local symbol (base + `extra` bytes) in a
+ * fresh temp.  Uses the data-section object for address-taken statics and
+ * the frame-relative slot otherwise. `extra` must be a compile-time
+ * constant (runtime offsets are handled by the caller). */
+static inline int zc_sym_addr(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra) {
+    int a = c->next_temp_id++;
+    if (zc_sym_uses_data_section(sym)) {
+        ir_emit_mov_global((uint16_t)a, sym->static_global_name);
+        if (extra != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm((uint16_t)o, (int64_t)extra);
+            int na = c->next_temp_id++;
+            ir_emit_add((uint16_t)na, (uint16_t)a, (uint16_t)o);
+            a = na;
+        }
+    } else {
+        ir_emit_lea(a, BE(c)->fp_reg, -sym->stack_offset + extra);
+    }
+    return a;
+}
+
+/* Load the 8 bytes at a local symbol's storage (+ `extra`) into `dest`.
+ * Data-section object for address-taken statics, frame slot otherwise. */
+static inline void zc_sym_load(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int dest) {
+    if (zc_sym_uses_data_section(sym)) {
+        int a = zc_sym_addr(c, sym, extra);
+        ir_emit_deref(dest, a);
+    } else {
+        ir_emit_load(dest, BE(c)->fp_reg, -sym->stack_offset + extra);
+    }
+}
+
+/* Store the 8 bytes in `val` at a local symbol's storage (+ `extra`). */
+static inline void zc_sym_store(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int val) {
+    if (zc_sym_uses_data_section(sym)) {
+        int a = zc_sym_addr(c, sym, extra);
+        ir_emit_store_64((uint16_t)val, (uint16_t)a);
+    } else {
+        ir_emit_store(val, BE(c)->fp_reg, -sym->stack_offset + extra);
+    }
+}
+
 /* C99 narrow-integer width semantics. The machine word is 64 bits, so
  * 1/2/4-byte integer values must be explicitly extended to full width at
  * every load/use boundary, otherwise overflowed `int` results keep 64-bit

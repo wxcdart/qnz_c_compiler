@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-01T06:08:04Z
+timestamp: 2026-11-01T19:11:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -653,3 +653,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-01 — Updated `global-data-relocs.md`
 - Sprint 71: ZeroCCDataReloc kinds 0-4 documented (kind 3 = function symbol for funcptr data initializers)
+
+## 2026-11-01 — Updated `c-torture-gate.md`
+- Sprint 72: extern/funcptr/struct-member declarator burn-down + static-local address-of (PASS 2946->2970, REJECT 80->61, MISCOMPILE 0); bool/_Bool typedef work shelved pending pre-existing O2 packed-struct fix
+
+## 2026-11-01 — Updated `frontend-and-types.md`
+- Sprint 72: funcptr member pointer-wrap rule (all stars), funcptr/comma struct members, extern specifier runs + funcptr objects, static-local address-of data-section routing
+
+## 2026-11-01 — Updated `ir-and-regalloc.md`
+- Sprint 72: static-local address-of routes to data-section __sl_N (pre-scan static_addr_taken), not the dead per-call stack mirror

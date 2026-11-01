@@ -1504,9 +1504,16 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
         ty = zero_cc_type_vector(&ty, vec_attr_size);
     }
-    /* Parenthesized abstract declarator: (*)(void), (*)[4], or (*[3])(float) */
-    if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
-        *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR) {
+    /* Declarator suffixes (C99 6.7.5): parenthesized abstract
+     * declarators (`(*)(void)`, `(*)[4]`, `(*[3])(float)`) and pointer
+     * stars may alternate in any order - `int *(*)(long)`,
+     * `struct A *(*) (long)` (c-torture compile/20010102-1).  Stars
+     * BEFORE a function-pointer paren block belong to the function's
+     * RETURN type, so the is_func_ptr layer is always the wrap applied
+     * directly around the already-starred base. */
+    for (;;) {
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
+            *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR) {
         (*pos)++; /* consume '(' */
         int ptr_cnt = 0;
         bool is_func = false;
@@ -1550,6 +1557,26 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ZeroCCType elem_ty = ty;
             ty = zero_cc_type_array(&elem_ty, inner_arr_len);
         }
+        }
+        int star_waits = 0;
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+            star_waits++;
+            ty = zero_cc_type_ptr(&ty);
+            (*pos)++;
+            while (*pos < c->token_count &&
+                   (c->tokens[*pos].type == TK_CONST ||
+                    c->tokens[*pos].type == TK_VOLATILE ||
+                    c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, pos, &probe)) { /* skip */ }
+            }
+        }
+        if (star_waits == 0 &&
+            !(*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
+              *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR)) {
+            break;
+        }
     }
     /* Suffix complex: `double _Complex` (C99 6.7.2.3). */
     if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT &&
@@ -1558,18 +1585,6 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         !ty.is_complex) {
         (*pos)++;
         ty = zero_cc_type_complex(&ty);
-    }
-    while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
-        ty = zero_cc_type_ptr(&ty);
-        (*pos)++;
-        while (*pos < c->token_count &&
-               (c->tokens[*pos].type == TK_CONST ||
-                c->tokens[*pos].type == TK_VOLATILE ||
-                c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
-        {
-            size_t probe = 0;
-            while (zero_cc_parse_aligned_attr(c, pos, &probe)) { /* skip */ }
-        }
     }
     while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
         (*pos)++;

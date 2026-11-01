@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T06:06:27Z",
+ "generated": "2026-11-01T19:07:37Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -35,12 +35,12 @@
    "note": ""
   },
   "compile/20000120-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000127-1.c": {
    "class": "PASS",
@@ -51,12 +51,12 @@
    "note": ""
   },
   "compile/20000211-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000211-3.c": {
    "class": "PASS",
@@ -341,12 +341,12 @@
    "note": ""
   },
   "compile/20000825-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000827-1.c": {
    "class": "PASS",
@@ -485,12 +485,12 @@
    "note": ""
   },
   "compile/20010102-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: 'obstack' has no member named 'chunkfun'; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010107-1.c": {
    "class": "PASS",
@@ -908,20 +908,20 @@
    "note": ""
   },
   "compile/20011119-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                               ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011119-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                               ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011130-1.c": {
    "class": "PASS",
@@ -988,12 +988,12 @@
    "note": ""
   },
   "compile/20011229-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011229-2.c": {
    "class": "PASS",
@@ -1020,12 +1020,12 @@
    "note": ""
   },
   "compile/20020109-1.c": {
-   "class": "REJECT",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "<stdin>: error: 'A' has no member named 't'; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20020109-2.c": {
    "class": "PASS",
@@ -1427,7 +1427,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": "              ^; Compile error: nested function definition of 'q' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
   },
   "compile/20021205-1.c": {
    "class": "PASS",
@@ -1587,12 +1587,12 @@
    "note": ""
   },
   "compile/20030405-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030410-1.c": {
    "class": "PASS",
@@ -1898,12 +1898,12 @@
    "note": ""
   },
   "compile/20031112-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20031113-1.c": {
    "class": "SKIP-C89",
@@ -2476,28 +2476,28 @@
    "note": ""
   },
   "compile/20050215-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                           ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20050215-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20050215-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20050217-1.c": {
    "class": "PASS",
@@ -2516,12 +2516,12 @@
    "note": ""
   },
   "compile/20050328-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20050423-1.c": {
    "class": "PASS",
@@ -3225,12 +3225,12 @@
    "note": ""
   },
   "compile/20090907-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20090917-1.c": {
    "class": "SKIP-C89",
@@ -3381,12 +3381,12 @@
    "note": ""
   },
   "compile/20120913-1.c": {
-   "class": "REJECT",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                               ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20120917-1.c": {
    "class": "PASS",
@@ -3578,12 +3578,12 @@
    "note": ""
   },
   "compile/20190827-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                               ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20191015-1.c": {
    "class": "PASS",
@@ -3761,12 +3761,12 @@
    "note": ""
   },
   "compile/920428-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot"
+   "note": ""
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -5286,12 +5286,12 @@
    "note": ""
   },
   "compile/980408-1.c": {
-   "class": "REJECT",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/980504-1.c": {
    "class": "PASS",
@@ -6668,12 +6668,12 @@
    "note": ""
   },
   "compile/cp.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/cpp-1.c": {
    "class": "PASS",
@@ -6990,12 +6990,12 @@
    "note": ""
   },
   "compile/funcptr-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/g.c": {
    "class": "PASS",
@@ -9757,12 +9757,12 @@
    "note": ""
   },
   "compile/pr32571.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                              ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr32584.c": {
    "class": "PASS",
@@ -10106,12 +10106,12 @@
    "note": ""
   },
   "compile/pr35607.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr35760.c": {
    "class": "PASS",
@@ -10409,7 +10409,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "<stdin>: error: expected '}' to end block; Compile error: '__builtin_va_arg_pack' is not supported by ZeroCC (GNU variadic argument forwarding); this program cannot be compiled [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr37713.c": {
    "class": "PASS",
@@ -10537,12 +10537,12 @@
    "note": ""
   },
   "compile/pr38564.c": {
-   "class": "REJECT",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                          ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38590-1.c": {
    "class": "PASS",
@@ -11648,7 +11648,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                          ^; Compile error: expected identifier in extern declaration | cfgs: O0-aot,O2-aot"
+   "note": "                                                          ^; Compile error: use of undeclared identifier '__pgd_val' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr45728.c": {
    "class": "PASS",
@@ -11720,12 +11720,12 @@
    "note": ""
   },
   "compile/pr46360.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr46388.c": {
    "class": "PASS",
@@ -13108,12 +13108,12 @@
    "note": ""
   },
   "compile/pr65873.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr65875.c": {
    "class": "PASS",
@@ -13539,12 +13539,12 @@
    "note": ""
   },
   "compile/pr78694.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr78748.c": {
    "class": "NO-REF",
@@ -16634,13 +16634,13 @@
     "O0-aot": "REJECT",
     "O0-jit": "TIMEOUT",
     "O1-aot": "REJECT",
-    "O1-jit": "TIMEOUT",
+    "O1-jit": "REJECT",
     "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
+    "O2-jit": "TIMEOUT",
     "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O3-jit": "TIMEOUT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O3-aot"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -18268,18 +18268,18 @@
    "note": ""
   },
   "execute/20020810-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: 'R' has no member named 'b'; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020819-1.c": {
    "class": "SKIP-C89",
@@ -20038,18 +20038,18 @@
    "note": ""
   },
   "execute/20041218-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: 'U' has no member named 'h'; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20041218-2.c": {
    "class": "SKIP-C89",
@@ -23280,7 +23280,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: invalid K&R parameter declaration in function 'f' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930513-2.c": {
    "class": "SKIP-C89",
@@ -29892,24 +29892,60 @@
    "note": ""
   },
   "execute/memcpy-a1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a4.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a8.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-bi.c": {
    "class": "PASS",
@@ -32095,18 +32131,18 @@
    "note": ""
   },
   "execute/pr23467.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                           ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr23604.c": {
    "class": "PASS",
@@ -39620,7 +39656,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strcmp-1.c": {
    "class": "PASS",
@@ -40451,7 +40487,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "             ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "<stdin>: error: expected '}' to end block; Compile error: '__builtin_va_arg_pack' is not supported by ZeroCC (GNU variadic argument forwarding); this program cannot be compiled [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/va-arg-trap-1.c": {
    "class": "PASS",
@@ -40750,12 +40786,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 186,
-  "PASS": 2946,
+  "NO-REF": 182,
+  "PASS": 2970,
   "REF-BUG": 3,
-  "REJECT": 80,
+  "REJECT": 61,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 560,
+  "SKIP-C89": 553,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40768,6 +40804,6 @@
   "SKIP-TARGET:trampolines": 16,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
-  "TIMEOUT": 10
+  "TIMEOUT": 16
  }
 }

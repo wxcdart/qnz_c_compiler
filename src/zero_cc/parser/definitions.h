@@ -342,8 +342,37 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 is_ptr = true;
                 c->token_pos++;
             }
+            /* Sprint 72: function-pointer member with a struct/union/enum
+             * return type (`struct B *(*chunkfun)(void *, long);`) - the
+             * `(` after the star run is a funcptr declarator (same shape
+             * as the generic member path).  The member is a plain 8-byte
+             * pointer; is_func_ptr marks that the pointee is a function
+             * returning the member's own type (`struct B *`). */
+            bool dcl_is_fnptr = false;
             char mname[128] = "";
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
+            if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_STAR) {
+                c->token_pos++; /* ( */
+                c->token_pos++; /* * */
+                dcl_is_fnptr = true;
+                is_ptr = true;
+                if (c->tokens[c->token_pos].type == TK_IDENT) {
+                    snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                }
+                if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                /* Skip the parameter list `( ... )` */
+                if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                    c->token_pos++;
+                    int paren_depth = 1;
+                    while (c->token_pos < c->token_count && paren_depth > 0) {
+                        if (c->tokens[c->token_pos].type == TK_LPAREN) paren_depth++;
+                        else if (c->tokens[c->token_pos].type == TK_RPAREN) paren_depth--;
+                        c->token_pos++;
+                    }
+                }
+            } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
             }
@@ -414,6 +443,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->bit_offset = 0;
                     m->bit_width = is_bitfield ? bit_width : (uint8_t)(base_size * 8);
                     m->is_signed = true;
+                    m->is_func_ptr = dcl_is_fnptr;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     /* A leading qualifier on a struct/union/enum member
                      * attaches to the BASE type (C99 6.7.3): `const struct S *p`
@@ -424,7 +454,19 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     if (is_ptr) {
                         if (st_lead_const) pt.is_const = true;
                         if (st_lead_volatile) pt.is_volatile = true;
-                        m->base = zero_cc_type_alloc_base(&pt);
+                        if (dcl_is_fnptr) {
+                            /* Function-pointer member: the member's base is
+                             * the function's RETURN type.  For
+                             * `struct B *(*f)()` the star belongs to the
+                             * return (`struct B *`), so wrap the pointee in
+                             * a pointer (c-torture 20010102-1: CALL_CHUNKFUN
+                             * assigned the call result to a
+                             * `struct _obstack_chunk *`). */
+                            ZeroCCType rt = zero_cc_type_ptr(&pt);
+                            m->base = zero_cc_type_alloc_base(&rt);
+                        } else {
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                     } else {
                         m->base = zero_cc_type_alloc_base(&inner_type);
                         m->is_const = st_lead_const;
@@ -499,6 +541,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->align = effective_align;
                     m->is_flexible = is_flexible;
                     m->is_bitfield = false;
+                    m->is_func_ptr = dcl_is_fnptr;
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     /* Leading qualifier on a struct/union/enum member attaches
                      * to the base type: `const struct S *p` = pointer to
@@ -507,7 +550,15 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     if (is_ptr) {
                         if (st_lead_const) pt.is_const = true;
                         if (st_lead_volatile) pt.is_volatile = true;
-                        m->base = zero_cc_type_alloc_base(&pt);
+                        if (dcl_is_fnptr) {
+                            /* Function-pointer member: base = the function's
+                             * RETURN type; `struct B *(*f)()` returns
+                             * `struct B *` (see the union branch above). */
+                            ZeroCCType rt = zero_cc_type_ptr(&pt);
+                            m->base = zero_cc_type_alloc_base(&rt);
+                        } else {
+                            m->base = zero_cc_type_alloc_base(&pt);
+                        }
                     } else {
                         m->base = zero_cc_type_alloc_base(&inner_type);
                         m->is_const = st_lead_const;
@@ -530,7 +581,81 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     }
                 }
             }
-            if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            if (c->tokens[c->token_pos].type == TK_SEMI) {
+                c->token_pos++;
+            } else if (c->tokens[c->token_pos].type == TK_COMMA) {
+                /* Sprint 72: comma declarators of struct/union/enum
+                 * members (`struct s5 x, y;`, `struct qhdr *link, *rlink;`;
+                 * c-torture 20011229-1, 920428-2).  Each declarator keeps
+                 * the member's base type; its own star run decides
+                 * pointer-ness (C99 6.7.5). */
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                    c->token_pos++;
+                    int cptr = 0;
+                    while (c->token_pos < c->token_count &&
+                           (c->tokens[c->token_pos].type == TK_STAR ||
+                            c->tokens[c->token_pos].type == TK_CONST ||
+                            c->tokens[c->token_pos].type == TK_VOLATILE)) {
+                        if (c->tokens[c->token_pos].type == TK_STAR) cptr++;
+                        c->token_pos++;
+                    }
+                    if (c->token_pos >= c->token_count ||
+                        c->tokens[c->token_pos].type != TK_IDENT) {
+                        while (c->token_pos < c->token_count &&
+                               c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                        if (c->token_pos < c->token_count) c->token_pos++;
+                        break;
+                    }
+                    char cname[128];
+                    snprintf(cname, sizeof(cname), "%s", c->tokens[c->token_pos].str_val);
+                    c->token_pos++;
+                    /* Array suffixes on the comma declarator: take the
+                     * first declarator's dimensions (the common case is
+                     * no arrays at all). */
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        c->token_pos++;
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) {
+                            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
+                        }
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                    }
+                    bool c_ptr = (cptr > 0) || dcl_is_fnptr;
+                    size_t c_align = c_ptr ? 8 : effective_align;
+                    size_t c_size = c_ptr ? 8 : base_size;
+                    if (!c_ptr && is_array) c_size *= elem_count;
+                    if (is_union) {
+                        if (struct_member_room(c, &st)) {
+                            ZeroCCStructMember *m = &st.members[st.member_count++];
+                            snprintf(m->name, sizeof(m->name), "%s", cname);
+                            m->offset = 0;
+                            m->size = c_size;
+                            m->align = c_align;
+                            m->is_flexible = false;
+                            m->is_bitfield = false;
+                            m->is_signed = true;
+                            m->tag = c_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
+                            m->base = zero_cc_type_alloc_base(&inner_type);
+                            if (m->size > max_size) max_size = m->size;
+                        }
+                    } else {
+                        current_offset = (current_offset + c_align - 1) & ~(c_align - 1);
+                        if (struct_member_room(c, &st)) {
+                            ZeroCCStructMember *m = &st.members[st.member_count++];
+                            snprintf(m->name, sizeof(m->name), "%s", cname);
+                            m->offset = current_offset;
+                            m->size = c_size;
+                            m->align = c_align;
+                            m->is_flexible = false;
+                            m->is_bitfield = false;
+                            m->tag = c_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
+                            m->base = zero_cc_type_alloc_base(&inner_type);
+                            if (!c_ptr && is_array) m->tag = TYPE_ARRAY;
+                            current_offset += c_size;
+                        }
+                    }
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            }
             continue;
             }
         }
@@ -686,6 +811,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                 if (c->tokens[c->token_pos].type == TK_VOLATILE) member_is_volatile = true;
                 if (c->tokens[c->token_pos].type == TK_ATOMIC) member_is_atomic = true;
                 c->token_pos++;
+            }
+            /* GNU aligned(N) after the base type: `int __attribute__((aligned(8))) a;`
+             * (preprocessor marker __zc_aligned__(N); c-torture execute/pr23467). */
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > member_align) member_align = probe;
+                }
             }
             bool is_ptr = false;
             int ptr_depth = 0;
@@ -885,7 +1018,13 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->base = zero_cc_type_alloc_base(&dummy);
                         }
                         m->tag = TYPE_PTR;
-                        zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                        if (m->is_func_ptr) {
+                            /* Function-pointer member: base = the function's
+                             * RETURN type (declarator stars belong to it). */
+                            zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                        } else {
+                            zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                        }
                         if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
                     } else if (!is_bitfield && (is_array || is_flexible)) {
                         ZeroCCType elem_t;
@@ -1079,7 +1218,13 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->base = zero_cc_type_alloc_base(&dummy);
                             }
                             m->tag = TYPE_PTR;
-                        zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                            if (m->is_func_ptr) {
+                                /* Function-pointer member: base = the
+                                 * function's RETURN type (see struct branch). */
+                                zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                            } else {
+                                zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
+                            }
                         if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (is_array || is_flexible) {
                             ZeroCCType elem_t;
@@ -1244,7 +1389,18 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->base = zero_cc_type_alloc_base(&dummy);
                             }
                             m->tag = TYPE_PTR;
-                            zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            if (m->is_func_ptr) {
+                                /* Function-pointer member: the member's base
+                                 * is the function's RETURN type, and the
+                                 * declarator's star run belongs to that
+                                 * return (`int *(*f)(long)` returns `int *`;
+                                 * c-torture 20010102-1).  Wrap the base with
+                                 * all c_ptr_depth stars - the member's own
+                                 * PTR tag is the funcptr layer itself. */
+                                zero_cc_member_wrap_ptr_levels(m, c_ptr_depth);
+                            } else {
+                                zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            }
                             if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (!c_is_bitfield && (c_is_array || c_is_flexible)) {
                             ZeroCCType elem_t;
@@ -1401,7 +1557,14 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->base = zero_cc_type_alloc_base(&dummy);
                             }
                             m->tag = TYPE_PTR;
-                            zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            if (m->is_func_ptr) {
+                                /* Function-pointer member: base = the
+                                 * function's RETURN type (see the union
+                                 * branch above). */
+                                zero_cc_member_wrap_ptr_levels(m, c_ptr_depth);
+                            } else {
+                                zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
+                            }
                             if (!c_is_bitfield && (c_is_array || c_is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (c_is_array || c_is_flexible) {
                             ZeroCCType elem_t;
@@ -1532,14 +1695,18 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
             /* Sprint 68: a storage class may sit in the declarator:
              * `struct a { ... } static g = {9, 5};` (C99 6.7.4).  Probe
              * past a short specifier run when an identifier/pointer
-             * follows, and consume it. */
+             * follows, and consume it.  Sprint 72: `extern`/`__thread` in
+             * the declarator too (`struct S { ... } extern __thread a;`,
+             * c-torture compile/pr78694). */
             bool dcl_is_static = false;
+            bool dcl_is_extern = false;
             {
                 size_t sc_probe = c->token_pos;
-                for (int k = 0; k < 4 && sc_probe < c->token_count; k++) {
+                for (int k = 0; k < 6 && sc_probe < c->token_count; k++) {
                     ZeroCCTokType pk = c->tokens[sc_probe].type;
                     if (pk == TK_STATIC || pk == TK_INLINE ||
-                        pk == TK_CONST || pk == TK_VOLATILE) sc_probe++;
+                        pk == TK_CONST || pk == TK_VOLATILE ||
+                        pk == TK_EXTERN || pk == TK_THREAD_LOCAL) sc_probe++;
                     else break;
                 }
                 if (sc_probe > c->token_pos && sc_probe < c->token_count &&
@@ -1549,6 +1716,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                       c->tokens[sc_probe + 1].type == TK_IDENT))) {
                     while (c->token_pos < sc_probe) {
                         if (c->tokens[c->token_pos].type == TK_STATIC) dcl_is_static = true;
+                        if (c->tokens[c->token_pos].type == TK_EXTERN) dcl_is_extern = true;
                         c->token_pos++;
                     }
                 }
@@ -1681,6 +1849,66 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                             varray_len *= dim;
                             if (vdim_count < 8) vdims[vdim_count++] = dim;
                         }
+                    }
+                    if (dcl_is_extern) {
+                        /* Sprint 72: C99 6.7.2.1 + 6.9.2 - `struct S
+                         * { ... } extern __thread a;`: the declarator
+                         * names an EXTERNAL object: no storage is
+                         * reserved, a function-table entry carries the
+                         * variable's type (same shape as `extern int x;`;
+                         * c-torture compile/pr78694). */
+                        ZeroCCType vreg_type = vt;
+                        for (int d = vdim_count - 1; d >= 0; d--) {
+                            vreg_type = zero_cc_type_array(&vreg_type, (ssize_t)vdims[d]);
+                        }
+                        do {
+                            if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                                ZeroCCFunction *fn = &c->functions[c->function_count++];
+                                fn->text_offset = 0; /* External, no code */
+                                snprintf(fn->name, sizeof(fn->name), "%s", alias);
+                                fn->return_type = vreg_type;
+                                fn->is_external = true;
+                                fn->is_prototype = true;
+                                fn->is_object = true; /* extern variable, not a function */
+                            }
+                            if (c->tokens[c->token_pos].type == TK_ASSIGN) {
+                                /* extern with initializer (C11 inline
+                                 * functions): the value is ignored.  Skip
+                                 * the initializer expression (balanced
+                                 * ()/{} kept out of the comma/semi scan). */
+                                c->token_pos++;
+                                int dep = 0;
+                                while (c->token_pos < c->token_count) {
+                                    ZeroCCTokType qt = c->tokens[c->token_pos].type;
+                                    if (qt == TK_LPAREN || qt == TK_LBRACE) dep++;
+                                    else if (qt == TK_RPAREN || qt == TK_RBRACE) dep--;
+                                    else if (dep == 0 && (qt == TK_COMMA || qt == TK_SEMI)) break;
+                                    c->token_pos++;
+                                }
+                            }
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_COMMA) {
+                                c->token_pos++;
+                                while (c->token_pos < c->token_count &&
+                                       (c->tokens[c->token_pos].type == TK_STAR ||
+                                        c->tokens[c->token_pos].type == TK_CONST ||
+                                        c->tokens[c->token_pos].type == TK_VOLATILE)) c->token_pos++;
+                                if (c->token_pos >= c->token_count ||
+                                    c->tokens[c->token_pos].type != TK_IDENT) {
+                                    while (c->token_pos < c->token_count &&
+                                           c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                                    if (c->token_pos < c->token_count &&
+                                        c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                                    break;
+                                }
+                                snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
+                                c->token_pos++;
+                                continue;
+                            }
+                            break;
+                        } while (1);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                        return;
                     }
                     do {
                         size_t elem_size = vt.size > 0 ? vt.size : 8;

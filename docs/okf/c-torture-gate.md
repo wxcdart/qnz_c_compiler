@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-01T06:08:04Z
+timestamp: 2026-11-01T19:11:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 71)
+## 2. Classification Buckets & Baseline (Sprint 72)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,946** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+26 since Sprint 70: static-local aggregate/function-pointer initializers, funcptr-struct-member + indirect-call return typing, preprocessor macro-arity/argument-expansion edge cases, and the struct-copy / 9–16B secondary-register tail family that fixed the last `MISCOMPILE`, `execute/va-arg-22.c`) |
-| **`REJECT`** | **80** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 103) — the ongoing burn-down target |
-| **`SKIP-C89`** | **560** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held since Sprint 68). Sprint 71 note: `execute/va-arg-22.c` (multi-size variadic struct sequence) was the sole `MISCOMPILE` after the Sprint-70 static-local fixes un-rejected its neighbours; it resolved to a family of struct-copy / register-pair tail bugs (see Sprint 71 log entry) and is now PASS on all 8 configs. |
+| **`PASS`** | **2,970** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+24 since Sprint 71: extern specifier-run/function-pointer-variable/struct-definition-declarator parsing, function-pointer + comma struct/union/enum members, K&R funcptr params, cast funcptr types, aligned member attributes, and the static-local **address-of** fix that promoted `execute/20041218-1.c`) |
+| **`REJECT`** | **61** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 80) — the ongoing burn-down target |
+| **`SKIP-C89`** | **553** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held since Sprint 68). Sprint 72 note: the `bool`/`_Bool` typedef work (shelved, see CHANGELOG) exposed a **pre-existing -O2/-O3 packed-struct-with-bit-fields by-value codegen bug** (segfault on a pure by-value pass, confirmed at baseline); the `bool` keyword change was reverted to keep `MISCOMPILE 0` rather than bless the miscompile. |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`: its gcc -O1 reference trips the test's own FORTIFY `__OPTIMIZE__` abort while ZeroCC completes correctly — the reference-crash rule (Sprint 69) classifies a clean ZeroCC run (rc==0) as REF-BUG whenever the reference died, requiring surviving-output equality only when the reference printed before dying. |
-| **`NO-REF`** | **186** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
+| **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `unwrapped`: 2, `arm`: 1) |
-| **`TIMEOUT`** | **10** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
+| **`TIMEOUT`** | **16** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |
@@ -253,6 +253,20 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **Driver option acceptance** (`src/main.c`): `-w`, `-Wno-pragma-float`, `--param=…` accepted-and-ignored (build-system compatibility; 7 REJECT tests).
     - **Result**: PASS **2,920 → 2,946**; REJECT **103 → 80**; MISCOMPILE **1 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117 ok (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
     - **Next**: continue the REJECT burn-down (80 remaining). Known honest REJECT: `compile/20001226-1.c` (label collection fixed; the expanded function exceeds the 16-bit per-function temp-id budget) and the `limits-*` stress tests.
+
+- **Sprint 72 — Extern/Funcptr/Struct-Member Declarator Burn-Down + Static-Local Address-Of** (2026-11-01):
+    - **Declarator-parsing burn-down** (the `expected identifier in extern declaration` / `unexpected token in struct/union definition` / `expected identifier in declaration` clusters):
+      - **Extern specifier runs** (`jit/compile_unit.h`): `extern inline`/`extern const`/`extern __thread`/`extern __inline__` and trailing qualifiers (`extern int const x;`) are consumed after `extern`; function prototypes reset to the function parser.
+      - **Extern function-pointer variables** (`jit/compile_unit.h`): `extern int (*gp)(const char*);` is an **object** (`is_object = true`), not a function; a true function declarator still resets to the function parser. Comma declarators supported.
+      - **Struct-definition declarator storage classes** (`parser/definitions.h`): `struct S { … } static a;` / `extern __thread a;` — `extern` registers an external object with no storage.
+      - **Function-pointer struct/union/enum members with named pointees** + **member comma declarators** (`parser/definitions.h`): `struct B *(*chunkfun)(void *, long);` and `struct qhdr *link, *rlink;` parse and register each member with the correct base type / pointer-ness / `is_func_ptr`.
+      - **Function-pointer member pointer-wrap rule** (`parser/definitions.h`): a funcptr member's base is the function **return type** wrapped with **all** declarator stars (non-funcptr members still `stars - 1`) — `int *(*f)(long)` returns `int *`.
+      - **K&R funcptr params** (`jit/compile.h`): `void * (*chunkfun) ();` is a function-pointer declarator. **Cast funcptr types** (`parser/const_eval.h`): `int *(*)(long)`, `struct A *(*) (long)`. **Aligned member attribute** (`parser/definitions.h`): `__attribute__((aligned(N)))` updates member alignment (`pr23467`).
+    - **Static-local address-of correctness** (`ir/ast_lowering.c`, `ast_lowering_expr.c`, `ast_lowering_internal.h`, `types/type_system.h`): `&static_local` was lowering to the per-call **stack mirror** (dead after return) — `static struct V *baz(){ static struct V v; return &v; }` returned a dangling pointer (`execute/20041218-1.c` aborted). A pre-scan marks address-taken statics (`ZeroCCSym.static_addr_taken`); for them the mirror in/out is skipped and `zc_sym_addr`/`zc_sym_load`/`zc_sym_store` route every access to the data-section `__sl_N` object. Value-only statics and non-static locals are a no-op. `execute/20041218-1.c` → PASS all 8 configs.
+    - **`__builtin_va_arg_pack` clean REJECT** (`parser/ast_expr.h`): the unimplemented GNU variadic-forwarding builtin is now a clean REJECT (no binary) instead of a runtime segfault (`execute/va-arg-pack-1.c`).
+    - **`bool`/`_Bool` typedef work — shelved** (`lexer/keywords.inc`, `parser/definitions.h`): accepting `typedef _Bool bool;` (bool out of the keyword table; `TYPE_BOOL`/`TYPE_ENUM` typedef members unsigned + `TYPE_BOOL` tag, matching GCC's enum-bit-field zero-extension) made `execute/20030714-1.c` PASS on all 8 configs and `20190820-1` pass at -O0/-O1, but exposed a **pre-existing -O2/-O3 packed-struct-with-bit-fields by-value codegen bug** (segfault on a pure by-value pass; confirmed at baseline). Reverted to hold `MISCOMPILE 0`; the O2 packed-struct bug is the target for the next sprint, after which the `bool`/`_Bool` work can be re-enabled.
+    - **Result**: PASS **2,946 → 2,970**; REJECT **80 → 61**; MISCOMPILE **0 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117 ok (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
+    - **Next**: continue the REJECT burn-down (61 remaining; dominant: `unexpected token at file scope`, `expected identifier in declaration`, `unexpected token 'unknown' in statement`, `undefined local variable … in struct assignment`, `VLA must be at function scope`). Known honest REJECT: `compile/20001226-1.c` + `compile/limits-caselabels.c` (16-bit temp-id budget), `limits-*` stress, and the O2 packed-struct-with-bit-fields by-value bug (`20030714-1`/`20190820-1` once `bool` is re-enabled).
 
 ---
 

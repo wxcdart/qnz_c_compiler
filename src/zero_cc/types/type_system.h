@@ -156,6 +156,14 @@ typedef struct {
     bool is_static_local;
     size_t static_data_offset;            /* Offset in data_section */
     char static_global_name[128];         /* Mangled name in the global table */
+    /* Sprint 72: the object's ADDRESS is materialized in this function
+     * (address-of, array decay, or a member/pointer escape). A mirror slot
+     * is then unsound - the escaped pointer must be the stable data-section
+     * object, and every access (value AND address) must target it, so the
+     * prologue/epilogue mirror is skipped and accesses go to the data
+     * section directly. Set by a pre-scan before lowering (see
+     * zero_cc_prescan_static_addr_taken in ast_lowering.c). */
+    bool static_addr_taken;
     bool is_extern;                       /* Block-scope extern declaration */
     /* C11 6.2.1: the block scope of this declaration has ended during
      * lowering (its enclosing NODE_BLOCK finished). The flat latest-wins

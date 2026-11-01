@@ -434,6 +434,36 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 return ref;
             }
 
+            /* __builtin_va_arg_pack() / _len() are GNU variadic-forwarding
+             * builtins ZeroCC does not implement.  Reject them cleanly
+             * (honest REJECT) instead of miscompiling into a segfault
+             * (c-torture execute/va-arg-pack-1).  token_pos is already past
+             * the name here; skip the (usually empty) argument list. */
+            if (strcmp(tok->str_val, "__builtin_va_arg_pack") == 0 ||
+                strcmp(tok->str_val, "__builtin_va_arg_pack_len") == 0) {
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                    int depth = 0; c->token_pos++;
+                    while (c->token_pos < c->token_count) {
+                        if (c->tokens[c->token_pos].type == TK_LPAREN) depth++;
+                        else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                            depth--;
+                            if (depth == 0) { c->token_pos++; break; }
+                        }
+                        c->token_pos++;
+                    }
+                }
+                diag_report_error_at_token(c,
+                    "'__builtin_va_arg_pack' is not supported by ZeroCC "
+                    "(GNU variadic argument forwarding); this program "
+                    "cannot be compiled");
+                ASTRef dummy = zero_cc_ast_alloc_node(arena, NODE_INT);
+                ZeroCCASTNode *dn = zero_cc_ast_get(arena, dummy);
+                dn->line = (uint32_t)tok->line;
+                dn->col = (uint32_t)tok->col;
+                dn->int_val = 0;
+                return dummy;
+            }
+
             /* Check for __builtin_va_arg(ap, type) - special variadic argument extraction */
             if (strcmp(tok->str_val, "__builtin_va_arg") == 0) {
                 c->token_pos++; /* skip __builtin_va_arg */
