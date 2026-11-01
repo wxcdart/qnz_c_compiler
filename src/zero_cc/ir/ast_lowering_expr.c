@@ -4826,8 +4826,86 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         return right_temp;
                     }
                     if (!sym) {
-                        diag_report_error_at_token(c, "undefined local variable '%s' in struct assignment", base_node->s.str);
-                        return TEMP_NONE;
+                        /* Generic base not in the local or global-var tables (e.g. an
+                         * extern object registered only in the function table):
+                         * resolve the base address via the lvalue resolver (same
+                         * fallback the read path uses, which also hits the function
+                         * table for extern objects), then store.
+                         * (c-torture 20000606-1: `extern struct S bar; bar.a = 0;`.)
+                         * This path was previously a hard error. */
+                        int gen_base = zero_cc_lower_lvalue_addr(c, arena, base_ref);
+                        if (gen_base == TEMP_NONE) gen_base = lower_expr(c, arena, base_ref);
+                        if (base_is_ptr && gen_base != TEMP_NONE) {
+                            int gptr = c->next_temp_id++;
+                            ir_emit_deref(gptr, gen_base);
+                            gen_base = gptr;
+                        }
+                        if (gen_base == TEMP_NONE) {
+                            diag_report_error_at_token(c, "undefined local variable '%s' in struct assignment", base_node->s.str);
+                            return TEMP_NONE;
+                        }
+                        int gen_addr = gen_base;
+                        if (member_offset != 0) {
+                            int goff = c->next_temp_id++;
+                            ir_emit_mov_imm(goff, member_offset);
+                            gen_addr = c->next_temp_id++;
+                            ir_emit_add(gen_addr, gen_base, goff);
+                        }
+                        if (left_node->flags & NODE_MEMBER_IS_BITFIELD) {
+                            return assign_member_bitfield(c, node, left_node, gen_addr, right_temp);
+                        }
+                        size_t gm_size = 4;
+                        TypeInfo *gm_ti = ast_node_get_typeinfo(c, left_node);
+                        if (gm_ti) gm_size = type_size(gm_ti);
+                        if (is_compound) {
+                            if (gm_ti && type_is_vector(gm_ti)) {
+                                ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                                TypeInfo *rhs_t = rhs_n ? ast_node_get_typeinfo(c, rhs_n) : NULL;
+                                bool rhs_v = !!(rhs_t && type_is_vector(rhs_t));
+                                ZeroCCType vel;
+                                memset(&vel, 0, sizeof(vel));
+                                const TypeInfo *el = gm_ti->details.array.base;
+                                if (el) {
+                                    vel.size = type_size(el);
+                                    if (el->kind == TYPE_KIND_FLOAT) vel.tag = TYPE_FLOAT;
+                                    else if (el->kind == TYPE_KIND_DOUBLE) vel.tag = TYPE_DOUBLE;
+                                    else if (el->kind == TYPE_KIND_INT || el->kind == TYPE_KIND_LONG ||
+                                             el->kind == TYPE_KIND_SHORT || el->kind == TYPE_KIND_CHAR)
+                                        vel.tag = (el->modifiers & TYPE_MOD_UNSIGNED) ? TYPE_UINT32 : TYPE_INT32;
+                                    else vel.tag = TYPE_INT64;
+                                }
+                                zc_emit_vector_compound_inplace(c, gen_addr, gm_size, &vel, node->aux.op,
+                                                                right_temp, rhs_v, c->last_expr_is_float);
+                                c->last_expr_is_float = 0;
+                                return gen_addr;
+                            }
+                            member_apply_compound(c, node->aux.op, gen_addr, &right_temp,
+                                                   gm_size,
+                                                   (gm_ti && type_is_floating(gm_ti)) || c->last_expr_is_float);
+                        }
+                        bool gm_rhs_struct_addr = (gm_size <= 8 && gm_ti &&
+                            (((gm_ti->kind == TYPE_KIND_STRUCT || gm_ti->kind == TYPE_KIND_UNION) &&
+                              ast_expr_is_struct_addr(c, arena, node->right)) ||
+                             (type_is_vector(gm_ti) &&
+                              ast_expr_is_vector_addr(c, arena, node->right))));
+                        if ((gm_size > 8 || gm_rhs_struct_addr) && !is_compound) {
+                            zero_cc_emit_struct_copy_to_addr(c, arena, gen_addr, gm_size, node->right, right_temp);
+                            c->last_expr_is_float = 0;
+                            return right_temp;
+                        }
+                        if (right_is_float || c->last_expr_is_float) {
+                            if (gm_size == 4) ir_emit_vstoress(gen_addr, (uint16_t)right_temp);
+                            else ir_emit_vstoresd(gen_addr, (uint16_t)right_temp);
+                            c->last_expr_is_float = 1;
+                        } else {
+                            if (gm_size == 1) ir_emit_store_byte(right_temp, gen_addr);
+                            else if (gm_size == 2) ir_emit_store_16(right_temp, gen_addr);
+                            else if (gm_size == 4) ir_emit_store_32(right_temp, gen_addr);
+                            else ir_emit_store_64(right_temp, gen_addr);
+                            c->last_expr_is_float = 0;
+                        }
+                        lower_extend_narrow(c, right_temp, gm_ti);
+                        return right_temp;
                     }
                     if (base_is_ptr) {
                         /* p->member = val: store through the pointer */

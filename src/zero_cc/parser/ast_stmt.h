@@ -1028,9 +1028,13 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             c->token_pos++;
         }
         ASTRef stmt = AST_NULL;
+        /* Sprint 72: a following case/default label is a *nested* labeled
+         * statement - C allows `case A: case B: s;` and the braceless
+         * `switch (x) case A: case B: s;` (the whole labeled statement is the
+         * switch body). Parse it as this label's statement; the lowering emits
+         * the label then lowers the nested statement, equivalent to the flat
+         * sibling form. Only a closing brace ends an empty label. */
         if (c->token_pos < c->token_count &&
-            c->tokens[c->token_pos].type != TK_CASE &&
-            c->tokens[c->token_pos].type != TK_DEFAULT &&
             c->tokens[c->token_pos].type != TK_RBRACE) {
             stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         }
@@ -1055,9 +1059,10 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
             c->token_pos++;
         }
         ASTRef stmt = AST_NULL;
+        /* Sprint 72: a following case/default label is a *nested* labeled
+         * statement (see the TK_CASE branch); only a closing brace ends an
+         * empty label. */
         if (c->token_pos < c->token_count &&
-            c->tokens[c->token_pos].type != TK_CASE &&
-            c->tokens[c->token_pos].type != TK_DEFAULT &&
             c->tokens[c->token_pos].type != TK_RBRACE) {
             stmt = zero_cc_parse_stmt_ast(c, arena, ctx);
         }

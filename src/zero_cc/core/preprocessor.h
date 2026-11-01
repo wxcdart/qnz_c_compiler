@@ -914,6 +914,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int vfprintf(FILE *stream, const char *format, va_list ap);\n"
             "int vscanf(const char *format, va_list ap);\n"
             "int vfscanf(FILE *stream, const char *format, va_list ap);\n"
+            "int scanf(const char *format, ...);\n"
+            "int fscanf(FILE *stream, const char *format, ...);\n"
+            "int sscanf(const char *s, const char *format, ...);\n"
             "int remove(const char *filename);\nvoid rewind(FILE *stream);\n"
             "int fputs(const char *s, FILE *stream);\nint fgetc(FILE *stream);\n"
             "int getchar(void);\n"
@@ -2543,8 +2546,15 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                         cpp->line_num += ws_newlines;
                         char *args[64];
                         int arg_count = 0;
-                        while (*p && *p != ')') {
+                        while (*p) {
                             while (*p && isspace((unsigned char)*p)) p++;
+                            /* Sprint 72: a `)` reached after skipping whitespace
+                             * (e.g. `F(0, )` with a space before the close) ends the
+                             * argument list - do not push a phantom empty argument.
+                             * The old condition checked `*p != ')'` *before* the
+                             * whitespace skip, so `F(0, )` re-entered and added a
+                             * third empty arg, breaking token-paste of the macro. */
+                            if (!*p || *p == ')') break;
                             const char *arg_s = p;
                             int paren_nest = 0;
                             while (*p && (paren_nest > 0 || (*p != ',' && *p != ')'))) {

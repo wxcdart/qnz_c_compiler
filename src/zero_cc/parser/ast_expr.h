@@ -434,6 +434,30 @@ static ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 return ref;
             }
 
+            /* __builtin_convertvector(expr, dest_type) - GNU vector conversion.
+             * The second argument is a TYPE name, not an expression (c-torture
+             * compile/pr96426: `__builtin_convertvector (*v, W);` where W is a
+             * vector typedef). Parse the source as an assignment expression
+             * (stops at the top-level comma), then the destination type name,
+             * and lower as a cast - same-size vectors reinterpret bit-for-bit. */
+            if (strcmp(tok->str_val, "__builtin_convertvector") == 0) {
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+                ASTRef src_ref = parse_assignment_ast(c, arena);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                ZeroCCType cv_dt = zero_cc_parse_type_name(c);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                ASTRef cv_ref = zero_cc_ast_alloc_node(arena, NODE_CAST);
+                ZeroCCASTNode *cv_n = zero_cc_ast_get(arena, cv_ref);
+                cv_n->line = (uint32_t)tok->line;
+                cv_n->col = (uint32_t)tok->col;
+                cv_n->left = src_ref;
+                if (c->sem_ctx && c->sem_ctx->perm_arena) {
+                    TypeInfo *cv_ti = zero_cc_type_to_typeinfo(c->sem_ctx->perm_arena, cv_dt);
+                    ast_node_set_typeinfo(c, cv_n, cv_ti);
+                }
+                return cv_ref;
+            }
+
             /* __builtin_va_arg_pack() / _len() are GNU variadic-forwarding
              * builtins ZeroCC does not implement.  Reject them cleanly
              * (honest REJECT) instead of miscompiling into a segfault
@@ -1299,13 +1323,22 @@ ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
  * ========================================================================= */
 
 static inline void skip_c23_attributes(ZeroCCCompiler *c) {
-    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LDBRACKET) {
-        c->token_pos++;
+    /* C23 [[attr]] is lexed as two single '[' / two single ']' tokens (the
+     * lexer no longer maximally-munches '[['/']]', which would corrupt nested
+     * array subscripts like a[b[i]]).  A statement/declaration that begins with
+     * two consecutive '[' tokens is a C23 attribute; skip it to the matching
+     * ']]' (two consecutive ']'). */
+    while (c->token_pos + 1 < c->token_count &&
+           c->tokens[c->token_pos].type == TK_LBRACKET &&
+           c->tokens[c->token_pos + 1].type == TK_LBRACKET) {
+        c->token_pos += 2;
         int depth = 1;
-        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_EOF && depth > 0) {
-            if (c->tokens[c->token_pos].type == TK_LDBRACKET) depth++;
-            else if (c->tokens[c->token_pos].type == TK_RDBRACKET) depth--;
-            c->token_pos++;
+        while (c->token_pos + 1 < c->token_count && depth > 0) {
+            if (c->tokens[c->token_pos].type == TK_LBRACKET &&
+                c->tokens[c->token_pos + 1].type == TK_LBRACKET) { depth++; c->token_pos += 2; }
+            else if (c->tokens[c->token_pos].type == TK_RBRACKET &&
+                     c->tokens[c->token_pos + 1].type == TK_RBRACKET) { depth--; c->token_pos += 2; }
+            else { c->token_pos++; }
         }
     }
 }

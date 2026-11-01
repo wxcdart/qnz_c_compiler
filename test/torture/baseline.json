@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T19:07:37Z",
+ "generated": "2026-11-01T21:59:53Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -253,12 +253,12 @@
    "note": ""
   },
   "compile/20000606-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: undefined local variable 'bar' in struct assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000609-1.c": {
    "class": "PASS",
@@ -2593,12 +2593,12 @@
    "note": ""
   },
   "compile/20051216-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                            ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20051228-1.c": {
    "class": "PASS",
@@ -3145,12 +3145,12 @@
    "note": ""
   },
   "compile/20090114-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: undefined local variable 'img' in struct assignment [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20090209-1.c": {
    "class": "PASS",
@@ -3883,12 +3883,12 @@
    "note": ""
   },
   "compile/920501-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-20.c": {
    "class": "SKIP-C89",
@@ -7266,7 +7266,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "    ^; Compile error: function 'q19_func' uses 200001 temporaries; max is 65534 per function (16-bit temp ids). Split the function into smaller helper functions (each has its own temp-id space). [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/limits-declparen.c": {
    "class": "REJECT",
@@ -9978,12 +9978,12 @@
    "note": ""
   },
   "compile/pr34648.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                     ^; Compile error: unexpected token 'unknown' in statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34688.c": {
    "class": "PASS",
@@ -11419,12 +11419,12 @@
    "note": ""
   },
   "compile/pr43636.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr43661.c": {
    "class": "PASS",
@@ -14052,12 +14052,12 @@
    "note": ""
   },
   "compile/pr87468.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: 'case' statement not in switch statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr87473.c": {
    "class": "PASS",
@@ -14443,12 +14443,12 @@
    "note": ""
   },
   "compile/pr96426.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                    ^; Compile error: use of undeclared identifier 'W' [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr96796.c": {
    "class": "PASS",
@@ -16638,9 +16638,9 @@
     "O2-aot": "REJECT",
     "O2-jit": "TIMEOUT",
     "O3-aot": "REJECT",
-    "O3-jit": "TIMEOUT"
+    "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O3-aot"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -28127,18 +28127,18 @@
    "note": ""
   },
   "execute/fprintf-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                     ^; Compile error: use of undeclared identifier 'fscanf' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/fprintf-chk-1.c": {
    "class": "PASS",
@@ -28501,32 +28501,32 @@
    "note": ""
   },
   "execute/ieee/copysign1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'test' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/copysign2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'test' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/float128-builtin-issignaling-1.c": {
    "class": "SKIP-C89",
@@ -31496,18 +31496,18 @@
    "note": ""
   },
   "execute/pr126405-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: 'case' statement not in switch statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr126405-3.c": {
    "class": "PASS",
@@ -31524,18 +31524,18 @@
    "note": ""
   },
   "execute/pr126405.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: 'case' statement not in switch statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr126501.c": {
    "class": "PASS",
@@ -35518,21 +35518,21 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr58277-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr58364.c": {
    "class": "PASS",
@@ -40787,11 +40787,11 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2970,
+  "PASS": 2984,
   "REF-BUG": 3,
-  "REJECT": 61,
+  "REJECT": 48,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 553,
+  "SKIP-C89": 552,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,

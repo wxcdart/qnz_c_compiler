@@ -610,8 +610,6 @@ static int zero_cc_scan_operator(ZeroCCLexer *lx, ZeroCCToken *tok) {
     else if (s[0] == '&' && s[1] == '&') { tok->type = TK_LOGAND; s += 2; offset += 2; col += 2; }
     else if (s[0] == '|' && s[1] == '|') { tok->type = TK_LOGOR; s += 2; offset += 2; col += 2; }
     else if (s[0] == '-' && s[1] == '>') { tok->type = TK_ARROW; s += 2; offset += 2; col += 2; }
-    else if (s[0] == '[' && s[1] == '[') { tok->type = TK_LDBRACKET; s += 2; offset += 2; col += 2; }
-    else if (s[0] == ']' && s[1] == ']') { tok->type = TK_RDBRACKET; s += 2; offset += 2; col += 2; }
     else if (s[0] == ':' && s[1] == ':') { tok->type = TK_COLONCOLON; s += 2; offset += 2; col += 2; }
     /* Preprocessor operators */
     else if (s[0] == '#' && s[1] == '#') { tok->type = TK_PASTE; s += 2; offset += 2; col += 2; }
