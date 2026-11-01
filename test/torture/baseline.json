@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T22:23:32Z",
+ "generated": "2026-11-01T22:47:11Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -2351,12 +2351,12 @@
    "note": ""
   },
   "compile/20040909-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040914-1.c": {
    "class": "PASS",
@@ -16638,9 +16638,9 @@
     "O2-aot": "REJECT",
     "O2-jit": "REJECT",
     "O3-aot": "REJECT",
-    "O3-jit": "TIMEOUT"
+    "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -40787,9 +40787,9 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2987,
+  "PASS": 2988,
   "REF-BUG": 3,
-  "REJECT": 46,
+  "REJECT": 45,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 551,
   "SKIP-PTR": 1,

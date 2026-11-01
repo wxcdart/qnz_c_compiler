@@ -216,6 +216,15 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
             c->token_pos++; /* ( */
             c->token_pos++; /* * */
             d_func_ptr = true;
+            /* Qualifier between `*` and the name: `(*const f)(...)` / `(*const f)()`
+             * (const function-pointer parameter, c-torture 20040909-1). */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE)) {
+                if (c->tokens[c->token_pos].type == TK_CONST) d_const = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) d_volatile = true;
+                c->token_pos++;
+            }
         }
         if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) return -1;
         const char *dn = c->tokens[c->token_pos].str_val;
@@ -584,6 +593,14 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             /* Function-pointer parameter: `ret_type (*name)(params...)` */
             c->token_pos++; /* ( */
             while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            /* Qualifier between `*` and the name: `(*const f)(...)` - a const
+             * function-pointer parameter (c-torture 20040909-1). */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                c->token_pos++;
+            }
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 if (*param_count >= ZERO_CC_MAX_PARAMS) {
                     diag_report_error_at_token(c,
