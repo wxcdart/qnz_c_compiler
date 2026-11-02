@@ -99,7 +99,7 @@ bool cfg_build(ZeroCCCompiler *c) {
         return true;
     }
 
-    size_t count = ir_get_count();
+    size_t count = ir_get_count(c);
     ZeroCCCFG *cfg = &c->cfg_cache;
     cfg_free(cfg);
 
@@ -112,7 +112,7 @@ bool cfg_build(ZeroCCCompiler *c) {
     /* ---- label id -> instruction position (first occurrence) ---- */
     int max_label = 0;
     for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (ins && ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
             max_label = (int)ins->label_idx;
         }
@@ -121,7 +121,7 @@ bool cfg_build(ZeroCCCompiler *c) {
     if (!label_to_pos) return false;
     for (int i = 0; i <= max_label; i++) label_to_pos[i] = -1;
     for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (ins && ins->op == OP_LABEL) {
             int t = (int)ins->label_idx;
             if (t >= 0 && t <= max_label && label_to_pos[t] < 0) label_to_pos[t] = (int)i;
@@ -135,7 +135,7 @@ bool cfg_build(ZeroCCCompiler *c) {
     if (!leader) { free(label_to_pos); return false; }
     leader[0] = true;
     for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (!ins) continue;
         if (ins->op == OP_LABEL) leader[i] = true;
         if (i + 1 < count && cfg_is_terminal((int)ins->op)) leader[i + 1] = true;
@@ -170,7 +170,7 @@ bool cfg_build(ZeroCCCompiler *c) {
     if (!label_to_block) { free(leader); free(label_to_pos); cfg_free(cfg); return false; }
     for (int i = 0; i <= max_label; i++) label_to_block[i] = -1;
     for (int b = 0; b < nblocks; b++) {
-        Instr *first = ir_get(blocks[b].start);
+        Instr *first = ir_get(c, blocks[b].start);
         if (first && first->op == OP_LABEL) {
             int t = (int)first->label_idx;
             if (t >= 0 && t <= max_label) label_to_block[t] = b;
@@ -180,7 +180,7 @@ bool cfg_build(ZeroCCCompiler *c) {
     /* ---- edges ---- */
     for (int b = 0; b < nblocks; b++) {
         size_t last = blocks[b].end - 1;
-        Instr *t = ir_get(last);
+        Instr *t = ir_get(c, last);
         if (!t) continue;
         int op = (int)t->op;
         if (op == OP_JMP) {

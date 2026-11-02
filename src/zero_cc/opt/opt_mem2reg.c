@@ -156,7 +156,7 @@ static int get_frame_offset(Instr *instr) {
  * in test/jit/break_continue.c.
  */
 static void opt_promote_loop_carried(ZeroCCCompiler *c) {
-    size_t count = ir_get_count();
+    size_t count = ir_get_count(c);
     if (count == 0) return;
 
     /* 1. Track address-taken slots anywhere in the function, and the
@@ -166,7 +166,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
     int max_slot_used = -1;
     memset(slot_addr_taken, 0, sizeof(slot_addr_taken));
     for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (!ins) continue;
         if (ins->op == OP_LEA) {
             int slot = slot_from_offset(get_frame_offset(ins));
@@ -197,13 +197,13 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
         size_t hdr_idx = cfg->blocks[h].start;
         size_t back_idx = cfg->blocks[u].end - 1;
 
-        Instr *be = ir_get(back_idx);
+        Instr *be = ir_get(c, back_idx);
         if (!be || be->op != OP_JMP) continue;  /* unconditional backedge only */
 
         /* Verify loop safety: no calls, no VLA, no indirect stores */
         bool safe_loop = true;
         for (size_t k = hdr_idx; k <= back_idx; k++) {
-            Instr *loop_ins = ir_get(k);
+            Instr *loop_ins = ir_get(c, k);
             if (!loop_ins) continue;
             if (loop_ins->op == OP_CALL || loop_ins->op == OP_CALL_INDIRECT ||
                 loop_ins->op == OP_SYSCALL ||
@@ -239,7 +239,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
                 if (P >= h && P <= u) continue;  /* internal edge */
                 bool jump_edge = (P + 1 != b);
                 if (!jump_edge) {
-                    Instr *pt = ir_get(cfg->blocks[P].end - 1);
+                    Instr *pt = ir_get(c, cfg->blocks[P].end - 1);
                     jump_edge = (pt && pt->op == OP_JMP);
                 }
                 if (jump_edge) {
@@ -281,7 +281,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
         for (int s = 0; s < MAX_STACK_SLOTS; s++) { st_load_idx[s] = -1; st_store_idx[s] = -1; }
 
         for (size_t k = 0; k < count; k++) {
-            Instr *f_ins = ir_get(k);
+            Instr *f_ins = ir_get(c, k);
             if (!f_ins) continue;
             bool is_load = instr_is_stack_load(f_ins);
             bool is_store = !is_load && instr_is_stack_store(f_ins);
@@ -324,8 +324,8 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
                 other_stores != 1) continue;
             if (load_idx < 0 || store_idx < 0) continue;
 
-            Instr *load_ins = ir_get(load_idx);
-            Instr *store_ins = ir_get(store_idx);
+            Instr *load_ins = ir_get(c, load_idx);
+            Instr *store_ins = ir_get(c, store_idx);
             if (!load_ins || !store_ins) continue;
 
             int head_temp = load_ins->temp_dest;
@@ -338,7 +338,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
             int init_store_idx = -1;
             for (int k = 0; k < (int)count; k++) {
                 if (k >= (int)hdr_idx && (size_t)k <= back_idx) continue;
-                Instr *pre_ins = ir_get(k);
+                Instr *pre_ins = ir_get(c, k);
                 if (pre_ins && instr_is_stack_store(pre_ins) &&
                     slot_from_offset(get_frame_offset(pre_ins)) == s) {
                     init_store_idx = k;
@@ -348,7 +348,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
             if (init_store_idx < 0 || init_store_idx >= (int)hdr_idx) continue;
             if (first_exit < 0) continue; /* no reachable exit: nothing to forward */
 
-            Instr *init_ins = ir_get(init_store_idx);
+            Instr *init_ins = ir_get(c, init_store_idx);
             int init_temp = init_ins->temp_src1;
             if (init_temp < 16) continue;
 
@@ -371,7 +371,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
             }
             for (int k = init_store_idx + 1; k < (int)count && !head_temp_conflict; k++) {
                 if (k == load_idx || k == store_idx) continue;
-                Instr *chk = ir_get(k);
+                Instr *chk = ir_get(c, k);
                 if (chk && chk->temp_dest == head_temp) {
                     head_temp_conflict = true;
                     break;
@@ -404,7 +404,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
             store_ins->imm64 = 0;
 
             for (size_t p = first_exit; p < count; p++) {
-                Instr *post_ins = ir_get(p);
+                Instr *post_ins = ir_get(c, p);
                 if (!post_ins) continue;
                 if (post_ins->op == OP_RET || post_ins->op == OP_EPILOGUE) break;
                 if (instr_is_stack_store(post_ins) &&
@@ -444,7 +444,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     Mem2RegState state;
     memset(&state, 0, sizeof(state));
 
-    state.instruction_count = ir_get_count();
+    state.instruction_count = ir_get_count(c);
     state.has_vla = false;  /* No VLA yet */
 
     /* Initialize slot tracking */
@@ -453,12 +453,12 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         state.slot_valid[i] = false;
     }
 
-    size_t count = ir_get_count();
+    size_t count = ir_get_count(c);
 
     /* Pre-pass: scan for max label index and record all jump targets */
     int max_label = -1;
     for (size_t i = 0; i < count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (!ins) continue;
         if (ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
             max_label = (int)ins->label_idx;
@@ -470,7 +470,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         label_targeted = (bool *)calloc(max_label + 1, sizeof(bool));
         if (label_targeted) {
             for (size_t i = 0; i < count; i++) {
-                Instr *ins = ir_get(i);
+                Instr *ins = ir_get(c, i);
                 if (!ins) continue;
                 if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
                     ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG ||
@@ -484,7 +484,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     }
 
     for (size_t i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         /* Check for VLA allocation - disable all promotion after this */

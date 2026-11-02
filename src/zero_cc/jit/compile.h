@@ -1458,16 +1458,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
 
         if (sem_ok) {
-            /* Set active compiler for IR emission */
-            ir_set_compiler(c);
-
             /* Reset register allocator for this function */
             regalloc_init(&c->regalloc);
             c->next_temp_id = VREG_USER_START;
             c->ir_next_label = 0;
 
             /* Reset IR buffer for this function */
-            ir_reset();
+            ir_reset(c);
 
             /* Pass 1: Lower AST to IR (instruction selection) */
             zero_cc_lower_ast(c, &arena, body);

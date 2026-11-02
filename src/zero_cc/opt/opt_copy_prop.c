@@ -169,14 +169,14 @@ static int copy_prop_replace(Instr *instr) {
 void opt_copy_propagate(ZeroCCCompiler *c) {
     (void)c;
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     int total_changes = 0;
 
     /* Reset at the start */
     copy_prop_reset_block();
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         opt_profile_count_copy_prop_instruction();

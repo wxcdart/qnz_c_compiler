@@ -197,18 +197,18 @@ static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int t
 }
 
 /* Compute live intervals from IR and add to register allocator */
-static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) __attribute__((unused));
-static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
+static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCCompiler *c) __attribute__((unused));
+static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCCompiler *c) {
     if (!lra || !ra) return;
 
     /* Detect loops to extend live intervals across backedges:
      * If a temp is defined before or within a loop and used within the loop,
      * its live interval must extend to at least the loop backedge (exit_idx)
      * so that its assigned physical register is preserved across loop iterations! */
-    size_t instr_count = ir_get_count();
+    size_t instr_count = ir_get_count(c);
     int max_label = -1;
     for (size_t i = 0; i < instr_count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (ins && ins->op == OP_LABEL && (int)ins->label_idx > max_label) {
             max_label = (int)ins->label_idx;
         }
@@ -219,7 +219,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         if (label_to_pos) {
             for (int i = 0; i <= max_label; i++) label_to_pos[i] = -1;
             for (size_t i = 0; i < instr_count; i++) {
-                Instr *ins = ir_get(i);
+                Instr *ins = ir_get(c, i);
                 if (ins && ins->op == OP_LABEL) label_to_pos[ins->label_idx] = (int)i;
             }
         }
@@ -237,10 +237,10 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
         if (flag_end) {
             for (size_t i = 0; i < instr_count; i++) flag_end[i] = i;
             for (size_t i = 0; i < instr_count; i++) {
-                Instr *ins = ir_get(i);
+                Instr *ins = ir_get(c, i);
                 if (!ins || ins->flags_out != REG_FLAGS) continue;
                 for (size_t j = i + 1; j < instr_count; j++) {
-                    Instr *nxt = ir_get(j);
+                    Instr *nxt = ir_get(c, j);
                     if (!nxt) break;
                     if (nxt->flags_in == REG_FLAGS) { flag_end[i] = j; break; }
                     if (nxt->flags_out == REG_FLAGS) { flag_end[i] = j - 1; break; }
@@ -254,7 +254,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
                 }
             }
             for (size_t i = 0; i < instr_count; i++) {
-                Instr *ins = ir_get(i);
+                Instr *ins = ir_get(c, i);
                 if (!ins || ins->flags_out != REG_FLAGS) continue;
                 int operands[2] = { (int)ins->temp_src1, (int)ins->temp_src2 };
                 for (int k = 0; k < 2; k++) {
@@ -287,7 +287,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
             while (changed) {
                 changed = false;
                 for (size_t i = 0; i < instr_count; i++) {
-                    Instr *ins = ir_get(i);
+                    Instr *ins = ir_get(c, i);
                     if (!ins) continue;
                     if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
                         ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
@@ -338,7 +338,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra) {
      * that is live across or used at an OP_DIV or OP_MOD. */
     if (ra->target_isa == ISA_X86_64) {
         for (size_t i = 0; i < instr_count; i++) {
-            Instr *ins = ir_get(i);
+            Instr *ins = ir_get(c, i);
             if (ins && (ins->op == OP_DIV || ins->op == OP_MOD)) {
                 regalloc_add_interval(ra, VREG_0, i, i, REG_CLASS_GPR);
                 regalloc_add_interval(ra, VREG_2, i, i, REG_CLASS_GPR);
@@ -364,8 +364,8 @@ static void live_range_record_call(LiveRangeAnalyzer *lra, size_t instr_index) {
 }
 
 /* Scan IR and record temp uses/defs */
-static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size_t instr_count) __attribute__((unused));
-static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size_t instr_count) {
+static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size_t instr_count, ZeroCCCompiler *c) __attribute__((unused));
+static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size_t instr_count, ZeroCCCompiler *c) {
     if (!lra || !instrs) return;
 
     for (size_t i = 0; i < instr_count; i++) {
@@ -384,7 +384,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
          * barrier) with the same side-table argument liveness. */
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
             live_range_record_call(lra, i);
-            const IRCallArgs *full_args = ir_call_args_find(i);
+            const IRCallArgs *full_args = ir_call_args_find(c, i);
             if (full_args) {
                 for (int a = 0; a < full_args->count; a++) {
                     live_range_add_use(lra, i, full_args->temps[a], false);

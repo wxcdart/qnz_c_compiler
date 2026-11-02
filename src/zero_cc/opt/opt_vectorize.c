@@ -120,12 +120,12 @@ static bool is_vec_arith(Instr *instr) {
  * time the vectorizer runs (e.g. a shift amount materialized as MOV_IMM),
  * so also fall back to finding the temp's MOV_IMM definition.
  */
-static int resolve_const(int t, int *val_out) {
+static int resolve_const(ZeroCCCompiler *c, int t, int *val_out) {
     if (t == TEMP_NONE) return 0;
     if (ir_is_constant(t)) { *val_out = ir_get_constant(t); return 1; }
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     for (int k = 0; k < count; k++) {
-        Instr *d = ir_get(k);
+        Instr *d = ir_get(c, k);
         if (d && (int)d->temp_dest == t && d->op == OP_MOV_IMM) {
             *val_out = d->imm;
             return 1;
@@ -149,7 +149,7 @@ static int resolve_const(int t, int *val_out) {
  * Non-unit strides (v[2*i]) or invariant addresses (c[0] = a[i] + ...) would
  * silently miscompile, so they must reject the loop.
  */
-static int classify_addr_temp(int start, int end, int t, int loop_var,
+static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int t, int loop_var,
                               int counter_slot, int depth, int *scale_out) {
     if (depth > 8) return -1;
     *scale_out = 0;
@@ -162,19 +162,19 @@ static int classify_addr_temp(int start, int end, int t, int loop_var,
      * only outside the span is loop-invariant. */
     int def_idx = -1;
     for (int k = start; k <= end; k++) {
-        Instr *d = ir_get(k);
+        Instr *d = ir_get(c, k);
         if (d && (int)d->temp_dest == t) { def_idx = k; break; }
     }
     if (def_idx < 0) return 0;
 
-    Instr *d = ir_get(def_idx);
+    Instr *d = ir_get(c, def_idx);
     int s1 = (int)d->temp_src1;
     int s2 = (int)d->temp_src2;
     int sc1 = 0, sc2 = 0;
 
     switch (d->op) {
         case OP_MOV_REG:  /* dest = s1 */
-            return classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
+            return classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
         case OP_MOV:
             /* A reload of the loop counter's own stack slot is the loop
              * variable itself: the counter may live in a slot and be
@@ -192,9 +192,9 @@ static int classify_addr_temp(int start, int end, int t, int loop_var,
         case OP_SHL:     /* dest = s1 << s2 */
             {
                 int cval = 0;
-                if (!resolve_const(s2, &cval)) return -1;
+                if (!resolve_const(c, s2, &cval)) return -1;
                 if (cval < 0 || cval > 30) return -1;
-                int cls = classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
+                int cls = classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
                 if (cls == 1) { *scale_out = sc1 << cval; return 1; }
                 if (cls == 0) return 0;
                 return -1;
@@ -203,23 +203,23 @@ static int classify_addr_temp(int start, int end, int t, int loop_var,
             int cs = -1;
             int other = TEMP_NONE;
             int cval = 0;
-            if (resolve_const(s1, &cval)) { cs = cval; other = s2; }
-            else if (resolve_const(s2, &cval)) { cs = cval; other = s1; }
+            if (resolve_const(c, s1, &cval)) { cs = cval; other = s2; }
+            else if (resolve_const(c, s2, &cval)) { cs = cval; other = s1; }
             if (cs < 0 || other == TEMP_NONE) return -1;
-            int cls = classify_addr_temp(start, end, other, loop_var, counter_slot, depth + 1, &sc1);
+            int cls = classify_addr_temp(c, start, end, other, loop_var, counter_slot, depth + 1, &sc1);
             if (cls == 1) { *scale_out = sc1 * cs; return 1; }
             if (cls == 0) return 0;
             return -1;
         }
         case OP_ADD:
         case OP_ADD_IMM: {
-            int cls1 = classify_addr_temp(start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
+            int cls1 = classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
             if (s2 == TEMP_NONE) {          /* dest = s1 + imm */
                 if (cls1 == 1) { *scale_out = sc1; return 1; }
                 if (cls1 == 0) return 0;
                 return -1;
             }
-            int cls2 = classify_addr_temp(start, end, s2, loop_var, counter_slot, depth + 1, &sc2);
+            int cls2 = classify_addr_temp(c, start, end, s2, loop_var, counter_slot, depth + 1, &sc2);
             if (cls1 == 1 && cls2 == 0) { *scale_out = sc1; return 1; }
             if (cls2 == 1 && cls1 == 0) { *scale_out = sc2; return 1; }
             return -1;
@@ -237,19 +237,19 @@ static int classify_addr_temp(int start, int end, int t, int loop_var,
  * shift, invariant value) would run 1/vec_width times while the widened
  * loads/stores run once per vec_width elements - silent miscompilation.
  */
-static bool value_is_vec_chain(int start, int end, int t, int depth) {
+static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int end, int t, int depth) {
     if (depth > 24) return false;
     if (t == TEMP_NONE) return false;
 
     int def_idx = -1;
     for (int k = start; k <= end; k++) {
-        Instr *d = ir_get(k);
+        Instr *d = ir_get(c, k);
         if (d && (int)d->temp_dest == t) { def_idx = k; break; }
     }
     if (def_idx < 0) return false;  /* invariant value: store must stay scalar
                                        per element - not vectorizable */
 
-    Instr *d = ir_get(def_idx);
+    Instr *d = ir_get(c, def_idx);
     bool is_load = (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
                     d->op == OP_VLOADSS || d->op == OP_VLOADSD);
     if (is_load) return true;  /* base of the chain: a loop array load */
@@ -259,8 +259,8 @@ static bool value_is_vec_chain(int start, int end, int t, int depth) {
                   d->op == OP_FDIV);
     if (!arith) return false;
 
-    return value_is_vec_chain(start, end, (int)d->temp_src1, depth + 1) &&
-           value_is_vec_chain(start, end, (int)d->temp_src2, depth + 1);
+    return value_is_vec_chain(c, start, end, (int)d->temp_src1, depth + 1) &&
+           value_is_vec_chain(c, start, end, (int)d->temp_src2, depth + 1);
 }
 
 /**
@@ -268,6 +268,7 @@ static bool value_is_vec_chain(int start, int end, int t, int depth) {
  */
 static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, LoopInfo *loop) {
     if (state->loop_count >= state->capacity) return;
+    ZeroCCCompiler *c = state->comp;
 
     VectorizationInfo *vinfo = &state->loops[state->loop_count];
     vinfo->is_vectorizable = false;
@@ -288,7 +289,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
 
     for (int i = 0; i < loop->body_count; i++) {
         int idx = loop->body_indices[i];
-        Instr *instr = ir_get(idx);
+        Instr *instr = ir_get(c, idx);
         if (!instr) continue;
 
         /* C11: a function call (or return) in the loop body is a side effect
@@ -361,7 +362,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             if (blk->end <= (size_t)loop->header_idx) continue;  /* before span */
             if (blk->start > (size_t)loop->exit_idx) break;     /* past span */
             int last = (int)blk->end - 1;
-            Instr *t = ir_get(last);
+            Instr *t = ir_get(c, last);
             if (!t) continue;
             if (last == loop->exit_idx) continue;  /* the backedge itself */
             int op = (int)t->op;
@@ -371,9 +372,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             if ((int)blk->start == loop->header_idx) {
                 int lid = (int)t->label_idx;
                 int target_pos = -1;
-                int ic = (int)ir_get_count();
+                int ic = (int)ir_get_count(c);
                 for (int k = 0; k < ic; k++) {
-                    Instr *l = ir_get(k);
+                    Instr *l = ir_get(c, k);
                     if (l && l->op == OP_LABEL && (int)l->label_idx == lid) {
                         target_pos = k;
                         break;
@@ -409,7 +410,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                 if (blk->end <= (size_t)loop->header_idx) continue;
                 if (blk->start > (size_t)loop->exit_idx) break;
                 int last = (int)blk->end - 1;
-                Instr *t = ir_get(last);
+                Instr *t = ir_get(c, last);
                 if (!t) continue;
                 int op = (int)t->op;
                 bool is_cond = (op == OP_JE || op == OP_JNE || op == OP_JL ||
@@ -421,9 +422,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                 }
                 if ((int)blk->start == loop->header_idx) {
                     int lid = (int)t->label_idx;
-                    int ic = (int)ir_get_count();
+                    int ic = (int)ir_get_count(c);
                     for (int k = 0; k < ic; k++) {
-                        Instr *l = ir_get(k);
+                        Instr *l = ir_get(c, k);
                         if (l && l->op == OP_LABEL && (int)l->label_idx == lid) {
                             if (k > loop->exit_idx) test_idx = last; /* test -> exit */
                             break;
@@ -433,20 +434,20 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             }
         }
         if (test_idx >= 0) {
-            int flag = (int)ir_get(test_idx)->temp_src1;
+            int flag = (int)ir_get(c, test_idx)->temp_src1;
             int condset_idx = -1;
             for (int k = test_idx - 1; k > loop->header_idx && condset_idx < 0; k--) {
-                Instr *cs = ir_get(k);
+                Instr *cs = ir_get(c, k);
                 if (cs && cs->op == OP_COND_SET && (int)cs->temp_dest == flag) condset_idx = k;
             }
             int hi = (condset_idx >= 0) ? condset_idx : test_idx;
             int cmp_idx = -1;
             for (int k = hi - 1; k > loop->header_idx; k--) {
-                Instr *cm = ir_get(k);
+                Instr *cm = ir_get(c, k);
                 if (cm && cm->op == OP_CMP) { cmp_idx = k; break; }
             }
             if (cmp_idx >= 0) {
-                Instr *cm = ir_get(cmp_idx);
+                Instr *cm = ir_get(c, cmp_idx);
                 int o1 = (int)cm->temp_src1;
                 int o2 = (int)cm->temp_src2;
                 bool c1 = (o1 != TEMP_NONE && ir_is_constant(o1));
@@ -490,7 +491,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         int counter_slot = 0x7fffffff;
         {
             for (int k2 = loop->header_idx; k2 <= loop->exit_idx; k2++) {
-                Instr *x = ir_get(k2);
+                Instr *x = ir_get(c, k2);
                 if (x && (int)x->temp_dest == loop_var && x->op == OP_MOV) {
                     counter_slot = x->imm;
                     break;
@@ -500,7 +501,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         bool strides_ok = true;
         bool chains_ok = true;
         for (int i = loop->header_idx; i <= loop->exit_idx && (strides_ok || chains_ok); i++) {
-            Instr *a = ir_get(i);
+            Instr *a = ir_get(c, i);
             if (!a) continue;
             bool is_load = (a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
                             a->op == OP_VLOADSS || a->op == OP_VLOADSD);
@@ -515,14 +516,14 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                        : (int)a->temp_src1;           /* loads: src1 = address */
             int val  = is_store32 ? (int)a->temp_src1 : (int)a->temp_src2;
             int scale = 0;
-            int cls = classify_addr_temp(loop->header_idx, loop->exit_idx,
+            int cls = classify_addr_temp(c, loop->header_idx, loop->exit_idx,
                                          addr, loop_var, counter_slot, 0, &scale);
             if (cls != 1 || scale != elem_size) {
                 strides_ok = false;
                 continue;
             }
             if ((is_store32 || is_storef) &&
-                !value_is_vec_chain(loop->header_idx, loop->exit_idx, val, 0)) {
+                !value_is_vec_chain(c, loop->header_idx, loop->exit_idx, val, 0)) {
                 chains_ok = false;
             }
         }
@@ -551,14 +552,15 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
  * Detect loops and analyze for vectorization
  */
 void vectorization_analyze_full(VectorizationStateFull *state) {
-    int count = (int)ir_get_count();
+    ZeroCCCompiler *c = state->comp;
+    int count = (int)ir_get_count(c);
 
     /* Build label-to-instruction-index map */
     int label_to_idx[256];
     for (int i = 0; i < 256; i++) label_to_idx[i] = -1;
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
         if (instr->op == OP_LABEL && instr->label_idx < 256) {
             label_to_idx[instr->label_idx] = i;
@@ -574,7 +576,7 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
     int num_backedges = 0;
 
     for (int i = 0; i < count && num_backedges < (int)(sizeof(backedges) / sizeof(backedges[0])); i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
         int is_jump = (instr->op == OP_JMP || instr->op == OP_JE ||
             instr->op == OP_JNE || instr->op == OP_JL ||
@@ -701,7 +703,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     bool found_scalar_increment = (vinfo->loop_var_temp != TEMP_NONE);
     int loop_var_temp = (vinfo->loop_var_temp != TEMP_NONE) ? vinfo->loop_var_temp : -1;
     for (int i = start_idx; i <= end_idx && loop_var_temp < 0; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
         if (instr->op == OP_ADD) {
             if (instr->imm == 1) {
@@ -727,7 +729,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
      * Only rewrite the SPECIFIC loop counter increment (matching loop_var_temp),
      * not any other ADD with constant 1 (which could be a non-counter increment). */
     for (int i = start_idx; i <= end_idx; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         if (instr->op == OP_ADD && instr->temp_src1 == loop_var_temp) {
@@ -736,7 +738,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
                 /* Update the constant definition to vec_width */
                 for (int j = 0; j < i; j++) {
-                    Instr *prev = ir_get(j);
+                    Instr *prev = ir_get(c, j);
                     if (prev && prev->op == OP_MOV_IMM && prev->temp_dest == instr->temp_src2) {
                         prev->imm = (int16_t)vec_width;
                         prev->imm64 = vec_width;
@@ -756,7 +758,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
 
     /* Transform loads, arithmetic, and stores */
     for (int i = start_idx; i <= end_idx; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         /* Handle scalar loads -> VLOAD */

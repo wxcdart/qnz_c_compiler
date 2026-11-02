@@ -105,7 +105,7 @@ static int cse_equal(Instr *a, Instr *b) {
  * Find existing computation of same expression
  * Returns the result temp if found, -1 otherwise
  */
-static int cse_find(Instr *instr) {
+static int cse_find(ZeroCCCompiler *c, Instr *instr) {
     uint32_t key = cse_key(instr);
     uint32_t existing_key;
 
@@ -121,7 +121,7 @@ static int cse_find(Instr *instr) {
 
         /* The value stores the instruction index */
         int existing_idx = (int)g_cse_table->vals[slot];
-        Instr *existing = ir_get(existing_idx);
+        Instr *existing = ir_get(c, existing_idx);
         if (existing && cse_equal(instr, existing)) {
             return existing->temp_dest;  /* Return result temp */
         }
@@ -144,8 +144,8 @@ static void cse_add(Instr *instr, int idx) {
 /**
  * Replace instruction with MOV from existing result
  */
-static void replace_with_cse_copy(int instr_idx, int src_temp) {
-    Instr *instr = ir_get(instr_idx);
+static void replace_with_cse_copy(ZeroCCCompiler *c, int instr_idx, int src_temp) {
+    Instr *instr = ir_get(c, instr_idx);
     if (!instr) return;
 
     instr->op = OP_MOV_REG;
@@ -163,10 +163,10 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
 
     cse_init();
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         /* Profile: count basic blocks */
@@ -193,11 +193,11 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         }
 
         /* Check if we've seen this expression before */
-        int existing = cse_find(instr);
+        int existing = cse_find(c, instr);
 
         if (existing >= 0) {
             /* Found duplicate - replace with copy */
-            replace_with_cse_copy(i, existing);
+            replace_with_cse_copy(c, i, existing);
             opt_profile_count_cse_eliminated();
         } else {
             /* First time - add to table */

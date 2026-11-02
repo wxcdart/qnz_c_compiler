@@ -54,7 +54,7 @@ void loop_analysis_free(LoopAnalysisState *state) {
  * instruction-index scan [target_idx .. i] produced).
  */
 static void detect_loops(ZeroCCCompiler *c, LoopAnalysisState *state) {
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     state->ir_count = count;
     state->loop_count = 0;
 
@@ -131,18 +131,18 @@ static void detect_loops(ZeroCCCompiler *c, LoopAnalysisState *state) {
     }
 }
 
-static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body_count) {
-    int ir_count = (int)ir_get_count();
+static bool stack_slot_is_invariant_in_loop(ZeroCCCompiler *c, int offset, int *loop_body, int body_count) {
+    int ir_count = (int)ir_get_count(c);
     /* If the address of this stack slot is taken anywhere in the function, it can be modified through pointers */
     for (int i = 0; i < ir_count; i++) {
-        Instr *ins = ir_get(i);
+        Instr *ins = ir_get(c, i);
         if (ins && ins->op == OP_LEA && (int)ins->imm64 == offset) {
             return false;
         }
     }
     /* Check if any instruction in the loop stores to this stack offset, or performs an indirect store */
     for (int i = 0; i < body_count; i++) {
-        Instr *ins = ir_get(loop_body[i]);
+        Instr *ins = ir_get(c, loop_body[i]);
         if (!ins) continue;
         if (ins->op == OP_MOV_MEM && (int)ins->imm64 == offset) {
             return false;
@@ -170,7 +170,7 @@ static bool stack_slot_is_invariant_in_loop(int offset, int *loop_body, int body
  *    loop header (hoisting must not create a use-before-def for sources
  *    defined after the backedge, e.g. via gotos into the loop).
  */
-static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body, int body_count, int header_idx) {
+static bool instr_is_invariant(ZeroCCCompiler *c, Instr *instr, bool *invariant_map, int *loop_body, int body_count, int header_idx) {
     if (!instr) return false;
 
     /* Only hoist pure, deterministic operations that define a destination temp */
@@ -205,7 +205,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
             /* Stack load: invariant if the stack slot is never modified in the loop and never address-taken,
              * and the destination temp is only defined once in the loop. */
             if (instr->temp_src1 == TEMP_NONE) {
-                if (!stack_slot_is_invariant_in_loop((int)instr->imm64, loop_body, body_count))
+                if (!stack_slot_is_invariant_in_loop(c, (int)instr->imm64, loop_body, body_count))
                     return false;
                 break;
             }
@@ -217,7 +217,7 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     /* The destination temp must not be modified elsewhere in the loop (must have a single definition) */
     int def_dest_count = 0;
     for (int i = 0; i < body_count; i++) {
-        Instr *other = ir_get(loop_body[i]);
+        Instr *other = ir_get(c, loop_body[i]);
         if (other && other->temp_dest == instr->temp_dest) {
             def_dest_count++;
         }
@@ -246,16 +246,16 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     if (instr->temp_src1 != TEMP_NONE && !self_ref_exempt) {
         int def_pos = -1;
         for (int i = 0; i < body_count; i++) {
-            Instr *def = ir_get(loop_body[i]);
+            Instr *def = ir_get(c, loop_body[i]);
             if (def && def->temp_dest == instr->temp_src1) {
                 if (!invariant_map[loop_body[i]]) return false;
                 if (def_pos < 0) def_pos = loop_body[i];
             }
         }
         if (def_pos < 0) {
-            int fc = (int)ir_get_count();
+            int fc = (int)ir_get_count(c);
             for (int i = 0; i < fc; i++) {
-                Instr *def = ir_get(i);
+                Instr *def = ir_get(c, i);
                 if (def && def->temp_dest == instr->temp_src1) { def_pos = i; break; }
             }
             if (def_pos < 0 || def_pos >= header_idx) return false;
@@ -267,16 +267,16 @@ static bool instr_is_invariant(Instr *instr, bool *invariant_map, int *loop_body
     if (instr->temp_src2 != TEMP_NONE && !self_ref_exempt2) {
         int def_pos = -1;
         for (int i = 0; i < body_count; i++) {
-            Instr *def = ir_get(loop_body[i]);
+            Instr *def = ir_get(c, loop_body[i]);
             if (def && def->temp_dest == instr->temp_src2) {
                 if (!invariant_map[loop_body[i]]) return false;
                 if (def_pos < 0) def_pos = loop_body[i];
             }
         }
         if (def_pos < 0) {
-            int fc = (int)ir_get_count();
+            int fc = (int)ir_get_count(c);
             for (int i = 0; i < fc; i++) {
-                Instr *def = ir_get(i);
+                Instr *def = ir_get(c, i);
                 if (def && def->temp_dest == instr->temp_src2) { def_pos = i; break; }
             }
             if (def_pos < 0 || def_pos >= header_idx) return false;
@@ -356,7 +356,7 @@ void opt_licm(ZeroCCCompiler *c) {
     /* Profile: count loops detected */
     opt_profile_count_licm_loop();
 
-    int ir_count = (int)ir_get_count();
+    int ir_count = (int)ir_get_count(c);
     bool *global_hoist = calloc(ir_count, sizeof(bool));
     if (!global_hoist) {
         loop_analysis_free(&state);
@@ -378,7 +378,7 @@ void opt_licm(ZeroCCCompiler *c) {
          * Therefore, do not hoist out of loops containing calls. */
         bool loop_has_call = false;
         for (int i = 0; i < loop->body_count; i++) {
-            Instr *ins = ir_get(loop->body_indices[i]);
+            Instr *ins = ir_get(c, loop->body_indices[i]);
             if (ins && (ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT ||
                           ins->op == OP_SYSCALL)) {
                 loop_has_call = true;
@@ -404,10 +404,10 @@ void opt_licm(ZeroCCCompiler *c) {
                 int idx = loop->body_indices[i];
                 if (invariant[idx]) continue;
 
-                Instr *instr = ir_get(idx);
+                Instr *instr = ir_get(c, idx);
                 if (!instr) continue;
 
-                if (instr_is_invariant(instr, invariant, loop->body_indices, loop->body_count, loop->header_idx)) {
+                if (instr_is_invariant(c, instr, invariant, loop->body_indices, loop->body_count, loop->header_idx)) {
                     if (!instr_has_moving_side_effects(instr)) {
                         invariant[idx] = true;
                         changed = true;
@@ -473,7 +473,7 @@ void opt_licm(ZeroCCCompiler *c) {
             for (int b = 0; b < loop->body_count; b++) {
                 int b_idx = loop->body_indices[b];
                 if (loop->is_invariant[b_idx] && !emitted_at_header[b_idx]) {
-                    Instr *inv_instr = ir_get(b_idx);
+                    Instr *inv_instr = ir_get(c, b_idx);
                     if (inv_instr) {
                         ir_arena_emit(&new_arena, *inv_instr);
                         emitted_at_header[b_idx] = true;
@@ -484,7 +484,7 @@ void opt_licm(ZeroCCCompiler *c) {
         }
 
         /* Emit current instruction or OP_NOP if it was hoisted */
-        Instr *orig_instr = ir_get(i);
+        Instr *orig_instr = ir_get(c, i);
         if (!orig_instr) continue;
 
         if (global_hoist[i]) {
@@ -541,10 +541,10 @@ void opt_licm(ZeroCCCompiler *c) {
 void opt_strength_reduction(ZeroCCCompiler *c) {
     (void)c;
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         // Look for multiplication patterns
@@ -567,10 +567,10 @@ void opt_strength_reduction(ZeroCCCompiler *c) {
 void opt_branch_simplify(ZeroCCCompiler *c) {
     (void)c;
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         // Look for conditional jumps with known conditions

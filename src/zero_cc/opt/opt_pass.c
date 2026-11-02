@@ -55,7 +55,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
     const int max_iterations = 10;
 
     /* Profile: record initial instruction count */
-    opt_profile_set_instructions_before((size_t)ir_get_count());
+    opt_profile_set_instructions_before((size_t)ir_get_count(c));
 
     while (changed && iteration < max_iterations) {
         changed = 0;
@@ -72,7 +72,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
             /* Check if this pass is enabled at the current optimization level */
             if (!opt_is_enabled(pass->min_level)) continue;
 
-            int before_count = (int)ir_get_count();
+            int before_count = (int)ir_get_count(c);
             /* Per-pass wall time (Sprint 35 Phase 4): only when profiling
              * is enabled (--profile-opts). */
             struct timespec t0, t1;
@@ -84,7 +84,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
                     (double)(t1.tv_sec - t0.tv_sec) * 1e3 +
                     (double)(t1.tv_nsec - t0.tv_nsec) * 1e-6);
             }
-            int after_count = (int)ir_get_count();
+            int after_count = (int)ir_get_count(c);
 
             /* The pass may have rewritten the IR in place (DCE compaction,
              * mem2reg forwarding, LICM rebuild): invalidate the cached CFG
@@ -98,7 +98,7 @@ void opt_run_passes(ZeroCCCompiler *c) {
     }
 
     /* Profile: record final instruction count */
-    opt_profile_set_instructions_after((size_t)ir_get_count());
+    opt_profile_set_instructions_after((size_t)ir_get_count(c));
 }
 void opt_shutdown(void) { g_opt_level = OPT_LEVEL_NONE; }
 OptLevel opt_get_level(void) { return g_opt_level; }

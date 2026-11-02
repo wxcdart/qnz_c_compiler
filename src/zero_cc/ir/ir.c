@@ -7,14 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Thread-local pointer to current compiler during IR emission
- * This allows per-thread IR emission without data races in multi-threaded compilation */
-__thread ZeroCCCompiler *g_compiler = NULL;
-
-/* Set the current compiler (call before IR emission) */
-void ir_set_compiler(ZeroCCCompiler *c) {
-    g_compiler = c;
-}
+/* Thread-reentrant compiler state: no g_compiler */
 
 /* Frame slot addressing (Option 4: -fomit-frame-pointer).
  * Frame-slot IR operands are recorded FP-relative. When the frame pointer
@@ -33,68 +26,53 @@ int32_t zero_cc_frame_disp(const ZeroCCCompiler *c, int32_t off) {
     return zero_cc_frame_disp_at(c, off, 0);
 }
 
-/* Get the current compiler's IR arena */
-static inline IRArena *ir_arena(void) {
-    return g_compiler ? &g_compiler->ir_arena : NULL;
-}
 
-/* Get the current compiler's call args arena */
-static inline IRCallArgsArena *ir_call_arena(void) {
-    return g_compiler ? &g_compiler->ir_call_args : NULL;
-}
 
 /* Get instruction buffer (for live range analysis) */
-const Instr *ir_get_buffer(void) {
-    IRArena *arena = ir_arena();
-    return arena ? arena->buffer : NULL;
+const Instr *ir_get_buffer(const ZeroCCCompiler *c) {
+    return c ? c->ir_arena.buffer : NULL;
 }
 
 /* Reset IR buffer for next function - resets arena count (reuses memory) */
-void ir_reset(void) {
-    IRArena *arena = ir_arena();
-    if (arena && arena->buffer) {
-        arena->count = 0;
+void ir_reset(ZeroCCCompiler *c) {
+    if (!c) return;
+    if (c->ir_arena.buffer) {
+        c->ir_arena.count = 0;
     }
 
-    IRCallArgsArena *call_arena = ir_call_arena();
-    if (call_arena && call_arena->table) {
-        call_arena->count = 0;
+    if (c->ir_call_args.table) {
+        c->ir_call_args.count = 0;
     }
 
     /* A new function's IR invalidates any cached CFG (Sprint 35 Phase 2). */
-    if (g_compiler) {
-        g_compiler->cfg_version++;
-        g_compiler->cfg_cache.valid = false;
-    }
+    c->cfg_version++;
+    c->cfg_cache.valid = false;
 }
 
 /* Get instruction count */
-size_t ir_get_count(void) {
-    IRArena *arena = ir_arena();
-    return arena ? arena->count : 0;
+size_t ir_get_count(const ZeroCCCompiler *c) {
+    return c ? c->ir_arena.count : 0;
 }
 
 /* Access instruction by index */
-Instr* ir_get(size_t idx) {
-    IRArena *arena = ir_arena();
-    if (!arena || !arena->buffer || idx >= arena->count) return NULL;
-    return &arena->buffer[idx];
+Instr* ir_get(ZeroCCCompiler *c, size_t idx) {
+    if (!c || !c->ir_arena.buffer || idx >= c->ir_arena.count) return NULL;
+    return &c->ir_arena.buffer[idx];
 }
 
 /* Insert instruction at specific index (shifts existing instructions) */
-void ir_insert_at(size_t idx, Instr instr) {
-    IRArena *arena = ir_arena();
-    if (!arena || !arena->buffer) {
+void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr) {
+    if (!c || !c->ir_arena.buffer) {
         fprintf(stderr, "Error: IR arena not initialized for insertion\n");
         exit(1);
     }
 
-    if (idx > arena->count) {
-        fprintf(stderr, "Error: IR insert index %zu out of bounds (count=%zu)\n", idx, arena->count);
+    if (idx > c->ir_arena.count) {
+        fprintf(stderr, "Error: IR insert index %zu out of bounds (count=%zu)\n", idx, c->ir_arena.count);
         exit(1);
     }
 
-    Instr *ptr = ir_arena_insert(arena, idx, instr);
+    Instr *ptr = ir_arena_insert(&c->ir_arena, idx, instr);
     if (!ptr) {
         fprintf(stderr, "Error: IR arena insertion failed\n");
         exit(1);
@@ -102,124 +80,115 @@ void ir_insert_at(size_t idx, Instr instr) {
 }
 
 /* Record call arguments for an instruction */
-void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp,
+void ir_call_args_record(ZeroCCCompiler *c, size_t instr_index, int count, const int *temps, const int *is_fp,
                          const uint8_t *stack_pos) {
-    IRCallArgsArena *call_arena = ir_call_arena();
-    if (!call_arena || !call_arena->table) return;
+    if (!c || !c->ir_call_args.table) return;
 
     /* Dynamic growth handles capacity automatically */
-    ir_call_args_arena_record(call_arena, instr_index, count, temps, is_fp, stack_pos);
+    ir_call_args_arena_record(&c->ir_call_args, instr_index, count, temps, is_fp, stack_pos);
 }
 
 /* Find call arguments for an instruction */
-const IRCallArgs *ir_call_args_find(size_t instr_index) {
-    IRCallArgsArena *call_arena = ir_call_arena();
-    if (!call_arena || !call_arena->table) return NULL;
+const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index) {
+    if (!c || !c->ir_call_args.table) return NULL;
 
-    for (size_t i = 0; i < call_arena->count; i++) {
-        if (call_arena->table[i].instr_index == instr_index) {
-            return &call_arena->table[i];
+    for (size_t i = 0; i < c->ir_call_args.count; i++) {
+        if (c->ir_call_args.table[i].instr_index == instr_index) {
+            return &c->ir_call_args.table[i];
         }
     }
     return NULL;
 }
 
-/* IR Emitter Functions - Arena-based with global API */
-void ir_emit(Instr instr) {
-    IRArena *arena = ir_arena();
-    if (!arena || !arena->buffer) {
+/* IR Emitter Functions - Arena-based with compiler context */
+void ir_emit(ZeroCCCompiler *c, Instr instr) {
+    if (!c || !c->ir_arena.buffer) {
         fprintf(stderr, "Error: IR arena not initialized\n");
         exit(1);
     }
 
     /* restrict alias-group tagging: loads/stores inherit the group of their
      * address temp; pointer arithmetic propagates the group to its result. */
-    if (g_compiler) {
-        /* C2b: the alias-group table is 256 entries - higher temp ids simply
-         * stay unconstrained (group 0), matching the guard in ast_lowering_expr.c. */
-        uint8_t *tg = g_compiler->lowering.temp_alias_group;
-        switch (instr.op) {
-            case OP_DEREF: case OP_LOAD_BYTE: case OP_LOAD_16: case OP_LOAD_32:
-                if (instr.temp_src1 != TEMP_NONE && instr.temp_src1 < 256) instr.alias_group = tg[instr.temp_src1];
-                break;
-            case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
-                if (instr.temp_src2 != TEMP_NONE && instr.temp_src2 < 256) instr.alias_group = tg[instr.temp_src2];
-                break;
-            case OP_MOV_REG: case OP_ADD_IMM: case OP_SUB_IMM:
-                if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE &&
-                    instr.temp_dest < 256 && instr.temp_src1 < 256)
-                    tg[instr.temp_dest] = tg[instr.temp_src1];
-                break;
-            case OP_ADD: case OP_SUB:
-                if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE && instr.temp_src2 != TEMP_NONE &&
-                    instr.temp_dest < 256 && instr.temp_src1 < 256 && instr.temp_src2 < 256) {
-                    uint8_t g1 = tg[instr.temp_src1], g2 = tg[instr.temp_src2];
-                    tg[instr.temp_dest] = (g1 && g2 && g1 != g2) ? 0 : (g1 ? g1 : g2);
-                }
-                break;
-            default:
-                break;
-        }
+    uint8_t *tg = c->lowering.temp_alias_group;
+    switch (instr.op) {
+        case OP_DEREF: case OP_LOAD_BYTE: case OP_LOAD_16: case OP_LOAD_32:
+            if (instr.temp_src1 != TEMP_NONE && instr.temp_src1 < 256) instr.alias_group = tg[instr.temp_src1];
+            break;
+        case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
+            if (instr.temp_src2 != TEMP_NONE && instr.temp_src2 < 256) instr.alias_group = tg[instr.temp_src2];
+            break;
+        case OP_MOV_REG: case OP_ADD_IMM: case OP_SUB_IMM:
+            if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE &&
+                instr.temp_dest < 256 && instr.temp_src1 < 256)
+                tg[instr.temp_dest] = tg[instr.temp_src1];
+            break;
+        case OP_ADD: case OP_SUB:
+            if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE && instr.temp_src2 != TEMP_NONE &&
+                instr.temp_dest < 256 && instr.temp_src1 < 256 && instr.temp_src2 < 256) {
+                uint8_t g1 = tg[instr.temp_src1], g2 = tg[instr.temp_src2];
+                tg[instr.temp_dest] = (g1 && g2 && g1 != g2) ? 0 : (g1 ? g1 : g2);
+            }
+            break;
+        default:
+            break;
     }
 
-    Instr *ptr = ir_arena_emit(arena, instr);
+    Instr *ptr = ir_arena_emit(&c->ir_arena, instr);
     if (!ptr) {
         fprintf(stderr, "Error: IR arena allocation failed\n");
         exit(1);
     }
 }
 
-void ir_emit_label(uint16_t label_idx) {
+void ir_emit_label(ZeroCCCompiler *c, uint16_t label_idx) {
     Instr instr = {.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
-void ir_emit_jmp(uint16_t label_idx) {
+void ir_emit_jmp(ZeroCCCompiler *c, uint16_t label_idx) {
     Instr instr = {.op = OP_JMP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
-void ir_emit_je(uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_je(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
-void ir_emit_jcond(uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_jcond(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JCOND, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = REG_FLAGS, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
-void ir_emit_jne(uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_jne(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JNE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
-void ir_emit_jmp_label(uint16_t label_idx) {
+void ir_emit_jmp_label(ZeroCCCompiler *c, uint16_t label_idx) {
     Instr instr = {.op = OP_JMP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
-    ir_emit(instr);
+    ir_emit(c, instr);
 }
 
 /* Clear IR buffer for next function - resets arena count (reuses memory) */
-void ir_clear(void) {
-    IRArena *arena = ir_arena();
-    if (arena && arena->buffer) {
-        arena->count = 0;
+void ir_clear(ZeroCCCompiler *c) {
+    if (!c) return;
+    if (c->ir_arena.buffer) {
+        c->ir_arena.count = 0;
     }
 
-    IRCallArgsArena *call_arena = ir_call_arena();
-    if (call_arena && call_arena->table) {
-        call_arena->count = 0;
+    if (c->ir_call_args.table) {
+        c->ir_call_args.count = 0;
     }
 }
 
 /* Debug: Dump IR to file */
-void ir_dump(FILE *f) {
-    IRArena *arena = ir_arena();
-    if (!arena || !arena->buffer) return;
+void ir_dump(const ZeroCCCompiler *c, FILE *f) {
+    if (!c || !c->ir_arena.buffer) return;
 
-    size_t count = arena->count;
+    size_t count = c->ir_arena.count;
     for (size_t i = 0; i < count; i++) {
-        Instr *instr = &arena->buffer[i];
+        Instr *instr = &c->ir_arena.buffer[i];
 
         /* Print instruction index */
         fprintf(f, "%4zu: ", i);

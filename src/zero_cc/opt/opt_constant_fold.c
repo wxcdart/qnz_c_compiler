@@ -98,11 +98,11 @@ void opt_fold_constants(ZeroCCCompiler *c) {
 
     clear_constants();
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
 
     // First pass: collect all constant definitions from OP_MOV_IMM
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         int dest = instr->temp_dest;
@@ -119,7 +119,7 @@ void opt_fold_constants(ZeroCCCompiler *c) {
 
     // Second pass: fold binary operations with two constant operands
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         // Fold binary operations with constants

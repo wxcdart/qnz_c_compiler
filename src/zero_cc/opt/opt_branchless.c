@@ -122,7 +122,7 @@ static int op_defines_gpr(uint8_t op) {
 static int temp_is_gpr(ZeroCCCompiler *c, uint16_t t, int before, int depth) {
     if (t == TEMP_NONE || t < 16 || depth > 128) return 0;
     for (int i = before - 1; i >= 0; i--) {
-        Instr *in = ir_get(i);
+        Instr *in = ir_get(c, i);
         if (!in || in->temp_dest != t) continue;
         /* Most recent definition of t before `before`. */
         if (in->op == OP_MOV_REG) {
@@ -149,7 +149,7 @@ static int is_inplace_ext(const Instr *x) {
  * Returns 1 and fills *out on success. */
 static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out) {
     (void)c;
-    Instr *x1 = ir_get(start);
+    Instr *x1 = ir_get(c, start);
     int load1 = (x1->op == OP_MOV && x1->temp_src1 == TEMP_NONE && x1->temp_dest >= 16);
     int copy1 = (x1->op == OP_MOV_REG && x1->temp_dest >= 16 && x1->temp_src1 >= 16);
     if (!load1 && !copy1) return 0;
@@ -157,7 +157,7 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
     /* Shape 1: single-instruction arm (MOV_REG res, A) - the next
      * instruction must already terminate the arm (JMP or a label). */
     if (copy1) {
-        Instr *x2 = ir_get(start + 1);
+        Instr *x2 = ir_get(c, start + 1);
         if (x2->op == OP_JMP || x2->op == OP_LABEL) {
             if (res_expect && x1->temp_dest != res_expect) return 0;
             out->first = start;
@@ -174,7 +174,7 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
     int val = x1->temp_dest;
     int root = load1 ? -1 : x1->temp_src1;
     int load_idx = load1 ? start : -1;
-    Instr *x2 = ir_get(start + 1);
+    Instr *x2 = ir_get(c, start + 1);
 
     /* Shape 2: [start] [MOV_REG res, V] */
     if (x2->op == OP_MOV_REG && x2->temp_src1 == val && x2->temp_dest >= 16) {
@@ -191,7 +191,7 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
 
     /* Shape 3: [start] [SEXT/ZEXT V] [MOV_REG res, V] */
     if (is_inplace_ext(x2)) {
-        Instr *x3 = ir_get(start + 2);
+        Instr *x3 = ir_get(c, start + 2);
         if (x3->op == OP_MOV_REG && x3->temp_src1 == val && x3->temp_dest >= 16) {
             if (res_expect && x3->temp_dest != res_expect) return 0;
             if (x3->temp_dest == val) return 0;
@@ -216,11 +216,11 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
  *      provably GPR-resident at the JE.
  */
 static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
-    Instr *je = ir_get(i);
+    Instr *je = ir_get(c, i);
     uint16_t t = je->temp_src1;
     if (t == TEMP_NONE || t < 16 || i < 1) return 0;
 
-    Instr *prev = ir_get(i - 1);
+    Instr *prev = ir_get(c, i - 1);
     uint8_t mask_kind;
     if (prev->op == OP_COND_SET && prev->temp_dest == t) {
         mask_kind = 0; /* t is 0/1 */
@@ -234,19 +234,19 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
     ArmInfo then_arm;
     if (!match_arm(c, i + 1, 0, &then_arm)) return 0;
     int jmp_idx = then_arm.last + 1;
-    Instr *jmp = ir_get(jmp_idx);
+    Instr *jmp = ir_get(c, jmp_idx);
     if (jmp->op != OP_JMP) return 0;
     uint16_t l_end = jmp->label_idx;
 
     int else_label = jmp_idx + 1;
-    Instr *el = ir_get(else_label);
+    Instr *el = ir_get(c, else_label);
     if (el->op != OP_LABEL || el->label_idx != je->label_idx) return 0;
 
     /* Else arm (same destination), then the merge label. */
     ArmInfo else_arm;
     if (!match_arm(c, else_label + 1, then_arm.res, &else_arm)) return 0;
     int end_label = else_arm.last + 1;
-    Instr *en = ir_get(end_label);
+    Instr *en = ir_get(c, end_label);
     if (en->op != OP_LABEL || en->label_idx != l_end) return 0;
 
     uint16_t res = then_arm.res;
@@ -255,16 +255,16 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
 
     /* `res` must not be read anywhere in the replaced span. */
     for (int k = i - 1; k <= else_arm.last; k++) {
-        Instr *x = ir_get(k);
+        Instr *x = ir_get(c, k);
         if (x->temp_src1 == res || x->temp_src2 == res) return 0;
     }
 
     /* Values must be provably GPR-resident. */
     if (then_arm.load_idx >= 0) {
-        if (!frame_load_is_gpr(c, ir_get(then_arm.load_idx)->imm)) return 0;
+        if (!frame_load_is_gpr(c, ir_get(c, then_arm.load_idx)->imm)) return 0;
     } else if (!temp_is_gpr(c, then_arm.root, then_arm.first, 0)) return 0;
     if (else_arm.load_idx >= 0) {
-        if (!frame_load_is_gpr(c, ir_get(else_arm.load_idx)->imm)) return 0;
+        if (!frame_load_is_gpr(c, ir_get(c, else_arm.load_idx)->imm)) return 0;
     } else if (!temp_is_gpr(c, else_arm.root, else_arm.first, 0)) return 0;
 
     /* CFG predecessor checks. */
@@ -292,7 +292,7 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
 
 void opt_branchless_select(ZeroCCCompiler *c) {
     if (!c) return;
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     if (count < 6) return;
 
     SelectSite sites[MAX_SELECT_SITES];
@@ -300,7 +300,7 @@ void opt_branchless_select(ZeroCCCompiler *c) {
     int last_end = -1;
 
     for (int i = 1; i < count; i++) {
-        if (ir_get(i)->op != OP_JE) continue;
+        if (ir_get(c, i)->op != OP_JE) continue;
         SelectSite site;
         if (!try_match_site(c, i, &site)) continue;
         if (site.je_idx <= last_end) { i = site.end_label; continue; }  /* overlap */
@@ -333,9 +333,9 @@ void opt_branchless_select(ZeroCCCompiler *c) {
             /* Hoist each arm's plumbing (all arm instructions except the
              * final MOV_REG) before the select. */
             for (int k = sp->then.first; k < sp->then.last; k++)
-                ir_arena_emit(&new_arena, *ir_get(k));
+                ir_arena_emit(&new_arena, *ir_get(c, k));
             for (int k = sp->else_arm.first; k < sp->else_arm.last; k++)
-                ir_arena_emit(&new_arena, *ir_get(k));
+                ir_arena_emit(&new_arena, *ir_get(c, k));
 
             uint16_t t2   = (uint16_t)c->next_temp_id++;
             uint16_t m1   = (uint16_t)c->next_temp_id++;
@@ -368,7 +368,7 @@ void opt_branchless_select(ZeroCCCompiler *c) {
             continue;
         }
         old_to_new[i] = (int)new_arena.count;
-        ir_arena_emit(&new_arena, *ir_get(i));
+        ir_arena_emit(&new_arena, *ir_get(c, i));
     }
 
     /* Remap IRCallArgs indices (LICM recipe), then swap in the arena. */

@@ -26,8 +26,8 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
 
 /* Emit machine code from IR with allocated registers */
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
-    const Instr *instrs = ir_get_buffer();
-    size_t count = ir_get_count();
+    const Instr *instrs = ir_get_buffer(c);
+    size_t count = ir_get_count(c);
     size_t label_count = c->ir_next_label;
     bool *label_defined = label_count ? (bool *)calloc(label_count, sizeof(bool)) : NULL;
     size_t *label_offsets = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
@@ -409,7 +409,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 int s_arg_temps[8] = {0};
                 int s_arg_count = 0;
-                const IRCallArgs *s_args = ir_call_args_find(i);
+                const IRCallArgs *s_args = ir_call_args_find(c, i);
                 if (s_args) {
                     for (int a = 0; a < s_args->count && a < 7; a++) {
                         if (s_args->is_fp[a] != 0) continue; /* syscall args are integer */
@@ -864,7 +864,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int arg_temps[IR_CALL_MAX_ARGS] = {0};
                 int indirect_callee_temp = -1;
                 int aarch64_sret_temp = -1;
-                const IRCallArgs *full_args = ir_call_args_find(i);
+                const IRCallArgs *full_args = ir_call_args_find(c, i);
                 if (full_args) {
                     int int_c = 0;
                     for (int a = 0; a < full_args->count; a++) {

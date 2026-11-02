@@ -44,21 +44,21 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_INT: {
             /* Emit: mov_imm temp, value */
             int temp = c->next_temp_id++;
-            ir_emit_mov_imm(temp, node->int_val);
+            ir_emit_mov_imm(c, temp, node->int_val);
             return temp;
         }
 
         case NODE_BOOL: {
             /* Emit: mov_imm temp, value */
             int temp = c->next_temp_id++;
-            ir_emit_mov_imm(temp, node->int_val);
+            ir_emit_mov_imm(c, temp, node->int_val);
             return temp;
         }
 
         case NODE_NULLPTR: {
             /* Emit: xor temp, temp, temp */
             int temp = c->next_temp_id++;
-            ir_emit_mov_imm(temp, 0);  /* Simplified: use mov_imm for zero */
+            ir_emit_mov_imm(c, temp, 0);  /* Simplified: use mov_imm for zero */
             return temp;
         }
 
@@ -71,12 +71,12 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 /* Emit: load temp, fp, offset */
                 int temp = c->next_temp_id++;
-                ir_emit_load(temp, BE(c)->fp_reg, -sym->stack_offset);
+                ir_emit_load(c, temp, BE(c)->fp_reg, -sym->stack_offset);
                 return temp;
             } else {
                 /* Global variable: load address */
                 int temp = c->next_temp_id++;
-                ir_emit_mov_imm(temp, 0);  /* Placeholder: actual addr from reloc */
+                ir_emit_mov_imm(c, temp, 0);  /* Placeholder: actual addr from reloc */
                 return temp;
             }
         }
@@ -90,38 +90,38 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             switch (node->aux.op) {
                 case '+':
-                    ir_emit_add(result_temp, left_temp, right_temp);
+                    ir_emit_add(c, result_temp, left_temp, right_temp);
                     break;
                 case '-':
-                    ir_emit_sub(result_temp, left_temp, right_temp);
+                    ir_emit_sub(c, result_temp, left_temp, right_temp);
                     break;
                 case '*':
-                    ir_emit_mul(result_temp, left_temp, right_temp);
+                    ir_emit_mul(c, result_temp, left_temp, right_temp);
                     break;
                 case '/':
-                    ir_emit_div(result_temp, left_temp, right_temp);
+                    ir_emit_div(c, result_temp, left_temp, right_temp);
                     break;
                 case '%':
-                    ir_emit_mod(result_temp, left_temp, right_temp);
+                    ir_emit_mod(c, result_temp, left_temp, right_temp);
                     break;
                 case '&':
-                    ir_emit_and(result_temp, left_temp, right_temp);
+                    ir_emit_and(c, result_temp, left_temp, right_temp);
                     break;
                 case '|':
-                    ir_emit_or(result_temp, left_temp, right_temp);
+                    ir_emit_or(c, result_temp, left_temp, right_temp);
                     break;
                 case '^':
-                    ir_emit_xor(result_temp, left_temp, right_temp);
+                    ir_emit_xor(c, result_temp, left_temp, right_temp);
                     break;
                 case TK_SHL:
-                    ir_emit_shl(result_temp, left_temp, right_temp);
+                    ir_emit_shl(c, result_temp, left_temp, right_temp);
                     break;
                 case TK_SHR:
-                    ir_emit_shr(result_temp, left_temp, right_temp);
+                    ir_emit_shr(c, result_temp, left_temp, right_temp);
                     break;
                 default:
                     /* Unknown operator, emit mov to preserve value */
-                    ir_emit_mov_reg(result_temp, left_temp);
+                    ir_emit_mov_reg(c, result_temp, left_temp);
                     break;
             }
             return result_temp;
@@ -133,16 +133,16 @@ static int lower_expr_ir(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
 
             switch (node->aux.op) {
                 case '-':  /* Negation */
-                    ir_emit_neg(result_temp, operand_temp);
+                    ir_emit_neg(c, result_temp, operand_temp);
                     break;
                 case '!':  /* Logical NOT */
-                    ir_emit_lnot(result_temp, operand_temp);
+                    ir_emit_lnot(c, result_temp, operand_temp);
                     break;
                 case '~':  /* Bitwise NOT */
-                    ir_emit_not(result_temp, operand_temp);
+                    ir_emit_not(c, result_temp, operand_temp);
                     break;
                 default:
-                    ir_emit_mov_reg(result_temp, operand_temp);
+                    ir_emit_mov_reg(c, result_temp, operand_temp);
                     break;
             }
             return result_temp;

@@ -126,8 +126,8 @@ static void gvn_add(Instr *instr, int val_num) {
 /**
  * Replace instruction with MOV from existing value
  */
-static void replace_with_gvn_copy(int instr_idx, uint16_t src_temp) {
-    Instr *instr = ir_get(instr_idx);
+static void replace_with_gvn_copy(ZeroCCCompiler *c, int instr_idx, uint16_t src_temp) {
+    Instr *instr = ir_get(c, instr_idx);
     if (!instr) return;
 
     instr->op = OP_MOV_REG;
@@ -239,12 +239,12 @@ static int mf_is_load(uint8_t op) {
     return op == OP_DEREF || op == OP_LOAD_BYTE || op == OP_LOAD_16 || op == OP_LOAD_32;
 }
 
-static void opt_restrict_memory_forward(void) {
-    int count = (int)ir_get_count();
+static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
+    int count = (int)ir_get_count(c);
     mf_reset();
 
     for (int i = 0; i < count; i++) {
-        Instr *in = ir_get(i);
+        Instr *in = ir_get(c, i);
         if (!in) continue;
 
         switch (in->op) {
@@ -355,10 +355,10 @@ static void opt_restrict_memory_forward(void) {
 void opt_eliminate_gvn(ZeroCCCompiler *c) {
     (void)c;
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         opt_profile_count_gvn_instruction();
@@ -386,7 +386,7 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
 
         if (existing >= 0 && g_temp_has_value[g_values[existing].result_temp]) {
             /* Found duplicate - replace with copy */
-            replace_with_gvn_copy(i, g_values[existing].result_temp);
+            replace_with_gvn_copy(c, i, g_values[existing].result_temp);
             opt_profile_count_gvn_eliminated();
 
             /* Update: this temp now holds the same value as the existing one */
@@ -404,5 +404,5 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
     }
 
     /* restrict-aware redundant load elimination / store forwarding */
-    opt_restrict_memory_forward();
+    opt_restrict_memory_forward(c);
 }

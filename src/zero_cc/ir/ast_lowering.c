@@ -38,13 +38,13 @@ static void static_local_chunk_addr(ZeroCCCompiler *c, const ZeroCCSym *ss,
                                     size_t off, int *out_addr) {
     *out_addr = c->next_temp_id++;
     if (off == 0) {
-        ir_emit_mov_global((uint16_t)*out_addr, ss->static_global_name);
+        ir_emit_mov_global(c, (uint16_t)*out_addr, ss->static_global_name);
     } else {
         int base = c->next_temp_id++;
-        ir_emit_mov_global((uint16_t)base, ss->static_global_name);
+        ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
         int o = c->next_temp_id++;
-        ir_emit_mov_imm((uint16_t)o, (int64_t)off);
-        ir_emit_add((uint16_t)*out_addr, (uint16_t)base, (uint16_t)o);
+        ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
+        ir_emit_add(c, (uint16_t)*out_addr, (uint16_t)base, (uint16_t)o);
     }
 }
 
@@ -208,10 +208,10 @@ static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
         int addr;
         static_local_chunk_addr(c, ss, off, &addr);
         int val = c->next_temp_id++;
-        ir_emit_deref(val, addr);
+        ir_emit_deref(c, val, addr);
         int sa = c->next_temp_id++;
-        ir_emit_lea(sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
-        ir_emit_store_64((uint16_t)val, (uint16_t)sa);
+        ir_emit_lea(c, sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
+        ir_emit_store_64(c, (uint16_t)val, (uint16_t)sa);
     }
 }
 
@@ -223,12 +223,12 @@ static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
     for (size_t off = 0; off < alloc_sz; off += 8) {
         int sa = c->next_temp_id++;
-        ir_emit_lea(sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
+        ir_emit_lea(c, sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
         int val = c->next_temp_id++;
-        ir_emit_deref(val, sa);
+        ir_emit_deref(c, val, sa);
         int addr;
         static_local_chunk_addr(c, ss, off, &addr);
-        ir_emit_store_64((uint16_t)val, (uint16_t)addr);
+        ir_emit_store_64(c, (uint16_t)val, (uint16_t)addr);
     }
 }
 
@@ -316,11 +316,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset label patcher state */
     label_patcher_init(&c->label_patcher);
 
-    /* Set current compiler for IR emission */
-    ir_set_compiler(c);
-
     /* Reset IR buffer */
-    ir_reset();
+    ir_reset(c);
 
     /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
     bool can_promote_params = false;
@@ -397,7 +394,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             sym->promoted_vreg = c->next_temp_id++;
             bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             int arg_idx = is_fp ? fp_idx++ : int_idx++;
-            ir_emit_param_load(sym->promoted_vreg, arg_idx, is_fp);
+            ir_emit_param_load(c, sym->promoted_vreg, arg_idx, is_fp);
             if (!is_fp) {
                 zero_cc_emit_int_extend(c, sym->promoted_vreg, &sym->type);
             }
@@ -431,10 +428,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int fpstack_copy_count = 0;
         if (uses_sret) {
             if (c->isa == ISA_AARCH64) {
-                ir_emit_param_save_int(8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
+                ir_emit_param_save_int(c, 8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
                 int_idx = 0;  /* Real params still start at x0 */
             } else {
-                ir_emit_param_save_int(0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 */
+                ir_emit_param_save_int(c, 0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 */
                 int_idx = 1;  /* Real params start at RSI / a1 */
             }
         }
@@ -458,12 +455,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                  * the later PARAM_SAVE_INTs (c-torture execute/20030914-2). */
                 int32_t pt_off = sym->stack_offset;
                 if (int_idx < BE(c)->conv->int_arg_reg_count) {
-                    ir_emit_param_save_int(int_idx, pt_off);
+                    ir_emit_param_save_int(c, int_idx, pt_off);
                     int_idx++;
                 } else {
                     int32_t caller_off = 16 + 8 * stack_idx;
-                    ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
-                    ir_emit_store(VREG_0, BE(c)->fp_reg, -pt_off);
+                    ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                    ir_emit_store(c, VREG_0, BE(c)->fp_reg, -pt_off);
                     stack_idx++;
                 }
                 if (big_param_copy_count < 64) {
@@ -477,12 +474,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 for (int ch = 0; ch < num_chunks; ch++) {
                     int32_t chunk_off = sym->stack_offset - ch * 8;
                     if (int_idx < BE(c)->conv->int_arg_reg_count) {
-                        ir_emit_param_save_int(int_idx, chunk_off);
+                        ir_emit_param_save_int(c, int_idx, chunk_off);
                         int_idx++;
                     } else {
                         int32_t caller_off = 16 + 8 * stack_idx;
-                        ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
-                        ir_emit_store(VREG_0, BE(c)->fp_reg, -chunk_off);
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -chunk_off);
                         stack_idx++;
                     }
                 }
@@ -498,7 +495,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 for (int half = 0; half < 2; half++) {
                     int32_t half_off = sym->stack_offset - (int32_t)half * esz;
                     if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
-                        ir_emit_param_save_fp(xmm_idx, half_off, is_flt);
+                        ir_emit_param_save_fp(c, xmm_idx, half_off, is_flt);
                     } else {
                         /* Stack half: defer the load until after the
                          * variadic spill (see fpstack_* above). */
@@ -513,7 +510,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     xmm_idx++;
                 }
             } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
-                ir_emit_param_save_fp(xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
+                ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
                 xmm_idx++;
             } else if (is_fp) {
                 /* FP argument beyond the register window: shared
@@ -528,12 +525,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 stack_idx++;
                 xmm_idx++;
             } else if (!is_fp && int_idx < BE(c)->conv->int_arg_reg_count) {
-                ir_emit_param_save_int(int_idx, sym->stack_offset);
+                ir_emit_param_save_int(c, int_idx, sym->stack_offset);
                 int_idx++;
             } else if (!is_fp) {
                 int32_t caller_off = 16 + 8 * stack_idx;
-                ir_emit_load(VREG_0, BE(c)->fp_reg, caller_off);
-                ir_emit_store(VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_idx++;
             }
         }
@@ -549,7 +546,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             int va_slots = BE(c)->conv->int_arg_reg_count + BE(c)->conv->fp_arg_reg_count;
             int32_t base_spill_offset = c->current_stack_frame + 8;
             c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * 8) + 15) & ~(size_t)15);
-            ir_emit_variadic_spill((int)fn->param_count, base_spill_offset);
+            ir_emit_variadic_spill(c, (int)fn->param_count, base_spill_offset);
         }
 
         /* Deferred hidden-pointer copies (see the param-save loop above):
@@ -558,9 +555,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * allocated freely (they may reuse the arg registers). */
         for (int bp = 0; bp < big_param_copy_count; bp++) {
             int pt = c->next_temp_id++;
-            ir_emit_load(pt, BE(c)->fp_reg, -big_param_pt_off[bp]);
+            ir_emit_load(c, pt, BE(c)->fp_reg, -big_param_pt_off[bp]);
             int dst_addr = c->next_temp_id++;
-            ir_emit_lea(dst_addr, BE(c)->fp_reg, -big_param_dst_off[bp]);
+            ir_emit_lea(c, dst_addr, BE(c)->fp_reg, -big_param_dst_off[bp]);
             zc_emit_mem_copy(c, pt, dst_addr, big_param_size[bp]);
         }
 
@@ -569,14 +566,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * can reuse them freely. */
         for (int fs = 0; fs < fpstack_copy_count; fs++) {
             int ca = c->next_temp_id++;
-            ir_emit_lea(ca, BE(c)->fp_reg, fpstack_src_off[fs]);
+            ir_emit_lea(c, ca, BE(c)->fp_reg, fpstack_src_off[fs]);
             int hv = c->next_temp_id++;
-            if (fpstack_is_flt[fs]) ir_emit_vloadss((uint16_t)hv, (uint16_t)ca);
-            else ir_emit_vloadsd((uint16_t)hv, (uint16_t)ca);
+            if (fpstack_is_flt[fs]) ir_emit_vloadss(c, (uint16_t)hv, (uint16_t)ca);
+            else ir_emit_vloadsd(c, (uint16_t)hv, (uint16_t)ca);
             int la = c->next_temp_id++;
-            ir_emit_lea(la, BE(c)->fp_reg, -fpstack_dst_off[fs]);
-            if (fpstack_is_flt[fs]) ir_emit_vstoress((uint16_t)la, (uint16_t)hv);
-            else ir_emit_vstoresd((uint16_t)la, (uint16_t)hv);
+            ir_emit_lea(c, la, BE(c)->fp_reg, -fpstack_dst_off[fs]);
+            if (fpstack_is_flt[fs]) ir_emit_vstoress(c, (uint16_t)la, (uint16_t)hv);
+            else ir_emit_vstoresd(c, (uint16_t)la, (uint16_t)hv);
         }
     }
 
@@ -630,9 +627,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * appended extern entries after main (builtins mapped to libc symbols),
      * so re-reading functions[function_count - 1] here would miss main. */
     if (lowering_fn && strcmp(lowering_fn->name, "main") == 0) {
-        ir_emit_mov_imm(VREG_0, 0);
+        ir_emit_mov_imm(c, VREG_0, 0);
     }
-    ir_emit_label(c->lowering.epilogue_label);
+    ir_emit_label(c, c->lowering.epilogue_label);
 
     /* Sprint 37: static locals - stack slot -> data section. Every return
      * jumps to the epilogue label and natural fallthrough reaches it, so
@@ -645,7 +642,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * CALLEE_SAVE_LOADS runs after the restore and re-establishes all
      * callee-saved state. */
     if (c->lowering.static_local_rt_off != 0) {
-        ir_emit_store(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
+        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
         for (size_t i = 0; i < c->local_count; i++) {
             /* Sprint 72: skip the mirror-out for address-taken statics - the
              * slot is stale scratch and flushing it would clobber the data
@@ -654,7 +651,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             if (c->locals[i].is_static_local && !c->locals[i].static_addr_taken)
                 static_local_mirror_out(c, &c->locals[i]);
         }
-        ir_emit_load(VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
+        ir_emit_load(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
     }
 
     /* C2b guard: temp ids are 16-bit (TEMP_NONE = 0xFFFF is the "no temp"
@@ -679,8 +676,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* 2. Compute live ranges and allocate registers on optimized IR */
     LiveRangeAnalyzer lra;
     live_range_init(&lra);
-    live_range_scan_ir(&lra, ir_get_buffer(), ir_get_count());
-    live_range_compute(&lra, &c->regalloc);
+    live_range_scan_ir(&lra, ir_get_buffer(c), ir_get_count(c), c);
+    live_range_compute(&lra, &c->regalloc, c);
 
     regalloc_allocate(&c->regalloc);
 
@@ -696,8 +693,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Emit callee-save IR instructions after register allocation (Phase D: IR-based callee-save) */
     uint32_t callee_save_mask = c->regalloc.used_callee_saved_gpr_mask;
     if (callee_save_mask) {
-        ir_emit_callee_save_stores(callee_save_mask);
-        ir_emit_callee_save_loads(callee_save_mask);
+        ir_emit_callee_save_stores(c, callee_save_mask);
+        ir_emit_callee_save_loads(c, callee_save_mask);
     }
 
     /* Callee-save IR append (Phase D) mutated the IR: invalidate CFG cache. */
@@ -711,10 +708,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * COND_SET that follows an FP CMP to the CF/ZF-only variants
      * (setb/setbe/seta/setae) - the same scheme gcc uses for doubles. */
     if (c->isa == ISA_X86_64) {
-        size_t n = ir_get_count();
+        size_t n = ir_get_count(c);
         for (size_t i = 1; i < n; i++) {
-            Instr *cur = ir_get(i);
-            Instr *prev = ir_get(i - 1);
+            Instr *cur = ir_get(c, i);
+            Instr *prev = ir_get(c, i - 1);
             if (!cur || !prev) break;
             if (cur->op == OP_COND_SET && prev->op == OP_CMP && cur->cond <= 5) {
                 RegClass rc1 = regalloc_get_class_for_temp(&c->regalloc, prev->temp_src1);
@@ -725,20 +722,20 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         uint16_t tmp = prev->temp_src1;
                         prev->temp_src1 = prev->temp_src2;
                         prev->temp_src2 = tmp;
-                        ir_get(i)->cond = 8;
+                        ir_get(c, i)->cond = 8;
                     } else if (cur->cond == 1) { /* CC_LE: swap operands and use CC_AE (9) */
                         uint16_t tmp = prev->temp_src1;
                         prev->temp_src1 = prev->temp_src2;
                         prev->temp_src2 = tmp;
-                        ir_get(i)->cond = 9;
+                        ir_get(c, i)->cond = 9;
                     } else if (cur->cond == 2) { /* CC_GT: use CC_A (8) */
-                        ir_get(i)->cond = 8;
+                        ir_get(c, i)->cond = 8;
                     } else if (cur->cond == 3) { /* CC_GE: use CC_AE (9) */
-                        ir_get(i)->cond = 9;
+                        ir_get(c, i)->cond = 9;
                     } else if (cur->cond == 4) { /* CC_EQ: use CC_FP_EQ (10) */
-                        ir_get(i)->cond = 10;
+                        ir_get(c, i)->cond = 10;
                     } else if (cur->cond == 5) { /* CC_NE: use CC_FP_NE (11) */
-                        ir_get(i)->cond = 11;
+                        ir_get(c, i)->cond = 11;
                     }
                 }
             }
@@ -772,8 +769,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Determine if function is a leaf (no calls, no VLAs) */
     bool is_leaf = true;
-    size_t ir_count = ir_get_count();
-    const Instr *ir_buf = ir_get_buffer();
+    size_t ir_count = ir_get_count(c);
+    const Instr *ir_buf = ir_get_buffer(c);
     for (size_t i = 0; i < ir_count; i++) {
         if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT || ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL) {
             is_leaf = false;
@@ -878,7 +875,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         fprintf(stderr, "DEBUG: dump_ir flag is SET, function_count=%zu\n", c->function_count);
         if (lowering_fn) {
             fprintf(stderr, "=== IR for function '%s' ===\n", lowering_fn->name);
-            ir_dump(stderr);
+            ir_dump(c, stderr);
             fprintf(stderr, "\n");
         } else {
             fprintf(stderr, "DEBUG: No functions found!\n");
@@ -892,7 +889,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     /* Clear IR buffer for next function */
-    ir_clear();
+    ir_clear(c);
 
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */

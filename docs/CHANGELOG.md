@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 81] - 2026-11-02 - Total g_compiler Elimination: Thread-Reentrant Flat IR Emitter
+
+Completed the final phase of `g_compiler` decoupling by eliminating the last 6 lines of `g_compiler` state in `src/zero_cc/ir/ir.c` and threading `ZeroCCCompiler *c` through all flat IR emission functions and helpers:
+
+- **100% Elimination of `g_compiler` & `ir_set_compiler`**:
+  - Completely deleted `extern __thread ZeroCCCompiler *g_compiler;` and `void ir_set_compiler(ZeroCCCompiler *c);` from the entire repository (`ir.h`, `ir.c`, `test/unit/ir_test.c`).
+  - `ir_emit(...)`, `ir_get(...)`, `ir_get_count(...)`, `ir_get_buffer(...)`, `ir_reset(...)`, `ir_clear(...)`, `ir_dump(...)`, `ir_mark_last_*`, and `ir_call_args_*` now take explicit `ZeroCCCompiler *c` as their first parameter.
+  - Updated all 100+ inline `ir_emit_*` helpers in `src/zero_cc/ir/ir.h` and `src/zero_cc/ir/ir_emit_ops.h` to accept `ZeroCCCompiler *c`.
+- **Call-Site Migration Across Lowering & Optimizers**:
+  - Threaded `c` across ~2,000 IR emission sites across `ast_lowering*.c`, `ast_lowering_mc.c`, `asm_emitter.c`, `live_range.h`, `regalloc.h`, and optimizer passes (`opt_cse.c`, `opt_gvn.c`, `opt_loop.c`, `opt_vectorize.c`, `opt_branchless.c`, `opt_copy_prop.c`, `opt_dce.c`, `opt_mem2reg.c`).
+  - ZeroCC's IR generation, optimization, and emission pipeline is now completely thread-reentrant with no thread-local global state.
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `python3 tools/opt_sweep.py`: 117/117 passed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/torture_run.py --quick`: gate OK (3,036 PASS, 0 regressions vs baseline).
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 154 files, 0 errors.
+  - `python3 tools/okf.py lint`: 17/17 OKF pages valid and reachable.
+
 ## [Sprint 80] - 2026-11-02 - Global Context Consolidation: g_compiler & global_vars to Context
 
 Eliminated thread-local `g_compiler` from the CFG and optimizer subsystem, and migrated process-wide file-scope `global_vars` storage and name hashes into explicit fields on `struct ZeroCCCompiler`:

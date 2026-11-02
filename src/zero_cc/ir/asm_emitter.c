@@ -400,8 +400,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_JMP: {
             /* Fallthrough optimization: skip jump if next active instruction is target label */
-            size_t count = ir_get_count();
-            const Instr *buf = ir_get_buffer();
+            size_t count = ir_get_count(c);
+            const Instr *buf = ir_get_buffer(c);
             size_t next_idx = idx + 1;
             while (next_idx < count && (buf[next_idx].op == OP_DEAD || buf[next_idx].op == OP_NOP)) {
                 next_idx++;
@@ -548,7 +548,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *func_name = (const char *)(intptr_t)instr->imm64;
 
             /* Look up recorded call arguments */
-            const IRCallArgs *call_args = ir_call_args_find(idx);
+            const IRCallArgs *call_args = ir_call_args_find(c, idx);
 
             if (BE(c)->emit_call_asm) {
                 if (call_args) {
@@ -571,7 +571,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_SYSCALL: {
             /* OS syscall intrinsic - same argument packing as OP_CALL. */
-            const IRCallArgs *syscall_args = ir_call_args_find(idx);
+            const IRCallArgs *syscall_args = ir_call_args_find(c, idx);
             if (BE(c)->emit_syscall_asm) {
                 if (syscall_args) {
                     int unpacked_temps[IR_CALL_MAX_ARGS];
@@ -1120,8 +1120,8 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     c->regalloc.spill_base_offset = spill_base_offset;
 
     /* Get IR from buffer */
-    const Instr *instrs = ir_get_buffer();
-    size_t count = ir_get_count();
+    const Instr *instrs = ir_get_buffer(c);
+    size_t count = ir_get_count(c);
     size_t func_idx = c->lowering.current_func_idx;
 
     /* Emit all IR instructions */

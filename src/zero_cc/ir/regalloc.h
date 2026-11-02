@@ -678,8 +678,8 @@ static void regalloc_allocate(RegAllocator *ra) {
  *
  * Scans for jumps to earlier positions (backedges) to identify loop structure.
  */
-static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) __attribute__((unused));
-static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits) {
+static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits, ZeroCCCompiler *c) __attribute__((unused));
+static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **loop_exits, ZeroCCCompiler *c) {
     if (!ra || !loop_headers || !loop_exits || ra->instruction_count == 0) return 0;
 
     /* Allocate arrays for loop info */
@@ -697,7 +697,7 @@ static size_t regalloc_detect_loops(RegAllocator *ra, int **loop_headers, int **
     size_t loop_count = 0;
 
     for (size_t i = 0; i < ra->instruction_count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         /* Check for unconditional jumps */
@@ -761,7 +761,7 @@ static void regalloc_compute_spill_costs(RegAllocator *ra) {
     /* Detect loops */
     int *loop_headers = NULL;
     int *loop_exits = NULL;
-    size_t loop_count = regalloc_detect_loops(ra, &loop_headers, &loop_exits);
+    size_t loop_count = regalloc_detect_loops(ra, &loop_headers, &loop_exits, NULL);
 
     if (loop_count == 0) {
         /* No loops detected, use default costs */

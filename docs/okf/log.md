@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T14:21:48Z
+timestamp: 2026-11-02T15:03:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -698,3 +698,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `global-data-relocs.md`
 - Sprint 80: migrate global_vars to ZeroCCCompiler instance
+
+## 2026-11-02 — Updated `ir-and-regalloc.md`
+- Eliminate g_compiler from flat IR emitter, making ZeroCC 100% thread-reentrant

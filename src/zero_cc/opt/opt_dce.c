@@ -15,14 +15,14 @@
 void opt_flag_dce(ZeroCCCompiler *c) {
     (void)c;
 
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     if (count == 0) {
         return;
     }
 
     // Forward pass: find dead flag-setting instructions
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         // Only analyze flag-setting instructions
@@ -33,7 +33,7 @@ void opt_flag_dce(ZeroCCCompiler *c) {
         // Check if flags are used by subsequent instructions
         bool flags_used = false;
         for (int j = i + 1; j < count; j++) {
-            Instr *next = ir_get(j);
+            Instr *next = ir_get(c, j);
             if (!next) continue;
 
             // Stop at control flow boundary
@@ -189,7 +189,7 @@ static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
         IRCallArgsArena *call_arena = &c->ir_call_args;
         for (size_t t = 0; t < call_arena->count; t++) {
             IRCallArgs *entry = &call_arena->table[t];
-            if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer())) {
+            if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer(c))) {
                 // This is a call arg entry for this instruction
                 for (int a = 0; a < entry->count; a++) {
                     int arg_temp = entry->temps[a];
@@ -248,7 +248,7 @@ static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
  */
 static int liveness_backward_sweep(ZeroCCCompiler *c, int count) {
     for (int i = count - 1; i >= 0; i--) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_DEAD) continue;
 
         /* Special handling for OP_CALL/OP_SYSCALL: temp_dest holds arg_count,
@@ -293,7 +293,7 @@ static int compute_liveness_fixpoint(ZeroCCCompiler *c, int count) {
     for (int sweep = 0; sweep < LIVENESS_MAX_SWEEPS; sweep++) {
         /* Mark the float/double return value (xmm0) live at exit */
         for (int i = count - 1; i >= 0; i--) {
-            Instr *instr = ir_get(i);
+            Instr *instr = ir_get(c, i);
             if (!instr) continue;
             if (instr->temp_dest != TEMP_NONE &&
                 (ir_opcode_is_float(instr->op) || ir_opcode_is_simd(instr->op) ||
@@ -315,7 +315,7 @@ static int compute_liveness_fixpoint(ZeroCCCompiler *c, int count) {
  * Dead code elimination pass
  */
 void opt_eliminate_dead_code(ZeroCCCompiler *c) {
-    int count = (int)ir_get_count();
+    int count = (int)ir_get_count(c);
     if (count == 0) {
         return;
     }
@@ -331,7 +331,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     /* Phase 2: mark instructions whose result is dead and which have no
      * side effects. */
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_DEAD) continue;
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL) continue; /* calls always kept */
         if (instr->temp_dest == TEMP_NONE) continue; /* no result to be dead */
@@ -343,13 +343,13 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     int write_idx = 0;
 
     for (int i = 0; i < count; i++) {
-        Instr *instr = ir_get(i);
+        Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
         if (instr->op != OP_DEAD) {
             // Keep this instruction
             if (write_idx != i) {
-                Instr *dst = ir_get(write_idx);
+                Instr *dst = ir_get(c, write_idx);
                 *dst = *instr;
 
                 // Update call args table index if this is a call/syscall

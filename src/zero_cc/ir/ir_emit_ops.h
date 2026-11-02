@@ -14,9 +14,9 @@
  * ========================================================================= */
 
 /* mov [rbp - offset], rax (store) */
-static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
+static inline void ir_emit_store(ZeroCCCompiler *c, int temp_src, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
-    ir_emit((Instr){
+    ir_emit(c, (Instr){
         .op = OP_MOV_MEM,
         .temp_dest= TEMP_NONE,
         .temp_src1 = (uint16_t)temp_src,
@@ -31,9 +31,9 @@ static inline void ir_emit_store(int temp_src, int fp_reg, int offset) {
 }
 
 /* mov rax, [rbp - offset] (load) */
-static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
+static inline void ir_emit_load(ZeroCCCompiler *c, int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
-    ir_emit((Instr){
+    ir_emit(c, (Instr){
         .op = OP_MOV,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,  /* Frame pointer marker */
@@ -48,8 +48,8 @@ static inline void ir_emit_load(int temp_dest, int fp_reg, int offset) {
 }
 
 /* mov rax, rbx (register move) */
-static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_mov_reg(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_MOV_REG,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,
@@ -68,9 +68,9 @@ static inline void ir_emit_mov_reg(int temp_dest, int temp_src) {
  * wrap semantics (the machine word is 64 bits, so without this a `int a=2000000000;
  * int b=a+a;` would compare b against a 64-bit residue instead of the
  * 32-bit wrap value). temp_dest must equal temp_src (in-place, no new temp). */
-static inline void ir_emit_sext(int temp, int width) {
+static inline void ir_emit_sext(ZeroCCCompiler *c, int temp, int width) {
     Opcode op = (width == 4) ? OP_SEXT32 : (width == 2) ? OP_SEXT16 : OP_SEXT8;
-    ir_emit((Instr){
+    ir_emit(c, (Instr){
         .op = op,
         .temp_dest = (uint16_t)temp,
         .temp_src1 = (uint16_t)temp,
@@ -84,9 +84,9 @@ static inline void ir_emit_sext(int temp, int width) {
     });
 }
 
-static inline void ir_emit_zext(int temp, int width) {
+static inline void ir_emit_zext(ZeroCCCompiler *c, int temp, int width) {
     Opcode op = (width == 4) ? OP_ZEXT32 : (width == 2) ? OP_ZEXT16 : OP_ZEXT8;
-    ir_emit((Instr){
+    ir_emit(c, (Instr){
         .op = op,
         .temp_dest = (uint16_t)temp,
         .temp_src1 = (uint16_t)temp,
@@ -101,9 +101,9 @@ static inline void ir_emit_zext(int temp, int width) {
 }
 
 /* lea rax, [rbp - offset] (address) */
-static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
+static inline void ir_emit_lea(ZeroCCCompiler *c, int temp_dest, int fp_reg, int offset) {
     (void)fp_reg;  /* Frame pointer is fixed, not a temp */
-    ir_emit((Instr){
+    ir_emit(c, (Instr){
         .op = OP_LEA,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -122,8 +122,8 @@ static inline void ir_emit_lea(int temp_dest, int fp_reg, int offset) {
  * ========================================================================= */
 
 /* add rax, imm */
-static inline void ir_emit_add_imm(int temp_dest, int16_t imm) {
-    ir_emit((Instr){
+static inline void ir_emit_add_imm(ZeroCCCompiler *c, int temp_dest, int16_t imm) {
+    ir_emit(c, (Instr){
         .op = OP_ADD_IMM,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -139,8 +139,8 @@ static inline void ir_emit_add_imm(int temp_dest, int16_t imm) {
 
 
 /* sub rax, imm */
-static inline void ir_emit_sub_imm(int temp_dest, int16_t imm) {
-    ir_emit((Instr){
+static inline void ir_emit_sub_imm(ZeroCCCompiler *c, int temp_dest, int16_t imm) {
+    ir_emit(c, (Instr){
         .op = OP_SUB_IMM,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -155,8 +155,8 @@ static inline void ir_emit_sub_imm(int temp_dest, int16_t imm) {
 }
 
 /* div rbx */
-static inline void ir_emit_div(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_div(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_DIV,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -171,8 +171,8 @@ static inline void ir_emit_div(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* mod rbx */
-static inline void ir_emit_mod(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_mod(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_MOD,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -187,8 +187,8 @@ static inline void ir_emit_mod(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* neg rax */
-static inline void ir_emit_neg(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_neg(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_NEG,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,
@@ -203,8 +203,8 @@ static inline void ir_emit_neg(int temp_dest, int temp_src) {
 }
 
 /* inc rax */
-static inline void ir_emit_inc(int temp_dest) {
-    ir_emit((Instr){
+static inline void ir_emit_inc(ZeroCCCompiler *c, int temp_dest) {
+    ir_emit(c, (Instr){
         .op = OP_INC,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -219,8 +219,8 @@ static inline void ir_emit_inc(int temp_dest) {
 }
 
 /* dec rax */
-static inline void ir_emit_dec(int temp_dest) {
-    ir_emit((Instr){
+static inline void ir_emit_dec(ZeroCCCompiler *c, int temp_dest) {
+    ir_emit(c, (Instr){
         .op = OP_DEC,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -239,8 +239,8 @@ static inline void ir_emit_dec(int temp_dest) {
  * ========================================================================= */
 
 /* and rax, rbx */
-static inline void ir_emit_and(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_and(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_AND,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -255,8 +255,8 @@ static inline void ir_emit_and(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* or rax, rbx */
-static inline void ir_emit_or(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_or(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_OR,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -271,8 +271,8 @@ static inline void ir_emit_or(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* xor rax, rbx */
-static inline void ir_emit_xor(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_xor(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_XOR,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -287,8 +287,8 @@ static inline void ir_emit_xor(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* shl rax, rbx */
-static inline void ir_emit_shl(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_shl(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_SHL,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -303,8 +303,8 @@ static inline void ir_emit_shl(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* shr rax, rbx */
-static inline void ir_emit_shr(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_shr(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_SHR,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -319,8 +319,8 @@ static inline void ir_emit_shr(int temp_dest, int temp_src1, int temp_src2) {
 }
 
 /* sar rax, rbx (arithmetic right shift, signed >>) */
-static inline void ir_emit_sar(int temp_dest, int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_sar(ZeroCCCompiler *c, int temp_dest, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_SAR,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src1,
@@ -339,8 +339,8 @@ static inline void ir_emit_sar(int temp_dest, int temp_src1, int temp_src2) {
  * ========================================================================= */
 
 /* cmp rax, rbx */
-static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
-    ir_emit((Instr){
+static inline void ir_emit_cmp(ZeroCCCompiler *c, int temp_src1, int temp_src2) {
+    ir_emit(c, (Instr){
         .op = OP_CMP,
         .temp_dest= TEMP_NONE,
         .temp_src1 = (uint16_t)temp_src1,
@@ -355,8 +355,8 @@ static inline void ir_emit_cmp(int temp_src1, int temp_src2) {
 }
 
 /* cmp and set dst based on condition (ISA-neutral) */
-static inline void ir_emit_cond_set(int temp_dest, int cond) {
-    ir_emit((Instr){
+static inline void ir_emit_cond_set(ZeroCCCompiler *c, int temp_dest, int cond) {
+    ir_emit(c, (Instr){
         .op = OP_COND_SET,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1= TEMP_NONE,
@@ -371,8 +371,8 @@ static inline void ir_emit_cond_set(int temp_dest, int cond) {
 }
 
 /* deref: mov rax, [rax] */
-static inline void ir_emit_deref(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_deref(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_DEREF,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,
@@ -387,8 +387,8 @@ static inline void ir_emit_deref(int temp_dest, int temp_src) {
 }
 
 /* load_byte: movzx dst, byte ptr [src] */
-static inline void ir_emit_load_byte(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_load_byte(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_LOAD_BYTE,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,
@@ -403,8 +403,8 @@ static inline void ir_emit_load_byte(int temp_dest, int temp_src) {
 }
 
 /* cmp rax, 0 */
-static inline void ir_emit_cmp_zero(int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_cmp_zero(ZeroCCCompiler *c, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_CMP_ZERO,
         .temp_dest= TEMP_NONE,
         .temp_src1 = (uint16_t)temp_src,
@@ -419,8 +419,8 @@ static inline void ir_emit_cmp_zero(int temp_src) {
 }
 
 /* not rax */
-static inline void ir_emit_not(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_not(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_NOT,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,
@@ -435,8 +435,8 @@ static inline void ir_emit_not(int temp_dest, int temp_src) {
 }
 
 /* lnot: !rax (test + sete + movzx) */
-static inline void ir_emit_lnot(int temp_dest, int temp_src) {
-    ir_emit((Instr){
+static inline void ir_emit_lnot(ZeroCCCompiler *c, int temp_dest, int temp_src) {
+    ir_emit(c, (Instr){
         .op = OP_LNOT,
         .temp_dest = (uint16_t)temp_dest,
         .temp_src1 = (uint16_t)temp_src,

@@ -11,8 +11,6 @@
 /* Forward declaration */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 
-/* Thread-local compiler pointer for IR emission (set during compilation) */
-extern __thread ZeroCCCompiler *g_compiler;
 
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking */
@@ -456,410 +454,407 @@ typedef struct __attribute__((packed)) {
 
 /* IR Access Functions - Arena-based (per-compiler-instance) */
 
-/* Set current compiler for IR emission (call before emitting IR) */
-void ir_set_compiler(ZeroCCCompiler *c);
 
 /* Get instruction buffer (for live range analysis) */
-const Instr *ir_get_buffer(void);
+const Instr *ir_get_buffer(const ZeroCCCompiler *c);
 
 /* Emit instruction - O(1) amortized */
-void ir_emit(Instr instr);
+void ir_emit(ZeroCCCompiler *c, Instr instr);
 
 /* Label and jump instructions */
-void ir_emit_label(uint16_t label_idx);
-void ir_emit_jmp(uint16_t label_idx);
-void ir_emit_je(uint16_t temp_cond, uint16_t label_idx);
-void ir_emit_jcond(uint16_t temp_cond, uint16_t label_idx);
+void ir_emit_label(ZeroCCCompiler *c, uint16_t label_idx);
+void ir_emit_jmp(ZeroCCCompiler *c, uint16_t label_idx);
+void ir_emit_je(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx);
+void ir_emit_jcond(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx);
 
 /* Reset for next function - O(1), reuses memory */
-void ir_reset(void);
+void ir_reset(ZeroCCCompiler *c);
 
 /* Clear IR buffer after machine code emission */
-void ir_clear(void);
+void ir_clear(ZeroCCCompiler *c);
 
 /* Debug: Dump IR to file */
-void ir_dump(FILE *f);
+void ir_dump(const ZeroCCCompiler *c, FILE *f);
 
 /* Get instruction count */
-size_t ir_get_count(void);
+size_t ir_get_count(const ZeroCCCompiler *c);
 
 /* Access instruction by index */
-Instr* ir_get(size_t idx);
+Instr* ir_get(ZeroCCCompiler *c, size_t idx);
 
 /* Mark the most recently emitted instruction with a C99 result width so the
  * MC layer extends the 64-bit result to true N-bit wrap semantics:
  * w in {1,2,4} = sign-extend, w in {9,10,12} = zero-extend. */
-static inline void ir_mark_last_width(uint8_t w) {
-    size_t n = ir_get_count();
-    if (n > 0) ir_get(n - 1)->width = w;
+static inline void ir_mark_last_width(ZeroCCCompiler *c, uint8_t w) {
+    size_t n = ir_get_count(c);
+    if (n > 0) ir_get(c, n - 1)->width = w;
 }
 
-static inline void ir_mark_last_unsigned(uint8_t u) {
-    size_t n = ir_get_count();
-    if (n > 0) ir_get(n - 1)->cond = u;
+static inline void ir_mark_last_unsigned(ZeroCCCompiler *c, uint8_t u) {
+    size_t n = ir_get_count(c);
+    if (n > 0) ir_get(c, n - 1)->cond = u;
 }
 
 /* Insert instruction at specific index (shifts existing instructions) */
-void ir_insert_at(size_t idx, Instr instr);
+void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr);
 
 /* Helper: Insert MOV_IMM at index */
-static inline void ir_insert_mov_imm(size_t idx, uint16_t temp_dest, int64_t imm) {
-    ir_insert_at(idx, (Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
+static inline void ir_insert_mov_imm(ZeroCCCompiler *c, size_t idx, uint16_t temp_dest, int64_t imm) {
+    ir_insert_at(c, idx, (Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
 }
 
 /* Helper: Insert MOV_REG at index */
-static inline void ir_insert_mov_reg(size_t idx, uint16_t temp_dest, uint16_t temp_src) {
-    ir_insert_at(idx, (Instr){.op = OP_MOV_REG, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_insert_mov_reg(ZeroCCCompiler *c, size_t idx, uint16_t temp_dest, uint16_t temp_src) {
+    ir_insert_at(c, idx, (Instr){.op = OP_MOV_REG, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Helper: Insert ADD at index */
-static inline void ir_insert_add(size_t idx, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_insert_at(idx, (Instr){.op = OP_ADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_insert_add(ZeroCCCompiler *c, size_t idx, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_insert_at(c, idx, (Instr){.op = OP_ADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Helper: Insert LABEL at index */
-static inline void ir_insert_label(size_t idx, uint16_t label_idx) {
-    ir_insert_at(idx, (Instr){.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
+static inline void ir_insert_label(ZeroCCCompiler *c, size_t idx, uint16_t label_idx) {
+    ir_insert_at(c, idx, (Instr){.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
 }
 
 /* Call argument tracking - arena-based */
-void ir_call_args_record(size_t instr_index, int count, const int *temps, const int *is_fp,
-                         const uint8_t *stack_pos);
-const IRCallArgs *ir_call_args_find(size_t instr_index);
+void ir_call_args_record(ZeroCCCompiler *c, size_t instr_index, int count, const int *temps, const int *is_fp, const uint8_t *stack_pos);
+const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index);
 
 /* Helper functions for common patterns */
-static inline void ir_emit_mov_imm(uint16_t temp_dest, int64_t imm) {
-    ir_emit((Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
+static inline void ir_emit_mov_imm(ZeroCCCompiler *c, uint16_t temp_dest, int64_t imm) {
+    ir_emit(c, (Instr){.op = OP_MOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)imm, .imm64 = imm, .label_idx = 0});
 }
 
-static inline void ir_emit_add(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_ADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_add(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_sub(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_SUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_sub(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_SUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_mul(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_MUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_mul(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_MUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Label and jump instructions */
 /* Defined in ir.c */
-extern void ir_emit_label(uint16_t label_idx);
-extern void ir_emit_jmp(uint16_t label_idx);
-extern void ir_emit_je(uint16_t temp_cond, uint16_t label_idx);
-extern void ir_emit_jcond(uint16_t temp_cond, uint16_t label_idx);
-extern void ir_emit_jne(uint16_t temp_cond, uint16_t label_idx);
-extern void ir_emit_jmp_label(uint16_t label_idx);
+extern void ir_emit_label(ZeroCCCompiler *c, uint16_t label_idx);
+extern void ir_emit_jmp(ZeroCCCompiler *c, uint16_t label_idx);
+extern void ir_emit_je(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jcond(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jne(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx);
+extern void ir_emit_jmp_label(ZeroCCCompiler *c, uint16_t label_idx);
 
-static inline void ir_emit_ret(void) {
-    ir_emit((Instr){.op = OP_RET, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_ret(ZeroCCCompiler *c) {
+    ir_emit(c, (Instr){.op = OP_RET, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Emit function prologue (frame_size in imm64) */
-static inline void ir_emit_prologue(int64_t frame_size) {
-    ir_emit((Instr){.op = OP_PROLOGUE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = frame_size, .label_idx = 0});
+static inline void ir_emit_prologue(ZeroCCCompiler *c, int64_t frame_size) {
+    ir_emit(c, (Instr){.op = OP_PROLOGUE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = frame_size, .label_idx = 0});
 }
 
 /* Emit function epilogue */
-static inline void ir_emit_epilogue(void) {
-    ir_emit((Instr){.op = OP_EPILOGUE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_epilogue(ZeroCCCompiler *c) {
+    ir_emit(c, (Instr){.op = OP_EPILOGUE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_param_save_int(int reg_idx, int32_t offset) {
-    ir_emit((Instr){.op = OP_PARAM_SAVE_INT, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+static inline void ir_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
+    ir_emit(c, (Instr){.op = OP_PARAM_SAVE_INT, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
 }
 
-static inline void ir_emit_param_save_fp(int reg_idx, int32_t offset, uint8_t is_single) {
-    ir_emit((Instr){.op = OP_PARAM_SAVE_FP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = is_single, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
+static inline void ir_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset, uint8_t is_single) {
+    ir_emit(c, (Instr){.op = OP_PARAM_SAVE_FP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = is_single, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});
 }
 
-static inline void ir_emit_param_load(int temp_dest, int arg_idx, bool is_fp) {
-    ir_emit((Instr){.op = OP_PARAM_LOAD, .temp_dest= (uint16_t)temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = (uint8_t)(is_fp ? 1 : 0), .imm = (int16_t)arg_idx, .imm64 = 0, .label_idx = 0});
+static inline void ir_emit_param_load(ZeroCCCompiler *c, int temp_dest, int arg_idx, bool is_fp) {
+    ir_emit(c, (Instr){.op = OP_PARAM_LOAD, .temp_dest= (uint16_t)temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = (uint8_t)(is_fp ? 1 : 0), .imm = (int16_t)arg_idx, .imm64 = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_variadic_spill(int param_count, int32_t base_offset) {
-    ir_emit((Instr){.op = OP_VARIADIC_SPILL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)param_count, .imm64 = (int64_t)base_offset, .label_idx = 0});
+static inline void ir_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
+    ir_emit(c, (Instr){.op = OP_VARIADIC_SPILL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)param_count, .imm64 = (int64_t)base_offset, .label_idx = 0});
 }
 
 /* Emit function call - fn_name stored in imm64 as pointer during lowering */
-static inline void ir_emit_call(const char *fn_name) {
-    ir_emit((Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+static inline void ir_emit_call(ZeroCCCompiler *c, const char *fn_name) {
+    ir_emit(c, (Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
 }
 
 /* Emit the OS syscall intrinsic. Argument temps (syscall number first, then
  * up to 6 operands) are packed exactly like OP_CALL: count in temp_dest,
  * first two in temp_src1/src2, the full list in the IRCallArgs side table.
  * The result is in VREG_0 (the ABI return register). */
-static inline void ir_emit_syscall(int arg_count, const int *arg_temps) {
-    ir_emit((Instr){.op = OP_SYSCALL,
+static inline void ir_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
+    ir_emit(c, (Instr){.op = OP_SYSCALL,
                     .temp_dest = (uint16_t)arg_count,
                     .temp_src1 = (arg_count > 0) ? (uint16_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint16_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
-    ir_call_args_record(ir_get_count() - 1, arg_count, arg_temps, NULL, NULL);
+    ir_call_args_record(c, ir_get_count(c) - 1, arg_count, arg_temps, NULL, NULL);
 }
 
 /* Float to int conversion (cvttsd2si) */
-static inline void ir_emit_cvttsd2si(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_CVTTSD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_cvttsd2si(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Int to float conversion (cvtsi2sd) */
-static inline void ir_emit_cvtsi2sd(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_CVTSI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_cvtsi2sd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_CVTSI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Scalar single -> double (cvtss2sd; GNU vector float-lane lowering) */
-static inline void ir_emit_cvtss2sd(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_CVTSS2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_cvtss2sd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_CVTSS2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Scalar double -> single (cvtsd2ss; GNU vector float-lane lowering) */
-static inline void ir_emit_cvtsd2ss(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_CVTSD2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_cvtsd2ss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_CVTSD2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_load_16(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_LOAD_16, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_load_16(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_LOAD_16, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_load_32(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_LOAD_32, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_load_32(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_LOAD_32, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_store_byte(uint16_t temp_val, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_STORE_BYTE, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+static inline void ir_emit_store_byte(ZeroCCCompiler *c, uint16_t temp_val, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_STORE_BYTE, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_store_16(uint16_t temp_val, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_STORE_16, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+static inline void ir_emit_store_16(ZeroCCCompiler *c, uint16_t temp_val, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_STORE_16, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_store_32(uint16_t temp_val, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_STORE_32, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+static inline void ir_emit_store_32(ZeroCCCompiler *c, uint16_t temp_val, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_STORE_32, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_store_64(uint16_t temp_val, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_STORE_64, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
+static inline void ir_emit_store_64(ZeroCCCompiler *c, uint16_t temp_val, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_STORE_64, .temp_dest= TEMP_NONE, .temp_src1 = temp_val, .temp_src2 = temp_addr, .imm = 0, .label_idx = 0});
 }
 
-static inline void ir_emit_vla_alloc(uint16_t temp_dest, uint16_t temp_size) {
-    ir_emit((Instr){.op = OP_VLA_ALLOC, .temp_dest = temp_dest, .temp_src1 = temp_size, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vla_alloc(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_size) {
+    ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = temp_dest, .temp_src1 = temp_size, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Emit callee-saved register stores (after register allocation) */
-static inline void ir_emit_callee_save_stores(uint32_t callee_save_mask) {
-    ir_emit((Instr){.op = OP_CALLEE_SAVE_STORES, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
+static inline void ir_emit_callee_save_stores(ZeroCCCompiler *c, uint32_t callee_save_mask) {
+    ir_emit(c, (Instr){.op = OP_CALLEE_SAVE_STORES, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
 }
 
 /* Emit callee-saved register loads (after register allocation) */
-static inline void ir_emit_callee_save_loads(uint32_t callee_save_mask) {
-    ir_emit((Instr){.op = OP_CALLEE_SAVE_LOADS, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
+static inline void ir_emit_callee_save_loads(ZeroCCCompiler *c, uint32_t callee_save_mask) {
+    ir_emit(c, (Instr){.op = OP_CALLEE_SAVE_LOADS, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)(callee_save_mask & 0xFFFF), .imm64 = callee_save_mask, .label_idx = 0});
 }
 
-static inline void ir_emit_atomic_xadd(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_XADD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+static inline void ir_emit_atomic_xadd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_XADD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }
 
-static inline void ir_emit_atomic_cmpxchg(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_expected, uint16_t temp_desired, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_CMPXCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
+static inline void ir_emit_atomic_cmpxchg(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_expected, uint16_t temp_desired, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
 }
 
-static inline void ir_emit_atomic_cmpxchg_bool(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_expected, uint16_t temp_desired, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
+static inline void ir_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_expected, uint16_t temp_desired, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint16_t)temp_expected});
 }
 
-static inline void ir_emit_atomic_or(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_OR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+static inline void ir_emit_atomic_or(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_OR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }
-static inline void ir_emit_atomic_and(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_AND, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+static inline void ir_emit_atomic_and(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_AND, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }
-static inline void ir_emit_atomic_xor(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_XOR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
+static inline void ir_emit_atomic_xor(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_XOR, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }
-static inline void ir_emit_atomic_xchg(uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
-    ir_emit((Instr){.op = OP_ATOMIC_XCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
-}
-
-static inline void ir_emit_mfence(void) {
-    ir_emit((Instr){.op = OP_MFENCE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_atomic_xchg(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr, uint16_t temp_val, int16_t width) {
+    ir_emit(c, (Instr){.op = OP_ATOMIC_XCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_val, .imm = width, .label_idx = 0});
 }
 
-static inline void ir_emit_trap(void) {
-    ir_emit((Instr){.op = OP_TRAP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_mfence(ZeroCCCompiler *c) {
+    ir_emit(c, (Instr){.op = OP_MFENCE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_trap(ZeroCCCompiler *c) {
+    ir_emit(c, (Instr){.op = OP_TRAP, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* Float literal load via RIP-relative (imm64 holds rodata offset) */
-static inline void ir_emit_fmov_imm(uint16_t temp_dest, int64_t rodata_offset) {
-    ir_emit((Instr){.op = OP_FMOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
+static inline void ir_emit_fmov_imm(ZeroCCCompiler *c, uint16_t temp_dest, int64_t rodata_offset) {
+    ir_emit(c, (Instr){.op = OP_FMOV_IMM, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
 }
 
 /* Float load from stack (offset may exceed int16 range for large frames) */
-static inline void ir_emit_fload(uint16_t temp_dest, uint16_t temp_base, int offset) {
-    ir_emit((Instr){.op = OP_FLOAD, .temp_dest = temp_dest, .temp_src1 = temp_base, .temp_src2= TEMP_NONE, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
+static inline void ir_emit_fload(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_base, int offset) {
+    ir_emit(c, (Instr){.op = OP_FLOAD, .temp_dest = temp_dest, .temp_src1 = temp_base, .temp_src2= TEMP_NONE, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
 }
 
 /* Float store to stack (offset may exceed int16 range for large frames) */
-static inline void ir_emit_fstore(uint16_t temp_src, uint16_t temp_base, int offset) {
-    ir_emit((Instr){.op = OP_FSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
+static inline void ir_emit_fstore(ZeroCCCompiler *c, uint16_t temp_src, uint16_t temp_base, int offset) {
+    ir_emit(c, (Instr){.op = OP_FSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_src, .temp_src2 = temp_base, .imm = (int16_t)offset, .imm64 = offset, .label_idx = 0});
 }
 
 /* Float add: dest = src1 + src2 */
-static inline void ir_emit_fadd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_FADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_fadd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_FADD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Float sub: dest = src1 - src2 */
-static inline void ir_emit_fsub(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_FSUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_fsub(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_FSUB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Float mul: dest = src1 * src2 */
-static inline void ir_emit_fmul(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_FMUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_fmul(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_FMUL, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Float div: dest = src1 / src2 */
-static inline void ir_emit_fdiv(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_FDIV, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_fdiv(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_FDIV, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* Float move: dest = src */
-static inline void ir_emit_fmov(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_FMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_fmov(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_FMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 
 /* SIMD emission functions */
 /* Scalar single-precision operations */
-static inline void ir_emit_vaddss(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VADDSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vaddss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VADDSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vsubss(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VSUBSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vsubss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VSUBSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vmulss(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VMULSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmulss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VMULSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vdivss(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VDIVSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vdivss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VDIVSS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 /* Scalar double-precision operations */
-static inline void ir_emit_vaddsd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VADDSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vaddsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VADDSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vsubsd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VSUBSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vsubsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VSUBSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vmulsd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VMULSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmulsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VMULSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vdivsd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VDIVSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vdivsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VDIVSD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 /* Vector move operations */
-static inline void ir_emit_vmov(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmov(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VMOV, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vmovss(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VMOVSS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmovss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VMOVSS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vmovsd(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VMOVSD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmovsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VMOVSD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 /* Vector load/store operations */
-static inline void ir_emit_vload(uint16_t temp_dest, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_VLOAD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vload(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_VLOAD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vstore(uint16_t temp_addr, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vstore(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vloadss(uint16_t temp_dest, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_VLOADSS, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vloadss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_VLOADSS, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vloadsd(uint16_t temp_dest, uint16_t temp_addr) {
-    ir_emit((Instr){.op = OP_VLOADSD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vloadsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_VLOADSD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vstoress(uint16_t temp_addr, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VSTORESS, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vstoress(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VSTORESS, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vstoresd(uint16_t temp_addr, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VSTORESD, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vstoresd(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VSTORESD, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
 }
 /* Conversion operations */
-static inline void ir_emit_vcvtsi2ss(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VCVT_SI2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcvtsi2ss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VCVT_SI2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vcvtss2si(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VCVT_SS2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcvtss2si(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VCVT_SS2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vcvtsi2sd(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VCVT_SI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcvtsi2sd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VCVT_SI2SD, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vcvttsd2si(uint16_t temp_dest, uint16_t temp_src) {
-    ir_emit((Instr){.op = OP_VCVT_SD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcvttsd2si(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VCVT_SD2SI, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 /* Comparison operations */
-static inline void ir_emit_vcmpss(uint16_t temp_src1, uint16_t temp_src2, uint8_t cond) {
-    ir_emit((Instr){.op = OP_VCMPSS, .temp_dest= TEMP_NONE, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcmpss(ZeroCCCompiler *c, uint16_t temp_src1, uint16_t temp_src2, uint8_t cond) {
+    ir_emit(c, (Instr){.op = OP_VCMPSS, .temp_dest= TEMP_NONE, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vcmpsd(uint16_t temp_src1, uint16_t temp_src2, uint8_t cond) {
-    ir_emit((Instr){.op = OP_VCMPSD, .temp_dest= TEMP_NONE, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vcmpsd(ZeroCCCompiler *c, uint16_t temp_src1, uint16_t temp_src2, uint8_t cond) {
+    ir_emit(c, (Instr){.op = OP_VCMPSD, .temp_dest= TEMP_NONE, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .cond = cond, .imm = 0, .label_idx = 0});
 }
 /* Bitwise operations */
-static inline void ir_emit_vand(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VAND, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vand(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VAND, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vor(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vor(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vxor(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VXOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vxor(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VXOR, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vshuf(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2, uint8_t imm) {
-    ir_emit((Instr){.op = OP_VSHUF, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = imm, .label_idx = 0});
+static inline void ir_emit_vshuf(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2, uint8_t imm) {
+    ir_emit(c, (Instr){.op = OP_VSHUF, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = imm, .label_idx = 0});
 }
-static inline void ir_emit_vandn(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VANDN, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vandn(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VANDN, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vorps(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VORPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vorps(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VORPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vsubps(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VSUBPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vsubps(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VSUBPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vmulps(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VMULPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vmulps(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VMULPS, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vaddpd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VADDPD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vaddpd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VADDPD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vpaddd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VPADDD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vpaddd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPADDD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vpsubd(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VPSUBD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vpsubd(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPSUBD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vpmulld(uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
-    ir_emit((Instr){.op = OP_VPMULLD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+static inline void ir_emit_vpmulld(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src1, uint16_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPMULLD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 
 /* LEA RIP-relative (imm64 holds rodata offset) */
-static inline void ir_emit_lea_rip(uint16_t temp_dest, int64_t rodata_offset) {
-    ir_emit((Instr){.op = OP_LEA_RIP, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
+static inline void ir_emit_lea_rip(ZeroCCCompiler *c, uint16_t temp_dest, int64_t rodata_offset) {
+    ir_emit(c, (Instr){.op = OP_LEA_RIP, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = rodata_offset, .label_idx = 0});
 }
 
 /* Global variable load with relocation (imm64 holds symbol name pointer) */
-static inline void ir_emit_mov_global(uint16_t temp_dest, const char *symbol_name) {
-    ir_emit((Instr){.op = OP_MOV_GLOBAL, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
+static inline void ir_emit_mov_global(ZeroCCCompiler *c, uint16_t temp_dest, const char *symbol_name) {
+    ir_emit(c, (Instr){.op = OP_MOV_GLOBAL, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
 }
 
 /* TLS variable address (imm64 holds symbol name pointer). AOT x86-64 only:
  * the relocator records an is_tls reloc resolved to R_X86_64_TPOFF64. */
-static inline void ir_emit_tls_lea(uint16_t temp_dest, const char *symbol_name) {
-    ir_emit((Instr){.op = OP_TLS_LEA, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
+static inline void ir_emit_tls_lea(ZeroCCCompiler *c, uint16_t temp_dest, const char *symbol_name) {
+    ir_emit(c, (Instr){.op = OP_TLS_LEA, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */

@@ -21,10 +21,6 @@ int main(void) {
         return 1;
     }
     
-    /* Set as current arena for testing */
-    extern __thread ZeroCCCompiler *g_compiler;
-    ZeroCCCompiler *old_compiler = g_compiler;
-    g_compiler = NULL;
     
     /* Use arena directly */
     Instr *buf = arena.buffer;
@@ -80,7 +76,6 @@ int main(void) {
     printf("  Reset after emissions: OK\n");
     
     /* Cleanup */
-    g_compiler = old_compiler;
     ir_call_args_arena_free(&call_arena);
     ir_arena_free(&arena);
     

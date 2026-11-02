@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-01T19:11:42Z
+timestamp: 2026-11-02T15:03:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -53,6 +53,10 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
   - `1`: Floating-point argument (assigned sequentially to ABI FP registers).
   - `2`: **Indirect callee function pointer** (used when `OP_CALL` has `fn_name == NULL`; passed to the backend so the target address is saved into scratch register `%r11` before argument registers are overwritten).
 - **Important Invariant**: Any optimization pass that inserts, removes, or rebuilds `c->ir_arena` (such as `opt_loop.c`) **must** remap `instr_index` entries in `c->ir_call_args` so call sites stay synchronized with their `IRCallArgs` entry.
+
+## Thread-Reentrant IR Emission (Sprint 81)
+
+All flat IR emission functions (`ir_emit`, `ir_emit_mov`, `ir_emit_label`, `ir_reset`, `ir_get`, `ir_mark_last_width`, etc.) take an explicit `ZeroCCCompiler *c` as their first parameter and access `&c->ir_arena` and `&c->ir_call_args` directly. The legacy `__thread ZeroCCCompiler *g_compiler` and `ir_set_compiler(...)` have been completely eliminated from the entire repository, making the IR generation and optimization pipeline 100% thread-reentrant.
 
 ### General-Expression Indirect Calls (Sprint 56)
 
