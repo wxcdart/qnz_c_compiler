@@ -67,3 +67,10 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[Performance Measurements & the JIT-vs-GCC Claim](./perf-measurements.md)**
   - Measured per-pass optimizer costs (`--profile-opts`) before/after the Sprint 35 CFG migration, the retracted "~78× faster than GCC" claim with the re-measured JIT-vs-GCC matrix, the mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 
+---
+
+## 5. Design Notes & Planned Work
+
+- **[Target-Side Sanitizer (`zero_san`) — Design & Roadmap](./sanitizer-roadmap.md)**
+  - Analysis & phased roadmap for an *optional, parked* target-side safety feature: codegen-first UBSan-lite **signed-integer-overflow** checks (`OP_OVF_TRAP`, both x86-64 emitters), the traced clean-value / REX.W soundness invariants, the `zero_san/` + `src/zero_cc/san/` layout, runtime-follows-link-mode trap targets, and why bounds / leaks / ASan / LSan are scoped out.
+
