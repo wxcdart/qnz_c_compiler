@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 82] - 2026-11-02 - Monolithic Header Refactoring to Standalone Compilation Units
+
+Refactored the three largest monolithic header implementations into proper `.h` declarations and standalone `.c` compilation units, eliminating ~5,800 lines of static code duplication across all test and driver compilation units:
+
+- **Modular Compilation Units Created**:
+  - `src/zero_cc/core/preprocessor.c`: Extracted preprocessor engine (`zero_cc_cpp_*` and `zero_cc_preprocess*`) out of `preprocessor.h` (shrunk from 2,122 lines to 88 lines). Added `src/zero_cc/core/preprocessor.o` to Makefile `EXTRA_OBJS`.
+  - `src/zero_cc/jit/compile_unit.c`: Extracted translation-unit driver (`zero_cc_compile_c99`, filescope struct handling, and global emitter helpers) out of `compile_unit.h` (shrunk from 2,156 lines to 10 lines). Added `src/zero_cc/jit/compile_unit.o` to Makefile `EXTRA_OBJS`.
+  - `src/zero_cc/parser/decl_struct.c`: Extracted struct/union parser (`zero_cc_parse_struct_body`, member table sizing, and bitfield/array setup) out of `decl_struct.h` (shrunk from 1,678 lines to 13 lines). Added `src/zero_cc/parser/decl_struct.o` to Makefile `EXTRA_OBJS`.
+- **Build Performance & Header Hygiene**:
+  - Eliminated circular inclusion between `scan.h` and `preprocessor.h`.
+  - Cut over 5,800 lines of inline implementations from headers included in every test translation unit, speeding up incremental builds and removing duplicated warning output across 156 test binaries.
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `python3 tools/opt_sweep.py`: 117/117 passed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/torture_run.py --quick`: gate OK (3,037 PASS, 0 regressions vs baseline).
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 157 files, 0 errors.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: 17/17 pages verified.
+
 ## [Sprint 81] - 2026-11-02 - Total g_compiler Elimination: Thread-Reentrant Flat IR Emitter
 
 Completed the final phase of `g_compiler` decoupling by eliminating the last 6 lines of `g_compiler` state in `src/zero_cc/ir/ir.c` and threading `ZeroCCCompiler *c` through all flat IR emission functions and helpers:

@@ -29,6 +29,7 @@ PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser/parser.o
 TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
 EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/core/compiler_free.o \
+	src/zero_cc/core/preprocessor.o \
 	src/zero_cc/common/hash_table_tpht.o \
 	src/zero_cc/semantic/diagnostics.o \
 	src/zero_cc/semantic/type.o \
@@ -39,6 +40,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/semantic/expr.o \
 	src/zero_cc/semantic/decl.o \
 	src/zero_cc/semantic/semantic.o \
+	src/zero_cc/parser/decl_struct.o \
 	src/zero_cc/common/arena.o \
 	src/zero_cc/ir/ir.o \
 	src/zero_cc/ir/ast_lowering.o \
@@ -67,6 +69,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/isa/aarch64.o \
 	src/zero_cc/isa/riscv.o \
 	src/zero_cc/jit/elf_writer.o \
+	src/zero_cc/jit/compile_unit.o \
 	src/zero_cc/linker/elf_reader.o \
 	src/zero_cc/linker/ar_reader.o \
 	src/zero_cc/linker/linker.o \
