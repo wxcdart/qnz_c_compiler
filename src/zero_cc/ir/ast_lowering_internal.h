@@ -412,5 +412,6 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name);
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

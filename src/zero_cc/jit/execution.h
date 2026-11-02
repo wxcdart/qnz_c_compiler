@@ -159,6 +159,12 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         } else if (dr->target_kind == 5) {
             /* Code label target: address of a label within a function */
             target = (uintptr_t)((char *)mem + dr->target_data_offset);
+        } else if (dr->target_kind == 6) {
+            /* Code label difference: relative offset between two labels in a function */
+            int64_t diff = (int64_t)dr->target_data_offset;
+            size_t sz = dr->rodata_offset ? dr->rodata_offset : 4;
+            memcpy((char *)mem + data_offset + dr->data_patch_offset, &diff, sz);
+            continue;
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset + dr->target_data_offset);
         }

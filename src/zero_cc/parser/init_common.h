@@ -1171,14 +1171,28 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 c->tokens[c->token_pos + 1].type == TK_IDENT) {
                 const char *lbl_name = c->tokens[c->token_pos + 1].str_val;
                 c->token_pos += 2; /* consume '&&' and ident */
+                const char *lbl_name2 = NULL;
+                if (c->token_pos + 2 < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_MINUS &&
+                    c->tokens[c->token_pos + 1].type == TK_LOGAND &&
+                    c->tokens[c->token_pos + 2].type == TK_IDENT) {
+                    lbl_name2 = c->tokens[c->token_pos + 2].str_val;
+                    c->token_pos += 3; /* consume '-', '&&', and ident */
+                }
                 if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                     ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                     dr->data_patch_offset = data_patch_off + tgt.abs_off;
-                    dr->target_kind = 5; /* code label target */
-                    dr->rodata_offset = 0;
+                    if (lbl_name2) {
+                        dr->target_kind = 6; /* code label difference (&&l1 - &&l2) */
+                        dr->rodata_offset = tgt.scalar_sz ? tgt.scalar_sz : 4;
+                        snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s - %s", lbl_name, lbl_name2);
+                    } else {
+                        dr->target_kind = 5; /* code label target */
+                        dr->rodata_offset = 0;
+                        snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", lbl_name);
+                    }
                     dr->target_data_offset = 0; /* resolved after function IR lowering */
                     dr->target_global_idx = (c->function_count > 0) ? (int)(c->function_count - 1) : 0;
-                    snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", lbl_name);
                 }
                 if (cursor) {
                     if (has_desig) {
@@ -1286,6 +1300,46 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             } else {
                 c->token_pos = ap;
             }
+            }
+        } else if (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_IDENT &&
+                   find_global_var(c, c->tokens[c->token_pos].str_val) &&
+                   (tgt.val_type.tag == TYPE_PTR || tgt.scalar_sz == 8 ||
+                    find_global_var(c, c->tokens[c->token_pos].str_val)->type.tag == TYPE_ARRAY)) {
+            /* Global array or variable decay to pointer in aggregate initializer (C99 6.3.2.1p3) */
+            char refn[128];
+            snprintf(refn, sizeof(refn), "%s", c->tokens[c->token_pos].str_val);
+            ZeroCCGlobalVar *rgv = find_global_var(c, refn);
+            c->token_pos++;
+            size_t addoff = 0;
+            if (rgv && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                ZeroCCType rtt = rgv->type;
+                int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
+                    (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 8);
+                c->token_pos++; /* past '[' */
+                int64_t n = zero_cc_eval_const_expr(c);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                if (n > 0) addoff = (size_t)(n * resz);
+            }
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                int gidx = -1;
+                for (size_t gi = 0; gi < c->global_var_count; gi++) {
+                    if (strcmp(c->global_vars[gi].name, refn) == 0) { gidx = (int)gi; break; }
+                }
+                dr->target_kind = 1; /* global variable target */
+                dr->rodata_offset = 0;
+                dr->target_data_offset = rgv->data_offset + addoff;
+                dr->target_global_idx = gidx;
+            }
+            if (cursor) {
+                if (has_desig) {
+                    size_t nc = tgt.leaf_idx + 1;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
             }
         } else if (c->token_pos < c->token_count &&
                    c->tokens[c->token_pos].type == TK_IDENT &&

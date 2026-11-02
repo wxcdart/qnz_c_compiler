@@ -826,12 +826,15 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 
         /* __builtin_expect(cond, val) is a branch-hint builtin: it
          * evaluates to `cond` (the hint is ignored by ZeroCC's codegen).
-         * Lower to just the condition expression so no external "expect"
-         * call is emitted. */
+         * Lower to the condition expression and evaluate `val` for side effects. */
         if (callee_is_ident && callee->s.str &&
             strncmp(callee->s.str, "__builtin_expect", 16) == 0) {
             ASTRef expect_arg = node->right;
             int res = lower_expr(c, arena, expect_arg);
+            ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, expect_arg);
+            if (arg_node && arg_node->next != AST_NULL) {
+                (void)lower_expr(c, arena, arg_node->next);
+            }
             c->last_expr_is_float = 0;
             *out_temp = res;
             return true;

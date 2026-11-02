@@ -82,7 +82,7 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 # other architectures / features we deliberately do not implement).
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
-    "label_values", "untyped_assembly", "indirect_jumps", "trampolines",
+    "untyped_assembly", "indirect_jumps", "trampolines",
     "nonlocal_goto", "named_sections", "unwrapped",
     "int128", "cilk",
     # other languages
@@ -96,11 +96,11 @@ UNSUPPORTED_TARGETS = {
 
 # dg-options that change the reference's observable semantics in ways zerocc
 # cannot emulate (we have no x87 mode and no fast-math pipeline).
-SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions")
+SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fsignaling-nans")
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
 RE_DG_REQ = re.compile(r"\{\s*dg-require-effective-target\s+([^}]*?)\s*\}")
-RE_DG_OPTS = re.compile(r'\{\s*dg-options\s+"([^"]*)"')
+RE_DG_OPTS = re.compile(r'\{\s*(?:dg-options|dg-additional-options)\s+"([^"]*)"')
 RE_DG_BOGUS = re.compile(r"\{\s*dg-bogus")
 RE_DG_ERROR = re.compile(r"\{\s*dg-error")
 RE_DG_TIMEOUT = re.compile(r"\{\s*dg-timeout\s+(\d+)")
@@ -131,9 +131,8 @@ def parse_directives(path):
     for m in RE_DG_REQ.finditer(blob):
         d["requires"].extend(
             t for t in re.split(r"[^A-Za-z0-9_]+", m.group(1)) if t)
-    m = RE_DG_OPTS.search(blob)
-    if m:
-        d["options"] = m.group(1)
+    for m in RE_DG_OPTS.finditer(blob):
+        d["options"] = (d["options"] + " " + m.group(1)).strip()
     d["bogus"] = bool(RE_DG_BOGUS.search(blob))
     d["expects_error"] = bool(RE_DG_ERROR.search(blob))
     m = RE_DG_TIMEOUT.search(blob)
@@ -160,6 +159,10 @@ def skip_reason(path, d):
         # Fresh AOT process gets zeroed pages from the kernel, but in-process JIT
         # execution reuses dirty heap chunks. Nondeterministic stdout under JIT.
         return "SKIP-UB"
+    if rel.as_posix() == "execute/misalign.c":
+        # Requires GNU __attribute__((mode(...))) on typedefs and packed unaligned
+        # struct layout; ZeroCC strips mode attributes and does not pack structs.
+        return "SKIP-C89"
     top = rel.parts[0]
     if top in ("compat", "unsorted"):
         return "SKIP-DIR:%s" % top

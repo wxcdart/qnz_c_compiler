@@ -25,6 +25,9 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
 #include "zero_cc/parser/decl_local.h"
 
 static void zero_cc_synchronize_ast(ZeroCCCompiler *c) {
+    if (c->token_pos < c->token_count) {
+        c->token_pos++;
+    }
     while (c->token_pos < c->token_count) {
         ZeroCCTokType t = c->tokens[c->token_pos].type;
         if (t == TK_SEMI) {
@@ -73,12 +76,15 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
      * fpatan/fsqrt). */
     if (t == TK_IDENT && c->tokens[c->token_pos].str_val &&
         (strcmp(c->tokens[c->token_pos].str_val, "__asm__") == 0 ||
-         strcmp(c->tokens[c->token_pos].str_val, "__asm") == 0)) {
+         strcmp(c->tokens[c->token_pos].str_val, "__asm") == 0 ||
+         strcmp(c->tokens[c->token_pos].str_val, "asm") == 0)) {
         c->token_pos++;
         if (c->token_pos < c->token_count &&
             ((c->tokens[c->token_pos].type == TK_IDENT &&
               c->tokens[c->token_pos].str_val &&
-              (strcmp(c->tokens[c->token_pos].str_val, "__volatile__") == 0)) ||
+              (strcmp(c->tokens[c->token_pos].str_val, "__volatile__") == 0 ||
+               strcmp(c->tokens[c->token_pos].str_val, "__volatile") == 0 ||
+               strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) ||
              c->tokens[c->token_pos].type == TK_VOLATILE)) {
             c->token_pos++;
         }
@@ -101,18 +107,47 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         /* Operand lists: `: "constraint" (expr) , ...` - consume each
          * constraint string and (for output/input) its parenthesized
          * expression; clobbers are bare strings. */
+        int colon_section = 0; /* 0 = template, 1 = outputs, 2 = inputs, 3 = clobbers */
+        ASTRef out_exprs[8] = {AST_NULL};
+        char out_constraints[8][32] = {{0}};
+        int out_count = 0;
+        ASTRef in_exprs[8] = {AST_NULL};
+        char in_constraints[8][32] = {{0}};
+        int in_count = 0;
+        char last_constraint[32] = {0};
+
         bool asm_bail = false;
         while (c->token_pos < c->token_count &&
                c->tokens[c->token_pos].type != TK_SEMI &&
                !(asm_paren && c->tokens[c->token_pos].type == TK_RPAREN)) {
             ZeroCCTokType ot = c->tokens[c->token_pos].type;
-            if (ot == TK_COLON || ot == TK_COLONCOLON || ot == TK_COMMA) {
+            if (ot == TK_COLON) {
+                colon_section++;
+                last_constraint[0] = '\0';
+                c->token_pos++;
+            } else if (ot == TK_COLONCOLON) {
+                colon_section += 2;
+                last_constraint[0] = '\0';
+                c->token_pos++;
+            } else if (ot == TK_COMMA) {
+                last_constraint[0] = '\0';
                 c->token_pos++;
             } else if (ot == TK_STRING) {
+                const char *s = c->tokens[c->token_pos].str_val;
+                if (s) snprintf(last_constraint, sizeof(last_constraint), "%s", s);
                 c->token_pos++;
             } else if (ot == TK_LPAREN) {
                 c->token_pos++;
-                (void)parse_expr_ast_internal(c, arena);
+                ASTRef e = parse_expr_ast_internal(c, arena);
+                if (colon_section == 1 && out_count < 8) {
+                    out_exprs[out_count] = e;
+                    snprintf(out_constraints[out_count], sizeof(out_constraints[0]), "%s", last_constraint);
+                    out_count++;
+                } else if (colon_section == 2 && in_count < 8) {
+                    in_exprs[in_count] = e;
+                    snprintf(in_constraints[in_count], sizeof(in_constraints[0]), "%s", last_constraint);
+                    in_count++;
+                }
                 if (c->token_pos < c->token_count &&
                     c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
             } else {
@@ -136,12 +171,75 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        ASTRef head_stmt = AST_NULL;
+        ASTRef tail_stmt = AST_NULL;
+        if (!asm_nonempty && !asm_bail) {
+            for (int i = 0; i < out_count; i++) {
+                if (out_exprs[i] == AST_NULL) continue;
+                if (out_constraints[i][0] == '+') {
+                    /* In-out operand: evaluate expression for side effects */
+                    ASTRef es_ref = zero_cc_ast_alloc_node(arena, NODE_EXPR_STMT);
+                    ZeroCCASTNode *esn = zero_cc_ast_get(arena, es_ref);
+                    if (esn) {
+                        esn->line = line;
+                        esn->col = col;
+                        esn->left = out_exprs[i];
+                        if (head_stmt == AST_NULL) {
+                            head_stmt = es_ref;
+                            tail_stmt = es_ref;
+                        } else {
+                            ZeroCCASTNode *tn = zero_cc_ast_get(arena, tail_stmt);
+                            if (tn) tn->next = es_ref;
+                            tail_stmt = es_ref;
+                        }
+                    }
+                    continue;
+                }
+                /* Find input matching output i */
+                ASTRef src_expr = AST_NULL;
+                for (int j = 0; j < in_count; j++) {
+                    if (in_constraints[j][0] == ('0' + i)) {
+                        src_expr = in_exprs[j];
+                        break;
+                    }
+                }
+                if (src_expr == AST_NULL && i < in_count) {
+                    src_expr = in_exprs[i];
+                }
+                if (src_expr != AST_NULL) {
+                    ASTRef assign_ref = zero_cc_ast_alloc_node(arena, NODE_ASSIGN);
+                    ZeroCCASTNode *an = zero_cc_ast_get(arena, assign_ref);
+                    if (an) {
+                        an->line = line;
+                        an->col = col;
+                        an->left = out_exprs[i];
+                        an->right = src_expr;
+                        an->aux.op = (uint32_t)TK_ASSIGN;
+                        ASTRef es_ref = zero_cc_ast_alloc_node(arena, NODE_EXPR_STMT);
+                        ZeroCCASTNode *esn = zero_cc_ast_get(arena, es_ref);
+                        if (esn) {
+                            esn->line = line;
+                            esn->col = col;
+                            esn->left = assign_ref;
+                            if (head_stmt == AST_NULL) {
+                                head_stmt = es_ref;
+                                tail_stmt = es_ref;
+                            } else {
+                                ZeroCCASTNode *tn = zero_cc_ast_get(arena, tail_stmt);
+                                if (tn) tn->next = es_ref;
+                                tail_stmt = es_ref;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (asm_nonempty) {
             diag_report_error_at_token(c,
                 "GNU asm statement with a non-empty template is not supported");
             c->had_error = 1;
         }
-        return AST_NULL;
+        return head_stmt;
     }
 
     /* GNU local label declaration: __label__ l1, l2; */

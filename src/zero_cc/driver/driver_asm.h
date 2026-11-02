@@ -92,7 +92,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                     }
                 }
 
-                if (matching_reloc && byte_pos + 8 <= var_end) {
+                size_t rel_sz = (matching_reloc && matching_reloc->target_kind == 6 && matching_reloc->rodata_offset == 4) ? 4 : 8;
+                if (matching_reloc && byte_pos + rel_sz <= var_end) {
                     if (matching_reloc->target_kind == 0) {
                         fprintf(comp->asm_out, "\t.quad\t.Lrodata+%zu\n",
                                 matching_reloc->rodata_offset + matching_reloc->target_data_offset);
@@ -129,10 +130,20 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                         /* Code label symbol (&&label) */
                         fprintf(comp->asm_out, "\t.quad\t%s\n",
                                 matching_reloc->target_extern_name);
+                    } else if (matching_reloc->target_kind == 6 &&
+                               matching_reloc->target_extern_name[0] != '\0') {
+                        /* Code label difference (.L1 - .L2) */
+                        if (rel_sz == 4) {
+                            fprintf(comp->asm_out, "\t.long\t%s\n",
+                                    matching_reloc->target_extern_name);
+                        } else {
+                            fprintf(comp->asm_out, "\t.quad\t%s\n",
+                                    matching_reloc->target_extern_name);
+                        }
                     } else {
                         fprintf(comp->asm_out, "\t.quad\t0\n");
                     }
-                    byte_pos += 8;
+                    byte_pos += rel_sz;
                 } else if (byte_pos < data_len) {
                     fprintf(comp->asm_out, "\t.byte\t0x%02x\n", data_buf[byte_pos]);
                     byte_pos++;

@@ -4,7 +4,7 @@ title: Global Variables, Data Section & Pointer Relocations
 description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), block-scope static locals (unsized arrays, pointer-to-string initializers, per-call stack mirror), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
 resource: backend/global-data-relocs
 tags: [globals, data-section, relocations, jit, aot, elf, initialization]
-timestamp: 2026-11-02T14:21:48Z
+timestamp: 2026-11-02T19:59:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -37,7 +37,9 @@ typedef struct {
                                   1 = .data + target_data_offset
                                   2 = object defined in another TU (target_extern_name)
                                   3 = a function symbol by name (target_extern_name)
-                                  4 = absolute offset within this TU's .data (address of an object) */
+                                  4 = absolute offset within this TU's .data (address of an object)
+                                  5 = code label address (&&label, target_label_name)
+                                  6 = static code label difference (&&l1 - &&l2, target_label_name - target_label_name2) */
     size_t rodata_offset;
     size_t target_data_offset;
     int    target_global_idx;   /* index into global_vars[] when kind == 1 */

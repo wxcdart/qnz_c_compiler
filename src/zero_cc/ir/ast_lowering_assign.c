@@ -1588,12 +1588,12 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 }
                 c->last_expr_is_float = 1;
             } else {
-                bool is_elem_struct = (elem_ti && (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION));
+                bool is_elem_struct = (elem_ti && (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION || type_is_vector(elem_ti)));
                 if (!is_elem_struct) {
                     ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
                     if (ln && ln->tag == NODE_IDENT) {
                         const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
-                        if (zt && zt->base && (zt->base->tag == TYPE_STRUCT || zt->base->tag == TYPE_UNION)) {
+                        if (zt && zt->base && (zt->base->tag == TYPE_STRUCT || zt->base->tag == TYPE_UNION || zero_cc_type_is_vector(zt->base))) {
                             is_elem_struct = true;
                         }
                     }

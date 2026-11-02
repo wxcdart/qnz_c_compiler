@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-02T18:23:35Z",
+ "generated": "2026-11-02T19:57:59Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -107,8 +107,11 @@
    "note": ""
   },
   "compile/20000326-2.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20000329-1.c": {
@@ -232,8 +235,11 @@
    "note": ""
   },
   "compile/20000518-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20000523-1.c": {
@@ -330,7 +336,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/20000818-1.c": {
    "class": "PASS",
@@ -370,7 +376,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
+   "note": "                       ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
   },
   "compile/20001018-1.c": {
    "class": "PASS",
@@ -937,12 +943,12 @@
    "note": ""
   },
   "compile/20011205-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011217-1.c": {
    "class": "PASS",
@@ -1129,12 +1135,12 @@
    "note": ""
   },
   "compile/20020312-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020314-1.c": {
    "class": "PASS",
@@ -1374,8 +1380,11 @@
    "note": ""
   },
   "compile/20021108-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20021110.c": {
@@ -2223,16 +2232,19 @@
    "note": ""
   },
   "compile/20040611-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040614-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20040621-1.c": {
@@ -2966,12 +2978,12 @@
    "note": ""
   },
   "compile/20080114-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080124-1.c": {
    "class": "PASS",
@@ -3546,8 +3558,11 @@
    "note": ""
   },
   "compile/20180309-1.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20180605-1.c": {
@@ -3692,8 +3707,11 @@
    "note": "                  ^; Compile error: use of undeclared identifier 'c' | cfgs: O0-aot,O2-aot"
   },
   "compile/920301-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920409-1.c": {
@@ -3766,7 +3784,7 @@
    "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-3.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:indirect_jumps",
    "configs": {},
    "note": ""
   },
@@ -3803,8 +3821,11 @@
    "note": "                                                          ^; Compile error: use of undeclared identifier 'f' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920501-10.c": {
@@ -3944,8 +3965,11 @@
    "note": ""
   },
   "compile/920501-7.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920501-8.c": {
@@ -4900,9 +4924,12 @@
    "note": ""
   },
   "compile/941014-4.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "       ^; Compile error: static local 'debug' initializer must be a constant literal (complex initializers not yet supported) | cfgs: O0-aot,O2-aot"
   },
   "compile/941019-1.c": {
    "class": "PASS",
@@ -4998,7 +5025,7 @@
    "note": "                ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/950613-1.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:indirect_jumps",
    "configs": {},
    "note": ""
   },
@@ -6074,33 +6101,36 @@
    "note": ""
   },
   "compile/asmgoto-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/asmgoto-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/asmgoto-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/asmgoto-4.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/asmgoto-5.c": {
    "class": "SKIP-C89",
@@ -6108,15 +6138,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "        ^; Compile error: expected ';' after declaration of 'v0' (near 'asm') | cfgs: O0-aot,O2-aot"
+   "note": "                               ^; Compile error: expected ';' after declaration of 'v0' (near 'asm') | cfgs: O0-aot,O2-aot"
   },
   "compile/asmgoto-6.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/attr-complex-method-2.c": {
    "class": "SKIP-C89",
@@ -6140,12 +6170,9 @@
    "note": "gcc: error: unrecognized command-line option \u2018-G0\u2019"
   },
   "compile/attr-retain-2.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
-   "note": ""
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc: error: unrecognized command-line option \u2018-G0\u2019"
   },
   "compile/attr-used-retain-1.c": {
    "class": "PASS",
@@ -6729,20 +6756,20 @@
    "note": "         ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/dce-inline-asm-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/dce-inline-asm-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/ddd.c": {
    "class": "PASS",
@@ -7163,12 +7190,12 @@
    "note": ""
   },
   "compile/inline-asm-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/irreducible-loop.c": {
    "class": "PASS",
@@ -7211,13 +7238,19 @@
    "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
   },
   "compile/labels-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/labels-2.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/labels-3.c": {
@@ -8106,12 +8139,12 @@
    "note": ""
   },
   "compile/pr106751.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr106878.c": {
    "class": "PASS",
@@ -8138,12 +8171,12 @@
    "note": ""
   },
   "compile/pr107997.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr108237.c": {
    "class": "PASS",
@@ -8154,12 +8187,12 @@
    "note": ""
   },
   "compile/pr108596.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr108638.c": {
    "class": "PASS",
@@ -8620,12 +8653,9 @@
    "note": ""
   },
   "compile/pr117449.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
-   "note": ""
+   "class": "NO-REF",
+   "configs": {},
+   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 native"
   },
   "compile/pr118362.c": {
    "class": "PASS",
@@ -8660,8 +8690,11 @@
    "note": ""
   },
   "compile/pr120250.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr120807.c": {
@@ -8723,12 +8756,9 @@
    "note": ""
   },
   "compile/pr124280.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
-   "note": ""
+   "class": "NO-REF",
+   "configs": {},
+   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 generic native"
   },
   "compile/pr124643.c": {
    "class": "PASS",
@@ -8960,8 +8990,11 @@
    "note": ""
   },
   "compile/pr18903.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr19080.c": {
@@ -9465,12 +9498,12 @@
    "note": ""
   },
   "compile/pr27528.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr27571.c": {
    "class": "PASS",
@@ -10294,12 +10327,12 @@
    "note": ""
   },
   "compile/pr37395.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37418-1.c": {
    "class": "PASS",
@@ -10595,12 +10628,12 @@
    "note": ""
   },
   "compile/pr38789.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": "     ^; Compile error: GNU asm statement with a non-empty template is not supported | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38807.c": {
    "class": "PASS",
@@ -10651,12 +10684,12 @@
    "note": ""
   },
   "compile/pr39394.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": "                                                   ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/pr39423-1.c": {
    "class": "PASS",
@@ -11227,8 +11260,11 @@
    "note": ""
   },
   "compile/pr42559.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr42632.c": {
@@ -11751,12 +11787,12 @@
    "note": ""
   },
   "compile/pr46637.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr46832.c": {
    "class": "PASS",
@@ -12138,12 +12174,12 @@
    "note": ""
   },
   "compile/pr51767.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr51856.c": {
    "class": "PASS",
@@ -12580,12 +12616,12 @@
    "note": ""
   },
   "compile/pr56405.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr56448.c": {
    "class": "PASS",
@@ -12982,12 +13018,12 @@
    "note": ""
   },
   "compile/pr63282.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr63761.c": {
    "class": "PASS",
@@ -13674,12 +13710,12 @@
    "note": ""
   },
   "compile/pr81262.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr81290.c": {
    "class": "PASS",
@@ -14277,12 +14313,9 @@
    "note": ""
   },
   "compile/pr92449.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
-   },
-   "note": "                            ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "compile/pr92618.c": {
    "class": "PASS",
@@ -14453,12 +14486,12 @@
    "note": ""
   },
   "compile/pr96998.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr97141.c": {
    "class": "PASS",
@@ -14525,12 +14558,12 @@
    "note": ""
   },
   "compile/pr98096.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr98199.c": {
    "class": "PASS",
@@ -15486,12 +15519,12 @@
    "note": ""
   },
   "compile/vector-dup-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/vector-shift-1.c": {
    "class": "PASS",
@@ -16665,18 +16698,18 @@
    "note": ""
   },
   "execute/20001009-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20001011-1.c": {
    "class": "SKIP-C89",
@@ -17034,8 +17067,17 @@
    "note": ""
   },
   "execute/20010122-1.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20010123-1.c": {
@@ -17632,18 +17674,18 @@
    "note": ""
   },
   "execute/20020107-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020108-1.c": {
    "class": "PASS",
@@ -18752,18 +18794,18 @@
    "note": ""
   },
   "execute/20030222-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030224-2.c": {
    "class": "PASS",
@@ -18822,8 +18864,17 @@
    "note": ""
   },
   "execute/20030323-1.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20030330-1.c": {
@@ -19023,8 +19074,17 @@
    "note": ""
   },
   "execute/20030811-1.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20030821-1.c": {
@@ -19406,8 +19466,17 @@
    "note": "             ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040302-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20040307-1.c": {
@@ -20200,18 +20269,18 @@
    "note": ""
   },
   "execute/20050203-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20050215-1.c": {
    "class": "PASS",
@@ -20681,18 +20750,18 @@
    "note": ""
   },
   "execute/20061031-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20061101-1.c": {
    "class": "PASS",
@@ -20723,18 +20792,18 @@
    "note": ""
   },
   "execute/20061220-1.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: nested function definition of 'nested' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20070201-1.c": {
    "class": "PASS",
@@ -21003,7 +21072,7 @@
    "note": ""
   },
   "execute/20071210-1.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:indirect_jumps",
    "configs": {},
    "note": ""
   },
@@ -21064,13 +21133,22 @@
    "note": ""
   },
   "execute/20071220-1.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:indirect_jumps",
    "configs": {},
    "note": ""
   },
   "execute/20071220-2.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20080117-1.c": {
@@ -21088,18 +21166,18 @@
    "note": ""
   },
   "execute/20080122-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20080222-1.c": {
    "class": "PASS",
@@ -21564,18 +21642,9 @@
    "note": ""
   },
   "execute/20101011-1.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
-   },
-   "note": ""
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc: error: unrecognized command-line option \u2018-mcheck-zero-division\u2019"
   },
   "execute/20101013-1.c": {
    "class": "PASS",
@@ -22311,8 +22380,17 @@
    "note": ""
   },
   "execute/920302-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920409-1.c": {
@@ -22358,9 +22436,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920415-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                                                                         ^; Compile error: cannot declare variable 'x' with function type | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920428-1.c": {
    "class": "SKIP-C89",
@@ -22377,7 +22464,7 @@
    "note": "                                   ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920428-2.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:trampolines",
    "configs": {},
    "note": ""
   },
@@ -22415,18 +22502,45 @@
    "note": ""
   },
   "execute/920501-3.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920501-4.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920501-5.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920501-6.c": {
@@ -22444,7 +22558,7 @@
    "note": ""
   },
   "execute/920501-7.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:trampolines",
    "configs": {},
    "note": ""
   },
@@ -22650,9 +22764,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920721-4.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                     ^; Compile error: cannot declare variable 'do_switch' with function type | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920726-1.c": {
    "class": "PASS",
@@ -24659,18 +24782,18 @@
    "note": ""
   },
   "execute/960312-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960317-1.c": {
    "class": "PASS",
@@ -25233,8 +25356,17 @@
    "note": ""
   },
   "execute/980526-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/980526-2.c": {
@@ -25588,22 +25720,31 @@
    "note": ""
   },
   "execute/990130-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/990208-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/990211-1.c": {
@@ -26517,18 +26658,18 @@
    "note": ""
   },
   "execute/bitfld-5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/bitfld-6.c": {
    "class": "PASS",
@@ -27607,12 +27748,21 @@
    "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/comp-goto-1.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/comp-goto-2.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:trampolines",
    "configs": {},
    "note": ""
   },
@@ -27981,7 +28131,7 @@
    "note": ""
   },
   "execute/eeprof-1.c": {
-   "class": "SKIP-TARGET:return_address",
+   "class": "SKIP-REFSEM",
    "configs": {},
    "note": ""
   },
@@ -28140,8 +28290,17 @@
    "note": ""
   },
   "execute/frame-address.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/func-ptr-1.c": {
@@ -28355,32 +28514,14 @@
    "note": ""
   },
   "execute/ieee/bfloat16-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/builtin-nan-1.c": {
    "class": "PASS",
@@ -28467,9 +28608,18 @@
    "note": ""
   },
   "execute/ieee/compare-fp-3.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/ieee/compare-fp-4.c": {
    "class": "PASS",
@@ -28514,93 +28664,39 @@
    "note": ""
   },
   "execute/ieee/float128-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/float128x-builtin-issignaling-1.c": {
-   "class": "NO-REF",
+   "class": "SKIP-REFSEM",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/ieee/builtin-issignaling-1.c:133:7: error: unsupported non-standard suffix on floating constant"
+   "note": ""
   },
   "execute/ieee/float16-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/float32-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/float32x-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/float64-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/float64x-builtin-issignaling-1.c": {
-   "class": "TIMEOUT",
-   "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
-   },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "execute/ieee/fp-cmp-1.c": {
    "class": "PASS",
@@ -29149,18 +29245,18 @@
    "note": ""
   },
   "execute/ieee/pr50310.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/ieee/pr67218.c": {
    "class": "PASS",
@@ -29973,17 +30069,8 @@
   },
   "execute/misalign.c": {
    "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "configs": {},
+   "note": ""
   },
   "execute/mod-1.c": {
    "class": "SKIP-C89",
@@ -30310,18 +30397,18 @@
    "note": ""
   },
   "execute/pr103376.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr103405.c": {
    "class": "SKIP-C89",
@@ -30553,18 +30640,18 @@
    "note": ""
   },
   "execute/pr108498-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr108498-2.c": {
    "class": "PASS",
@@ -30703,18 +30790,18 @@
    "note": ""
   },
   "execute/pr110252-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr110252-3.c": {
    "class": "PASS",
@@ -31053,18 +31140,18 @@
    "note": ""
   },
   "execute/pr114552.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr114965.c": {
    "class": "PASS",
@@ -31282,18 +31369,18 @@
    "note": ""
   },
   "execute/pr121957.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr122000.c": {
    "class": "PASS",
@@ -31338,18 +31425,18 @@
    "note": ""
   },
   "execute/pr123625-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr123625.c": {
    "class": "PASS",
@@ -31632,8 +31719,17 @@
    "note": ""
   },
   "execute/pr17377.c": {
-   "class": "SKIP-TARGET:return_address",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr19005.c": {
@@ -33327,18 +33423,18 @@
    "note": ""
   },
   "execute/pr38533.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr38819.c": {
    "class": "PASS",
@@ -33458,18 +33554,18 @@
    "note": ""
   },
   "execute/pr40022.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr40057.c": {
    "class": "PASS",
@@ -33542,18 +33638,18 @@
    "note": ""
   },
   "execute/pr40657.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr40668.c": {
    "class": "PASS",
@@ -33584,18 +33680,18 @@
    "note": ""
   },
   "execute/pr41239.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr41317.c": {
    "class": "PASS",
@@ -33948,18 +34044,18 @@
    "note": ""
   },
   "execute/pr43385.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr43438.c": {
    "class": "PASS",
@@ -33987,7 +34083,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr43629.c": {
    "class": "PASS",
@@ -34144,18 +34240,18 @@
    "note": ""
   },
   "execute/pr44852.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr44858.c": {
    "class": "PASS",
@@ -34228,18 +34324,18 @@
    "note": ""
   },
   "execute/pr45695.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr46019.c": {
    "class": "PASS",
@@ -34256,18 +34352,18 @@
    "note": ""
   },
   "execute/pr46309.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr46316.c": {
    "class": "PASS",
@@ -34387,18 +34483,18 @@
    "note": ""
   },
   "execute/pr47925.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr48197.c": {
    "class": "PASS",
@@ -34583,32 +34679,32 @@
    "note": ""
   },
   "execute/pr49218.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49279.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49281.c": {
    "class": "PASS",
@@ -34625,18 +34721,18 @@
    "note": ""
   },
   "execute/pr49390.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr49419.c": {
    "class": "PASS",
@@ -34751,7 +34847,7 @@
    "note": ""
   },
   "execute/pr51447.c": {
-   "class": "SKIP-TARGET:label_values",
+   "class": "SKIP-TARGET:indirect_jumps",
    "configs": {},
    "note": ""
   },
@@ -34770,60 +34866,60 @@
    "note": ""
   },
   "execute/pr51581-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr51581-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr51877.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr51933.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr52129.c": {
    "class": "PASS",
@@ -34854,18 +34950,18 @@
    "note": ""
   },
   "execute/pr52286.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr52760.c": {
    "class": "PASS",
@@ -34952,32 +35048,32 @@
    "note": ""
   },
   "execute/pr53645-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr53645.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr53688.c": {
    "class": "PASS",
@@ -35092,18 +35188,18 @@
    "note": ""
   },
   "execute/pr56205.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr56250.c": {
    "class": "PASS",
@@ -35148,18 +35244,18 @@
    "note": ""
   },
   "execute/pr56866.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr56899.c": {
    "class": "PASS",
@@ -35279,60 +35375,60 @@
    "note": ""
   },
   "execute/pr57344-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr57344-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr57344-3.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr57344-4.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr57568.c": {
    "class": "PASS",
@@ -35447,18 +35543,18 @@
    "note": ""
   },
   "execute/pr58277-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr58277-2.c": {
    "class": "PASS",
@@ -35531,18 +35627,18 @@
    "note": ""
   },
   "execute/pr58419.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr58431.c": {
    "class": "PASS",
@@ -36096,18 +36192,18 @@
    "note": ""
   },
   "execute/pr63641.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr63659.c": {
    "class": "PASS",
@@ -36255,32 +36351,32 @@
    "note": ""
   },
   "execute/pr65053-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "             ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr65053-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr65170.c": {
    "class": "PASS",
@@ -36451,32 +36547,32 @@
    "note": ""
   },
   "execute/pr65648.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr65956.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr66187.c": {
    "class": "PASS",
@@ -36689,18 +36785,18 @@
    "note": ""
   },
   "execute/pr68328.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr68376-1.c": {
    "class": "PASS",
@@ -36885,18 +36981,18 @@
    "note": ""
   },
   "execute/pr69320-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr69320-3.c": {
    "class": "PASS",
@@ -36955,18 +37051,18 @@
    "note": ""
   },
   "execute/pr69691.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr70005.c": {
    "class": "PASS",
@@ -37128,9 +37224,18 @@
    "note": ""
   },
   "execute/pr71494.c": {
-   "class": "SKIP-TARGET:label_values",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "          ^; Compile error: nested function definition of 'test' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr71550.c": {
    "class": "PASS",
@@ -37315,18 +37420,18 @@
    "note": ""
   },
   "execute/pr78438.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr78477.c": {
    "class": "PASS",
@@ -37427,18 +37532,18 @@
    "note": ""
   },
   "execute/pr78726.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr78791.c": {
    "class": "PASS",
@@ -37525,18 +37630,18 @@
    "note": ""
   },
   "execute/pr79354.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr79388.c": {
    "class": "PASS",
@@ -37581,18 +37686,18 @@
    "note": ""
   },
   "execute/pr79737-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr80153.c": {
    "class": "PASS",
@@ -37609,18 +37714,18 @@
    "note": ""
   },
   "execute/pr80421.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr80501.c": {
    "class": "PASS",
@@ -37819,18 +37924,18 @@
    "note": ""
   },
   "execute/pr82954.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr83269.c": {
    "class": "PASS",
@@ -37931,18 +38036,18 @@
    "note": ""
   },
   "execute/pr84478.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr84521.c": {
    "class": "SKIP-TARGET:indirect_jumps",
@@ -37950,18 +38055,18 @@
    "note": ""
   },
   "execute/pr84524.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr84748.c": {
    "class": "SKIP-TARGET:int128",
@@ -37983,18 +38088,18 @@
    "note": ""
   },
   "execute/pr85156.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr85169.c": {
    "class": "PASS",
@@ -38095,18 +38200,18 @@
    "note": ""
   },
   "execute/pr85756.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr86231.c": {
    "class": "PASS",
@@ -38291,18 +38396,18 @@
    "note": ""
   },
   "execute/pr88904.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr89195.c": {
    "class": "PASS",
@@ -38688,32 +38793,32 @@
    "note": ""
   },
   "execute/pr93945.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr94130.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr94134.c": {
    "class": "PASS",
@@ -39596,7 +39701,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/strcmp-1.c": {
    "class": "PASS",
@@ -40726,25 +40831,23 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 189,
-  "PASS": 3049,
+  "NO-REF": 191,
+  "PASS": 3162,
   "REF-BUG": 3,
   "REJECT": 12,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 453,
+  "SKIP-C89": 420,
   "SKIP-PTR": 1,
-  "SKIP-REFSEM": 5,
+  "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
-  "SKIP-TARGET:indirect_jumps": 32,
+  "SKIP-TARGET:indirect_jumps": 37,
   "SKIP-TARGET:int128": 7,
-  "SKIP-TARGET:label_values": 34,
   "SKIP-TARGET:named_sections": 3,
   "SKIP-TARGET:nonlocal_goto": 2,
-  "SKIP-TARGET:return_address": 7,
-  "SKIP-TARGET:trampolines": 16,
+  "SKIP-TARGET:trampolines": 19,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1,
-  "TIMEOUT": 78
+  "TIMEOUT": 18
  }
 }

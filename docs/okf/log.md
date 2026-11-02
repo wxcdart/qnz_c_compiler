@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T18:59:48Z
+timestamp: 2026-11-02T19:59:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -734,3 +734,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `c-torture-gate.md`
 - Remove return_address from UNSUPPORTED_TARGETS and document Sprint 86 conformance expansion
+
+## 2026-11-02 — Updated `c-torture-gate.md`
+- Sprint 87: Unskip label_values, inline asm triage, static label difference relocs, and ratchet baseline (PASS 3,162, MISCOMPILE 0, TIMEOUT 18)
+
+## 2026-11-02 — Updated `global-data-relocs.md`
+- Document kind 5 (code label) and kind 6 (static label difference) data relocations

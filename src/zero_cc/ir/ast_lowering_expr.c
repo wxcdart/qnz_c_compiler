@@ -1425,7 +1425,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             int addr_temp = c->next_temp_id++;
             ir_emit_add(c, addr_temp, array_temp, scaled_index);  /* addr = base + scaled_index */
 
-            if (elem_ti && (type_is_array(elem_ti) || elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION || elem_ti->kind == TYPE_KIND_COMPLEX)) {
+            if (elem_ti && (type_is_array(elem_ti) || elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION || elem_ti->kind == TYPE_KIND_COMPLEX || type_is_vector(elem_ti))) {
                 /* Array element is an array (e.g. a[i] in a[i][j]) or a struct/union/complex (e.g. p[i][j] in p[i][j].x).
                  * In C, array expressions decay to pointers to their elements, and composite elements
                  * in lvalue/member contexts need the address directly without loading. */

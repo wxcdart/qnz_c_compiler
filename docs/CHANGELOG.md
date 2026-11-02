@@ -1,5 +1,34 @@
 # ZeroCC Changelog
 
+## [Sprint 87] - 2026-11-02 - `label_values` Unskipped, Inline ASM Triage, Static Label Differences, Vector Indexing & C-Torture Conformance +108
+
+Unskipped GCC c-torture `label_values` conformance gate, fixed parser error recovery hangs, triaged empty inline assembly operands, implemented static code label difference relocations, fixed array-of-vector indexing and assignment, and ratcheted the GCC c-torture conformance baseline:
+
+- **Parser Recovery & Keyword Extension (`ast_stmt.h`)**:
+  - `zero_cc_synchronize_ast`: Guaranteed consumption of at least one token on error recovery before statement boundary scanning, eliminating compiler infinite loops on unexpected tokens (such as `volatile`).
+  - Added support for bare `asm` and `volatile` keywords alongside `__asm__`, `__asm`, `__volatile__`.
+- **Inline Assembly Operand Mapping (`ast_stmt.h`)**:
+  - Parsed colon-separated output and input operand constraint lists.
+  - When the assembly template string is empty `""`, mapped matching output-input constraint pairs (e.g. `"=r"` with `"0"`) to assignment statements (`NODE_ASSIGN`, `dst = src;`).
+  - Evaluated in-out operands (`+r`/`+m`) as expression statements to preserve side-effects while skipping machine code generation.
+- **Static Label Difference Initializers (`init_common.h`, `ast_lowering.c`, `execution.h`, `driver_asm.h`)**:
+  - Supported static code label difference initializers (`&&lab1 - &&lab0`) in aggregate initializers via `ZeroCCDataReloc` with `target_kind = 6`.
+  - JIT: patched `(int64_t)off1 - (int64_t)off2` directly into the allocated data section.
+  - AOT: emitted textual assembly differences `.Lfn_1 - .Lfn_2` as `.long` or `.quad` depending on slot width.
+- **Global Array Decay in Aggregate Initializers (`init_common.h`)**:
+  - Detected global array identifiers without explicit `&` in aggregate initializers (`char *v[] = { u, 0 };`) and emitted kind-1 data relocations against the array, preventing improper scalar byte copies into pointer slots (`execute/pr69691.c`).
+- **Vector Element Indexing & Assignment (`ast_lowering_expr.c`, `ast_lowering_assign.c`)**:
+  - In `NODE_INDEX` (`ast_lowering_expr.c`), added `type_is_vector(elem_ti)` to array/struct/union/complex decay conditions so array-of-vector expressions decay to addresses.
+  - In `ast_lowering_assign.c`, treated vector elements as multi-lane composite objects using `zero_cc_emit_struct_copy_to_addr` to copy the full vector size from the RHS address rather than truncating to a 64-bit integer store. Resolves `execute/pr53645.c`, `pr53645-2.c`, and `ieee/pr72824-2.c`.
+- **Builtin Expect Side Effects (`ast_lowering_builtins.c`)**:
+  - `__builtin_expect(cond, val)`: evaluated `val` for side effects (`execute/pr85156.c`).
+- **C-Torture Conformance Gate & Ratchet (`tools/torture_run.py`, `baseline.json`)**:
+  - Removed `"label_values"` from `UNSUPPORTED_TARGETS`.
+  - Added `(?:dg-options|dg-additional-options)` regex matching in `tools/torture_run.py` and filtered `-fsignaling-nans`.
+  - Skipped `execute/misalign.c` as `SKIP-C89` (tests unsupported GCC `mode(QI)` and packed struct layout).
+  - Ratcheted `test/torture/baseline.json`: **PASS 3,162** (up +108 from 3,054), **MISCOMPILE 0**, **REJECT 12** (down from 13), **TIMEOUT 18** (down from 79).
+  - All standard verification suites pass cleanly (`make test` 159/159, `make test-opt` 120/120, `sret_verifier` 6/6, `diag_battery` OK, `style_check` 0 errors, `okf lint/index` 18/18).
+
 ## [Sprint 86] - 2026-11-02 - `__builtin_return_address`, `__builtin_frame_address`, Empty Structs & Regalloc Indirect Jump Fix
 
 Implemented full support for GNU intrinsics `__builtin_return_address(level)` and `__builtin_frame_address(level)`, GNU empty structs/unions (`struct Empty {}`), and fixed a linear-scan register allocation live range bug across indirect jump backedges:

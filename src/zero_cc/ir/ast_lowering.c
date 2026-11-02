@@ -863,7 +863,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Clear IR buffer for next function */
     ir_clear(c);
 
-    /* Resolve kind-5 data relocations (static label tables: &&label) for this function */
+    /* Resolve kind-5 and kind-6 data relocations (static label tables: &&label and &&l1 - &&l2) for this function */
     for (size_t r = 0; r < c->data_reloc_count; r++) {
         ZeroCCDataReloc *dr = &c->data_relocs[r];
         if (dr->target_kind == 5 && (size_t)dr->target_global_idx == current_fn_idx) {
@@ -882,6 +882,48 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     snprintf(dr->target_extern_name, sizeof(dr->target_extern_name),
                              ".L%zu_%u", current_fn_idx, (unsigned)ir_lbl);
                     break;
+                }
+            }
+        } else if (dr->target_kind == 6 && (size_t)dr->target_global_idx == current_fn_idx) {
+            char name1[64] = {0}, name2[64] = {0};
+            if (sscanf(dr->target_extern_name, "%63s - %63s", name1, name2) == 2) {
+                size_t off1 = 0, off2 = 0;
+                uint16_t ir_lbl1 = 0, ir_lbl2 = 0;
+                for (int u = 0; u < c->label_patcher.user_label_count; u++) {
+                    if (strcmp(name1, c->label_patcher.user_labels[u].name) == 0) {
+                        ir_lbl1 = c->label_patcher.user_labels[u].ir_label;
+                        for (size_t lo = 0; lo < c->user_label_offset_count; lo++) {
+                            if (c->user_label_offsets[lo].func_idx == current_fn_idx &&
+                                c->user_label_offsets[lo].ir_label == ir_lbl1) {
+                                off1 = c->user_label_offsets[lo].text_offset;
+                                break;
+                            }
+                        }
+                    }
+                    if (strcmp(name2, c->label_patcher.user_labels[u].name) == 0) {
+                        ir_lbl2 = c->label_patcher.user_labels[u].ir_label;
+                        for (size_t lo = 0; lo < c->user_label_offset_count; lo++) {
+                            if (c->user_label_offsets[lo].func_idx == current_fn_idx &&
+                                c->user_label_offsets[lo].ir_label == ir_lbl2) {
+                                off2 = c->user_label_offsets[lo].text_offset;
+                                break;
+                            }
+                        }
+                    }
+                }
+                int64_t diff = (int64_t)off1 - (int64_t)off2;
+                dr->target_data_offset = (size_t)diff;
+                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name),
+                         ".L%zu_%u - .L%zu_%u", current_fn_idx, (unsigned)ir_lbl1,
+                         current_fn_idx, (unsigned)ir_lbl2);
+                size_t patch_sz = dr->rodata_offset ? dr->rodata_offset : 4;
+                if (dr->data_patch_offset + patch_sz <= c->data_section.length) {
+                    if (patch_sz == 8) {
+                        memcpy(c->data_section.data + dr->data_patch_offset, &diff, 8);
+                    } else {
+                        int32_t diff32 = (int32_t)diff;
+                        memcpy(c->data_section.data + dr->data_patch_offset, &diff32, 4);
+                    }
                 }
             }
         }
