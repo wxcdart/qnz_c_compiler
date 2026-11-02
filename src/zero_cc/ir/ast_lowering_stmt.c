@@ -880,7 +880,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
          * generic path and return only its first 8 bytes in VREG_0
          * (c-torture pr60017). Load the full register pair / sret chunks
          * directly from the global. */
-        ZeroCCGlobalVar *gsym = (ret_expr && ret_expr->tag == NODE_IDENT) ? find_global_var(ret_expr->s.str) : NULL;
+        ZeroCCGlobalVar *gsym = (ret_expr && ret_expr->tag == NODE_IDENT) ? find_global_var(c, ret_expr->s.str) : NULL;
         if (gsym && (gsym->type.tag == TYPE_STRUCT || gsym->type.tag == TYPE_UNION) &&
             gsym->type.size > 0) {
             int gaddr = c->next_temp_id++;

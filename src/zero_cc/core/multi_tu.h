@@ -166,6 +166,7 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     /* .data pointer initializers: patch site by data base; rodata targets
      * by rodata base, global-storage targets by data base. Kind-2 (extern by
      * name) targets need no rebase - they resolve by name at patch time. */
+    int g_offset = (int)base->global_var_count;
     for (size_t i = 0; i < tu->data_reloc_count; i++) {
         base->data_relocs[base->data_reloc_count] = tu->data_relocs[i];
         base->data_relocs[base->data_reloc_count].data_patch_offset += data_base;
@@ -173,6 +174,10 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
             base->data_relocs[base->data_reloc_count].rodata_offset += rodata_base;
         } else if (base->data_relocs[base->data_reloc_count].target_kind == 1 ||
                    base->data_relocs[base->data_reloc_count].target_kind == 4) {
+            if (base->data_relocs[base->data_reloc_count].target_kind == 1 &&
+                base->data_relocs[base->data_reloc_count].target_global_idx >= 0) {
+                base->data_relocs[base->data_reloc_count].target_global_idx += g_offset;
+            }
             /* Kind 1: target global's data offset rebases with the data base.
              * Kind 4: absolute in-TU .data offset (static local) - the
              * target moves with the patch site. The (size_t)-1 "global
@@ -181,6 +186,17 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
                 base->data_relocs[base->data_reloc_count].target_data_offset += data_base;
         }
         base->data_reloc_count++;
+    }
+
+    /* Merge global variables from tu into base */
+    if (zero_cc_global_vars_reserve(base, tu->global_var_count) == 0) {
+        for (size_t g = 0; g < tu->global_var_count; g++) {
+            ZeroCCGlobalVar gv = tu->global_vars[g];
+            gv.data_offset += data_base;
+            base->global_vars[base->global_var_count] = gv;
+            zero_cc_gname_hash_insert(base, gv.name, base->global_var_count, base->global_var_count + 1);
+            base->global_var_count++;
+        }
     }
 
     return 0;

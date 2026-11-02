@@ -37,9 +37,9 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     size_t data_len = c->data_section.length;
     /* Compute BSS size (zero-initialized globals above threshold) */
     size_t bss_len = 0;
-    for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].is_bss && !global_vars[i].is_tls) {
-            size_t end = global_vars[i].data_offset + global_vars[i].size;
+    for (size_t i = 0; i < c->global_var_count; i++) {
+        if (c->global_vars[i].is_bss && !c->global_vars[i].is_tls) {
+            size_t end = c->global_vars[i].data_offset + c->global_vars[i].size;
             if (end > bss_len) bss_len = end;
         }
     }
@@ -73,7 +73,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             /* Data reference (global variable) - calculate RIP-relative offset to data_offset */
             char var_name[128];
             strcpy(var_name, c->relocs[i].target_symbol + 7);
-            ZeroCCGlobalVar *gv = find_global_var(var_name);
+            ZeroCCGlobalVar *gv = find_global_var(c, var_name);
             if (gv) {
                 size_t target_addr = gv->is_bss ? (bss_offset + gv->data_offset)
                                                 : (data_offset + gv->data_offset);
@@ -85,7 +85,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
              * function pointers. OP_MOV_GLOBAL emits mov rdst, imm64(0) and
              * records the 8-byte immediate here; patch it with the variable's
              * absolute address in the JIT data page. */
-            ZeroCCGlobalVar *gv = find_global_var(c->relocs[i].target_symbol);
+            ZeroCCGlobalVar *gv = find_global_var(c, c->relocs[i].target_symbol);
             if (gv) {
                 uintptr_t gv_addr = (uintptr_t)((char *)mem +
                     (gv->is_bss ? bss_offset : data_offset) + gv->data_offset);
@@ -131,7 +131,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
              * data_offset is within the .bss page, not .data). The
              * (size_t)-1 sentinel means "the target's own storage base"
              * (resolve the final data_offset now). */
-            ZeroCCGlobalVar *tv = &global_vars[dr->target_global_idx];
+            ZeroCCGlobalVar *tv = &c->global_vars[dr->target_global_idx];
             size_t t_off = (dr->target_data_offset == (size_t)-1)
                 ? tv->data_offset : dr->target_data_offset;
             target = (uintptr_t)((char *)mem +
@@ -139,7 +139,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         } else if (dr->target_kind == 2) {
             /* Extern object defined in another TU: resolved against the
              * (merged) global registry at patch time. */
-            ZeroCCGlobalVar *eg = find_global_var(dr->target_extern_name);
+            ZeroCCGlobalVar *eg = find_global_var(c, dr->target_extern_name);
             target = eg ? (uintptr_t)((char *)mem +
                 (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
         } else if (dr->target_kind == 3) {

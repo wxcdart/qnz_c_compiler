@@ -1,6 +1,27 @@
 # ZeroCC Changelog
 
-## [Sprint 79] - 2026-11-02 - Modularization Phase 2: Refactor const_eval.h, ast_stmt.h, and main.c
+## [Sprint 80] - 2026-11-02 - Global Context Consolidation: g_compiler & global_vars to Context
+
+Eliminated thread-local `g_compiler` from the CFG and optimizer subsystem, and migrated process-wide file-scope `global_vars` storage and name hashes into explicit fields on `struct ZeroCCCompiler`:
+
+- **Eliminated `g_compiler` in `src/zero_cc/opt/` and CFG**:
+  - Thread-local `extern __thread ZeroCCCompiler *g_compiler;` removed from `cfg.c`, `opt_dce.c`, `opt_loop.c`, `opt_mem2reg.c`, and `opt_vectorize.c`.
+  - Updated CFG builder and cache functions (`cfg_build(c)`, `cfg_invalidate(c)`, `zero_cc_cfg_bump_version(c)`, `zero_cc_cfg_version(c)`, `cfg_dump(c, out)`) in `src/zero_cc/opt/cfg.h` to accept explicit `ZeroCCCompiler *c`.
+  - Optimizer passes (`opt_eliminate_dead_code`, `opt_licm`, `opt_promote_mem2reg`, `opt_auto_vectorize`, `try_fuse_branchless`) now operate purely via explicit `c` parameters without thread-local indirection.
+- **Migrated `global_vars` into `ZeroCCCompiler`**:
+  - Added `global_vars`, `global_var_count`, `global_var_capacity`, `g_name_hash`, `g_name_hash_sig`, and `g_name_hash_cap` directly to `struct ZeroCCCompiler` in `src/zero_cc/types/symbols.h`.
+  - Converted `find_global_var(c, name)` and `add_global_var(c, ...)` in `src/zero_cc/types/global_vars.h` to operate on `c->global_vars` and `c->g_name_hash`.
+  - Removed process-wide `saved_globals` backup/restore dance in `src/main.c`; multi-TU merging (`zero_cc_tu_merge` in `src/zero_cc/core/multi_tu.h`) now directly re-bases incoming TU global data offsets and appends them to the base compiler's registry.
+  - Added full cleanup of `c->global_vars`, `c->g_name_hash`, and `c->g_name_hash_sig` in `zero_cc_compiler_free(c)` in `src/zero_cc/core/compiler_free.c`.
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `make test-opt`: 117/117 passed, 0 failed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/torture_run.py --quick`: gate OK (3,038 PASS, 0 regressions).
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 154 files, 0 errors.
 
 Decomposed the next three large files (`const_eval.h`, `ast_stmt.h`, and `main.c`) into cohesive, single-responsibility modules, keeping all test suites, driver tests, and optimizer sweeps 100% green:
 

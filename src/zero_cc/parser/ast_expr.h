@@ -232,7 +232,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                             if (en->tag == NODE_IDENT) {
                                 ZeroCCSym *esym = zero_cc_find_local(c, en->s.str);
                                 if (!esym) {
-                                    ZeroCCGlobalVar *egv = find_global_var(en->s.str);
+                                    ZeroCCGlobalVar *egv = find_global_var(c, en->s.str);
                                     if (egv && (egv->type.tag == TYPE_STRUCT || egv->type.tag == TYPE_UNION)) is_struct_val = true;
                                 } else if (esym->type.tag == TYPE_STRUCT || esym->type.tag == TYPE_UNION) {
                                     is_struct_val = true;

@@ -111,7 +111,7 @@ static void tls_finalize(ZeroCCCompiler *c)
         const ZeroCCTLSVar *t = &c->tls_vars[i];
         if (!t->has_init) continue;
         tdata_len = (tdata_len + t->align - 1) & ~(t->align - 1);
-        ZeroCCGlobalVar *gv = find_global_var(t->name);
+        ZeroCCGlobalVar *gv = find_global_var(c, t->name);
         if (gv) gv->data_offset = tdata_len;
         tdata_len += t->size;
     }
@@ -122,7 +122,7 @@ static void tls_finalize(ZeroCCCompiler *c)
         if (t->has_init) continue;
         size_t total = tdata_len + tbss_len;
         total = (total + t->align - 1) & ~(t->align - 1);
-        ZeroCCGlobalVar *gv = find_global_var(t->name);
+        ZeroCCGlobalVar *gv = find_global_var(c, t->name);
         if (gv) gv->data_offset = total;
         tbss_len = (total - tdata_len) + t->size;
     }

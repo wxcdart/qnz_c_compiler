@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-11-02T13:30:39Z
+timestamp: 2026-11-02T14:21:48Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -20,7 +20,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
    - Tokenizes preprocessed/raw C source, handling `#include`, `#define` macros, `#if` arithmetic evaluation (`cpp_expr.h`), virtual embedded headers (`virtual_headers.h`), and `#pragma pack` / diagnostic pragmas (`src/zero_cc/core/pragma_state.c`).
 2. **Parser & AST Arena (`src/zero_cc/parser/`)**
    - Parses declarations (`definitions.h`, `decl_struct.h`, `decl_enum.h`, `decl_local.h`), type expressions (`type_parser.h`), statements (`ast_stmt.h`), constant expressions (`const_eval.h`), and expressions (`ast_expr.h`) into a contiguous `ZeroCCASTArena` indexed by `ASTRef` (`uint32_t`).
-   - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.h`, `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/const_ptr_eval.h`).
+   - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.h`, `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/const_ptr_eval.h`). Global variables (`c->global_vars`) and their name-to-index open-addressing hash table (`c->g_name_hash`) are compiler-instance owned (Sprint 77).
 3. **Semantic Analysis (`src/zero_cc/semantic/`)**
    - Validates types, scopes, and promotions (`visitor.c`, `expr.c`, `stmt.c`, `promote.c`) and annotates AST nodes with `TypeInfo *`.
    - The **live pass** is `sem_analyze_ref` over each function body (invoked from `zero_cc_compile_function` in `src/zero_cc/jit/compile.h` after the previously-compiled functions are registered in the global scope); new diagnostics set `ZeroCCCompiler.had_error` and stop compilation. The standalone `semantic_analyze()` facade (with its `DiagBuf`) is exercised separately by `test/semantic/semantic_facade_test.c`.
@@ -37,7 +37,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
    - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions, literals, member/index access), `ast_lowering_call.c` (function calls & ABI conventions), `ast_lowering_builtins.c` (GCC/Clang builtins, varargs, constant evaluation, overflow builtins, atomic builtins), `ast_lowering_assign.c` (compound assignment, bitfield assignment, vector compound ops), `ast_lowering_binop.c` (binary operators, unary operators, casts, complex arithmetic helpers, bitfield reductions), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`.
    - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md).
 5. **IR Optimization Passes (`src/zero_cc/opt/opt_*.c`)**
-   - Runs modular optimization passes over `IRArena` via standalone `opt_pass.c` before register allocation.
+   - Runs modular optimization passes over `IRArena` via standalone `opt_pass.c` before register allocation. All passes and CFG builders (`cfg.c`, `cfg.h`) operate explicitly on `ZeroCCCompiler *c` without relying on thread-local globals (`g_compiler`).
    - See [Optimization Passes & Safety Invariants](./optimization-passes.md).
 6. **Live Interval Analysis & Linear Scan Register Allocation (`src/zero_cc/ir/live_range.h`, `src/zero_cc/ir/regalloc.h`)**
    - Computes live ranges (extending across loop backedges) and assigns virtual temporaries to ISA physical registers or spill slots.

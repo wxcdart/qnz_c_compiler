@@ -6,9 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* External reference to the global compiler pointer (defined in ir.c). */
-extern __thread ZeroCCCompiler *g_compiler;
-
 /**
  * Local Memory-to-Register Promotion Pass (Safe Version)
  *
@@ -158,7 +155,7 @@ static int get_frame_offset(Instr *instr) {
  * the now-dead stack slot (stale value) - the Sprint 35 Phase 0 regression
  * in test/jit/break_continue.c.
  */
-static void opt_promote_loop_carried(void) {
+static void opt_promote_loop_carried(ZeroCCCompiler *c) {
     size_t count = ir_get_count();
     if (count == 0) return;
 
@@ -191,8 +188,8 @@ static void opt_promote_loop_carried(void) {
      * may target a label inside the loop) and the first-exit position
      * are derived from the CFG's pred/succ edges instead of a full
      * instruction pre-scan. */
-    if (!g_compiler || !cfg_build()) return;
-    ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+    if (!c || !cfg_build(c)) return;
+    ZeroCCCFG *cfg = &c->cfg_cache;
 
     for (int l = 0; l < cfg->loop_count; l++) {
         int h = cfg->loops[l].header;
@@ -441,10 +438,8 @@ static void opt_promote_loop_carried(void) {
  * - Only promote simple scalar variables
  */
 void opt_promote_mem2reg(ZeroCCCompiler *c) {
-    (void)c;
-
     /* First promote loop-carried variables across loop boundaries */
-    opt_promote_loop_carried();
+    opt_promote_loop_carried(c);
 
     Mem2RegState state;
     memset(&state, 0, sizeof(state));

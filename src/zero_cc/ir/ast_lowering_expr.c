@@ -86,7 +86,7 @@ int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
     bool generic_base = false;
     if (base_node->tag == NODE_IDENT) {
         ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-        ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(base_node->s.str);
+        ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(c, base_node->s.str);
         if (sym && !sym->is_extern) {
             addr = zc_sym_addr(c, sym, 0);  /* Sprint 72: data section for address-taken statics */
         } else if (ggv) {
@@ -158,7 +158,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             /* Sprint 72: address-taken statics live in the data section. */
             return zc_sym_addr(c, sym, 0);
         }
-        ZeroCCGlobalVar *gv = find_global_var(operand->s.str);
+        ZeroCCGlobalVar *gv = find_global_var(c, operand->s.str);
         if (gv) {
             int addr_temp = c->next_temp_id++;
             ir_emit_global_addr(c, addr_temp, gv);
@@ -219,7 +219,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
                 ir_emit_lea(addr_temp, TEMP_NONE, total_offset);
                 return addr_temp;
             }
-            ZeroCCGlobalVar *bgv = find_global_var(base_node->s.str);
+            ZeroCCGlobalVar *bgv = find_global_var(c, base_node->s.str);
             if (bgv) {
                 ir_emit_global_addr(c, addr_temp, bgv);
                 if (member_offset != 0) {
@@ -490,7 +490,7 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
         case NODE_IDENT: {
             ZeroCCSym *s = zero_cc_find_local(c, n->s.str);
             if (s) return s->type.tag == TYPE_FLOAT || s->type.tag == TYPE_DOUBLE;
-            ZeroCCGlobalVar *g = find_global_var(n->s.str);
+            ZeroCCGlobalVar *g = find_global_var(c, n->s.str);
             if (g) return g->type.tag == TYPE_FLOAT || g->type.tag == TYPE_DOUBLE;
             return 0;
         }
@@ -779,7 +779,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 /* TLS statics are registered globals (is_tls) - the address
                  * op below selects OP_TLS_LEA (AOT) automatically. */
 
-                ZeroCCGlobalVar *gv = find_global_var(name);
+                ZeroCCGlobalVar *gv = find_global_var(c, name);
                 if (gv) {
 
                     int addr_temp = c->next_temp_id++;
@@ -1512,7 +1512,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (bs && !bs->is_extern) {
                     st = (base_is_ptr && bs->type.tag == TYPE_PTR) ? bs->type.base : &bs->type;
                 } else {
-                    ZeroCCGlobalVar *bg = find_global_var(base_node->s.str);
+                    ZeroCCGlobalVar *bg = find_global_var(c, base_node->s.str);
                     if (bg) {
                         st = (bg->type.tag == TYPE_PTR) ? bg->type.base : &bg->type;
                     }
@@ -1571,7 +1571,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
             if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-                ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(base_node->s.str);
+                ZeroCCGlobalVar *ggv = (sym && !sym->is_extern) ? NULL : find_global_var(c, base_node->s.str);
                 if (ggv) {
                         /* Global struct/union base: load the variable address,
                          * add the member offset, then load/deref. */

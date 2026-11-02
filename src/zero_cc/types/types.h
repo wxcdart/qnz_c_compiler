@@ -25,6 +25,7 @@
 #include "zero_cc/types/token.h"
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/types/symbols.h"
+#include "zero_cc/types/global_vars.h"
 #include "zero_cc/types/type_funcs.h"
 #include "zero_cc/types/registry.h"
 #include "zero_cc/types/emit_helpers.h"

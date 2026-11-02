@@ -51,23 +51,25 @@ typedef struct ZeroCCCFG {
     bool valid;
 } ZeroCCCFG;
 
+typedef struct ZeroCCCompiler ZeroCCCompiler;
+
 /* Build (or return the cached) CFG for the current function's IR.
  * Returns false on OOM. */
-bool cfg_build(void);
+bool cfg_build(ZeroCCCompiler *c);
 
 /* Explicit invalidation - call after mutating the IR outside the
  * version-bump hooks (ir_reset, optimizer passes, callee-save append). */
-void cfg_invalidate(void);
+void cfg_invalidate(ZeroCCCompiler *c);
 
 /* Release the cached CFG snapshot (blocks, per-block pred arrays, loops).
  * Public so zero_cc_compiler_free can tear down the last-built cache. */
 void zero_cc_cfg_cache_free(ZeroCCCFG *cfg);
 
 /* Bump the IR version counter (used by the invalidation hooks). */
-void zero_cc_cfg_bump_version(void);
+void zero_cc_cfg_bump_version(ZeroCCCompiler *c);
 
 /* Current IR version counter. */
-uint64_t zero_cc_cfg_version(void);
+uint64_t zero_cc_cfg_version(ZeroCCCompiler *c);
 
 /* Stable plain-text dump:
  *   fn <name>
@@ -76,6 +78,6 @@ uint64_t zero_cc_cfg_version(void);
  *     bb<from>->bb<header>
  *   <n> blocks, <r> reachable, <l> loops
  */
-void cfg_dump(FILE *out);
+void cfg_dump(ZeroCCCompiler *c, FILE *out);
 
 #endif /* ZERO_CC_OPT_CFG_H */

@@ -38,6 +38,7 @@ typedef struct {
  * Full vectorization state
  */
 typedef struct {
+    ZeroCCCompiler *comp;
     VectorizationInfo loops[MAX_VECTOR_LOOPS];
     int loop_count;
     int capacity;  /* Maximum number of loops */
@@ -352,8 +353,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
      * [header_idx, exit_idx].  Any other conditional in the span is
      * data-dependent control flow (e.g. an if/else in the body) and makes
      * the loop non-vectorizable. */
-    if (g_compiler && cfg_build()) {
-        ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+    ZeroCCCompiler *comp = state->comp;
+    if (comp && cfg_build(comp)) {
+        ZeroCCCFG *cfg = &comp->cfg_cache;
         for (int b = 0; b < cfg->block_count && !has_mid_body_cond; b++) {
             ZeroCCBlock *blk = &cfg->blocks[b];
             if (blk->end <= (size_t)loop->header_idx) continue;  /* before span */
@@ -400,8 +402,8 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     bool bound_ok = false;
     {
         int test_idx = -1;
-        if (g_compiler && cfg_build()) {
-            ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+        if (comp && cfg_build(comp)) {
+            ZeroCCCFG *cfg = &comp->cfg_cache;
             for (int b = 0; b < cfg->block_count && test_idx < 0; b++) {
                 ZeroCCBlock *blk = &cfg->blocks[b];
                 if (blk->end <= (size_t)loop->header_idx) continue;
@@ -855,6 +857,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
  */
 void opt_auto_vectorize(ZeroCCCompiler *c) {
     VectorizationStateFull state = {0};
+    state.comp = c;
     state.target_isa = c->regalloc.target_isa;
     state.vector_width = vectorization_get_width(state.target_isa);
     state.loop_count = 0;

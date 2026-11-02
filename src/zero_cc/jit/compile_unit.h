@@ -273,11 +273,11 @@ static void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx,
         c->had_error = 1;
         return;
     }
-    if (add_global_var(var_name, vtype, (size_t)off, vsz, is_static, has_init) < 0) {
+    if (add_global_var(c, var_name, vtype, (size_t)off, vsz, is_static, has_init) < 0) {
         diag_report_error_at_token(c, "out of memory registering global variable");
         return;
     }
-    ZeroCCGlobalVar *gv = find_global_var(var_name);
+    ZeroCCGlobalVar *gv = find_global_var(c, var_name);
     if (gv) gv->is_tls = true;
     /* Register in semantic scope (global scope is current_scope) */
     TypeInfo *ti = zero_cc_type_to_typeinfo(perm, vtype);
@@ -300,7 +300,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
     c->tls_bss_size = 0;
     c->tls_var_count = 0;
     c->function_count = 0;
-    reset_global_vars(); /* Reset global variable state */
+    reset_global_vars(c); /* Reset global variable state */
     enum_const_table_reset(c); /* Reset enum constants hash table */
     // Create permanent and temporary arenas for semantic analysis
     Arena *perm = arena_create(1024 * 1024);
@@ -568,11 +568,11 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     const char *alias_tgt = NULL;
                     while (zero_cc_parse_alias_attr(c, &c->token_pos, &alias_tgt)) {
                         size_t avsz = ext_decl_type.size > 0 ? ext_decl_type.size : 8;
-                        int gi = add_global_var(ext_name, ext_decl_type, 0, avsz, false, false);
+                        int gi = add_global_var(c, ext_name, ext_decl_type, 0, avsz, false, false);
                         if (gi >= 0) {
-                            ZeroCCGlobalVar *agv = &global_vars[gi];
+                            ZeroCCGlobalVar *agv = &c->global_vars[gi];
                             snprintf(agv->alias_target, sizeof(agv->alias_target), "%s", alias_tgt);
-                            ZeroCCGlobalVar *tg = find_global_var(alias_tgt);
+                            ZeroCCGlobalVar *tg = find_global_var(c, alias_tgt);
                             if (tg) agv->data_offset = tg->data_offset;
                         }
                     }
@@ -923,7 +923,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         } else if (c->tokens[c->token_pos].type == TK_AMP &&
                                    c->token_pos + 1 < c->token_count &&
                                    c->tokens[c->token_pos + 1].type == TK_IDENT &&
-                                   find_global_var(c->tokens[c->token_pos + 1].str_val) &&
+                                   find_global_var(c, c->tokens[c->token_pos + 1].str_val) &&
                                    c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                             /* `char (*p)[3] = &ca[0];` - address of a global
                              * (array) object, optionally subscripted:
@@ -934,7 +934,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             char gv_name[128];
                             snprintf(gv_name, sizeof(gv_name), "%s", c->tokens[c->token_pos].str_val);
                             c->token_pos++;
-                            ZeroCCGlobalVar *gv = find_global_var(gv_name);
+                            ZeroCCGlobalVar *gv = find_global_var(c, gv_name);
                             int64_t addend = 0;
                             if (c->token_pos < c->token_count &&
                                 c->tokens[c->token_pos].type == TK_LBRACKET) {
@@ -965,7 +965,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                              * at data offset 0). */
                             dr->target_data_offset = (gv ? gv->data_offset : 0) +
                                                      (size_t)(addend > 0 ? addend : 0);
-                            dr->target_global_idx = gv ? (int)(gv - global_vars) : -1;
+                            dr->target_global_idx = gv ? (int)(gv - c->global_vars) : -1;
                             zero_cc_emit_u64(&c->data_section, 0);
                         } else if (c->tokens[c->token_pos].type == TK_IDENT &&
                                    zero_cc_find_function(c, c->tokens[c->token_pos].str_val) &&
@@ -997,7 +997,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         decl_type.array_len = (size_t)pdecl_arr_len;
                         decl_type.size = (size_t)pdecl_arr_len * (decl_type.base ? decl_type.base->size : 8);
                     }
-                    if (add_global_var(d.name, decl_type, voff, vsize, is_static, vinit) < 0) {
+                    if (add_global_var(c, d.name, decl_type, voff, vsize, is_static, vinit) < 0) {
                         diag_report_error_at_token(c, "out of memory registering global variable");
                     }
                     zero_cc_ast_arena_free(&darena);
@@ -1398,7 +1398,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         zero_cc_buf_put_bytes(&c->data_section, abuf, clit_sz);
                                         free(abuf);
                                     }
-                                    int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+                                    int anon_idx = add_global_var(c, anon_name, clit_type, anon_offset, clit_sz, true, true);
                                     if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                         ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                                         dr->data_patch_offset = var_offset;
@@ -1471,7 +1471,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         zero_cc_buf_put_bytes(&c->data_section, abuf, clit_sz);
                                         free(abuf);
                                     }
-                                    int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+                                    int anon_idx = add_global_var(c, anon_name, clit_type, anon_offset, clit_sz, true, true);
                                     if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                         ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                                         dr->data_patch_offset = var_offset;
@@ -1654,7 +1654,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         if (r < c->token_count && c->tokens[r].type == TK_IDENT) {
                                             snprintf(ref_name, sizeof(ref_name), "%s", c->tokens[r].str_val);
                                             r++;
-                                            ZeroCCGlobalVar *pgv2 = find_global_var(ref_name);
+                                            ZeroCCGlobalVar *pgv2 = find_global_var(c, ref_name);
                                             size_t elem_sz = 8;
                                             if (pgv2) {
                                                 if (pgv2->type.tag == TYPE_ARRAY && pgv2->type.base &&
@@ -1696,7 +1696,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                     }
                                                     if (r < c->token_count && c->tokens[r].type == TK_RBRACKET) r++;
                                                     extra_off += n * (int64_t)elem_sz;
-                                                    ZeroCCGlobalVar *sgv = find_global_var(ref_name);
+                                                    ZeroCCGlobalVar *sgv = find_global_var(c, ref_name);
                                                     if (sgv && sgv->type.tag == TYPE_ARRAY && sgv->type.base) {
                                                         /* decay: later +/- steps scale by
                                                          * the element size (rare; best-effort) */
@@ -1710,7 +1710,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                     if (r >= c->token_count || c->tokens[r].type != TK_IDENT) { addr_ok = false; break; }
                                                     const char *mname = c->tokens[r].str_val;
                                                     r++;
-                                                    ZeroCCGlobalVar *mgv = find_global_var(ref_name);
+                                                    ZeroCCGlobalVar *mgv = find_global_var(c, ref_name);
                                                     if (!mgv) { addr_ok = false; break; }
                                                     ZeroCCType mt = mgv->type;
                                                     if (arrow) {
@@ -1741,8 +1741,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     }
                                     if (addr_ok) {
                                         c->token_pos = r;
-                                        ZeroCCGlobalVar *ref_gv2 = find_global_var(ref_name);
-                                        int ref_idx2 = ref_gv2 ? (int)(ref_gv2 - global_vars) : -1;
+                                        ZeroCCGlobalVar *ref_gv2 = find_global_var(c, ref_name);
+                                        int ref_idx2 = ref_gv2 ? (int)(ref_gv2 - c->global_vars) : -1;
                                         zero_cc_emit_u64(&c->data_section, 0);
                                         if (ref_idx2 >= 0 && c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                             ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
@@ -1798,7 +1798,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     int64_t arr_sub_off = 0;
                                     if (c->token_pos < c->token_count &&
                                         c->tokens[c->token_pos].type == TK_LBRACKET) {
-                                        ZeroCCGlobalVar *sgv0 = find_global_var(ref_name);
+                                        ZeroCCGlobalVar *sgv0 = find_global_var(c, ref_name);
                                         ZeroCCType stt = sgv0 ? sgv0->type : zero_cc_type_int();
                                         int64_t esz = (stt.tag == TYPE_ARRAY && stt.base) ?
                                             stt.base->size : stt.size;
@@ -1811,8 +1811,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                                         arr_sub_off = n * (esz > 0 ? esz : 8);
                                     }
-                                    ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
-                                    int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                    ZeroCCGlobalVar *ref_gv = find_global_var(c, ref_name);
+                                    int ref_idx = ref_gv ? (int)(ref_gv - c->global_vars) : -1;
                                     ZeroCCFunction *ref_fn = NULL;
                                     if (ref_idx < 0) {
                                         /* Cross-TU: the referenced global is only
@@ -1870,8 +1870,8 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 char ref_name[128];
                                 snprintf(ref_name, sizeof(ref_name), "%s", c->tokens[c->token_pos].str_val);
                                 c->token_pos++;
-                                ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
-                                int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                ZeroCCGlobalVar *ref_gv = find_global_var(c, ref_name);
+                                int ref_idx = ref_gv ? (int)(ref_gv - c->global_vars) : -1;
                                 ZeroCCFunction *ref_fn = NULL;
                                 if (ref_idx < 0) {
                                     for (size_t fi = 0; fi < c->function_count; fi++) {
@@ -1990,7 +1990,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 if (dv == 0 && array_unsized) dv = (d == 0) ? array_len : 1; /* size inferred */
                                 reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
-                            if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
+                            if (add_global_var(c, var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
                             }
                             c->token_pos++;
@@ -2094,7 +2094,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 if (dv == 0 && array_unsized) dv = (d == 0) ? array_len : 1; /* size inferred */
                                 reg_type = zero_cc_type_array(&reg_type, (ssize_t)(dv >= 0 ? dv : 0));
                             }
-                            if (add_global_var(var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
+                            if (add_global_var(c, var_name, reg_type, var_offset, size, is_static, has_initializer) < 0) {
                                 diag_report_error_at_token(c, "out of memory registering global variable");
                             }
                         }

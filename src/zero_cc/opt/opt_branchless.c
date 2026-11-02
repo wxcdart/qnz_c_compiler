@@ -268,7 +268,7 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
     } else if (!temp_is_gpr(c, else_arm.root, else_arm.first, 0)) return 0;
 
     /* CFG predecessor checks. */
-    if (!cfg_build()) return 0;
+    if (!cfg_build(c)) return 0;
     ZeroCCCFG *cfg = &c->cfg_cache;
     int b_je   = cfg_block_at(cfg, (size_t)i);
     int b_then = cfg_block_at(cfg, (size_t)jmp_idx);

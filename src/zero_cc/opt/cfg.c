@@ -11,9 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* External reference to the global compiler pointer (defined in ir.c). */
-extern __thread ZeroCCCompiler *g_compiler;
-
 /* Terminal instructions end a basic block. */
 static bool cfg_is_terminal(int op) {
     switch (op) {
@@ -47,16 +44,16 @@ static bool cfg_is_branch(int op) {
     }
 }
 
-void zero_cc_cfg_bump_version(void) {
-    if (g_compiler) g_compiler->cfg_version++;
+void zero_cc_cfg_bump_version(ZeroCCCompiler *c) {
+    if (c) c->cfg_version++;
 }
 
-uint64_t zero_cc_cfg_version(void) {
-    return g_compiler ? g_compiler->cfg_version : 0;
+uint64_t zero_cc_cfg_version(ZeroCCCompiler *c) {
+    return c ? c->cfg_version : 0;
 }
 
-void cfg_invalidate(void) {
-    zero_cc_cfg_bump_version();
+void cfg_invalidate(ZeroCCCompiler *c) {
+    zero_cc_cfg_bump_version(c);
 }
 
 static void cfg_free(ZeroCCCFG *cfg) {
@@ -96,8 +93,7 @@ static void cfg_add_succ(ZeroCCBlock *blk, int succ, int nblocks) {
     blk->succ[blk->succ_count++] = succ;
 }
 
-bool cfg_build(void) {
-    ZeroCCCompiler *c = g_compiler;
+bool cfg_build(ZeroCCCompiler *c) {
     if (!c) return false;
     if (c->cfg_cache.valid && c->cfg_cache.version == c->cfg_version) {
         return true;
@@ -275,10 +271,9 @@ bool cfg_build(void) {
     return true;
 }
 
-void cfg_dump(FILE *out) {
+void cfg_dump(ZeroCCCompiler *c, FILE *out) {
     if (!out) return;
-    ZeroCCCompiler *c = g_compiler;
-    if (!c || !cfg_build()) return;
+    if (!c || !cfg_build(c)) return;
     ZeroCCCFG *cfg = &c->cfg_cache;
     const char *fn_name = "<anon>";
     if (c->function_count > 0 && c->lowering.current_func_idx < c->function_count) {

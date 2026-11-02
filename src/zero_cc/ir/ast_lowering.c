@@ -278,8 +278,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         /* File-scope complex objects (`_Complex int a[1024];`) never pass
          * through a function's locals/params - scan the global table too. */
         if (!cx_t) {
-            for (size_t i = 0; i < global_var_count; i++) {
-                ZeroCCType *gt = &global_vars[i].type;
+            for (size_t i = 0; i < c->global_var_count; i++) {
+                ZeroCCType *gt = &c->global_vars[i].type;
                 while (gt && (gt->tag == TYPE_ARRAY || gt->tag == TYPE_PTR) && gt->base) {
                     gt = gt->base;
                 }
@@ -887,7 +887,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Debug: Dump CFG if requested (Sprint 35 Phase 2) */
     if (c->dump_cfg) {
-        cfg_dump(stderr);
+        cfg_dump(c, stderr);
         fprintf(stderr, "\n");
     }
 

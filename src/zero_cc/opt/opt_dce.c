@@ -6,9 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* External reference to global compiler pointer */
-extern __thread ZeroCCCompiler *g_compiler;
-
 /**
  * Flag DCE: Remove CMP instructions whose flags are never used
  *
@@ -161,7 +158,7 @@ static int instr_has_side_effects(Instr *instr) {
  * Mark call argument temps as live
  * Handles args 1-2 (temp_src1/src2), args 3-4 (packed in imm), args 5+ (call args table)
  */
-static void mark_call_args_live(Instr *instr) {
+static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
     int arg_count = instr->temp_dest;
 
     // Args 1-2 from temp_src1/temp_src2
@@ -188,8 +185,8 @@ static void mark_call_args_live(Instr *instr) {
     }
 
     // Args 5+ from call args table
-    if (g_compiler) {
-        IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
+    if (c) {
+        IRCallArgsArena *call_arena = &c->ir_call_args;
         for (size_t t = 0; t < call_arena->count; t++) {
             IRCallArgs *entry = &call_arena->table[t];
             if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer())) {
@@ -209,12 +206,12 @@ static void mark_call_args_live(Instr *instr) {
 /**
  * Mark all temps used by an instruction as live
  */
-static void mark_uses(Instr *instr) {
+static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
     switch (instr->op) {
         case OP_CALL:
         case OP_SYSCALL:
             // Special handling for call/syscall - mark all argument temps
-            mark_call_args_live(instr);
+            mark_call_args_live(c, instr);
             return;
 
         case OP_ATOMIC_CMPXCHG:
@@ -249,7 +246,7 @@ static void mark_uses(Instr *instr) {
  * Run one backward liveness sweep (returns 1 on success).
  * Fills g_live_temp; caller manages clearing/re-marking roots.
  */
-static int liveness_backward_sweep(int count) {
+static int liveness_backward_sweep(ZeroCCCompiler *c, int count) {
     for (int i = count - 1; i >= 0; i--) {
         Instr *instr = ir_get(i);
         if (!instr || instr->op == OP_DEAD) continue;
@@ -257,7 +254,7 @@ static int liveness_backward_sweep(int count) {
         /* Special handling for OP_CALL/OP_SYSCALL: temp_dest holds arg_count,
          * not a temp ID. Always mark arguments as live - both have side effects. */
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
-            mark_uses(instr);
+            mark_uses(c, instr);
             continue;
         }
 
@@ -266,10 +263,10 @@ static int liveness_backward_sweep(int count) {
          * live too. */
         if (instr->temp_dest != TEMP_NONE) {
             if (is_live(instr->temp_dest) || instr_has_side_effects(instr)) {
-                mark_uses(instr);
+                mark_uses(c, instr);
             }
         } else {
-            mark_uses(instr);
+            mark_uses(c, instr);
         }
     }
     return 1;
@@ -288,7 +285,7 @@ static int liveness_backward_sweep(int count) {
  * liveness entirely (mark everything live) - DCE must stay conservative.
  * Returns 1 if liveness is valid, 0 if DCE should skip deletion.
  */
-static int compute_liveness_fixpoint(int count) {
+static int compute_liveness_fixpoint(ZeroCCCompiler *c, int count) {
     clear_liveness();
     /* Return values are live at function exit */
     mark_live(VREG_0);
@@ -305,7 +302,7 @@ static int compute_liveness_fixpoint(int count) {
                 break;
             }
         }
-        liveness_backward_sweep(count);
+        liveness_backward_sweep(c, count);
         if (sweep > 0 && memcmp(g_live_prev, g_live_temp, sizeof(g_live_temp)) == 0) {
             return 1; /* converged */
         }
@@ -318,15 +315,13 @@ static int compute_liveness_fixpoint(int count) {
  * Dead code elimination pass
  */
 void opt_eliminate_dead_code(ZeroCCCompiler *c) {
-    (void)c;
-
     int count = (int)ir_get_count();
     if (count == 0) {
         return;
     }
 
     /* Phase 1: liveness to a fixpoint (see compute_liveness_fixpoint). */
-    if (!compute_liveness_fixpoint(count)) {
+    if (!compute_liveness_fixpoint(c, count)) {
         /* Non-convergent liveness: mark everything live so that nothing
          * is deleted.  DCE is an optimization; it must never delete a
          * live instruction. */
@@ -358,8 +353,8 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 *dst = *instr;
 
                 // Update call args table index if this is a call/syscall
-                if ((instr->op == OP_CALL || instr->op == OP_SYSCALL) && g_compiler) {
-                    IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
+                if ((instr->op == OP_CALL || instr->op == OP_SYSCALL) && c) {
+                    IRCallArgsArena *call_arena = &c->ir_call_args;
                     for (size_t t = 0; t < call_arena->count; t++) {
                         IRCallArgs *entry = &call_arena->table[t];
                         if (entry && entry->instr_index == (size_t)i) {
@@ -374,7 +369,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     }
 
     // Update IR count
-    if (g_compiler) {
-        g_compiler->ir_arena.count = (size_t)write_idx;
+    if (c) {
+        c->ir_arena.count = (size_t)write_idx;
     }
 }

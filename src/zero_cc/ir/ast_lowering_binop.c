@@ -115,7 +115,7 @@ static int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         case NODE_IDENT: {
             ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
             if (sym) return zero_cc_narrow_int_width(&sym->type, sign);
-            ZeroCCGlobalVar *gv = find_global_var(n->s.str);
+            ZeroCCGlobalVar *gv = find_global_var(c, n->s.str);
             if (gv) return zero_cc_narrow_int_width(&gv->type, sign);
             return 0;
         }
@@ -193,7 +193,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
             const ZeroCCType *zt = sym ? &sym->type : NULL;
             if (!zt) {
-                ZeroCCGlobalVar *gv = find_global_var(n->s.str);
+                ZeroCCGlobalVar *gv = find_global_var(c, n->s.str);
                 if (gv) zt = &gv->type;
             }
             return zero_cc_ztype_int_info(zt, is_unsigned);
@@ -212,7 +212,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 ZeroCCSym *sym = zero_cc_find_local(c, base->s.str);
                 const ZeroCCType *zt = sym ? &sym->type : NULL;
                 if (!zt) {
-                    ZeroCCGlobalVar *gv = find_global_var(base->s.str);
+                    ZeroCCGlobalVar *gv = find_global_var(c, base->s.str);
                     if (gv) zt = &gv->type;
                 }
                 if (zt && zt->base) return zero_cc_ztype_int_info(zt->base, is_unsigned);
@@ -298,7 +298,7 @@ static int zc_binop_bitfield_reduce(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         const ZeroCCType *bt = NULL;
         if (base && base->tag == NODE_IDENT) {
             ZeroCCSym *bs = zero_cc_find_local(c, base->s.str);
-            ZeroCCGlobalVar *bg = bs ? NULL : find_global_var(base->s.str);
+            ZeroCCGlobalVar *bg = bs ? NULL : find_global_var(c, base->s.str);
             const ZeroCCType *raw = bs ? &bs->type : (bg ? &bg->type : NULL);
             if (raw) {
                 bt = (raw->tag == TYPE_PTR) ? raw->base : raw;
@@ -1317,7 +1317,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                      * new value, miscompiling `return x++;` etc. */
                     return (node->flags & 1) ? val_temp : res_temp;
                 }
-                ZeroCCGlobalVar *gv = find_global_var(var);
+                ZeroCCGlobalVar *gv = find_global_var(c, var);
                 if (gv) {
                     int gaddr_temp = c->next_temp_id++;
                     ir_emit_global_addr(c, gaddr_temp, gv);
@@ -1417,7 +1417,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         int base_addr = TEMP_NONE;
                         if (base_node && base_node->tag == NODE_IDENT) {
                             ZeroCCSym *bsym = zero_cc_find_local(c, base_node->s.str);
-                            ZeroCCGlobalVar *bgv = bsym ? NULL : find_global_var(base_node->s.str);
+                            ZeroCCGlobalVar *bgv = bsym ? NULL : find_global_var(c, base_node->s.str);
                             if (bsym) {
                                 base_addr = c->next_temp_id++;
                                 if (is_arrow) {
@@ -1742,7 +1742,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         if (ptr_sym && ptr_sym->type.base && ptr_sym->type.base->size > 0) {
                             p_size = ptr_sym->type.base->size;
                         }
-                        ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                        ZeroCCGlobalVar *gv = find_global_var(c, inner->s.str);
                         if (gv && gv->type.base && gv->type.base->size > 0) {
                             p_size = gv->type.base->size;
                         }
@@ -1756,7 +1756,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         if (ptr_sym && ptr_sym->type.base && (ptr_sym->type.base->tag == TYPE_STRUCT || ptr_sym->type.base->tag == TYPE_UNION)) {
                             is_struct = true;
                         }
-                        ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                        ZeroCCGlobalVar *gv = find_global_var(c, inner->s.str);
                         if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION)) {
                             is_struct = true;
                         }
@@ -1787,7 +1787,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             is_fp = true;
                             if (p_size == 0) p_size = (ptr_sym->type.base->tag == TYPE_FLOAT) ? 4 : 8;
                         }
-                        ZeroCCGlobalVar *gv = find_global_var(inner->s.str);
+                        ZeroCCGlobalVar *gv = find_global_var(c, inner->s.str);
                         if (gv && gv->type.base &&
                             (gv->type.base->tag == TYPE_FLOAT || gv->type.base->tag == TYPE_DOUBLE)) {
                             is_fp = true;

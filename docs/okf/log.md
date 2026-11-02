@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T13:30:39Z
+timestamp: 2026-11-02T14:21:48Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -692,3 +692,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `architecture-pipeline.md`
 - Modularize const_eval.h into type_parser.h, ast_stmt.h into decl_local.h, and main.c into driver_opts.h and driver_asm.h
+
+## 2026-11-02 — Updated `architecture-pipeline.md`
+- Sprint 80: g_compiler & global_vars to compiler context
+
+## 2026-11-02 — Updated `global-data-relocs.md`
+- Sprint 80: migrate global_vars to ZeroCCCompiler instance

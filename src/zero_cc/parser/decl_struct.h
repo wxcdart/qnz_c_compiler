@@ -20,8 +20,8 @@ static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
  * reference base is not a structure or union" (c-torture pr85401). */
 static inline void zero_cc_sync_globals_with_struct(ZeroCCCompiler *c, const char *name, const ZeroCCType *complete) {
     if (!c || !name || name[0] == '\0' || !complete) return;
-    for (size_t i = 0; i < global_var_count; i++) {
-        zero_cc_type_sync_struct(&global_vars[i].type, name, complete);
+    for (size_t i = 0; i < c->global_var_count; i++) {
+        zero_cc_type_sync_struct(&c->global_vars[i].type, name, complete);
     }
     for (size_t i = 0; i < c->function_count; i++) {
         zero_cc_type_sync_struct(&c->functions[i].return_type, name, complete);

@@ -358,7 +358,7 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
         }
     }
     if (!found) {
-        ZeroCCGlobalVar *gv = find_global_var(name);
+        ZeroCCGlobalVar *gv = find_global_var(c, name);
         if (gv && gv->type.size > 0) { ty = gv->type; found = true; }
     }
     if (!found) {
@@ -432,7 +432,7 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
         }
     }
     if (!found) {
-        ZeroCCGlobalVar *gv = find_global_var(name);
+        ZeroCCGlobalVar *gv = find_global_var(c, name);
         if (gv && gv->type.align > 0) { ty = gv->type; found = true; }
     }
     if (!found) {
@@ -916,7 +916,7 @@ static inline int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *p
 static inline bool zc_const_global_scalar(ZeroCCCompiler *c, const char *name,
                                           bool *out_is_float,
                                           int64_t *out_i, double *out_d) {
-    ZeroCCGlobalVar *gv = find_global_var(name);
+    ZeroCCGlobalVar *gv = find_global_var(c, name);
     if (!gv || gv->size == 0) return false;
     if (gv->data_offset + gv->size > c->data_section.length) return false;
     ZeroCCType t = gv->type;

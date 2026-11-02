@@ -746,7 +746,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                     have_a_t = true;
                 } else if (sh_a->tag == NODE_IDENT) {
                     ZeroCCSym *as = zero_cc_find_local(c, sh_a->s.str);
-                    ZeroCCGlobalVar *ag = as ? NULL : find_global_var(sh_a->s.str);
+                    ZeroCCGlobalVar *ag = as ? NULL : find_global_var(c, sh_a->s.str);
                     if (as && as->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&as->type)) {
                         sh_a_t = as->type; have_a_t = true;
                     } else if (ag && ag->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ag->type)) {
@@ -1767,7 +1767,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 const ZeroCCType *zt = NULL;
                 if (sym) zt = &sym->type;
                 if (!zt) {
-                    ZeroCCGlobalVar *gv = find_global_var(target->s.str);
+                    ZeroCCGlobalVar *gv = find_global_var(c, target->s.str);
                     if (gv) zt = &gv->type;
                 }
                 if (zt) {

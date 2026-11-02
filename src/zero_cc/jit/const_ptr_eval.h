@@ -80,7 +80,7 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
          * not swallowed. */
         if (c->token_pos < c->token_count &&
             c->tokens[c->token_pos].type == TK_IDENT &&
-            find_global_var(c->tokens[c->token_pos].str_val)) {
+            find_global_var(c, c->tokens[c->token_pos].str_val)) {
             /* fall through to the IDENT branch below */
         } else {
             c->token_pos = save;
@@ -114,11 +114,11 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
         char nm[128];
         snprintf(nm, sizeof(nm), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
-        ZeroCCGlobalVar *gv = find_global_var(nm);
+        ZeroCCGlobalVar *gv = find_global_var(c, nm);
         int64_t esz = 1;
         if (gv) {
             a->kind = 1;
-            a->gidx = (int)(gv - global_vars);
+            a->gidx = (int)(gv - c->global_vars);
             a->off = (int64_t)gv->data_offset;
             esz = gv->type.size > 0 ? (int64_t)gv->type.size : 1;
             if (gv->type.tag == TYPE_ARRAY && gv->type.base) {
@@ -234,7 +234,7 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
         snprintf(base_nm, sizeof(base_nm), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
         int64_t off = 0;
-        ZeroCCGlobalVar *bgv = find_global_var(base_nm);
+        ZeroCCGlobalVar *bgv = find_global_var(c, base_nm);
         int64_t esz = bgv && bgv->type.tag == TYPE_ARRAY && bgv->type.base ?
             (int64_t)(bgv->type.base->size > 0 ? bgv->type.base->size : 1) : 1;
         for (;;) {
@@ -291,7 +291,7 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
         if (depth != 0) { c->token_pos = save; return false; }
         if (!bgv) { c->token_pos = save; return false; }
         a->kind = 1;
-        a->gidx = (int)(bgv - global_vars);
+        a->gidx = (int)(bgv - c->global_vars);
         a->off = (int64_t)bgv->data_offset + off;
         a->esz = esz;
         if (cast_esz > 0) a->esz = cast_esz;

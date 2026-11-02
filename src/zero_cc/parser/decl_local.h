@@ -76,7 +76,7 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
      * `static struct try const data[14] = { NAN, ... };` read as 0.0). */
     bool has_init = (c->token_pos < c->token_count &&
                      c->tokens[c->token_pos].type == TK_ASSIGN);
-    if (add_global_var(mangled, t, off, alloc, true, has_init) < 0) {
+    if (add_global_var(c, mangled, t, off, alloc, true, has_init) < 0) {
         diag_report_error_at_token(c, "out of memory registering static local '%s'", sym->name);
         return false;
     }
@@ -366,11 +366,11 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                     char nm[128];
                     snprintf(nm, sizeof(nm), "%s", c->tokens[c->token_pos].str_val);
                     c->token_pos++;
-                    ZeroCCGlobalVar *gv = find_global_var(nm);
+                    ZeroCCGlobalVar *gv = find_global_var(c, nm);
                     if (gv) {
                         if (dr) {
                             dr->target_kind = 1;
-                            dr->target_global_idx = (int)(gv - global_vars);
+                            dr->target_global_idx = (int)(gv - c->global_vars);
                         }
                         ok = true;
                     }
@@ -405,11 +405,11 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                     }
                 }
                 if (!ok) {
-                    ZeroCCGlobalVar *gv = find_global_var(nm);
+                    ZeroCCGlobalVar *gv = find_global_var(c, nm);
                     if (gv) {
                         if (dr) {
                             dr->target_kind = 1;
-                            dr->target_global_idx = (int)(gv - global_vars);
+                            dr->target_global_idx = (int)(gv - c->global_vars);
                         }
                         ok = true;
                     } else {
@@ -1105,7 +1105,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                             break;
                         }
                     }
-                    if (!find_global_var(vname) && !prev_fn && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                    if (!find_global_var(c, vname) && !prev_fn && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                         ZeroCCFunction *fn = &c->functions[c->function_count++];
                         fn->text_offset = 0;
                         snprintf(fn->name, sizeof(fn->name), "%s", vname);
@@ -1308,7 +1308,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                         next_sym->is_extern = true;
                         next_sym->stack_offset = 0;
                         c->current_stack_frame = prev_next_frame;
-                        if (!find_global_var(next_vname) && !zero_cc_find_function(c, next_vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        if (!find_global_var(c, next_vname) && !zero_cc_find_function(c, next_vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                             ZeroCCFunction *fn = &c->functions[c->function_count++];
                             fn->text_offset = 0;
                             snprintf(fn->name, sizeof(fn->name), "%s", next_vname);

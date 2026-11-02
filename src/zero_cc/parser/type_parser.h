@@ -386,7 +386,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             }
         }
         /* Check for global variable */
-        ZeroCCGlobalVar *gv = find_global_var(name);
+        ZeroCCGlobalVar *gv = find_global_var(c, name);
         if (gv) {
             ZeroCCType ty = gv->type;
             while (true) {

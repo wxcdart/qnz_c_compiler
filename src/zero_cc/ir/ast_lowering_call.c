@@ -93,7 +93,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * VALUE stored there; (b) the callee is a general expression
              * (a[i](), p->cb(), ...) - its lowered value IS the function
              * pointer to call through. */
-            ZeroCCGlobalVar *callee_gv = (callee_is_ident && !callee_fn && !callee_sym) ? find_global_var(name) : NULL;
+            ZeroCCGlobalVar *callee_gv = (callee_is_ident && !callee_fn && !callee_sym) ? find_global_var(c, name) : NULL;
             /* An inlined body may call through its own function-pointer
              * parameter by name (`fun(depth)` inside an inlined
              * `g(int (*fun)(int))`): in the caller's scope `fun` is
@@ -422,7 +422,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                                 zero_cc_type_is_vector(&arg_struct_sym->type)))) {
                             arg_struct_sz = arg_struct_sym->type.size;
                         } else if (!arg_struct_sym) {
-                            ZeroCCGlobalVar *gv = find_global_var(arg_node->s.str);
+                            ZeroCCGlobalVar *gv = find_global_var(c, arg_node->s.str);
                             if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION ||
                                        (gv->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&gv->type)))) {
                                 arg_struct_sz = gv->type.size;
@@ -469,7 +469,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             ir_emit_lea(big_src_addr, BE(c)->fp_reg, -arg_struct_sym->stack_offset);
                             big_struct_ptr_conv = true;
                         } else if (arg_node && arg_node->tag == NODE_IDENT && !arg_struct_sym) {
-                            ZeroCCGlobalVar *bgv = find_global_var(arg_node->s.str);
+                            ZeroCCGlobalVar *bgv = find_global_var(c, arg_node->s.str);
                             if (bgv && (bgv->type.tag == TYPE_STRUCT || bgv->type.tag == TYPE_UNION)) {
                                 big_src_addr = c->next_temp_id++;
                                 ir_emit_global_addr(c, big_src_addr, bgv);

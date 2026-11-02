@@ -294,44 +294,12 @@ static int compile_jit(CompileOptions *opts) {
          * registry. We snapshot it before each compile and, after the
          * TU's own entries are re-based into the merged data layout,
          * re-append the snapshot (already in merged layout). */
-        ZeroCCGlobalVar *saved_globals = NULL;
         for (int i = 1; i < opts->input_count; i++) {
-            size_t saved_count = global_var_count;
-            if (saved_count > 0) {
-                free(saved_globals);
-                saved_globals = malloc(saved_count * sizeof(ZeroCCGlobalVar));
-                if (saved_globals)
-                    memcpy(saved_globals, global_vars, saved_count * sizeof(ZeroCCGlobalVar));
-            } else {
-                saved_globals = NULL;
-            }
-
             ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i]);
             if (!tu) {
-                free(saved_globals);
                 zero_cc_compiler_free(comp);
                 return 1;
             }
-
-            /* The registry now holds exactly TU_i's globals (offsets into
-             * its own .data). Re-base them by the data base the merge will
-             * use, then restore the earlier TUs' entries. */
-            size_t data_base = zero_cc_align_up(comp->data_section.length, 8);
-            for (size_t g = 0; g < global_var_count; g++) {
-                global_vars[g].data_offset += data_base;
-            }
-            if (saved_globals && zero_cc_global_vars_reserve(saved_count) == 0) {
-                memcpy(&global_vars[global_var_count], saved_globals,
-                       saved_count * sizeof(ZeroCCGlobalVar));
-                for (size_t s = 0; s < saved_count; s++) {
-                    zero_cc_gname_hash_insert(global_vars[global_var_count + s].name,
-                                              global_var_count + s,
-                                              global_var_count + saved_count);
-                }
-                global_var_count += saved_count;
-            }
-            free(saved_globals);
-            saved_globals = NULL;
 
             char err[256];
             if (zero_cc_tu_merge(comp, tu, err, sizeof(err)) != 0) {
@@ -642,9 +610,9 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
     /* Add .bss section (zero-initialized globals above threshold) */
     size_t bss_total = 0;
-    for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].is_bss && !global_vars[i].is_tls) {
-            size_t end = global_vars[i].data_offset + global_vars[i].size;
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls) {
+            size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size;
             if (end > bss_total) bss_total = end;
         }
     }
@@ -766,8 +734,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Add symbols for global variables (.data / .bss sections) */
     int data_section_idx = data_idx;
     int bss_section_idx = bss_idx;
-    for (size_t i = 0; i < global_var_count; i++) {
-        ZeroCCGlobalVar *gv = &global_vars[i];
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        ZeroCCGlobalVar *gv = &comp->global_vars[i];
         if (gv->name[0]) {
             /* GNU alias entry: no storage, no ELF symbol (uses resolve to
              * the target's symbol at lowering time). */
@@ -989,11 +957,11 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                               (int64_t)dr->rodata_offset + (int64_t)dr->target_data_offset);
                 }
             } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
-                       dr->target_global_idx < (int)global_var_count) {
+                       dr->target_global_idx < (int)comp->global_var_count) {
                 /* &global: target the global variable's own symbol (value = data_offset).
                  * target_data_offset may carry a member/element extra offset
                  * (`&((arr + N)->member)`) - emitted as the reloc addend. */
-                const char *tname = global_vars[dr->target_global_idx].name;
+                const char *tname = comp->global_vars[dr->target_global_idx].name;
                 int sym_idx = 0;
                 for (int j = 0; j < elf_ctx.symbol_count; j++) {
                     if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, tname) == 0) { sym_idx = j + 1; break; }
@@ -1001,7 +969,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 if (sym_idx > 0) {
                     int64_t extra = (dr->target_data_offset == (size_t)-1) ? 0 :
                                     (int64_t)dr->target_data_offset -
-                                    (int64_t)global_vars[dr->target_global_idx].data_offset;
+                                    (int64_t)comp->global_vars[dr->target_global_idx].data_offset;
                     elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
                                               sym_idx, reloc_type_data_abs, extra);
                 }

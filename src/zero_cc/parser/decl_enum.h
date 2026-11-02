@@ -127,7 +127,7 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
             for (size_t i = 0; i < et.size; i++) {
                 zero_cc_emit_u8(&c->data_section, 0);
             }
-            if (add_global_var(var_name, et, var_offset, et.size, false, false) < 0) {
+            if (add_global_var(c, var_name, et, var_offset, et.size, false, false) < 0) {
                 diag_report_error_at_token(c, "out of memory registering global variable");
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {

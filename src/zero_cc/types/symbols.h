@@ -20,6 +20,7 @@
 
 /* Compiler & Emitter Context */
 typedef struct ZeroCCStrChunk ZeroCCStrChunk;
+typedef struct ZeroCCGlobalVar ZeroCCGlobalVar;
 
 /* Static TLS variable descriptor (declaration order). The TLS backend's
  * finalize() lays these out into the .tdata/.tbss block. */
@@ -103,6 +104,14 @@ typedef struct ZeroCCCompiler {
 
     ZeroCCDataReloc data_relocs[ZERO_CC_MAX_DATA_RELOCS];
     size_t data_reloc_count;
+
+    /* Global variable table & name hash (Sprint 77: migrated from file-scope globals) */
+    ZeroCCGlobalVar *global_vars;
+    size_t global_var_count;
+    size_t global_var_capacity;
+    size_t g_name_hash_cap;
+    size_t *g_name_hash;
+    uint32_t *g_name_hash_sig;
 
     /* Register allocator state */
     RegAllocator regalloc;                /* Linear-scan register allocator */

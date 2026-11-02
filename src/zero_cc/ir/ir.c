@@ -1,5 +1,4 @@
 #include "zero_cc/types/types.h"
-#define ZERO_CC_GLOBAL_VARS_IMPL
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_arena.h"

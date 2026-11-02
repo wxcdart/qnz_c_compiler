@@ -6,9 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* External reference to the global compiler pointer (defined in ir.c). */
-extern __thread ZeroCCCompiler *g_compiler;
-
 /**
  * Loop analysis and optimization implementation
  */
@@ -56,13 +53,13 @@ void loop_analysis_free(LoopAnalysisState *state) {
  * instruction of its block, so this is the same set the legacy
  * instruction-index scan [target_idx .. i] produced).
  */
-static void detect_loops(LoopAnalysisState *state) {
+static void detect_loops(ZeroCCCompiler *c, LoopAnalysisState *state) {
     int count = (int)ir_get_count();
     state->ir_count = count;
     state->loop_count = 0;
 
-    if (!g_compiler || !cfg_build()) return;
-    ZeroCCCFG *cfg = &g_compiler->cfg_cache;
+    if (!c || !cfg_build(c)) return;
+    ZeroCCCFG *cfg = &c->cfg_cache;
 
     int nloops = cfg->loop_count;
     if (nloops > MAX_LOOPS) nloops = MAX_LOOPS;
@@ -345,13 +342,11 @@ static bool instr_has_moving_side_effects(Instr *instr) {
  * Hoists loop-invariant instructions to the loop preheader using a safe Two-Pass Rebuild.
  */
 void opt_licm(ZeroCCCompiler *c) {
-    (void)c;
-
     LoopAnalysisState state;
     loop_analysis_init(&state);
 
     /* Detect loops */
-    detect_loops(&state);
+    detect_loops(c, &state);
 
     if (state.loop_count == 0) {
         loop_analysis_free(&state);
@@ -515,8 +510,8 @@ void opt_licm(ZeroCCCompiler *c) {
     }
 
     /* Remap IRCallArgs indices to new instruction positions */
-    if (g_compiler) {
-        IRCallArgsArena *call_arena = &g_compiler->ir_call_args;
+    if (c) {
+        IRCallArgsArena *call_arena = &c->ir_call_args;
         if (call_arena && call_arena->table) {
             for (size_t c_idx = 0; c_idx < call_arena->count; c_idx++) {
                 size_t old_pos = call_arena->table[c_idx].instr_index;
@@ -527,8 +522,8 @@ void opt_licm(ZeroCCCompiler *c) {
         }
 
         /* Replace compiler's ir_arena buffer with new_arena */
-        ir_arena_free(&g_compiler->ir_arena);
-        g_compiler->ir_arena = new_arena;
+        ir_arena_free(&c->ir_arena);
+        c->ir_arena = new_arena;
     } else {
         ir_arena_free(&new_arena);
     }

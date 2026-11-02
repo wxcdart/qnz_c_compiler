@@ -71,6 +71,23 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     zero_cc_buf_free(&c->rodata_section);
     zero_cc_buf_free(&c->data_section);
 
+    /* Global variable registry and name hash */
+    if (c->global_vars) {
+        free(c->global_vars);
+        c->global_vars = NULL;
+        c->global_var_count = 0;
+        c->global_var_capacity = 0;
+    }
+    if (c->g_name_hash) {
+        free(c->g_name_hash);
+        c->g_name_hash = NULL;
+    }
+    if (c->g_name_hash_sig) {
+        free(c->g_name_hash_sig);
+        c->g_name_hash_sig = NULL;
+    }
+    c->g_name_hash_cap = 0;
+
     /* Enum constants hash table */
     if (c->enum_constants) {
         free(c->enum_constants);

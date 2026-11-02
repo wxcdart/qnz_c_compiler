@@ -1207,7 +1207,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             } else if (ap < c->token_count && c->tokens[ap].type == TK_IDENT) {
                 char refn[128];
                 snprintf(refn, sizeof(refn), "%s", c->tokens[ap].str_val);
-                ZeroCCGlobalVar *rgv = find_global_var(refn);
+                ZeroCCGlobalVar *rgv = find_global_var(c, refn);
                 ap++; /* past the ident */
                 size_t addoff = 0;
                 if (rgv && ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
@@ -1234,7 +1234,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                         dr->rodata_offset = 0;
                         dr->target_data_offset = (addoff > 0)
                             ? rgv->data_offset + addoff : (size_t)-1; /* global base */
-                        dr->target_global_idx = (int)(rgv - global_vars);
+                        dr->target_global_idx = (int)(rgv - c->global_vars);
                     }
                     if (cursor) {
                         if (has_desig) {
@@ -1312,7 +1312,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             zero_cc_emit_brace_init_global(c, clit_type, abuf, 0, clit_sz, anon_offset, &clit_cursor, 0);
             memcpy((uint8_t *)c->data_section.data + anon_offset, abuf, clit_sz);
             free(abuf);
-            int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+            int anon_idx = add_global_var(c, anon_name, clit_type, anon_offset, clit_sz, true, true);
 
             size_t extra_offset = 0;
             ZeroCCType cur_t = clit_type;

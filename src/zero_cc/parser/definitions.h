@@ -361,8 +361,8 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                                         char ref_name[128];
                                         snprintf(ref_name, sizeof(ref_name), "%s", c->tokens[c->token_pos].str_val);
                                         c->token_pos++;
-                                        ZeroCCGlobalVar *ref_gv = find_global_var(ref_name);
-                                        int ref_idx = ref_gv ? (int)(ref_gv - global_vars) : -1;
+                                        ZeroCCGlobalVar *ref_gv = find_global_var(c, ref_name);
+                                        int ref_idx = ref_gv ? (int)(ref_gv - c->global_vars) : -1;
                                         zero_cc_emit_u64(&c->data_section, 0);
                                         if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                                             ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
@@ -429,7 +429,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                                 for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
                             }
                         }
-                        if (add_global_var(alias, vreg_type, var_offset, vsize, st_is_static || dcl_is_static, vhas_init) < 0) {
+                        if (add_global_var(c, alias, vreg_type, var_offset, vsize, st_is_static || dcl_is_static, vhas_init) < 0) {
                             diag_report_error_at_token(c, "out of memory registering global variable '%s'", alias);
                         }
                         if (c->tokens[c->token_pos].type == TK_COMMA) {

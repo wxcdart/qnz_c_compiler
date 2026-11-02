@@ -151,7 +151,7 @@ static inline void zero_cc_emit_int_extend(ZeroCCCompiler *c, int temp, const Ze
 static inline const ZeroCCType *find_ident_zero_type(ZeroCCCompiler *c, const char *name) {
     ZeroCCSym *sym = zero_cc_find_local(c, name);
     if (sym) return &sym->type;
-    ZeroCCGlobalVar *gv = find_global_var(name);
+    ZeroCCGlobalVar *gv = find_global_var(c, name);
     if (gv) return &gv->type;
     return NULL;
 }
@@ -191,7 +191,7 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
         if (in && in->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, in->s.str);
             if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION) && sym->type.base->size > 16) return true;
-            ZeroCCGlobalVar *gv = find_global_var(in->s.str);
+            ZeroCCGlobalVar *gv = find_global_var(c, in->s.str);
             if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION) && gv->type.base->size > 16) return true;
         }
     } else if (node->tag == NODE_INDEX) {
@@ -204,7 +204,7 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
         }
     } else if (node->tag == NODE_IDENT) {
         if (!zero_cc_find_local(c, node->s.str)) {
-            ZeroCCGlobalVar *gv = find_global_var(node->s.str);
+            ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
             if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION)) return true;
         }
     } else if (node->tag == NODE_MEMBER) {
@@ -388,7 +388,7 @@ static inline bool zc_is_array_base(ZeroCCCompiler *c, ZeroCCASTArena *arena, Ze
     if (base_node && base_node->tag == NODE_IDENT) {
         ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
         if (sym && !sym->is_extern && sym->type.tag == TYPE_ARRAY) return true;
-        ZeroCCGlobalVar *gv = find_global_var(base_node->s.str);
+        ZeroCCGlobalVar *gv = find_global_var(c, base_node->s.str);
         if (gv && gv->type.tag == TYPE_ARRAY) return true;
     }
     return false;

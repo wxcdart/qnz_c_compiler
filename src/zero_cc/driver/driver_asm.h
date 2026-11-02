@@ -29,9 +29,9 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
 
     /* Emit .data / global variables if present */
     bool has_data = false;
-    for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].name[0] && !global_vars[i].is_tls && !global_vars[i].is_bss &&
-            !global_vars[i].alias_target[0]) {
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        if (comp->global_vars[i].name[0] && !comp->global_vars[i].is_tls && !comp->global_vars[i].is_bss &&
+            !comp->global_vars[i].alias_target[0]) {
             has_data = true;
             break;
         }
@@ -43,8 +43,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         size_t data_len = comp->data_section.length;
         size_t cur_offset = 0;
 
-        for (size_t i = 0; i < global_var_count; i++) {
-            ZeroCCGlobalVar *gv = &global_vars[i];
+        for (size_t i = 0; i < comp->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &comp->global_vars[i];
             if (!gv->name[0]) continue;
             /* GNU alias entry: no storage of its own, no symbol to emit */
             if (gv->alias_target[0]) continue;
@@ -98,8 +98,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                                 matching_reloc->rodata_offset + matching_reloc->target_data_offset);
                     } else if (matching_reloc->target_kind == 1 &&
                                matching_reloc->target_global_idx >= 0 &&
-                               matching_reloc->target_global_idx < (int)global_var_count) {
-                        const char *tgt_name = global_vars[matching_reloc->target_global_idx].name;
+                               matching_reloc->target_global_idx < (int)comp->global_var_count) {
+                        const char *tgt_name = comp->global_vars[matching_reloc->target_global_idx].name;
                         /* target_data_offset = gv->data_offset + extra: the
                          * extra (member/element offset) becomes a symbol
                          * addend, e.g. `.quad arr+16` (const-addr-expr-1).
@@ -107,7 +107,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                          * storage base" - no addend. */
                         size_t extra = (matching_reloc->target_data_offset == (size_t)-1) ? 0 :
                                        matching_reloc->target_data_offset -
-                                       global_vars[matching_reloc->target_global_idx].data_offset;
+                                       comp->global_vars[matching_reloc->target_global_idx].data_offset;
                         if (extra > 0)
                             fprintf(comp->asm_out, "\t.quad\t%s+%zu\n", tgt_name, extra);
                         else
@@ -165,9 +165,9 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
 
     /* Emit .bss (zero-initialized globals above threshold) */
     bool has_bss = false;
-    for (size_t i = 0; i < global_var_count; i++) {
-        if (global_vars[i].name[0] && global_vars[i].is_bss && !global_vars[i].is_tls &&
-            !global_vars[i].alias_target[0]) {
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        if (comp->global_vars[i].name[0] && comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls &&
+            !comp->global_vars[i].alias_target[0]) {
             has_bss = true;
             break;
         }
@@ -178,8 +178,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         } else {
             fprintf(comp->asm_out, "\t.section\t.bss\n");
         }
-        for (size_t i = 0; i < global_var_count; i++) {
-            ZeroCCGlobalVar *gv = &global_vars[i];
+        for (size_t i = 0; i < comp->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &comp->global_vars[i];
             if (!gv->name[0] || gv->is_tls || !gv->is_bss || gv->alias_target[0]) continue;
 
             size_t align = gv->type.align ? gv->type.align : 8;
@@ -209,8 +209,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         size_t tdata_len = comp->tls_data_section.length;
         size_t emitted = 0;
         fprintf(comp->asm_out, "\t.section\t.tdata,\"awT\",@progbits\n");
-        for (size_t i = 0; i < global_var_count; i++) {
-            ZeroCCGlobalVar *gv = &global_vars[i];
+        for (size_t i = 0; i < comp->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &comp->global_vars[i];
             if (!gv->is_tls || !gv->name[0]) continue;
             if (gv->data_offset >= tdata_len) continue;
             if (gv->data_offset > emitted) {
@@ -235,8 +235,8 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         if (comp->tls_bss_size > 0) {
             size_t tbss_off = 0;
             fprintf(comp->asm_out, "\t.section\t.tbss,\"aw\",@nobits\n");
-            for (size_t i = 0; i < global_var_count; i++) {
-                ZeroCCGlobalVar *gv = &global_vars[i];
+            for (size_t i = 0; i < comp->global_var_count; i++) {
+                ZeroCCGlobalVar *gv = &comp->global_vars[i];
                 if (!gv->is_tls || !gv->name[0]) continue;
                 if (gv->data_offset < tdata_len) continue;
                 size_t boff = gv->data_offset - tdata_len;

@@ -856,7 +856,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             // Find the base variable's stack offset if it's a local identifier
             if (base_node && base_node->tag == NODE_IDENT) {
                 ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
-                ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(base_node->s.str);
+                ZeroCCGlobalVar *ggv = sym ? NULL : find_global_var(c, base_node->s.str);
                 if (ggv) {
                     /* Global struct/union or pointer base: `g.member = val` or `p->member = val`. */
                     int gaddr = c->next_temp_id++;
@@ -1734,7 +1734,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 }
             }
         } else {
-            ZeroCCGlobalVar *gv = find_global_var(var);
+            ZeroCCGlobalVar *gv = find_global_var(c, var);
             if (gv) {
                 int gaddr_temp = c->next_temp_id++;
                 ir_emit_global_addr(c, gaddr_temp, gv);

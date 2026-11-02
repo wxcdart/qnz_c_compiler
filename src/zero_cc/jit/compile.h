@@ -1222,7 +1222,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 for (size_t i = 0; i < vpad; i++) zero_cc_emit_u8(&c->data_section, 0);
                 size_t voff = c->data_section.length;
                 for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
-                if (add_global_var(vname, vt, voff, vsize, false, true) < 0) {
+                if (add_global_var(c, vname, vt, voff, vsize, false, true) < 0) {
                     diag_report_error_at_token(c, "out of memory registering global variable");
                 }
                 (void)pd;
@@ -1429,10 +1429,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn_t->details.function.is_prototype = f->has_prototype;
             scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
         }
-        for (size_t i = 0; i < global_var_count; i++) {
-            TypeInfo *gv_ti = zero_cc_type_to_typeinfo(perm, global_vars[i].type);
+        for (size_t i = 0; i < c->global_var_count; i++) {
+            TypeInfo *gv_ti = zero_cc_type_to_typeinfo(perm, c->global_vars[i].type);
 
-            scope_put_symbol(global_scope_root, global_vars[i].name, SYMBOL_VAR, gv_ti);
+            scope_put_symbol(global_scope_root, c->global_vars[i].name, SYMBOL_VAR, gv_ti);
         }
 
         // Set the AST arena for this function body
