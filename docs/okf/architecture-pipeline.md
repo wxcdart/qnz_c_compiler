@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-10-22T14:30:31Z
+timestamp: 2026-11-02T03:35:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -34,7 +34,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
 4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**
    - Lowers each function's AST into a linear buffer of 51-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
-   - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions & calls), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`.
+   - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions, literals, member/index access), `ast_lowering_call.c` (function calls, varargs, constant evaluation, overflow builtins, atomic builtins), `ast_lowering_assign.c` (compound assignment, bitfield assignment, vector compound ops), `ast_lowering_binop.c` (binary operators, unary operators, casts, complex arithmetic helpers, bitfield reductions), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`.
    - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md).
 5. **IR Optimization Passes (`src/zero_cc/opt/opt_*.c`)**
    - Runs modular optimization passes over `IRArena` via standalone `opt_pass.c` before register allocation.
@@ -54,7 +54,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 | Type System & Symbols | `src/zero_cc/types/type_system.h`, `src/zero_cc/types/symbol_mgmt.h`, `src/zero_cc/jit/type_info.h` |
 | Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/ast_expr.h` |
 | Semantic Checker | `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/semantic/promote.c` |
-| IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/regalloc.h` |
+| IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/ir/ast_lowering_assign.c`, `src/zero_cc/ir/ast_lowering_binop.c`, `src/zero_cc/ir/regalloc.h` |
 | Optimizations | `src/zero_cc/opt/opt_pass.c`, `src/zero_cc/opt/opt_mem2reg.c`, `src/zero_cc/opt/opt_loop.c`, `src/zero_cc/opt/opt_vectorize.c` |
 | Codegen & Backends | `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c` |
 

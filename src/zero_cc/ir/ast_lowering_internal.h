@@ -12,6 +12,7 @@
 #include <stdbool.h>
 
 #include "zero_cc/types/types.h"
+#include "zero_cc/types/type_funcs.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_emitter.h"
@@ -338,9 +339,76 @@ static inline bool ast_expr_is_vector_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     return true;
 }
 
+static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const ZeroCCGlobalVar *gv) {
+    if (!gv) return;
+    if (gv->is_tls && !c->jit_mode) ir_emit_tls_lea(temp, gv->name);
+    else ir_emit_mov_global(temp, gv->name);
+}
+
+static inline void lower_extend_narrow(ZeroCCCompiler *c, int temp, const TypeInfo *ti) {
+    (void)c;
+    if (!ti) return;
+    if (ti->kind != TYPE_KIND_BOOL && ti->kind != TYPE_KIND_CHAR &&
+        ti->kind != TYPE_KIND_SHORT && ti->kind != TYPE_KIND_INT &&
+        ti->kind != TYPE_KIND_ENUM) return; /* enums are signed ints */
+    size_t sz = type_size(ti);
+    if (sz != 1 && sz != 2 && sz != 4) return;
+    if (type_is_unsigned(ti)) ir_emit_zext(temp, (int)sz);
+    else ir_emit_sext(temp, (int)sz);
+}
+
+static inline void lower_assign_conv_zt(ZeroCCCompiler *c, int temp, const ZeroCCType *zt) {
+    (void)c;
+    if (!zt) return;
+    if (zt->tag == TYPE_STRUCT || zt->tag == TYPE_UNION) return;
+    if (zt->tag == TYPE_USER_0 && zero_cc_type_is_vector(zt)) return;
+    if (zt->size != 1 && zt->size != 2 && zt->size != 4) return;
+    if (zt->tag == TYPE_UINT8 || zt->tag == TYPE_UINT16 || zt->tag == TYPE_UINT32)
+        ir_emit_zext(temp, (int)zt->size);
+    else
+        ir_emit_sext(temp, (int)zt->size);
+}
+
+static inline int lvalue_inc_step(const ZeroCCType *t) {
+    if (!t) return 1;
+    if (t->tag == TYPE_PTR) {
+        if (t->base && t->base->size > 0) return (int)t->base->size;
+        return 8;
+    }
+    return 1;
+}
+
+static inline bool zc_is_array_base(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *innermost, ZeroCCASTNode *base_node) {
+    if (!innermost || !(innermost->flags & NODE_MEMBER_IS_ARROW)) return false;
+    ZeroCCASTNode *bl = zero_cc_ast_get(arena, innermost->left);
+    if (bl) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, bl);
+        if (ti && ti->kind == TYPE_KIND_ARRAY) return true;
+    }
+    if (base_node && base_node->tag == NODE_IDENT) {
+        ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+        if (sym && !sym->is_extern && sym->type.tag == TYPE_ARRAY) return true;
+        ZeroCCGlobalVar *gv = find_global_var(base_node->s.str);
+        if (gv && gv->type.tag == TYPE_ARRAY) return true;
+    }
+    return false;
+}
+
+int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *head);
+int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref, int *is_unsigned);
+bool zero_cc_binop_is_unsigned(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef left_ref, ASTRef right_ref);
+
 int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                       int dst_addr, size_t struct_sz,
                                       ASTRef rhs_ref, int rhs_temp);
+
+int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

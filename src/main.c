@@ -895,6 +895,11 @@ static int compile_jit(CompileOptions *opts) {
             if (saved_globals && zero_cc_global_vars_reserve(saved_count) == 0) {
                 memcpy(&global_vars[global_var_count], saved_globals,
                        saved_count * sizeof(ZeroCCGlobalVar));
+                for (size_t s = 0; s < saved_count; s++) {
+                    zero_cc_gname_hash_insert(global_vars[global_var_count + s].name,
+                                              global_var_count + s,
+                                              global_var_count + saved_count);
+                }
                 global_var_count += saved_count;
             }
             free(saved_globals);

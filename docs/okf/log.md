@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T01:08:46Z
+timestamp: 2026-11-02T03:35:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -677,3 +677,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `c-torture-gate.md`
 - Sprint 75: REJECT burned down to 15 (all architectural limits), MISCOMPILE 0, PASS 2,993. Address-of part extractors, large struct TypeInfo preservation, cast/string pointer inits, and GNU designators.
+
+## 2026-11-02 — Updated `architecture-pipeline.md`
+- Sprint 76: Modularize ast_lowering_expr.c into ast_lowering_{call,assign,binop,expr}.c

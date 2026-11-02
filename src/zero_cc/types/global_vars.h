@@ -171,6 +171,11 @@ static inline ZeroCCGlobalVar *find_global_var(const char *name) {
         }
         return gv;
     }
+    for (size_t i = 0; i < global_var_count; i++) {
+        if (strcmp(global_vars[i].name, name) == 0) {
+            return &global_vars[i];
+        }
+    }
     return NULL;
 }
 
