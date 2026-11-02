@@ -306,7 +306,17 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             TypeInfo *cx_ti = ast_node_get_typeinfo(c, cx_node);
             size_t esz = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX && cx_ti->details.array.base)
                          ? type_size(cx_ti->details.array.base) : 8;
-            if (esz != 4 && esz != 8) esz = 8;
+            if (!cx_ti && cx_node && cx_node->tag == NODE_IDENT) {
+                ZeroCCSym *sym = zero_cc_find_local(c, cx_node->s.str);
+                if (sym && zero_cc_type_is_complex(&sym->type) && sym->type.base)
+                    esz = sym->type.base->size;
+                else {
+                    ZeroCCGlobalVar *gv = find_global_var(c, cx_node->s.str);
+                    if (gv && zero_cc_type_is_complex(&gv->type) && gv->type.base)
+                        esz = gv->type.base->size;
+                }
+            }
+            if (esz != 1 && esz != 2 && esz != 4 && esz != 8) esz = 8;
             int off = c->next_temp_id++;
             ir_emit_mov_imm(c, off, (int)esz);
             int la = c->next_temp_id++;
@@ -1421,6 +1431,16 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                  * in lvalue/member contexts need the address directly without loading. */
                 c->last_expr_is_float = 0;
                 return addr_temp;
+            }
+            if (!elem_ti) {
+                ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+                if (ln && ln->tag == NODE_IDENT) {
+                    const ZeroCCType *zt = find_ident_zero_type(c, ln->s.str);
+                    if (zt && zt->base && zero_cc_type_is_complex(zt->base)) {
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                }
             }
 
             bool is_elem_float = false;

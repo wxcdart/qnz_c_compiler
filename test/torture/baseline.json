@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-02T04:33:21Z",
+ "generated": "2026-11-02T18:23:35Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -469,12 +469,9 @@
    "note": ""
   },
   "compile/20001226-1.c": {
-   "class": "REJECT",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
-   },
-   "note": "    ^; Compile error: function 'foo' uses 188421 temporaries; max is 65534 per function (16-bit temp ids). Split the function into smaller helper functions (each has its own temp-id space). [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "compile/200031109-1.c": {
    "class": "PASS",
@@ -2969,12 +2966,12 @@
    "note": ""
   },
   "compile/20080114-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20080124-1.c": {
    "class": "PASS",
@@ -3764,9 +3761,9 @@
    "class": "TIMEOUT",
    "configs": {
     "O0-aot": "TIMEOUT",
-    "O2-aot": "OK"
+    "O2-aot": "TIMEOUT"
    },
-   "note": " | cfgs: O0-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -4523,7 +4520,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: use of undeclared identifier '__label__' | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 'p' | cfgs: O0-aot,O2-aot"
   },
   "compile/930120-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -4884,7 +4881,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                       ^; Compile error: use of undeclared identifier 'length' | cfgs: O0-aot,O2-aot"
+   "note": "                                       ^; Compile error: unexpected token 'register' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/941014-2.c": {
    "class": "SKIP-C89",
@@ -6098,12 +6095,12 @@
    "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/asmgoto-4.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/asmgoto-5.c": {
    "class": "SKIP-C89",
@@ -6557,12 +6554,12 @@
    "note": ""
   },
   "compile/complex-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "        ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/complex-2.c": {
    "class": "PASS",
@@ -6589,12 +6586,12 @@
    "note": ""
   },
   "compile/complex-5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/complex-6.c": {
    "class": "SKIP-TARGET:indirect_jumps",
@@ -7365,12 +7362,9 @@
    "note": ""
   },
   "compile/limits-structnest.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
-   "note": ""
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "compile/ll1.c": {
    "class": "PASS",
@@ -9471,12 +9465,12 @@
    "note": ""
   },
   "compile/pr27528.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr27571.c": {
    "class": "PASS",
@@ -10066,12 +10060,12 @@
    "note": ""
   },
   "compile/pr35431.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr35432.c": {
    "class": "PASS",
@@ -10300,12 +10294,12 @@
    "note": ""
   },
   "compile/pr37395.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr37418-1.c": {
    "class": "PASS",
@@ -10601,12 +10595,12 @@
    "note": ""
   },
   "compile/pr38789.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38807.c": {
    "class": "PASS",
@@ -10657,12 +10651,12 @@
    "note": ""
   },
   "compile/pr39394.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr39423-1.c": {
    "class": "PASS",
@@ -12586,12 +12580,12 @@
    "note": ""
   },
   "compile/pr56405.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr56448.c": {
    "class": "PASS",
@@ -12988,12 +12982,12 @@
    "note": ""
   },
   "compile/pr63282.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr63761.c": {
    "class": "PASS",
@@ -13956,12 +13950,12 @@
    "note": ""
   },
   "compile/pr84960.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'lab' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr85401.c": {
    "class": "PASS",
@@ -13988,20 +13982,20 @@
    "note": ""
   },
   "compile/pr86122.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) (near '_Complex') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr86123.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr86526.c": {
    "class": "PASS",
@@ -20150,18 +20144,18 @@
    "note": ""
   },
   "execute/20050121-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                                                                                                               ^; Compile error: unsupported: _Complex w | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20050124-1.c": {
    "class": "PASS",
@@ -20687,18 +20681,18 @@
    "note": ""
   },
   "execute/20061031-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20061101-1.c": {
    "class": "PASS",
@@ -20729,18 +20723,18 @@
    "note": ""
   },
   "execute/20061220-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "            ^; Compile error: nested function definition of 'nested' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20070201-1.c": {
    "class": "PASS",
@@ -23213,18 +23207,18 @@
    "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930406-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                         ^; Compile error: use of undeclared identifier '__label__' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/930408-1.c": {
    "class": "PASS",
@@ -27735,18 +27729,18 @@
    "note": "                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/complex-6.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/complex-7.c": {
    "class": "PASS",
@@ -28361,32 +28355,32 @@
    "note": ""
   },
   "execute/ieee/bfloat16-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: expected ';' after return statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/builtin-nan-1.c": {
    "class": "PASS",
@@ -28520,18 +28514,18 @@
    "note": ""
   },
   "execute/ieee/float128-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float128x-builtin-issignaling-1.c": {
    "class": "NO-REF",
@@ -28539,74 +28533,74 @@
    "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/ieee/builtin-issignaling-1.c:133:7: error: unsupported non-standard suffix on floating constant"
   },
   "execute/ieee/float16-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float32-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float32x-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float64-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/float64x-builtin-issignaling-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/fp-cmp-1.c": {
    "class": "PASS",
@@ -29155,18 +29149,18 @@
    "note": ""
   },
   "execute/ieee/pr50310.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ieee/pr67218.c": {
    "class": "PASS",
@@ -29841,18 +29835,9 @@
    "note": ""
   },
   "execute/memclr.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-1.c": {
    "class": "PASS",
@@ -29883,60 +29868,24 @@
    "note": ""
   },
   "execute/memcpy-a1.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a2.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a4.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-a8.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "NO-REF",
+   "configs": {},
+   "note": "gcc rc=TIMEOUT"
   },
   "execute/memcpy-bi.c": {
    "class": "PASS",
@@ -30361,18 +30310,18 @@
    "note": ""
   },
   "execute/pr103376.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr103405.c": {
    "class": "SKIP-C89",
@@ -30431,18 +30380,18 @@
    "note": ""
   },
   "execute/pr104604.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr104814.c": {
    "class": "PASS",
@@ -30604,18 +30553,18 @@
    "note": ""
   },
   "execute/pr108498-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr108498-2.c": {
    "class": "PASS",
@@ -31104,18 +31053,18 @@
    "note": ""
   },
   "execute/pr114552.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr114965.c": {
    "class": "PASS",
@@ -33378,18 +33327,18 @@
    "note": ""
   },
   "execute/pr38533.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr38819.c": {
    "class": "PASS",
@@ -33509,18 +33458,18 @@
    "note": ""
   },
   "execute/pr40022.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr40057.c": {
    "class": "PASS",
@@ -33593,18 +33542,18 @@
    "note": ""
   },
   "execute/pr40657.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr40668.c": {
    "class": "PASS",
@@ -33635,18 +33584,18 @@
    "note": ""
   },
   "execute/pr41239.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr41317.c": {
    "class": "PASS",
@@ -34279,18 +34228,18 @@
    "note": ""
   },
   "execute/pr45695.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr46019.c": {
    "class": "PASS",
@@ -34307,18 +34256,18 @@
    "note": ""
   },
   "execute/pr46309.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr46316.c": {
    "class": "PASS",
@@ -34438,18 +34387,18 @@
    "note": ""
   },
   "execute/pr47925.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr48197.c": {
    "class": "PASS",
@@ -34648,18 +34597,18 @@
    "note": "        ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr49279.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr49281.c": {
    "class": "PASS",
@@ -34849,32 +34798,32 @@
    "note": "             ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr51877.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr51933.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr52129.c": {
    "class": "PASS",
@@ -35003,32 +34952,32 @@
    "note": ""
   },
   "execute/pr53645-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr53645.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr53688.c": {
    "class": "PASS",
@@ -35143,18 +35092,18 @@
    "note": ""
   },
   "execute/pr56205.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr56250.c": {
    "class": "PASS",
@@ -35185,32 +35134,32 @@
    "note": ""
   },
   "execute/pr56837.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr56866.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr56899.c": {
    "class": "PASS",
@@ -35330,60 +35279,60 @@
    "note": ""
   },
   "execute/pr57344-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr57344-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr57344-3.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr57344-4.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr57568.c": {
    "class": "PASS",
@@ -35582,18 +35531,18 @@
    "note": ""
   },
   "execute/pr58419.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr58431.c": {
    "class": "PASS",
@@ -36147,18 +36096,18 @@
    "note": ""
   },
   "execute/pr63641.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr63659.c": {
    "class": "PASS",
@@ -36320,18 +36269,18 @@
    "note": "             ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr65053-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr65170.c": {
    "class": "PASS",
@@ -36502,32 +36451,32 @@
    "note": ""
   },
   "execute/pr65648.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr65956.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr66187.c": {
    "class": "PASS",
@@ -36740,18 +36689,18 @@
    "note": ""
   },
   "execute/pr68328.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr68376-1.c": {
    "class": "PASS",
@@ -36936,18 +36885,18 @@
    "note": ""
   },
   "execute/pr69320-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "            ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr69320-3.c": {
    "class": "PASS",
@@ -37366,18 +37315,18 @@
    "note": ""
   },
   "execute/pr78438.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr78477.c": {
    "class": "PASS",
@@ -37478,18 +37427,18 @@
    "note": ""
   },
   "execute/pr78726.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr78791.c": {
    "class": "PASS",
@@ -37576,18 +37525,18 @@
    "note": ""
   },
   "execute/pr79354.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr79388.c": {
    "class": "PASS",
@@ -37632,18 +37581,18 @@
    "note": ""
   },
   "execute/pr79737-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr80153.c": {
    "class": "PASS",
@@ -37660,18 +37609,18 @@
    "note": ""
   },
   "execute/pr80421.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr80501.c": {
    "class": "PASS",
@@ -37870,18 +37819,18 @@
    "note": ""
   },
   "execute/pr82954.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr83269.c": {
    "class": "PASS",
@@ -37982,18 +37931,18 @@
    "note": ""
   },
   "execute/pr84478.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr84521.c": {
    "class": "SKIP-TARGET:indirect_jumps",
@@ -38001,18 +37950,18 @@
    "note": ""
   },
   "execute/pr84524.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "          ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr84748.c": {
    "class": "SKIP-TARGET:int128",
@@ -38034,18 +37983,18 @@
    "note": ""
   },
   "execute/pr85156.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr85169.c": {
    "class": "PASS",
@@ -38146,18 +38095,18 @@
    "note": ""
   },
   "execute/pr85756.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr86231.c": {
    "class": "PASS",
@@ -38342,18 +38291,18 @@
    "note": ""
   },
   "execute/pr88904.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr89195.c": {
    "class": "PASS",
@@ -38739,32 +38688,32 @@
    "note": ""
   },
   "execute/pr93945.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr94130.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "           ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr94134.c": {
    "class": "PASS",
@@ -40777,12 +40726,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 182,
-  "PASS": 3039,
+  "NO-REF": 189,
+  "PASS": 3049,
   "REF-BUG": 3,
-  "REJECT": 13,
+  "REJECT": 12,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 529,
+  "SKIP-C89": 453,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40796,6 +40745,6 @@
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1,
-  "TIMEOUT": 18
+  "TIMEOUT": 78
  }
 }

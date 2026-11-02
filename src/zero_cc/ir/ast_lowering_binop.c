@@ -391,10 +391,27 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                               (cl_ti->kind == TYPE_KIND_COMPLEX || cr_ti->kind == TYPE_KIND_COMPLEX);
             if ((cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) || is_cx_eqne) {
                 const TypeInfo *cel = (cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) ? cres_ti->details.array.base :
-                                      (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ? cl_ti->details.array.base : cr_ti->details.array.base;
-                size_t cesz = cel ? type_size(cel) : 8;
-                if (cesz != 4 && cesz != 8) cesz = 8; /* long double: double model */
-                bool cflt = cel ? type_is_floating(cel) : true;
+                                      (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ? cl_ti->details.array.base :
+                                      (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX) ? cr_ti->details.array.base : NULL;
+                const ZeroCCType *czt = NULL;
+                if (!cel) {
+                    if (cl_node && cl_node->tag == NODE_IDENT) {
+                        ZeroCCSym *s = zero_cc_find_local(c, cl_node->s.str);
+                        if (s && zero_cc_type_is_complex(&s->type)) czt = s->type.base;
+                        else {
+                            ZeroCCGlobalVar *g = find_global_var(c, cl_node->s.str);
+                            if (g && zero_cc_type_is_complex(&g->type)) czt = g->type.base;
+                        }
+                    }
+                    if (!czt && cr_node && cr_node->tag == NODE_IDENT) {
+                        ZeroCCSym *s = zero_cc_find_local(c, cr_node->s.str);
+                        if (s && zero_cc_type_is_complex(&s->type)) czt = s->type.base;
+                        else {
+                            ZeroCCGlobalVar *g = find_global_var(c, cr_node->s.str);
+                            if (g && zero_cc_type_is_complex(&g->type)) czt = g->type.base;
+                        }
+                    }
+                }
                 uint32_t cop = node->aux.op;
                 int32_t save_frame = c->current_stack_frame;
                 c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
@@ -407,225 +424,380 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 bool right_cx = (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX);
                 bool right_is_float = c->last_expr_is_float;
 
+                const TypeInfo *l_el = (left_cx && cl_ti && cl_ti->details.array.base) ? cl_ti->details.array.base : NULL;
+                const TypeInfo *r_el = (right_cx && cr_ti && cr_ti->details.array.base) ? cr_ti->details.array.base : NULL;
+                const ZeroCCType *l_zt = NULL, *r_zt = NULL;
+                if (!l_el && cl_node && cl_node->tag == NODE_IDENT) {
+                    ZeroCCSym *s = zero_cc_find_local(c, cl_node->s.str);
+                    if (s && zero_cc_type_is_complex(&s->type)) { l_zt = s->type.base; left_cx = true; }
+                    else {
+                        ZeroCCGlobalVar *g = find_global_var(c, cl_node->s.str);
+                        if (g && zero_cc_type_is_complex(&g->type)) { l_zt = g->type.base; left_cx = true; }
+                    }
+                }
+                if (!r_el && cr_node && cr_node->tag == NODE_IDENT) {
+                    ZeroCCSym *s = zero_cc_find_local(c, cr_node->s.str);
+                    if (s && zero_cc_type_is_complex(&s->type)) { r_zt = s->type.base; right_cx = true; }
+                    else {
+                        ZeroCCGlobalVar *g = find_global_var(c, cr_node->s.str);
+                        if (g && zero_cc_type_is_complex(&g->type)) { r_zt = g->type.base; right_cx = true; }
+                    }
+                }
+                bool l_is_fp = left_cx ? (l_el ? type_is_floating(l_el) : (l_zt ? (l_zt->tag == TYPE_FLOAT || l_zt->tag == TYPE_DOUBLE) : true)) : left_is_float;
+                size_t l_esz = left_cx ? (l_el ? type_size(l_el) : (l_zt ? l_zt->size : 8)) : (left_is_float ? 8 : 4);
+                if (l_esz == 0) l_esz = 8;
+                if (l_is_fp && l_esz != 4 && l_esz != 8) l_esz = 8;
 
-                /* Load parts (or materialize (scalar, 0)).  Complex
-                 * operands are address-form: use register-indirect
-                 * SSE loads (OP_FLOAD is frame-relative only). */
+                bool r_is_fp = right_cx ? (r_el ? type_is_floating(r_el) : (r_zt ? (r_zt->tag == TYPE_FLOAT || r_zt->tag == TYPE_DOUBLE) : true)) : right_is_float;
+                size_t r_esz = right_cx ? (r_el ? type_size(r_el) : (r_zt ? r_zt->size : 8)) : (right_is_float ? 8 : 4);
+                if (r_esz == 0) r_esz = 8;
+                if (r_is_fp && r_esz != 4 && r_esz != 8) r_esz = 8;
+
+                bool cflt = l_is_fp || r_is_fp;
+                size_t cesz = (cflt) ? ((l_is_fp && l_esz == 8) || (r_is_fp && r_esz == 8) ? 8 : 4) :
+                                       ((l_esz > r_esz) ? l_esz : r_esz);
+                if (cflt && cesz != 4 && cesz != 8) cesz = 8;
+                if (!cflt && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+
                 int zero_f_off = zc_rodata_double_offset(c, 0.0);
                 int ar = c->next_temp_id++, ai = c->next_temp_id++;
-                int br = c->next_temp_id++, bi = c->next_temp_id++;
                 if (left_cx) {
-                    if (cesz == 4) { ir_emit_vloadss(c, ar, (uint16_t)clv); int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 4); int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, clv, a2); ir_emit_vloadss(c, ai, (uint16_t)ai2); }
-                    else { ir_emit_vloadsd(c, ar, (uint16_t)clv); int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, clv, a2); ir_emit_vloadsd(c, ai, (uint16_t)ai2); }
-                } else {
-                    int lpart = clv;
-                    if (!left_is_float) {
-                        /* Integer scalar -> double (C99 6.3.1.2). */
-                        lpart = zc_emit_int_to_double(c, clv, cl_ti);
+                    if (l_is_fp) {
+                        if (l_esz == 4) {
+                            ir_emit_vloadss(c, ar, (uint16_t)clv);
+                            int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 4);
+                            int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, clv, a2);
+                            ir_emit_vloadss(c, ai, (uint16_t)ai2);
+                        } else {
+                            ir_emit_vloadsd(c, ar, (uint16_t)clv);
+                            int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 8);
+                            int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, clv, a2);
+                            ir_emit_vloadsd(c, ai, (uint16_t)ai2);
+                        }
+                    } else {
+                        int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, (int)l_esz);
+                        int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, clv, a2);
+                        if (l_esz == 1) { ir_emit_load_byte(c, ar, clv); ir_emit_load_byte(c, ai, ai2); }
+                        else if (l_esz == 2) { ir_emit_load_16(c, ar, clv); ir_emit_load_16(c, ai, ai2); }
+                        else if (l_esz == 4) { ir_emit_load_32(c, ar, clv); ir_emit_load_32(c, ai, ai2); }
+                        else { ir_emit_deref(c, ar, clv); ir_emit_deref(c, ai, ai2); }
+                        if (l_el) { lower_extend_narrow(c, ar, l_el); lower_extend_narrow(c, ai, l_el); }
+                        else if (l_zt) { lower_assign_conv_zt(c, ar, l_zt); lower_assign_conv_zt(c, ai, l_zt); }
+                        else if (l_esz < 8) { ir_emit_sext(c, ar, (int)l_esz); ir_emit_sext(c, ai, (int)l_esz); }
                     }
-                    ir_emit_fmov(c, ar, (uint16_t)lpart);
-                    ir_emit_fmov_imm(c, (uint16_t)ai, (int64_t)zero_f_off);
+                } else {
+                    if (left_is_float) {
+                        ir_emit_fmov(c, ar, (uint16_t)clv);
+                        ir_emit_fmov_imm(c, (uint16_t)ai, (int64_t)zero_f_off);
+                    } else {
+                        ar = clv;
+                        ir_emit_mov_imm(c, ai, 0);
+                    }
                 }
+
+                if (cflt && !l_is_fp) {
+                    int far = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)far, (uint16_t)ar); ar = far;
+                    int fai = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)fai, (uint16_t)ai); ai = fai;
+                } else if (!cflt && l_is_fp) {
+                    int iar = c->next_temp_id++;
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)iar, .temp_src1 = (uint16_t)ar, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    ar = iar;
+                    int iai = c->next_temp_id++;
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)iai, .temp_src1 = (uint16_t)ai, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    ai = iai;
+                }
+
+                int br = c->next_temp_id++, bi = c->next_temp_id++;
                 if (right_cx) {
-                    if (cesz == 4) { ir_emit_vloadss(c, br, (uint16_t)crv); int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 4); int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, crv, a2); ir_emit_vloadss(c, bi, (uint16_t)ai2); }
-                    else { ir_emit_vloadsd(c, br, (uint16_t)crv); int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 8); int ai2 = c->next_temp_id++; ir_emit_add(c, ai2, crv, a2); ir_emit_vloadsd(c, bi, (uint16_t)ai2); }
+                    if (r_is_fp) {
+                        if (r_esz == 4) {
+                            ir_emit_vloadss(c, br, (uint16_t)crv);
+                            int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 4);
+                            int bi2 = c->next_temp_id++; ir_emit_add(c, bi2, crv, a2);
+                            ir_emit_vloadss(c, bi, (uint16_t)bi2);
+                        } else {
+                            ir_emit_vloadsd(c, br, (uint16_t)crv);
+                            int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, 8);
+                            int bi2 = c->next_temp_id++; ir_emit_add(c, bi2, crv, a2);
+                            ir_emit_vloadsd(c, bi, (uint16_t)bi2);
+                        }
+                    } else {
+                        int a2 = c->next_temp_id++; ir_emit_mov_imm(c, a2, (int)r_esz);
+                        int bi2 = c->next_temp_id++; ir_emit_add(c, bi2, crv, a2);
+                        if (r_esz == 1) { ir_emit_load_byte(c, br, crv); ir_emit_load_byte(c, bi, bi2); }
+                        else if (r_esz == 2) { ir_emit_load_16(c, br, crv); ir_emit_load_16(c, bi, bi2); }
+                        else if (r_esz == 4) { ir_emit_load_32(c, br, crv); ir_emit_load_32(c, bi, bi2); }
+                        else { ir_emit_deref(c, br, crv); ir_emit_deref(c, bi, bi2); }
+                        if (r_el) { lower_extend_narrow(c, br, r_el); lower_extend_narrow(c, bi, r_el); }
+                        else if (r_zt) { lower_assign_conv_zt(c, br, r_zt); lower_assign_conv_zt(c, bi, r_zt); }
+                        else if (r_esz < 8) { ir_emit_sext(c, br, (int)r_esz); ir_emit_sext(c, bi, (int)r_esz); }
+                    }
                 } else {
-                    int rpart = crv;
-                    /* right_is_float was captured right after the right
-                     * operand's lowering (a later complex-address
-                     * lowering would clear last_expr_is_float and make
-                     * a float scalar look integral). */
-                    if (!right_is_float) {
-                        rpart = zc_emit_int_to_double(c, crv, cr_ti);
+                    if (right_is_float) {
+                        ir_emit_fmov(c, br, (uint16_t)crv);
+                        ir_emit_fmov_imm(c, (uint16_t)bi, (int64_t)zero_f_off);
+                    } else {
+                        br = crv;
+                        ir_emit_mov_imm(c, bi, 0);
                     }
-                    ir_emit_fmov(c, br, (uint16_t)rpart);
-                    ir_emit_fmov_imm(c, (uint16_t)bi, (int64_t)zero_f_off);
                 }
-                /* Per-operator part results */
+
+                if (cflt && !r_is_fp) {
+                    int fbr = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)fbr, (uint16_t)br); br = fbr;
+                    int fbi = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)fbi, (uint16_t)bi); bi = fbi;
+                } else if (!cflt && r_is_fp) {
+                    int ibr = c->next_temp_id++;
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)ibr, .temp_src1 = (uint16_t)br, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    br = ibr;
+                    int ibi = c->next_temp_id++;
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)ibi, .temp_src1 = (uint16_t)bi, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    bi = ibi;
+                }
                 int rr = c->next_temp_id++, ri = c->next_temp_id++;
-                switch (cop) {
-                    case TK_PLUS: {
-                        ir_emit_fadd(c, rr, ar, br);
-                        ir_emit_fadd(c, ri, ai, bi);
-                        break;
-                    }
-                    case TK_MINUS: {
-                        ir_emit_fsub(c, rr, ar, br);
-                        ir_emit_fsub(c, ri, ai, bi);
-                        break;
-                    }
-                    case TK_STAR: {
-                        int t1 = c->next_temp_id++; ir_emit_fmul(c, t1, ar, br);
-                        int t2 = c->next_temp_id++; ir_emit_fmul(c, t2, ai, bi);
-                        int t3 = c->next_temp_id++; ir_emit_fmul(c, t3, ar, bi);
-                        int t4 = c->next_temp_id++; ir_emit_fmul(c, t4, ai, br);
-                        ir_emit_fsub(c, rr, t1, t2);
-                        ir_emit_fadd(c, ri, t3, t4);
-                        break;
-                    }
-                    case TK_SLASH: {
-                        if (cesz == 8) {
-                            /* C99 _Complex double division: delegate to
-                             * libgcc __divdc3, the same helper GCC itself
-                             * calls at -O0 (the ieee/cdivchk* expected
-                             * values are generated that way).  The
-                             * in-compiler formulas cannot match its
-                             * accuracy for extreme subnormal inputs
-                             * (products like ar*br underflow to 0 while
-                             * contributing ~2^-32 relative to the
-                             * quotient), and __divdc3 handles the
-                             * inf/nan/+-0 edge cases per IEEE.  The call
-                             * is ABI-identical to a normal zerocc complex
-                             * call: two complex args = four consecutive
-                             * FP registers (a.re, a.im, b.re, b.im),
-                             * result in xmm0/xmm1. */
-                            int div_args[4];
-                            int div_vals[4] = { ar, ai, br, bi };
-                            if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
-                                !zero_cc_find_function(c, "__divdc3")) {
-                                ZeroCCFunction *fn = &c->functions[c->function_count++];
-                                memset(fn, 0, sizeof(*fn));
-                                snprintf(fn->name, sizeof(fn->name), "%s", "__divdc3");
-                                fn->is_prototype = true;
-                                fn->is_external = true;
-                            }
-                            for (int h = 0; h < 4; h++) {
-                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                                c->current_stack_frame += 8;
-                                int32_t slot = c->current_stack_frame;
-                                ir_emit_fstore(c, (uint16_t)div_vals[h], TEMP_NONE, -slot);
-                                div_args[h] = c->next_temp_id++;
-                                ir_emit_fload(c, (uint16_t)div_args[h], TEMP_NONE, -slot);
-                            }
-                            ir_emit_call(c, "__divdc3");
-                            if (ir_get_count(c) > 0) {
-                                Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                                last_instr->temp_dest = 0;  /* no int args */
-                                last_instr->temp_src1 = (uint16_t)div_args[0];
-                                last_instr->temp_src2 = (uint16_t)div_args[1];
-                                last_instr->imm = 0;
-                                int div_is_fp[4] = { 1, 1, 1, 1 };
-                                uint8_t div_pos[4] = { 255, 255, 255, 255 };
-                                ir_call_args_record(c, ir_get_count(c) - 1, 4, div_args, div_is_fp, div_pos);
-                                last_instr->label_idx = 4; /* 4 FP register args */
-                                if (c->lowering.ir_ctx.call_count < 64) {
-                                    int cidx = c->lowering.ir_ctx.call_count++;
-                                    c->lowering.ir_ctx.call_fp_spill_counts[cidx] = 4;
-                                    for (int h = 0; h < 4; h++) {
-                                        c->lowering.ir_ctx.call_fp_spills[cidx][h] =
-                                            c->current_stack_frame - (3 - h) * 8;
+                if (cflt) {
+                    switch (cop) {
+                        case TK_PLUS: {
+                            ir_emit_fadd(c, rr, ar, br);
+                            ir_emit_fadd(c, ri, ai, bi);
+                            break;
+                        }
+                        case TK_MINUS: {
+                            ir_emit_fsub(c, rr, ar, br);
+                            ir_emit_fsub(c, ri, ai, bi);
+                            break;
+                        }
+                        case TK_STAR: {
+                            int t1 = c->next_temp_id++; ir_emit_fmul(c, t1, ar, br);
+                            int t2 = c->next_temp_id++; ir_emit_fmul(c, t2, ai, bi);
+                            int t3 = c->next_temp_id++; ir_emit_fmul(c, t3, ar, bi);
+                            int t4 = c->next_temp_id++; ir_emit_fmul(c, t4, ai, br);
+                            ir_emit_fsub(c, rr, t1, t2);
+                            ir_emit_fadd(c, ri, t3, t4);
+                            break;
+                        }
+                        case TK_SLASH: {
+                            if (cesz == 8) {
+                                int div_args[4];
+                                int div_vals[4] = { ar, ai, br, bi };
+                                if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                                    !zero_cc_find_function(c, "__divdc3")) {
+                                    ZeroCCFunction *fn = &c->functions[c->function_count++];
+                                    memset(fn, 0, sizeof(*fn));
+                                    snprintf(fn->name, sizeof(fn->name), "%s", "__divdc3");
+                                    fn->is_prototype = true;
+                                    fn->is_external = true;
+                                }
+                                for (int h = 0; h < 4; h++) {
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int32_t slot = c->current_stack_frame;
+                                    ir_emit_fstore(c, (uint16_t)div_vals[h], TEMP_NONE, -slot);
+                                    div_args[h] = c->next_temp_id++;
+                                    ir_emit_fload(c, (uint16_t)div_args[h], TEMP_NONE, -slot);
+                                }
+                                ir_emit_call(c, "__divdc3");
+                                if (ir_get_count(c) > 0) {
+                                    Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                                    last_instr->temp_dest = 0;
+                                    last_instr->temp_src1 = (uint16_t)div_args[0];
+                                    last_instr->temp_src2 = (uint16_t)div_args[1];
+                                    last_instr->imm = 0;
+                                    int div_is_fp[4] = { 1, 1, 1, 1 };
+                                    uint8_t div_pos[4] = { 255, 255, 255, 255 };
+                                    ir_call_args_record(c, ir_get_count(c) - 1, 4, div_args, div_is_fp, div_pos);
+                                    last_instr->label_idx = 4;
+                                    if (c->lowering.ir_ctx.call_count < 64) {
+                                        int cidx = c->lowering.ir_ctx.call_count++;
+                                        c->lowering.ir_ctx.call_fp_spill_counts[cidx] = 4;
+                                        for (int h = 0; h < 4; h++) {
+                                            c->lowering.ir_ctx.call_fp_spills[cidx][h] =
+                                                c->current_stack_frame - (3 - h) * 8;
+                                        }
                                     }
                                 }
+                                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                                c->current_stack_frame += 16;
+                                int32_t dres_off = c->current_stack_frame;
+                                if (ir_get_count(c) > 0) {
+                                    Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                                    li->label_idx = 0x0100 | (16 & 0xFF);
+                                }
+                                int daddr = c->next_temp_id++;
+                                ir_emit_lea(c, daddr, BE(c)->fp_reg, -dres_off);
+                                ir_emit_vstoresd(c, (uint16_t)daddr, (uint16_t)VREG_F0);
+                                int do2 = c->next_temp_id++;
+                                ir_emit_mov_imm(c, do2, 8);
+                                int da2 = c->next_temp_id++;
+                                ir_emit_add(c, da2, daddr, do2);
+                                ir_emit_vstoresd(c, (uint16_t)da2, (uint16_t)VREG_F1);
+                                c->current_stack_frame = save_frame;
+                                c->last_expr_is_float = 0;
+                                return daddr;
                             }
-                            /* Complex return: xmm0/xmm1 -> stack object */
-                            c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
-                            c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
-                            int32_t dres_off = c->current_stack_frame;
-                            if (ir_get_count(c) > 0) {
-                                Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                                li->label_idx = 0x0100 | (16 & 0xFF);
+                            int fab_br = zc_cx_fabs(c, br);
+                            int fab_bi = zc_cx_fabs(c, bi);
+                            int ge = c->next_temp_id++;
+                            ir_emit_cmp(c, fab_br, fab_bi);
+                            ir_emit_cond_set(c, ge, CC_GE);
+                            int qa1 = c->next_temp_id++; ir_emit_fdiv(c, qa1, ai, br);
+                            int qa1b = c->next_temp_id++; ir_emit_fmul(c, qa1b, qa1, bi);
+                            int reA = c->next_temp_id++; ir_emit_fadd(c, reA, ar, qa1b);
+                            int qa0 = c->next_temp_id++; ir_emit_fdiv(c, qa0, ar, br);
+                            int qa0b = c->next_temp_id++; ir_emit_fmul(c, qa0b, qa0, bi);
+                            int imA = c->next_temp_id++; ir_emit_fsub(c, imA, ai, qa0b);
+                            int da_m = c->next_temp_id++; ir_emit_fdiv(c, da_m, bi, br);
+                            int da_m2 = c->next_temp_id++; ir_emit_fmul(c, da_m2, da_m, bi);
+                            int dA = c->next_temp_id++; ir_emit_fadd(c, dA, br, da_m2);
+                            int qb0a = c->next_temp_id++; ir_emit_fdiv(c, qb0a, ar, bi);
+                            int qb0ab = c->next_temp_id++; ir_emit_fmul(c, qb0ab, qb0a, br);
+                            int reB = c->next_temp_id++; ir_emit_fadd(c, reB, ai, qb0ab);
+                            int qb0b = c->next_temp_id++; ir_emit_fdiv(c, qb0b, ai, bi);
+                            int qb0bb = c->next_temp_id++; ir_emit_fmul(c, qb0bb, qb0b, br);
+                            int imB = c->next_temp_id++; ir_emit_fsub(c, imB, qb0bb, ar);
+                            int db_m = c->next_temp_id++; ir_emit_fdiv(c, db_m, br, bi);
+                            int db_m2 = c->next_temp_id++; ir_emit_fmul(c, db_m2, db_m, br);
+                            int dB = c->next_temp_id++; ir_emit_fadd(c, dB, bi, db_m2);
+                            int num_r = zc_cx_fselect(c, ge, reA, reB);
+                            int num_i = zc_cx_fselect(c, ge, imA, imB);
+                            int den = zc_cx_fselect(c, ge, dA, dB);
+                            ir_emit_fdiv(c, rr, num_r, den);
+                            ir_emit_fdiv(c, ri, num_i, den);
+                            break;
+                        }
+                        case TK_EQ:
+                        case TK_NE: {
+                            int eqr = c->next_temp_id++, eqi = c->next_temp_id++;
+                            ir_emit_cmp(c, ar, br);
+                            ir_emit_cond_set(c, eqr, CC_EQ);
+                            ir_emit_cmp(c, ai, bi);
+                            ir_emit_cond_set(c, eqi, CC_EQ);
+                            int both = c->next_temp_id++;
+                            ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)both,
+                                .temp_src1=(uint16_t)eqr,.temp_src2=(uint16_t)eqi});
+                            if (cop == TK_NE) {
+                                int one = c->next_temp_id++;
+                                ir_emit_mov_imm(c, one, 1);
+                                int nz = c->next_temp_id++;
+                                ir_emit(c, (Instr){.op=OP_XOR,.temp_dest=(uint16_t)nz,
+                                    .temp_src1=(uint16_t)both,.temp_src2=(uint16_t)one});
+                                rr = nz;
+                            } else {
+                                rr = both;
                             }
-                            int daddr = c->next_temp_id++;
-                            ir_emit_lea(c, daddr, BE(c)->fp_reg, -dres_off);
-                            ir_emit_vstoresd(c, (uint16_t)daddr, (uint16_t)VREG_F0);
-                            int do2 = c->next_temp_id++;
-                            ir_emit_mov_imm(c, do2, 8);
-                            int da2 = c->next_temp_id++;
-                            ir_emit_add(c, da2, daddr, do2);
-                            ir_emit_vstoresd(c, (uint16_t)da2, (uint16_t)VREG_F1);
+                            ir_emit_mov_imm(c, ri, 0);
                             c->current_stack_frame = save_frame;
                             c->last_expr_is_float = 0;
-                            return daddr;
+                            return rr;
                         }
-                        /* _Complex float division: in-compiler scaled
-                         * formula (float has far more headroom between
-                         * its normal and subnormal ranges, and
-                         * __divsc3's packed-float argument ABI differs
-                         * from the double-model parts held here).  Scale
-                         * by the divisor's dominant component, forming
-                         * each mixed product as (a_dom/b_dom)*b_min so
-                         * the tiny ratio never underflows first:
-                           |br| >= |bi|:  re = (ar + (ai/br)*bi)/d
-                                          im = (ai - (ar/br)*bi)/d
-                                          d  = br + (bi/br)*bi
-                           otherwise:     re = (ai + (ar/bi)*br)/d
-                                          im = ((ai/bi)*br - ar)/d
-                                          d  = bi + (br/bi)*br
-                         Both branches may divide by zero on their
-                         * unused path (-> nan), so the parts are
-                         * selected branchlessly. */
-                        int fab_br = zc_cx_fabs(c, br);
-                        int fab_bi = zc_cx_fabs(c, bi);
-                        int ge = c->next_temp_id++;
-                        ir_emit_cmp(c, fab_br, fab_bi);
-                        ir_emit_cond_set(c, ge, CC_GE);
-                        int qa1 = c->next_temp_id++; ir_emit_fdiv(c, qa1, ai, br);
-                        int qa1b = c->next_temp_id++; ir_emit_fmul(c, qa1b, qa1, bi);
-                        int reA = c->next_temp_id++; ir_emit_fadd(c, reA, ar, qa1b);
-                        int qa0 = c->next_temp_id++; ir_emit_fdiv(c, qa0, ar, br);
-                        int qa0b = c->next_temp_id++; ir_emit_fmul(c, qa0b, qa0, bi);
-                        int imA = c->next_temp_id++; ir_emit_fsub(c, imA, ai, qa0b);
-                        int da_m = c->next_temp_id++; ir_emit_fdiv(c, da_m, bi, br);
-                        int da_m2 = c->next_temp_id++; ir_emit_fmul(c, da_m2, da_m, bi);
-                        int dA = c->next_temp_id++; ir_emit_fadd(c, dA, br, da_m2);
-                        int qb0a = c->next_temp_id++; ir_emit_fdiv(c, qb0a, ar, bi);
-                        int qb0ab = c->next_temp_id++; ir_emit_fmul(c, qb0ab, qb0a, br);
-                        int reB = c->next_temp_id++; ir_emit_fadd(c, reB, ai, qb0ab);
-                        int qb0b = c->next_temp_id++; ir_emit_fdiv(c, qb0b, ai, bi);
-                        int qb0bb = c->next_temp_id++; ir_emit_fmul(c, qb0bb, qb0b, br);
-                        int imB = c->next_temp_id++; ir_emit_fsub(c, imB, qb0bb, ar);
-                        int db_m = c->next_temp_id++; ir_emit_fdiv(c, db_m, br, bi);
-                        int db_m2 = c->next_temp_id++; ir_emit_fmul(c, db_m2, db_m, br);
-                        int dB = c->next_temp_id++; ir_emit_fadd(c, dB, bi, db_m2);
-                        int num_r = zc_cx_fselect(c, ge, reA, reB);
-                        int num_i = zc_cx_fselect(c, ge, imA, imB);
-                        int den = zc_cx_fselect(c, ge, dA, dB);
-                        ir_emit_fdiv(c, rr, num_r, den);
-                        ir_emit_fdiv(c, ri, num_i, den);
-                        break;
+                        default:
+                            ir_emit_fmov(c, rr, ar);
+                            ir_emit_fmov(c, ri, ai);
+                            break;
                     }
-                    case TK_EQ:
-                    case TK_NE: {
-                        int eqr = c->next_temp_id++, eqi = c->next_temp_id++;
-                        ir_emit_cmp(c, ar, br);
-                        ir_emit_cond_set(c, eqr, CC_EQ);
-                        ir_emit_cmp(c, ai, bi);
-                        ir_emit_cond_set(c, eqi, CC_EQ);
-                        int both = c->next_temp_id++;
-                        ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)both,
-                            .temp_src1=(uint16_t)eqr,.temp_src2=(uint16_t)eqi});
-                        if (cop == TK_NE) {
-                            int one = c->next_temp_id++;
-                            ir_emit_mov_imm(c, one, 1);
-                            int nz = c->next_temp_id++;
-                            ir_emit(c, (Instr){.op=OP_XOR,.temp_dest=(uint16_t)nz,
-                                .temp_src1=(uint16_t)both,.temp_src2=(uint16_t)one});
-                            rr = nz;
-                        } else {
-                            rr = both;
+                } else {
+                    switch (cop) {
+                        case TK_PLUS:
+                            ir_emit_add(c, rr, ar, br);
+                            ir_emit_add(c, ri, ai, bi);
+                            break;
+                        case TK_MINUS:
+                            ir_emit_sub(c, rr, ar, br);
+                            ir_emit_sub(c, ri, ai, bi);
+                            break;
+                        case TK_STAR: {
+                            int t1 = c->next_temp_id++; ir_emit_mul(c, t1, ar, br);
+                            int t2 = c->next_temp_id++; ir_emit_mul(c, t2, ai, bi);
+                            int t3 = c->next_temp_id++; ir_emit_mul(c, t3, ar, bi);
+                            int t4 = c->next_temp_id++; ir_emit_mul(c, t4, ai, br);
+                            ir_emit_sub(c, rr, t1, t2);
+                            ir_emit_add(c, ri, t3, t4);
+                            break;
                         }
-                        ir_emit_mov_imm(c, ri, 0);
-                        c->current_stack_frame = save_frame; /* int result, no object */
-                        c->last_expr_is_float = 0;
-                        return rr;
+                        case TK_SLASH: {
+                            bool is_u = cel && (cel->modifiers & TYPE_MOD_UNSIGNED);
+                            int d1 = c->next_temp_id++; ir_emit_mul(c, d1, br, br);
+                            int d2 = c->next_temp_id++; ir_emit_mul(c, d2, bi, bi);
+                            int den = c->next_temp_id++; ir_emit_add(c, den, d1, d2);
+
+                            int nr1 = c->next_temp_id++; ir_emit_mul(c, nr1, ar, br);
+                            int nr2 = c->next_temp_id++; ir_emit_mul(c, nr2, ai, bi);
+                            int num_r = c->next_temp_id++; ir_emit_add(c, num_r, nr1, nr2);
+
+                            int ni1 = c->next_temp_id++; ir_emit_mul(c, ni1, ai, br);
+                            int ni2 = c->next_temp_id++; ir_emit_mul(c, ni2, ar, bi);
+                            int num_i = c->next_temp_id++; ir_emit_sub(c, num_i, ni1, ni2);
+
+                            ir_emit_div(c, rr, num_r, den);
+                            if (is_u) ir_mark_last_unsigned(c, 1);
+                            ir_emit_div(c, ri, num_i, den);
+                            if (is_u) ir_mark_last_unsigned(c, 1);
+                            break;
+                        }
+                        case TK_EQ:
+                        case TK_NE: {
+                            int eqr = c->next_temp_id++, eqi = c->next_temp_id++;
+                            ir_emit_cmp(c, ar, br);
+                            ir_emit_cond_set(c, eqr, CC_EQ);
+                            ir_emit_cmp(c, ai, bi);
+                            ir_emit_cond_set(c, eqi, CC_EQ);
+                            int both = c->next_temp_id++;
+                            ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)both,
+                                .temp_src1=(uint16_t)eqr,.temp_src2=(uint16_t)eqi});
+                            if (cop == TK_NE) {
+                                int one = c->next_temp_id++;
+                                ir_emit_mov_imm(c, one, 1);
+                                int nz = c->next_temp_id++;
+                                ir_emit(c, (Instr){.op=OP_XOR,.temp_dest=(uint16_t)nz,
+                                    .temp_src1=(uint16_t)both,.temp_src2=(uint16_t)one});
+                                rr = nz;
+                            } else {
+                                rr = both;
+                            }
+                            ir_emit_mov_imm(c, ri, 0);
+                            c->current_stack_frame = save_frame;
+                            c->last_expr_is_float = 0;
+                            return rr;
+                        }
+                        default:
+                            ir_emit_mov_reg(c, rr, ar);
+                            ir_emit_mov_reg(c, ri, ai);
+                            break;
                     }
-                    default:
-                        ir_emit_fmov(c, rr, ar);
-                        ir_emit_fmov(c, ri, ai);
-                        break;
                 }
-                if (cesz == 4) {
+                if (cflt) {
+                    if (cesz == 4) {
+                        int sa = c->next_temp_id++;
+                        ir_emit_lea(c, sa, BE(c)->fp_reg, -croff);
+                        ir_emit_vstoress(c, sa, (uint16_t)rr);
+                        int sa2 = c->next_temp_id++;
+                        ir_emit_mov_imm(c, sa2, 4);
+                        int sa3 = c->next_temp_id++;
+                        ir_emit_add(c, sa3, sa, sa2);
+                        ir_emit_vstoress(c, sa3, (uint16_t)ri);
+                    } else {
+                        ir_emit_fstore(c, (uint16_t)rr, TEMP_NONE, -croff);
+                        ir_emit_fstore(c, (uint16_t)ri, TEMP_NONE, -(croff - (int)cesz));
+                    }
+                } else {
                     int sa = c->next_temp_id++;
                     ir_emit_lea(c, sa, BE(c)->fp_reg, -croff);
-                    ir_emit_vstoress(c, sa, (uint16_t)rr);
                     int sa2 = c->next_temp_id++;
-                    ir_emit_mov_imm(c, sa2, 4);
+                    ir_emit_mov_imm(c, sa2, (int)cesz);
                     int sa3 = c->next_temp_id++;
                     ir_emit_add(c, sa3, sa, sa2);
-                    ir_emit_vstoress(c, sa3, (uint16_t)ri);
-                } else {
-                    ir_emit_fstore(c, (uint16_t)rr, TEMP_NONE, -croff);
-                    ir_emit_fstore(c, (uint16_t)ri, TEMP_NONE, -(croff - (int)cesz));
+                    if (cesz == 1) {
+                        ir_emit_store_byte(c, rr, sa);
+                        ir_emit_store_byte(c, ri, sa3);
+                    } else if (cesz == 2) {
+                        ir_emit_store_16(c, rr, sa);
+                        ir_emit_store_16(c, ri, sa3);
+                    } else if (cesz == 4) {
+                        ir_emit_store_32(c, rr, sa);
+                        ir_emit_store_32(c, ri, sa3);
+                    } else {
+                        ir_emit_store_64(c, rr, sa);
+                        ir_emit_store_64(c, ri, sa3);
+                    }
                 }
                 int addr = c->next_temp_id++;
                 ir_emit_lea(c, addr, BE(c)->fp_reg, -croff);
@@ -1851,30 +2023,45 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             case TK_BANG: { /* Logical NOT: !operand */
                 TypeInfo *op_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
                 if (op_ti && op_ti->kind == TYPE_KIND_COMPLEX) {
-                    size_t esz = (op_ti->details.array.base) ? type_size(op_ti->details.array.base) : 8;
-                    if (esz != 4 && esz != 8) esz = 8;
+                    const TypeInfo *cel = op_ti->details.array.base;
+                    size_t esz = (cel) ? type_size(cel) : 8;
+                    bool is_elem_fp = cel ? type_is_floating(cel) : true;
+                    if (is_elem_fp && esz != 4 && esz != 8) esz = 8;
                     int rh = c->next_temp_id++, li = c->next_temp_id++;
-                    if (esz == 4) {
-                        ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)operand_temp);
-                        int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
-                        int a2 = c->next_temp_id++; ir_emit_add(c, a2, operand_temp, o2);
-                        ir_emit_vloadss(c, (uint16_t)li, (uint16_t)a2);
+                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)esz);
+                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, operand_temp, o2);
+                    if (is_elem_fp) {
+                        if (esz == 4) {
+                            ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)operand_temp);
+                            ir_emit_vloadss(c, (uint16_t)li, (uint16_t)a2);
+                        } else {
+                            ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)operand_temp);
+                            ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)a2);
+                        }
+                        int zf = c->next_temp_id++;
+                        ir_emit_fmov_imm(c, (uint16_t)zf, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        int er = c->next_temp_id++;
+                        ir_emit_cmp(c, rh, zf);
+                        ir_emit_cond_set(c, er, CC_EQ);
+                        int ei = c->next_temp_id++;
+                        ir_emit_cmp(c, li, zf);
+                        ir_emit_cond_set(c, ei, CC_EQ);
+                        ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)result_temp,
+                                        .temp_src1 = (uint16_t)er, .temp_src2 = (uint16_t)ei});
                     } else {
-                        ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)operand_temp);
-                        int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
-                        int a2 = c->next_temp_id++; ir_emit_add(c, a2, operand_temp, o2);
-                        ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)a2);
+                        if (esz == 1) { ir_emit_load_byte(c, rh, operand_temp); ir_emit_load_byte(c, li, a2); }
+                        else if (esz == 2) { ir_emit_load_16(c, rh, operand_temp); ir_emit_load_16(c, li, a2); }
+                        else if (esz == 4) { ir_emit_load_32(c, rh, operand_temp); ir_emit_load_32(c, li, a2); }
+                        else { ir_emit_deref(c, rh, operand_temp); ir_emit_deref(c, li, a2); }
+                        int er = c->next_temp_id++;
+                        ir_emit_cmp_zero(c, rh);
+                        ir_emit_cond_set(c, er, CC_EQ);
+                        int ei = c->next_temp_id++;
+                        ir_emit_cmp_zero(c, li);
+                        ir_emit_cond_set(c, ei, CC_EQ);
+                        ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)result_temp,
+                                        .temp_src1 = (uint16_t)er, .temp_src2 = (uint16_t)ei});
                     }
-                    int zf = c->next_temp_id++;
-                    ir_emit_fmov_imm(c, (uint16_t)zf, (int64_t)zc_rodata_double_offset(c, 0.0));
-                    int er = c->next_temp_id++;
-                    ir_emit_cmp(c, rh, zf);
-                    ir_emit_cond_set(c, er, CC_EQ);
-                    int ei = c->next_temp_id++;
-                    ir_emit_cmp(c, li, zf);
-                    ir_emit_cond_set(c, ei, CC_EQ);
-                    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)result_temp,
-                                    .temp_src1 = (uint16_t)er, .temp_src2 = (uint16_t)ei});
                     c->last_expr_is_float = 0;
                 } else if (c->last_expr_is_float) {
                     int zero_i = c->next_temp_id++;
@@ -1890,9 +2077,77 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 }
                 break;
             }
-            case TK_TILDE:  /* Bitwise NOT */
+            case TK_TILDE: { /* Bitwise NOT / Complex conjugate (~x) */
+                TypeInfo *op_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
+                const ZeroCCType *op_zt = NULL;
+                ZeroCCASTNode *op_node = zero_cc_ast_get(arena, node->left);
+                if (op_node && op_node->tag == NODE_IDENT) {
+                    ZeroCCSym *sym = zero_cc_find_local(c, op_node->s.str);
+                    if (sym && zero_cc_type_is_complex(&sym->type)) op_zt = &sym->type;
+                    else {
+                        ZeroCCGlobalVar *gv = find_global_var(c, op_node->s.str);
+                        if (gv && zero_cc_type_is_complex(&gv->type)) op_zt = &gv->type;
+                    }
+                }
+                if ((op_ti && op_ti->kind == TYPE_KIND_COMPLEX) || (op_zt && op_zt->is_complex)) {
+                    const TypeInfo *cel = (op_ti && op_ti->kind == TYPE_KIND_COMPLEX) ? op_ti->details.array.base : NULL;
+                    size_t cesz = cel ? type_size(cel) : (op_zt && op_zt->base ? op_zt->base->size : 8);
+                    if (cesz == 0) cesz = 8;
+                    bool cflt = cel ? type_is_floating(cel) :
+                                (op_zt && op_zt->base ? (op_zt->base->tag == TYPE_FLOAT || op_zt->base->tag == TYPE_DOUBLE) : true);
+                    if (cflt && cesz != 4 && cesz != 8) cesz = 8;
+                    int rh = c->next_temp_id++, li = c->next_temp_id++;
+                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)cesz);
+                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, operand_temp, o2);
+                    int neg_li = c->next_temp_id++;
+                    if (cflt) {
+                        if (cesz == 4) {
+                            ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)operand_temp);
+                            ir_emit_vloadss(c, (uint16_t)li, (uint16_t)a2);
+                        } else {
+                            ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)operand_temp);
+                            ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)a2);
+                        }
+                        int zero_i = c->next_temp_id++;
+                        ir_emit_mov_imm(c, zero_i, 0);
+                        int zero_f = c->next_temp_id++;
+                        ir_emit_cvtsi2sd(c, (uint16_t)zero_f, (uint16_t)zero_i);
+                        ir_emit_fsub(c, (uint16_t)neg_li, (uint16_t)zero_f, (uint16_t)li);
+                    } else {
+                        if (cesz == 1) { ir_emit_load_byte(c, rh, operand_temp); ir_emit_load_byte(c, li, a2); }
+                        else if (cesz == 2) { ir_emit_load_16(c, rh, operand_temp); ir_emit_load_16(c, li, a2); }
+                        else if (cesz == 4) { ir_emit_load_32(c, rh, operand_temp); ir_emit_load_32(c, li, a2); }
+                        else { ir_emit_deref(c, rh, operand_temp); ir_emit_deref(c, li, a2); }
+                        ir_emit_neg(c, neg_li, li);
+                    }
+                    size_t csz = cesz * 2;
+                    c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                    c->current_stack_frame += (int32_t)csz;
+                    int32_t res_off = c->current_stack_frame;
+                    int res_addr = c->next_temp_id++;
+                    ir_emit_lea(c, res_addr, BE(c)->fp_reg, -res_off);
+                    int res_a2 = c->next_temp_id++;
+                    ir_emit_add(c, res_a2, res_addr, o2);
+                    if (cflt) {
+                        if (cesz == 4) {
+                            ir_emit_vstoress(c, (uint16_t)res_addr, (uint16_t)rh);
+                            ir_emit_vstoress(c, (uint16_t)res_a2, (uint16_t)neg_li);
+                        } else {
+                            ir_emit_vstoresd(c, (uint16_t)res_addr, (uint16_t)rh);
+                            ir_emit_vstoresd(c, (uint16_t)res_a2, (uint16_t)neg_li);
+                        }
+                    } else {
+                        if (cesz == 1) { ir_emit_store_byte(c, rh, res_addr); ir_emit_store_byte(c, neg_li, res_a2); }
+                        else if (cesz == 2) { ir_emit_store_16(c, rh, res_addr); ir_emit_store_16(c, neg_li, res_a2); }
+                        else if (cesz == 4) { ir_emit_store_32(c, rh, res_addr); ir_emit_store_32(c, neg_li, res_a2); }
+                        else { ir_emit_store_64(c, rh, res_addr); ir_emit_store_64(c, neg_li, res_a2); }
+                    }
+                    c->last_expr_is_float = 0;
+                    return res_addr;
+                }
                 ir_emit_not(c, result_temp, operand_temp);
                 break;
+            }
             default:
                 /* Unary + (identity): keep the operand's float-ness so a
                  * following mixed int/FP op does not cvtsi2sd the bits
@@ -1991,67 +2246,68 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             if (cast_ti && cast_ti->kind == TYPE_KIND_COMPLEX) {
                 const TypeInfo *cel = cast_ti->details.array.base;
                 size_t cesz = cel ? type_size(cel) : 8;
-                if (cesz != 4 && cesz != 8) cesz = 8; /* long double: double model */
+                bool is_target_fp = cel ? type_is_floating(cel) : true;
+                if (is_target_fp && cesz != 4 && cesz != 8) cesz = 8;
                 c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                 c->current_stack_frame = (c->current_stack_frame + (int32_t)(cesz * 2) + 7) & ~7;
                 int32_t coff = c->current_stack_frame;
+                int ca = c->next_temp_id++;
+                ir_emit_lea(c, ca, BE(c)->fp_reg, -coff);
+                int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)cesz);
+                int a2 = c->next_temp_id++; ir_emit_add(c, a2, ca, o2);
                 if (cst2 && cst2->kind == TYPE_KIND_COMPLEX) {
-                    /* complex -> complex: copy both halves from the
-                     * source object address. */
-                    int ca = c->next_temp_id++;
-                    ir_emit_lea(c, ca, BE(c)->fp_reg, -coff);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)cesz);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, ca, o2);
-                    if (cesz == 4) {
-                        int sr = c->next_temp_id++, si = c->next_temp_id++;
-                        ir_emit_vloadss(c, (uint16_t)sr, (uint16_t)result);
-                        int so2 = c->next_temp_id++; ir_emit_mov_imm(c, so2, (int)cesz);
-                        int sa2 = c->next_temp_id++; ir_emit_add(c, sa2, result, so2);
-                        ir_emit_vloadss(c, (uint16_t)si, (uint16_t)sa2);
-                        ir_emit_vstoress(c, (uint16_t)ca, (uint16_t)sr);
-                        ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)si);
+                    const TypeInfo *src_el = cst2->details.array.base;
+                    size_t sesz = src_el ? type_size(src_el) : 8;
+                    bool is_src_fp = src_el ? type_is_floating(src_el) : true;
+                    if (is_src_fp && sesz != 4 && sesz != 8) sesz = 8;
+                    int sr = c->next_temp_id++, si = c->next_temp_id++;
+                    int so2 = c->next_temp_id++; ir_emit_mov_imm(c, so2, (int)sesz);
+                    int sa2 = c->next_temp_id++; ir_emit_add(c, sa2, result, so2);
+                    if (is_src_fp) {
+                        if (sesz == 4) { ir_emit_vloadss(c, (uint16_t)sr, (uint16_t)result); ir_emit_vloadss(c, (uint16_t)si, (uint16_t)sa2); }
+                        else { ir_emit_vloadsd(c, (uint16_t)sr, (uint16_t)result); ir_emit_vloadsd(c, (uint16_t)si, (uint16_t)sa2); }
                     } else {
-                        int sr = c->next_temp_id++, si = c->next_temp_id++;
-                        ir_emit_vloadsd(c, (uint16_t)sr, (uint16_t)result);
-                        int so2 = c->next_temp_id++; ir_emit_mov_imm(c, so2, (int)cesz);
-                        int sa2 = c->next_temp_id++; ir_emit_add(c, sa2, result, so2);
-                        ir_emit_vloadsd(c, (uint16_t)si, (uint16_t)sa2);
-                        ir_emit_vstoresd(c, (uint16_t)ca, (uint16_t)sr);
-                        ir_emit_vstoresd(c, (uint16_t)a2, (uint16_t)si);
+                        if (sesz == 1) { ir_emit_load_byte(c, sr, result); ir_emit_load_byte(c, si, sa2); }
+                        else if (sesz == 2) { ir_emit_load_16(c, sr, result); ir_emit_load_16(c, si, sa2); }
+                        else if (sesz == 4) { ir_emit_load_32(c, sr, result); ir_emit_load_32(c, si, sa2); }
+                        else { ir_emit_deref(c, sr, result); ir_emit_deref(c, si, sa2); }
                     }
-                } else if (c->last_expr_is_float) {
-                    int ca = c->next_temp_id++;
-                    ir_emit_lea(c, ca, BE(c)->fp_reg, -coff);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)cesz);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, ca, o2);
-                    if (cesz == 4) {
-                        ir_emit_vstoress(c, (uint16_t)ca, (uint16_t)result);
-                        int zr = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)zr);
+                    int tr = sr, ti = si;
+                    if (is_target_fp && !is_src_fp) {
+                        tr = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)tr, (uint16_t)sr);
+                        ti = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)ti, (uint16_t)si);
+                    } else if (!is_target_fp && is_src_fp) {
+                        tr = c->next_temp_id++; ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)tr, .temp_src1 = (uint16_t)sr, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                        ti = c->next_temp_id++; ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)ti, .temp_src1 = (uint16_t)si, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    }
+                    if (is_target_fp) {
+                        if (cesz == 4) { ir_emit_vstoress(c, (uint16_t)ca, (uint16_t)tr); ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)ti); }
+                        else { ir_emit_vstoresd(c, (uint16_t)ca, (uint16_t)tr); ir_emit_vstoresd(c, (uint16_t)a2, (uint16_t)ti); }
                     } else {
-                        ir_emit_fstore(c, (uint16_t)result, TEMP_NONE, -coff);
-                        int zr = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_fstore(c, (uint16_t)zr, TEMP_NONE, -coff + (int)cesz);
+                        if (cesz == 1) { ir_emit_store_byte(c, tr, ca); ir_emit_store_byte(c, ti, a2); }
+                        else if (cesz == 2) { ir_emit_store_16(c, tr, ca); ir_emit_store_16(c, ti, a2); }
+                        else if (cesz == 4) { ir_emit_store_32(c, tr, ca); ir_emit_store_32(c, ti, a2); }
+                        else { ir_emit_store_64(c, tr, ca); ir_emit_store_64(c, ti, a2); }
                     }
                 } else {
-                    /* Integer scalar -> (double value, 0). */
-                    int dv = zc_emit_int_to_double(c, result, cst2);
-                    int ca = c->next_temp_id++;
-                    ir_emit_lea(c, ca, BE(c)->fp_reg, -coff);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)cesz);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, ca, o2);
-                    if (cesz == 4) {
-                        ir_emit_vstoress(c, (uint16_t)ca, (uint16_t)dv);
+                    int tr = result;
+                    if (is_target_fp && !c->last_expr_is_float) {
+                        tr = zc_emit_int_to_double(c, result, cst2);
+                    } else if (!is_target_fp && c->last_expr_is_float) {
+                        tr = c->next_temp_id++;
+                        ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)tr, .temp_src1 = (uint16_t)result, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    }
+                    if (is_target_fp) {
                         int zr = c->next_temp_id++;
                         ir_emit_fmov_imm(c, (uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)zr);
+                        if (cesz == 4) { ir_emit_vstoress(c, (uint16_t)ca, (uint16_t)tr); ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)zr); }
+                        else { ir_emit_vstoresd(c, (uint16_t)ca, (uint16_t)tr); ir_emit_vstoresd(c, (uint16_t)a2, (uint16_t)zr); }
                     } else {
-                        ir_emit_fstore(c, (uint16_t)dv, TEMP_NONE, -coff);
-                        int zr = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)zr, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_fstore(c, (uint16_t)zr, TEMP_NONE, -coff + (int)cesz);
+                        int zi = c->next_temp_id++; ir_emit_mov_imm(c, zi, 0);
+                        if (cesz == 1) { ir_emit_store_byte(c, tr, ca); ir_emit_store_byte(c, zi, a2); }
+                        else if (cesz == 2) { ir_emit_store_16(c, tr, ca); ir_emit_store_16(c, zi, a2); }
+                        else if (cesz == 4) { ir_emit_store_32(c, tr, ca); ir_emit_store_32(c, zi, a2); }
+                        else { ir_emit_store_64(c, tr, ca); ir_emit_store_64(c, zi, a2); }
                     }
                 }
                 int caddr = c->next_temp_id++;

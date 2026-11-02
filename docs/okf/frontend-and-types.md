@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-02T17:20:42Z
+timestamp: 2026-11-02T18:24:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -61,17 +61,25 @@ Any unrecognized `__builtin_*` / `__sync_*` / `__atomic_*` / `__zerocc_*` identi
 
 The list mirrors the `__builtin_<name>` → libc `<name>` mapping in `ir/ast_lowering_expr.c`. Without it these builtins were typed as returning `int`, the call result got `SEXT32` in lowering, and 64-bit pointer returns were truncated — benign in non-PIE AOT (heap < 4 GiB) but a guaranteed crash under the 48-bit JIT data/heap addresses (`execute/pr15262-1.c`, `execute/pr36765.c`, `execute/pr43008.c`, `execute/pr84339.c`). Math builtins (`__builtin_fabs/fmax/fmin/floor/ceil/round/trunc/fmod/pow/exp/log/log2/log10/sin/cos/tan/atan2` + `f`/`l` variants) rename to their libc names at lowering with matching return typing (`double` family → `double`, `f` → `float`, `l` modeled as `double`).
 
-## C99 `_Complex` Types (Sprint 67)
+## C99 & GNU `_Complex` Types (Sprint 67, Sprint 85)
 
-C99 6.7.2.3 complex floating types are first-class:
+ZeroCC supports first-class complex arithmetic for both C99 floating-point types (`_Complex float`, `_Complex double`) and GNU C integer complex types (`_Complex int`, `_Complex long`, `_Complex short`, `_Complex char`, `_Complex unsigned`, `__complex__ int`):
 
-- **Representation**: `ZeroCCType.is_complex` flag with `base` = the element type (float/double only) and `size = 2 × element` (alignment = element alignment per GCC: `_Complex double` is 16B/align 8, `_Complex float` 8B/align 4). `TYPE_KIND_COMPLEX` `TypeInfo` reuses `details.array` (`base` = element, `count` = 2). All three specifier spellings are accepted in prefix or suffix position (`_Complex double`, `double __complex__`, `double __complex`) via `zero_cc_tok_is_complex_spec()`.
-- **Value discipline: address-form** — exactly like vectors. A complex value is a 16/8-byte stack object (real half at offset 0, imaginary at `esz`); consumers load the halves with register-indirect SSE ops (`vloadsd`/`vloadss`/`vstoresd`/`vstoress` — the frame-relative `OP_FLOAD`/`OP_FSTORE` cannot be used). Complex identifiers, member accesses, binop results, call results, and casts all materialize to an address temp.
-- **Operations** (`ir/ast_lowering_expr.c`): `+ - *` per half; `==`/`!=` compare both halves and yield `int`; `/` for `_Complex double` **delegates to libgcc `__divdc3`** (4 FP args, `xmm0`/`xmm1` result, external prototype registered at the call site; JIT resolves `libgcc_s.so.1` by `dlopen` when `RTLD_DEFAULT` misses) because in-compiler formulas cannot match libgcc's subnormal edge-case accuracy (c-torture `ieee/cdivchk*`); other widths use a dominant-component scaled formula. Scalar→complex converts to `(v, 0.0)` (the zero via `zc_rodata_double_offset`, not a raw `fmov_imm` bit pattern).
-- **`__real`/`__imag`** (`__real__`/`__imag__` too): lowered as builtin calls loading one half; parenthesis-less GNU forms (`__real__ b != 2.0`) are desugared in the parser at **unary** level (operand = `parse_unary_ast`) so precedence reads `(__real__ b) != 2.0`. Part-extractor lvalue assignment (`__real__ a = 9;`) stores the single half.
-- **Call ABI**: complex parameters/returns use two consecutive FP registers (real first) per SysV; complex parameters disable the frameless parameter-promotion path.
-- **Struct/union members**: `ZeroCCStructMember.is_complex` (prefix/suffix parsed in `zero_cc_parse_struct_body`); member `TypeInfo` keeps the complex marker; a complex member is **two scalar leaves** in all initializer engines (`{ re, im }` positional/designated, bare-scalar elision `(v, 0)`, `zc_init_member_leaf_count` = 2).
-- **Unsupported: integer-element complex** (`_Complex int`, …) — the pipeline is FP-only, so lowering rejects cleanly at entry (scanning function locals/params/return **and file-scope globals**). An honest REJECT beats a miscompile.
+- **Representation**: `ZeroCCType.is_complex` flag with `base` = the element type (float/double or integer types) and `size = 2 × element` (alignment = element alignment per SysV/GCC: `_Complex double` is 16B/align 8, `_Complex float` 8B/align 4, `_Complex long` 16B/align 8, `_Complex int` 8B/align 4, `_Complex short` 4B/align 2, `_Complex char` 2B/align 1). `TYPE_KIND_COMPLEX` `TypeInfo` reuses `details.array` (`base` = element, `count` = 2). All three specifier spellings are accepted in prefix or suffix position (`_Complex double`, `double __complex__`, `double __complex`, `_Complex int`, `int __complex__`) via `zero_cc_tok_is_complex_spec()`.
+- **Value discipline: address-form**: Exactly like vectors, a complex value in lowering is materialized to an address temp (real half at offset 0, imaginary half at `esz`). Loads and stores of halves use register-indirect SSE ops (`vloadsd`/`vloadss`/`vstoresd`/`vstoress`) for floating complex, or standard integer loads and stores (`load_byte`, `load_16`, `load_32`, `deref`) with sign extension (`ir_emit_sext`) for integer complex. Complex identifiers, member accesses, binop results, call results, and casts all materialize to an address temp.
+- **Operations & Conversions** (`ir/ast_lowering_binop.c`, `ir/ast_lowering_builtins.c`, `ir/ast_lowering_assign.c`):
+  - Binary arithmetic `+ - *`: per-half for addition/subtraction. Multiplication follows `(ac - bd) + (ad + bc)i`.
+  - Division `/`: `_Complex double` delegates to libgcc `__divdc3` (or dominant-component formula); integer complex division performs full algebraic division with integer division (`ir_emit_div`, marked unsigned if applicable).
+  - Comparisons `==` / `!=`: compare both real and imaginary halves, returning `int` (0 or 1). Operands are independently loaded with proper sign extension and converted to common element type before comparison.
+  - Logical NOT `!`: tests `(re == 0) && (im == 0)`.
+  - Conjugate `~`: supported on both floating and integer complex via bitwise NOT operator `~` or `__builtin_conj*`, negating the imaginary half.
+  - Conversions: supports scalar $\leftrightarrow$ complex, float complex $\leftrightarrow$ integer complex, and narrowing/widening between integer complex widths. Scalar to complex converts to `(v, 0)`.
+- **`__real`/`__imag`** (`__real__`/`__imag__` too): lowered as builtin calls or lvalues loading/storing a single half at offset 0 or `esz`. Precedence of prefix `__real__` is handled at unary level (`(__real__ b) != 0`). Part-extractor lvalue assignments (`__real__ a = 9;`) store only into that half.
+- **Call ABI**:
+  - **Floating Complex**: parameters and returns use consecutive FP registers (`xmm0`, `xmm1`) per System V AMD64 ABI.
+  - **Integer Complex**: composite $\le 8$B (`_Complex char`, `_Complex short`, `_Complex int`) are passed in 1 GPR (low bits real, high bits imag) and returned in `VREG_0` (`rax`); 16B composite (`_Complex long`) are passed across 2 consecutive GPRs (real in first, imag in second) and returned across `VREG_0` (`rax`, real) and `VREG_2` (`rdx`, imag).
+  - When passing a scalar to a complex parameter, caller constructs `(val, 0)` in parameter registers/slots.
+- **Struct/union members & Arrays**: `ZeroCCStructMember.is_complex` preserves complex types in structs/unions; complex members and array elements (`a[i] = -1`) are correctly recognized as complex destinations in compound and direct assignments.
 
 ## Function Pointer Representation (`is_func_ptr`)
 

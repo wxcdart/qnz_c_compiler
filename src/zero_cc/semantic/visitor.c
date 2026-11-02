@@ -488,9 +488,12 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 const char *pname = (pn && pn->tag == NODE_IDENT && pn->s.str) ? pn->s.str : NULL;
                 if (pname &&
                     (strcmp(pname, "__real") == 0 || strcmp(pname, "__real__") == 0 ||
-                     strcmp(pname, "__imag") == 0 || strcmp(pname, "__imag__") == 0) &&
-                    (!first_arg_t || first_arg_t->kind != TYPE_KIND_COMPLEX)) {
-                    sem_node_error(ctx, node, "'%s' applied to a non-complex value", pname);
+                     strcmp(pname, "__imag") == 0 || strcmp(pname, "__imag__") == 0)) {
+                    if (!first_arg_t || first_arg_t->kind != TYPE_KIND_COMPLEX) {
+                        sem_node_error(ctx, node, "'%s' applied to a non-complex value", pname);
+                    } else if (first_arg_t->details.array.base) {
+                        res = first_arg_t->details.array.base;
+                    }
                 }
             }
             /* C99 6.7.5.3p6: when the callee has a prototype, the argument

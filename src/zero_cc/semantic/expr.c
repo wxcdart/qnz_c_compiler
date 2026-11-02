@@ -274,9 +274,9 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case '~':
         case TK_TILDE: {
-            /* Bitwise NOT: integer operand, or a GNU vector (element-wise;
-             * the result keeps the vector type). */
-            if (type_is_vector(op_type)) {
+            /* Bitwise NOT: integer operand, GNU vector (element-wise),
+             * or complex operand (GNU complex conjugate: keeps the complex type). */
+            if (type_is_vector(op_type) || (op_type && op_type->kind == TYPE_KIND_COMPLEX)) {
                 res = (TypeInfo *)op_type;
             } else if (type_is_integer(op_type)) {
                 res = type_promote(ctx->perm_arena, op_type);
@@ -502,6 +502,14 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
     TypeInfo *res = fn_t->details.function.ret;
     if (!res) {
         res = type_void(ctx->perm_arena);
+    }
+
+    if (callee && callee->tag == NODE_IDENT && callee->s.str &&
+        (strcmp(callee->s.str, "__real") == 0 || strcmp(callee->s.str, "__real__") == 0 ||
+         strcmp(callee->s.str, "__imag") == 0 || strcmp(callee->s.str, "__imag__") == 0)) {
+        if (first_arg_t && first_arg_t->kind == TYPE_KIND_COMPLEX && first_arg_t->details.array.base) {
+            res = first_arg_t->details.array.base;
+        }
     }
 
     /* __builtin_shuffle(a, b) selects lanes from a/b by the index vector

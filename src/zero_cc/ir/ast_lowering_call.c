@@ -328,50 +328,184 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 }
                 param_idx++;
                 /* C99 complex argument: passed in TWO consecutive FP
-                 * registers (real, then imaginary). The argument
-                 * expression lowered to the ADDRESS of the complex
-                 * object; load the halves and spill them to the FP
-                 * stream. */
+                 * registers (real, then imaginary) for floating, or in GPR(s)
+                 * for integer complex. The argument expression lowered to the
+                 * ADDRESS of the complex object; load the halves and spill them. */
                 {
-                    bool param_is_cx = (callee_fn && param_idx < (int)callee_fn->param_count &&
+                    bool param_is_cx = (callee_fn && (param_idx - 1) < (int)callee_fn->param_count &&
                                         zero_cc_type_is_complex(&callee_fn->param_types[param_idx - 1]));
                     ZeroCCASTNode *cx_an = arg_node;
                     TypeInfo *cx_ati = cx_an ? ast_node_get_typeinfo(c, cx_an) : NULL;
                     bool arg_is_cx = (cx_ati && cx_ati->kind == TYPE_KIND_COMPLEX);
-                    if (param_is_cx || arg_is_cx) {
+                    if (!arg_is_cx && arg_node && arg_node->tag == NODE_IDENT) {
+                        ZeroCCSym *as = zero_cc_find_local(c, arg_node->s.str);
+                        if (as && zero_cc_type_is_complex(&as->type)) arg_is_cx = true;
+                        else {
+                            ZeroCCGlobalVar *ag = find_global_var(c, arg_node->s.str);
+                            if (ag && zero_cc_type_is_complex(&ag->type)) arg_is_cx = true;
+                        }
+                    }
+                    if (callee_fn && !param_is_cx && arg_is_cx) {
+                        /* C99 6.3.1.7: complex to scalar conversion extracts the real part */
+                        bool el_is_fp = cx_ati->details.array.base && type_is_floating(cx_ati->details.array.base);
+                        size_t el_sz = cx_ati->details.array.base ? type_size(cx_ati->details.array.base) : 8;
+                        int real_val = c->next_temp_id++;
+                        if (el_is_fp) {
+                            if (el_sz == 4) ir_emit_vloadss(c, (uint16_t)real_val, (uint16_t)temp);
+                            else ir_emit_vloadsd(c, (uint16_t)real_val, (uint16_t)temp);
+                            c->last_expr_is_float = 1;
+                        } else {
+                            if (el_sz == 1) ir_emit_load_byte(c, real_val, temp);
+                            else if (el_sz == 2) ir_emit_load_16(c, real_val, temp);
+                            else if (el_sz == 4) ir_emit_load_32(c, real_val, temp);
+                            else ir_emit_deref(c, real_val, temp);
+                            c->last_expr_is_float = 0;
+                        }
+                        temp = real_val;
+                    } else if (param_is_cx || arg_is_cx) {
+                        bool el_is_fp = (cx_ati && cx_ati->details.array.base) ? type_is_floating(cx_ati->details.array.base) :
+                                        (param_is_cx && callee_fn->param_types[param_idx - 1].base) ?
+                                        (callee_fn->param_types[param_idx - 1].base->tag == TYPE_FLOAT ||
+                                         callee_fn->param_types[param_idx - 1].base->tag == TYPE_DOUBLE) : true;
                         size_t cesz = (cx_ati && cx_ati->details.array.base) ? type_size(cx_ati->details.array.base) :
                                        (param_is_cx && callee_fn->param_types[param_idx - 1].base) ? callee_fn->param_types[param_idx - 1].base->size : 8;
-                        if (cesz != 4 && cesz != 8) cesz = 8;
-                        for (int half = 0; half < 2; half++) {
-                            int hv = c->next_temp_id++;
-                            int la = temp;
-                            if (half == 1) {
+                        if (el_is_fp && cesz != 4 && cesz != 8) cesz = 8;
+                        if (!el_is_fp && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+                        size_t csz = cesz * 2;
+                        if (el_is_fp) {
+                            int r_val = TEMP_NONE, i_val = TEMP_NONE;
+                            if (!arg_is_cx) {
+                                r_val = temp;
+                                if (!c->last_expr_is_float) {
+                                    int f = c->next_temp_id++;
+                                    ir_emit_cvtsi2sd(c, (uint16_t)f, (uint16_t)temp);
+                                    r_val = f;
+                                }
+                                i_val = c->next_temp_id++;
+                                ir_emit_fmov_imm(c, (uint16_t)i_val, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            }
+                            for (int half = 0; half < 2; half++) {
+                                int hv;
+                                if (!arg_is_cx) {
+                                    hv = (half == 0) ? r_val : i_val;
+                                } else {
+                                    hv = c->next_temp_id++;
+                                    int la = temp;
+                                    if (half == 1) {
+                                        int o2 = c->next_temp_id++;
+                                        ir_emit_mov_imm(c, o2, (int)cesz);
+                                        la = c->next_temp_id++;
+                                        ir_emit_add(c, la, temp, o2);
+                                    }
+                                    if (cesz == 4) ir_emit_vloadss(c, (uint16_t)hv, (uint16_t)la);
+                                    else ir_emit_vloadsd(c, (uint16_t)hv, (uint16_t)la);
+                                }
+                                fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                fp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                                if (cesz == 4 && fp_spill_stack_pos[fp_arg_idx] < 255) {
+                                    int sa = c->next_temp_id++;
+                                    ir_emit_lea(c, sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
+                                    ir_emit_vstoress(c, (uint16_t)sa, (uint16_t)hv);
+                                } else {
+                                    ir_emit_fstore(c, (uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                }
+                                fp_arg_idx++;
+                            }
+                        } else {
+                            /* Integer complex argument in GPR(s) */
+                            if (!arg_is_cx) {
+                                int r_val = temp;
+                                if (c->last_expr_is_float) {
+                                    r_val = c->next_temp_id++;
+                                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)r_val,
+                                                       .temp_src1 = (uint16_t)temp, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                                }
+                                if (csz <= 8) {
+                                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    gp_stream++;
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int32_t slot = c->current_stack_frame;
+                                    ir_emit_store(c, r_val, BE(c)->fp_reg, -slot);
+                                    if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                        int_spill_offsets[int_arg_idx] = slot;
+                                        int_arg_idx++;
+                                    }
+                                } else {
+                                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    gp_stream++;
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int32_t slot0 = c->current_stack_frame;
+                                    ir_emit_store(c, r_val, BE(c)->fp_reg, -slot0);
+                                    if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                        int_spill_offsets[int_arg_idx] = slot0;
+                                        int_arg_idx++;
+                                    }
+
+                                    int val1 = c->next_temp_id++;
+                                    ir_emit_mov_imm(c, val1, 0);
+                                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    gp_stream++;
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int32_t slot1 = c->current_stack_frame;
+                                    ir_emit_store(c, val1, BE(c)->fp_reg, -slot1);
+                                    if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                        int_spill_offsets[int_arg_idx] = slot1;
+                                        int_arg_idx++;
+                                    }
+                                }
+                            } else if (csz <= 8) {
+                                int val = c->next_temp_id++;
+                                if (csz == 2) ir_emit_load_16(c, val, temp);
+                                else if (csz == 4) ir_emit_load_32(c, val, temp);
+                                else ir_emit_deref(c, val, temp);
+                                int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                gp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int32_t slot = c->current_stack_frame;
+                                ir_emit_store(c, val, BE(c)->fp_reg, -slot);
+                                if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                    int_spill_offsets[int_arg_idx] = slot;
+                                    int_arg_idx++;
+                                }
+                            } else {
+                                /* 16B integer complex: 2 GPRs (real then imag) */
+                                int val0 = c->next_temp_id++;
+                                ir_emit_deref(c, val0, temp);
+                                int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                gp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int32_t slot0 = c->current_stack_frame;
+                                ir_emit_store(c, val0, BE(c)->fp_reg, -slot0);
+                                if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                    int_spill_offsets[int_arg_idx] = slot0;
+                                    int_arg_idx++;
+                                }
+
                                 int o2 = c->next_temp_id++;
                                 ir_emit_mov_imm(c, o2, (int)cesz);
-                                la = c->next_temp_id++;
-                                ir_emit_add(c, la, temp, o2);
+                                int a2 = c->next_temp_id++;
+                                ir_emit_add(c, a2, temp, o2);
+                                int val1 = c->next_temp_id++;
+                                ir_emit_deref(c, val1, a2);
+                                int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                gp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int32_t slot1 = c->current_stack_frame;
+                                ir_emit_store(c, val1, BE(c)->fp_reg, -slot1);
+                                if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                    int_spill_offsets[int_arg_idx] = slot1;
+                                    int_arg_idx++;
+                                }
                             }
-                            if (cesz == 4) ir_emit_vloadss(c, (uint16_t)hv, (uint16_t)la);
-                            else ir_emit_vloadsd(c, (uint16_t)hv, (uint16_t)la);
-                            fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                            fp_stream++;
-                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                            c->current_stack_frame += 8;
-                            fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
-                            if (cesz == 4 && fp_spill_stack_pos[fp_arg_idx] < 255) {
-                                /* Stack-passed float half: the slot must
-                                 * hold the FLOAT bits (low 4 bytes) -
-                                 * the callee reads it as a float.  A
-                                 * double-width store would leave the
-                                 * double's low 32 bits, which are not
-                                 * the float pattern. */
-                                int sa = c->next_temp_id++;
-                                ir_emit_lea(c, sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
-                                ir_emit_vstoress(c, (uint16_t)sa, (uint16_t)hv);
-                            } else {
-                                ir_emit_fstore(c, (uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
-                            }
-                            fp_arg_idx++;
                         }
                         arg = arg_node ? arg_node->next : AST_NULL;
                         continue;
@@ -837,32 +971,59 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             }
 
             /* C99 complex return: real in xmm0 (VREG_F0), imaginary in
-             * xmm1 (VREG_F1). Materialize into an aligned stack object
+             * xmm1 (VREG_F1) for floating, or VREG_0 / (VREG_0, VREG_2) for integer.
+             * Materialize into an aligned stack object
              * and hand back its ADDRESS (like vector returns). */
             if (call_ret_type.is_complex) {
-                size_t cesz = (call_ret_type.base && call_ret_type.base->size == 4) ? 4 : 8;
-                size_t csz = cesz * 2;
+                bool is_fp = (call_ret_type.base && (call_ret_type.base->tag == TYPE_FLOAT || call_ret_type.base->tag == TYPE_DOUBLE));
+                size_t cesz = (call_ret_type.base && call_ret_type.base->size > 0) ? call_ret_type.base->size : (is_fp ? 8 : 4);
+                size_t csz = call_ret_type.size ? call_ret_type.size : cesz * 2;
                 c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                 c->current_stack_frame = (c->current_stack_frame + (int32_t)csz + 7) & ~7;
                 int32_t cres_off = c->current_stack_frame;
-                if (ir_get_count(c) > 0) {
-                    /* Keep VREG_F0/VREG_F1 (xmm0/xmm1) live across the
-                     * call: the complex result lives in that pair. */
-                    Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                    li->label_idx = 0x0100 | (csz & 0xFF);
-                }
                 int caddr = c->next_temp_id++;
                 ir_emit_lea(c, caddr, BE(c)->fp_reg, -cres_off);
-                if (cesz == 4) {
-                    ir_emit_vstoress(c, (uint16_t)caddr, (uint16_t)VREG_F0);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
-                    ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)VREG_F1);
+
+                if (is_fp) {
+                    if (ir_get_count(c) > 0) {
+                        /* Keep VREG_F0/VREG_F1 (xmm0/xmm1) live across the call */
+                        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                        li->label_idx = 0x0100 | (csz & 0xFF);
+                    }
+                    if (cesz == 4) {
+                        ir_emit_vstoress(c, (uint16_t)caddr, (uint16_t)VREG_F0);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
+                        int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
+                        ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)VREG_F1);
+                    } else {
+                        ir_emit_vstoresd(c, (uint16_t)caddr, (uint16_t)VREG_F0);
+                        int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
+                        int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
+                        ir_emit_vstoresd(c, (uint16_t)a2, (uint16_t)VREG_F1);
+                    }
                 } else {
-                    ir_emit_vstoresd(c, (uint16_t)caddr, (uint16_t)VREG_F0);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
-                    ir_emit_vstoresd(c, (uint16_t)a2, (uint16_t)VREG_F1);
+                    /* Integer complex return */
+                    if (csz > 8) {
+                        if (ir_get_count(c) > 0) {
+                            Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                            li->label_idx = 0x0100 | (csz & 0xFF);
+                        }
+                        int t0 = c->next_temp_id++;
+                        ir_emit_mov_reg(c, t0, VREG_0);
+                        ir_emit_store(c, t0, BE(c)->fp_reg, -cres_off);
+                        int t1 = c->next_temp_id++;
+                        ir_emit_mov_reg(c, t1, VREG_2);
+                        ir_emit_store(c, t1, BE(c)->fp_reg, -cres_off + 8);
+                    } else {
+                        int t0 = c->next_temp_id++;
+                        ir_emit_mov_reg(c, t0, VREG_0);
+                        int a0 = c->next_temp_id++;
+                        ir_emit_lea(c, a0, BE(c)->fp_reg, -cres_off);
+                        if (csz == 1) ir_emit_store_byte(c, t0, a0);
+                        else if (csz == 2) ir_emit_store_16(c, t0, a0);
+                        else if (csz == 4) ir_emit_store_32(c, t0, a0);
+                        else ir_emit_store_64(c, t0, a0);
+                    }
                 }
                 c->last_expr_is_float = 0;
                 return caddr;

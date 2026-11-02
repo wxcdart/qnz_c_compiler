@@ -1,5 +1,36 @@
 # ZeroCC Changelog
 
+## [Sprint 85] - 2026-11-02 - GNU Extension: Integer Complex (`_Complex int`, `_Complex long`, `__complex__ int`)
+
+Implemented complete end-to-end support for GNU C Integer Complex types (`_Complex int`, `_Complex long`, `_Complex short`, `_Complex char`, `_Complex unsigned`, `__complex__ int`) across semantic analysis, AST lowering, IR generation, and calling convention ABIs:
+
+- **Semantic Analysis & Parsing**:
+  - Lifted the floating-point restriction on complex types in `src/zero_cc/semantic/expr.c` and `src/zero_cc/semantic/visitor.c`.
+  - Allowed bitwise NOT operator `~` on `TYPE_KIND_COMPLEX` to represent complex conjugate without requiring floating or integer operand rejections.
+  - Resolved `__real__` and `__imag__` parts to the operand's actual base element type (`details.array.base`) rather than forcing `double`.
+- **AST Lowering & Operations**:
+  - Removed entry barrier diagnostic rejecting integer `_Complex` declarations in `src/zero_cc/ir/ast_lowering.c`.
+  - Added support for integer complex local declarations, parameter saving, and direct/compound assignments (`ast_lowering_stmt.c`, `ast_lowering_assign.c`).
+  - Implemented binary arithmetic (`+`, `-`, `*`, `/`) and comparisons (`==`, `!=`) for integer complex in `src/zero_cc/ir/ast_lowering_binop.c`, including sign extension on narrow elements and conversions between scalar and complex and between float and int complex.
+  - Implemented unary `!` and `~` conjugate for integer complex values.
+  - Supported part-extractors `__real__` / `__imag__` as both rvalues and lvalues with integer byte/word/dword/qword loads and stores in `ast_lowering_builtins.c` and `ast_lowering_assign.c`.
+  - Fixed complex indexing assignments (`a[i] = -1`) in `ast_lowering_assign.c` and address resolution in `ast_lowering_expr.c`.
+- **Calling Convention & ABI Implementation**:
+  - Callee parameter saving: loads composite $\le 8$B integer complex (`_Complex char/short/int`) from 1 GPR into a stack temp, and 16B integer complex (`_Complex long`) from 2 consecutive GPRs.
+  - Caller argument passing: packs $\le 8$B into 1 GPR, 16B into 2 consecutive GPRs; converts scalar arguments passed to complex parameters into `(val, 0)`.
+  - Function returns: returns $\le 8$B integer complex in `VREG_0` (`rax`), and 16B integer complex across `VREG_0` (`rax`, real) and `VREG_2` (`rdx`, imag). Caller unpacks these returns into aligned memory temps.
+- **Verification Gate**:
+  - GCC c-torture integer complex suite: 100% PASS on `execute/20050121-1.c`, `execute/pr56837.c`, `execute/pr104604.c`, `compile/complex-1.c`, `execute/complex-6.c`, `compile/pr86123.c`, `compile/complex-5.c`.
+  - Ratcheted `test/torture/baseline.json`: 3,049 PASS (up from 3,048), REJECT down to 12 (from 13).
+  - `make test`: 157/157 passed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `make test-opt`: 118/118 passed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 157 files, 0 errors.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: 18/18 OKF pages valid and reachable.
+
 ## [Sprint 84] - 2026-11-02 - GNU Extension: Labels as Values (`&&label`) & Computed Goto (`goto *ptr;`)
 
 Implemented full support for GNU C Labels as Values (`&&label`) and Computed Goto (`goto *ptr;`) across the parser, semantic analyzer, IR, optimizers, and multi-ISA JIT/AOT code generation:

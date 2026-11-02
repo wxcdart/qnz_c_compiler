@@ -612,10 +612,21 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             bool is_imag = (callee->s.str[2] == 'i');
             ZeroCCASTNode *cx_node = zero_cc_ast_get(arena, node->right);
             TypeInfo *cx_ti = ast_node_get_typeinfo(c, cx_node);
-            size_t esz = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX &&
-                          cx_ti->details.array.base)
-                             ? type_size(cx_ti->details.array.base) : 8;
-            if (esz != 4 && esz != 8) esz = 8; /* long double: double model */
+            const TypeInfo *el_ti = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX) ? cx_ti->details.array.base : NULL;
+            const ZeroCCType *el_zt = NULL;
+            if (!el_ti && cx_node && cx_node->tag == NODE_IDENT) {
+                ZeroCCSym *sym = zero_cc_find_local(c, cx_node->s.str);
+                if (sym && zero_cc_type_is_complex(&sym->type)) el_zt = sym->type.base;
+                else {
+                    ZeroCCGlobalVar *gv = find_global_var(c, cx_node->s.str);
+                    if (gv && zero_cc_type_is_complex(&gv->type)) el_zt = gv->type.base;
+                }
+            }
+            size_t esz = el_ti ? type_size(el_ti) : (el_zt ? el_zt->size : 8);
+            if (esz == 0) esz = 8;
+            bool is_elem_fp = el_ti ? type_is_floating(el_ti) :
+                              (el_zt ? (el_zt->tag == TYPE_FLOAT || el_zt->tag == TYPE_DOUBLE) : true);
+            if (is_elem_fp && esz != 4 && esz != 8) esz = 8; /* long double: double model */
             int addr = lower_expr(c, arena, node->right);
             int res = c->next_temp_id++;
             int la = addr;
@@ -625,9 +636,27 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 la = c->next_temp_id++;
                 ir_emit_add(c, la, addr, off);
             }
-            if (esz == 4) ir_emit_vloadss(c, res, (uint16_t)la);
-            else ir_emit_vloadsd(c, res, (uint16_t)la);
-            c->last_expr_is_float = 1;
+            if (is_elem_fp) {
+                if (esz == 4) ir_emit_vloadss(c, res, (uint16_t)la);
+                else ir_emit_vloadsd(c, res, (uint16_t)la);
+                c->last_expr_is_float = 1;
+            } else {
+                bool is_u = el_ti ? type_is_unsigned(el_ti) :
+                            (el_zt ? zero_cc_type_is_unsigned(el_zt) : false);
+                if (esz == 1) {
+                    ir_emit_load_byte(c, res, la);
+                    if (!is_u) ir_emit_sext(c, res, 8);
+                } else if (esz == 2) {
+                    ir_emit_load_16(c, res, la);
+                    if (!is_u) ir_emit_sext(c, res, 16);
+                } else if (esz == 4) {
+                    ir_emit_load_32(c, res, la);
+                    if (!is_u) ir_emit_sext(c, res, 32);
+                } else {
+                    ir_emit_deref(c, res, la);
+                }
+                c->last_expr_is_float = 0;
+            }
             *out_temp = res;
             return true;
         }
@@ -638,30 +667,61 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              strcmp(callee->s.str, "__builtin_conjl") == 0)) {
             ZeroCCASTNode *cx_node = zero_cc_ast_get(arena, node->right);
             TypeInfo *cx_ti = cx_node ? ast_node_get_typeinfo(c, cx_node) : NULL;
-            size_t esz = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX &&
-                          cx_ti->details.array.base)
-                             ? type_size(cx_ti->details.array.base) :
-                         (strcmp(callee->s.str, "__builtin_conjf") == 0) ? 4 : 8;
-            if (esz != 4 && esz != 8) esz = 8;
+            const TypeInfo *el_ti = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX) ? cx_ti->details.array.base : NULL;
+            const ZeroCCType *el_zt = NULL;
+            if (!el_ti && cx_node && cx_node->tag == NODE_IDENT) {
+                ZeroCCSym *sym = zero_cc_find_local(c, cx_node->s.str);
+                if (sym && zero_cc_type_is_complex(&sym->type)) el_zt = sym->type.base;
+                else {
+                    ZeroCCGlobalVar *gv = find_global_var(c, cx_node->s.str);
+                    if (gv && zero_cc_type_is_complex(&gv->type)) el_zt = gv->type.base;
+                }
+            }
+            size_t esz = el_ti ? type_size(el_ti) : (el_zt ? el_zt->size :
+                         (strcmp(callee->s.str, "__builtin_conjf") == 0 ? 4 : 8));
+            if (esz == 0) esz = 8;
+            bool is_elem_fp = el_ti ? type_is_floating(el_ti) :
+                              (el_zt ? (el_zt->tag == TYPE_FLOAT || el_zt->tag == TYPE_DOUBLE) : true);
+            if (is_elem_fp && esz != 4 && esz != 8) esz = 8;
             int addr = lower_expr(c, arena, node->right);
             int rh = c->next_temp_id++, li = c->next_temp_id++;
             int off = c->next_temp_id++;
             ir_emit_mov_imm(c, off, (int)esz);
             int la = c->next_temp_id++;
             ir_emit_add(c, la, addr, off);
-            if (esz == 4) {
-                ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)addr);
-                ir_emit_vloadss(c, (uint16_t)li, (uint16_t)la);
+            if (is_elem_fp) {
+                if (esz == 4) {
+                    ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)addr);
+                    ir_emit_vloadss(c, (uint16_t)li, (uint16_t)la);
+                } else {
+                    ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)addr);
+                    ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)la);
+                }
             } else {
-                ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)addr);
-                ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)la);
+                if (esz == 1) {
+                    ir_emit_load_byte(c, rh, addr);
+                    ir_emit_load_byte(c, li, la);
+                } else if (esz == 2) {
+                    ir_emit_load_16(c, rh, addr);
+                    ir_emit_load_16(c, li, la);
+                } else if (esz == 4) {
+                    ir_emit_load_32(c, rh, addr);
+                    ir_emit_load_32(c, li, la);
+                } else {
+                    ir_emit_deref(c, rh, addr);
+                    ir_emit_deref(c, li, la);
+                }
             }
-            int zero_i = c->next_temp_id++;
-            ir_emit_mov_imm(c, zero_i, 0);
-            int zero_f = c->next_temp_id++;
-            ir_emit_cvtsi2sd(c, (uint16_t)zero_f, (uint16_t)zero_i);
             int neg_li = c->next_temp_id++;
-            ir_emit_fsub(c, (uint16_t)neg_li, (uint16_t)zero_f, (uint16_t)li);
+            if (is_elem_fp) {
+                int zero_i = c->next_temp_id++;
+                ir_emit_mov_imm(c, zero_i, 0);
+                int zero_f = c->next_temp_id++;
+                ir_emit_cvtsi2sd(c, (uint16_t)zero_f, (uint16_t)zero_i);
+                ir_emit_fsub(c, (uint16_t)neg_li, (uint16_t)zero_f, (uint16_t)li);
+            } else {
+                ir_emit_neg(c, neg_li, li);
+            }
 
             size_t csz = esz * 2;
             c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
@@ -673,12 +733,28 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             ir_emit_mov_imm(c, off_m, (int)esz);
             int res_a2 = c->next_temp_id++;
             ir_emit_add(c, res_a2, res_addr, off_m);
-            if (esz == 4) {
-                ir_emit_vstoress(c, (uint16_t)res_addr, (uint16_t)rh);
-                ir_emit_vstoress(c, (uint16_t)res_a2, (uint16_t)neg_li);
+            if (is_elem_fp) {
+                if (esz == 4) {
+                    ir_emit_vstoress(c, (uint16_t)res_addr, (uint16_t)rh);
+                    ir_emit_vstoress(c, (uint16_t)res_a2, (uint16_t)neg_li);
+                } else {
+                    ir_emit_vstoresd(c, (uint16_t)res_addr, (uint16_t)rh);
+                    ir_emit_vstoresd(c, (uint16_t)res_a2, (uint16_t)neg_li);
+                }
             } else {
-                ir_emit_vstoresd(c, (uint16_t)res_addr, (uint16_t)rh);
-                ir_emit_vstoresd(c, (uint16_t)res_a2, (uint16_t)neg_li);
+                if (esz == 1) {
+                    ir_emit_store_byte(c, rh, res_addr);
+                    ir_emit_store_byte(c, neg_li, res_a2);
+                } else if (esz == 2) {
+                    ir_emit_store_16(c, rh, res_addr);
+                    ir_emit_store_16(c, neg_li, res_a2);
+                } else if (esz == 4) {
+                    ir_emit_store_32(c, rh, res_addr);
+                    ir_emit_store_32(c, neg_li, res_a2);
+                } else {
+                    ir_emit_store_64(c, rh, res_addr);
+                    ir_emit_store_64(c, neg_li, res_a2);
+                }
             }
             c->last_expr_is_float = 0;
             *out_temp = res_addr;

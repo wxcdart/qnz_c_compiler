@@ -248,55 +248,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     memset(&c->label_patcher, 0, sizeof(c->label_patcher));
     ir_emitter_init(&c->lowering.ir_ctx);
 
-    /* C99 6.2.5: _Complex with an INTEGER element type is not supported by
-     * ZeroCC's codegen (the complex pipeline is FP-only: SSE halves, FP
-     * register ABI).  Diagnose cleanly instead of emitting wrong code -
-     * an honest REJECT beats a MISCOMPILE (gate philosophy). */
-    {
-        const ZeroCCType *cx_t = NULL;
-        if (lowering_fn) {
-            if (zero_cc_type_is_complex(&lowering_fn->return_type)) {
-                cx_t = &lowering_fn->return_type;
-            }
-            if (!cx_t) {
-                for (size_t p = 0; p < lowering_fn->param_count; p++) {
-                    if (zero_cc_type_is_complex(&lowering_fn->param_types[p])) {
-                        cx_t = &lowering_fn->param_types[p];
-                        break;
-                    }
-                }
-            }
-        }
-        if (!cx_t) {
-            for (size_t i = 0; i < c->local_count; i++) {
-                if (zero_cc_type_is_complex(&c->locals[i].type)) {
-                    cx_t = &c->locals[i].type;
-                    break;
-                }
-            }
-        }
-        /* File-scope complex objects (`_Complex int a[1024];`) never pass
-         * through a function's locals/params - scan the global table too. */
-        if (!cx_t) {
-            for (size_t i = 0; i < c->global_var_count; i++) {
-                ZeroCCType *gt = &c->global_vars[i].type;
-                while (gt && (gt->tag == TYPE_ARRAY || gt->tag == TYPE_PTR) && gt->base) {
-                    gt = gt->base;
-                }
-                if (gt && zero_cc_type_is_complex(gt)) {
-                    cx_t = gt;
-                    break;
-                }
-            }
-        }
-        if (cx_t && cx_t->base &&
-            cx_t->base->tag != TYPE_FLOAT && cx_t->base->tag != TYPE_DOUBLE) {
-            diag_report_error_at_token(c,
-                "unsupported: _Complex with an integer element type "
-                "(complex floating types only)");
-            return;
-        }
-    }
+
 
     /* Block scope starts unbounded at the function top level (-1 = unbounded) */
     c->local_lookup_bound = -1;
@@ -508,6 +460,23 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         stack_idx++;
                     }
                     xmm_idx++;
+                }
+            } else if (!is_fp && zero_cc_type_is_complex(&sym->type)) {
+                /* Integer complex parameter:
+                 * <= 8 bytes (_Complex char/short/int) fits in 1 GPR.
+                 * > 8 bytes (_Complex long, 16B) consumes 2 consecutive GPRs (real then imag). */
+                int num_chunks = (int)((sym->type.size + 7) / 8);
+                for (int ch = 0; ch < num_chunks; ch++) {
+                    int32_t chunk_off = sym->stack_offset - ch * 8;
+                    if (int_idx < BE(c)->conv->int_arg_reg_count) {
+                        ir_emit_param_save_int(c, int_idx, chunk_off);
+                        int_idx++;
+                    } else {
+                        int32_t caller_off = 16 + 8 * stack_idx;
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -chunk_off);
+                        stack_idx++;
+                    }
                 }
             } else if (is_fp && xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                 ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
