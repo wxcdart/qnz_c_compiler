@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-02T18:33:46Z
+timestamp: 2026-11-02T18:59:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -45,6 +45,7 @@ During code generation, if `temp_dest` is allocated to the identical physical AB
    - Executes an unconditional indirect jump to the address in `temp_target` GPR (`jmp *%reg`, `br xN`, `jalr zero, 0(reg)`).
    - Marked as a control-flow terminal in `cfg_is_terminal()`, with CFG edges added to all candidate target blocks.
    - Treated as an invalidation boundary across DCE, GVN (`mf_reset`), loop optimization (`safe_loop = false`), and `mem2reg` slot tracking.
+   - **Linear Scan Live Range Extension (Sprint 86)**: In `src/zero_cc/ir/live_range.h`, indirect jumps (`OP_JMP_INDIRECT`) act as potential loop backedges. The linear scan live interval computation extends the end point of loop-carried values across `OP_JMP_INDIRECT`, preventing the register allocator from prematurely expiring intervals and clobbering physical registers (such as `%rdx` during division) across dispatch loops.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

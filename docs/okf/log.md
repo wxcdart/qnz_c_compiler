@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T18:33:46Z
+timestamp: 2026-11-02T18:59:48Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -725,3 +725,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `ir-and-regalloc.md`
 - ir-and-regalloc: measured 16-bit temp-id calibration (3 temps/stmt, ~22k stmts/function) + code-smell analysis (overloaded ID namespace + non-recycling) and ranked fixes
+
+## 2026-11-02 — Updated `frontend-and-types.md`
+- Document __builtin_return_address, __builtin_frame_address, and empty structs (Sprint 86)
+
+## 2026-11-02 — Updated `ir-and-regalloc.md`
+- Document linear scan live interval extension across OP_JMP_INDIRECT loop backedges (Sprint 86)
+
+## 2026-11-02 — Updated `c-torture-gate.md`
+- Remove return_address from UNSUPPORTED_TARGETS and document Sprint 86 conformance expansion

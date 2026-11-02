@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-02T18:24:30Z
+timestamp: 2026-11-02T18:59:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -51,7 +51,7 @@ All C int types carry an explicit signedness tag end-to-end, and every narrow-in
 
 Any unrecognized `__builtin_*` / `__sync_*` / `__atomic_*` / `__zerocc_*` identifier is treated as an implicit function declaration (K&R), but its **return type** is resolved by `type_builtin_libc_return()` (`src/zero_cc/semantic/type.h`, called from both identifier-typing sites: `semantic/expr.c` `expr_handle_identifier` and `semantic/visitor.c` `NODE_IDENT`):
 
-- `void *`: `malloc`, `calloc`, `realloc`, `memcpy`, `memmove`, `memchr`, `memset`
+- `void *`: `malloc`, `calloc`, `realloc`, `memcpy`, `memmove`, `memchr`, `memset`, `return_address`, `frame_address`
 - `unsigned long` (size_t on LP64): `strlen`
 - `char *`: `strcpy`, `strncpy`, `strcat`, `strchr`, `strrchr`, `strstr`
 - `void`: `abort`, `exit`, `free`
@@ -121,6 +121,21 @@ ZeroCC supports first-class complex arithmetic for both C99 floating-point types
 - `#pragma pack(push, N)` and `#pragma pack(pop)` adjust field alignment and total struct padding (`src/zero_cc/core/pragma_state.c`).
 - Local variables allocated via `zero_cc_add_local()` (`src/zero_cc/types/symbol_mgmt.h`) align `c->current_stack_frame` to `max(type.align, 8)` and increment by `alloc_sz = max(type.size, 8)`.
   - **Important Rule**: Do **not** round `alloc_sz` up to a multiple of 8 for all structs in `zero_cc_add_local`, as compound literal and designated initializer offset math in `test/jit/designated_init_test.c` relies on exact `sym->stack_offset` placement. Instead, use size-aware tail chunk loads/stores (`32`/`16`/`8`-bit) when copying structs whose size is not a multiple of 8.
+
+## __builtin_return_address & __builtin_frame_address (Sprint 86)
+
+ZeroCC supports GNU intrinsics `__builtin_return_address(level)` and `__builtin_frame_address(level)`:
+- **Typing**: `type_builtin_libc_return()` in `src/zero_cc/semantic/type.h` resolves both builtins to `void *`.
+- **Frameless Optimization Override**: Calling either builtin sets `c->lowering.has_frame_address = true`. In `src/zero_cc/ir/ast_lowering.c`, this disables leaf/frameless optimization (`is_frameless = false`) and frame pointer omission (`omit_frame_pointer = false`), guaranteeing that a standard base pointer frame is preserved.
+- **Stack Frame Geometry**: Across x86-64, AArch64, and RISC-V 64, standard frames store the saved frame pointer at `0(FP)` and the caller return address at `8(FP)` (or `4(FP)` on RISC-V 32).
+  - For `__builtin_frame_address(0)`, lowering materializes `lea` against `BE(c)->fp_reg`. For `level > 0`, it walks the saved frame pointer chain `level` times.
+  - For `__builtin_return_address(0)`, lowering materializes `BE(c)->fp_reg` and loads the return address at offset 8 (or 4 on RV32). For `level > 0` or dynamic expressions, it traverses the FP chain to level $N$ and loads the saved return address at offset 8.
+
+## Empty Structs and Unions (GNU C Extension, Sprint 86)
+
+ZeroCC accepts empty struct and union definitions (`struct S {}`, `union U {}`) matching GCC GNU C semantics:
+- **Layout & Size**: Empty structs and unions have `sizeof == 0` and alignment 1.
+- **Passing & Assignment**: Empty struct variables, arguments, and returns have zero byte size and do not clobber stack offsets or registers.
 
 ## Multi-Dimensional Arrays & Matrix VLAs (Phase 0 & Phase 1 Supported)
 

@@ -83,7 +83,7 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
     "label_values", "untyped_assembly", "indirect_jumps", "trampolines",
-    "nonlocal_goto", "return_address", "named_sections", "unwrapped",
+    "nonlocal_goto", "named_sections", "unwrapped",
     "int128", "cilk",
     # other languages
     "c++", "cxx", "c2a", "go", "fortran", "ada", "objc", "java", "openmp",
@@ -96,7 +96,7 @@ UNSUPPORTED_TARGETS = {
 
 # dg-options that change the reference's observable semantics in ways zerocc
 # cannot emulate (we have no x87 mode and no fast-math pipeline).
-SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math")
+SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions")
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
 RE_DG_REQ = re.compile(r"\{\s*dg-require-effective-target\s+([^}]*?)\s*\}")

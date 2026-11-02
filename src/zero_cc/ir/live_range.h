@@ -306,6 +306,21 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
                                 }
                             }
                         }
+                    } else if (ins->op == OP_JMP_INDIRECT) {
+                        /* Indirect jump can jump back to any previous label in the function.
+                         * Any value defined before a candidate loop header and live inside
+                         * must have its live range extended to cover the indirect jump. */
+                        for (int lbl = 0; lbl <= max_label; lbl++) {
+                            int hdr = label_to_pos[lbl];
+                            if (hdr >= 0 && (size_t)hdr < i) {
+                                if (start < (size_t)hdr && end >= (size_t)hdr) {
+                                    if (end < i) {
+                                        end = i;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

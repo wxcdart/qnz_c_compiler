@@ -115,7 +115,7 @@ static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
         case NODE_TERNARY: {
-            int64_t cond, t, f;
+            int64_t cond;
             if (!zc_ast_const_eval(c, arena, n->left, &cond)) return false;
             if (cond) return zc_ast_const_eval(c, arena, n->right, out);
             return zc_ast_const_eval(c, arena, (ASTRef)n->aux.alt, out);
@@ -580,6 +580,69 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
     bool callee_is_ident = (callee && callee->tag == NODE_IDENT);
     (void)callee_is_ident;
+
+        /* __builtin_return_address(level) / __builtin_frame_address(level) */
+        if (callee_is_ident && callee->s.str &&
+            (strcmp(callee->s.str, "__builtin_return_address") == 0 ||
+             strcmp(callee->s.str, "__builtin_frame_address") == 0)) {
+            bool is_ret_addr = (strcmp(callee->s.str, "__builtin_return_address") == 0);
+            c->lowering.has_frame_address = true;
+
+            int cur_fp = c->next_temp_id++;
+            ir_emit_lea(c, cur_fp, BE(c)->fp_reg, 0);
+
+            int fp = cur_fp;
+            int64_t const_lvl = 0;
+            if (node->right != AST_NULL && zc_ast_const_eval(c, arena, node->right, &const_lvl)) {
+                if (const_lvl < 0) const_lvl = 0;
+                if (const_lvl > 100) const_lvl = 100;
+                for (int64_t i = 0; i < const_lvl; i++) {
+                    int next_fp = c->next_temp_id++;
+                    ir_emit_deref(c, next_fp, fp);
+                    fp = next_fp;
+                }
+            } else if (node->right != AST_NULL) {
+                int lvl_temp = lower_expr(c, arena, node->right);
+                int cnt_temp = c->next_temp_id++;
+                ir_emit_mov_reg(c, cnt_temp, lvl_temp);
+                uint16_t loop_lbl = (uint16_t)c->ir_next_label++;
+                uint16_t end_lbl = (uint16_t)c->ir_next_label++;
+
+                ir_emit_label(c, loop_lbl);
+                int zero_t = c->next_temp_id++;
+                ir_emit_mov_imm(c, zero_t, 0);
+                ir_emit_cmp(c, cnt_temp, zero_t);
+                int is_le = c->next_temp_id++;
+                ir_emit_cond_set(c, is_le, CC_LE);
+                ir_emit_jne(c, (uint16_t)is_le, end_lbl);
+
+                int next_fp = c->next_temp_id++;
+                ir_emit_deref(c, next_fp, fp);
+                fp = next_fp;
+
+                int one = c->next_temp_id++;
+                ir_emit_mov_imm(c, one, 1);
+                ir_emit_sub(c, cnt_temp, cnt_temp, one);
+                ir_emit_jmp(c, loop_lbl);
+
+                ir_emit_label(c, end_lbl);
+            }
+
+            int res = fp;
+            if (is_ret_addr) {
+                int ra_off = (c->isa == ISA_RISCV32) ? 4 : 8;
+                int off_temp = c->next_temp_id++;
+                ir_emit_mov_imm(c, off_temp, ra_off);
+                int ra_ptr = c->next_temp_id++;
+                ir_emit_add(c, ra_ptr, fp, off_temp);
+                res = c->next_temp_id++;
+                ir_emit_deref(c, res, ra_ptr);
+            }
+
+            c->last_expr_is_float = 0;
+            *out_temp = res;
+            return true;
+        }
 
         /* __builtin_alloca(size) / alloca(size) - dynamic stack allocation */
         if (callee_is_ident && callee->s.str &&

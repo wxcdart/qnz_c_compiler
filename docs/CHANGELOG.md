@@ -1,6 +1,31 @@
 # ZeroCC Changelog
 
-## [Sprint 85] - 2026-11-02 - GNU Extension: Integer Complex (`_Complex int`, `_Complex long`, `__complex__ int`)
+## [Sprint 86] - 2026-11-02 - `__builtin_return_address`, `__builtin_frame_address`, Empty Structs & Regalloc Indirect Jump Fix
+
+Implemented full support for GNU intrinsics `__builtin_return_address(level)` and `__builtin_frame_address(level)`, GNU empty structs/unions (`struct Empty {}`), and fixed a linear-scan register allocation live range bug across indirect jump backedges:
+
+- **`__builtin_return_address` & `__builtin_frame_address`**:
+  - Implemented in `src/zero_cc/ir/ast_lowering_builtins.c` for level 0, constant levels, and dynamic expressions.
+  - Frame pointer chain walking: loads saved frame pointer at `0(FP)` iteratively (or dynamically) and loads the return address at `8(FP)` (or `4(FP)` on RISC-V 32).
+  - Frameless optimization override: added `has_frame_address` tracking in `LoweringState` (`src/zero_cc/ir/lowering_state.h`). In `src/zero_cc/ir/ast_lowering.c`, functions using either builtin force `omit_frame_pointer = false` and `is_frameless = false` to guarantee preservation of the base pointer frame.
+  - Builtin return typing: mapped `return_address` and `frame_address` to `void *` in `type_builtin_libc_return()` (`src/zero_cc/semantic/type.h`).
+- **Empty Structs & Unions (GNU C Extension)**:
+  - Enabled support for empty struct and union definitions (`struct S {}`, `union U {}`) with `sizeof == 0` and alignment 1.
+  - Zero-sized aggregates correctly pass, return, and assign without corrupting memory or stack frame allocations.
+- **Linear Scan Register Allocation & `OP_JMP_INDIRECT` Fix**:
+  - In `src/zero_cc/ir/live_range.h`, indirect jumps (`OP_JMP_INDIRECT`) are now recognized as potential loop backedges.
+  - Live ranges of loop-carried values are extended across indirect jumps back to candidate loop headers, preventing register reuse (e.g. `%rdx` clobbered by `idiv`) from corrupting loop-invariant values in dispatch loops (`execute/920501-3.c`).
+- **Test Suite & Verification Gate**:
+  - Unlocked and passed all GCC c-torture `return_address` tests (`execute/frame-address.c`, `execute/20010122-1.c`, `execute/20030323-1.c`, `execute/pr17377.c`, `execute/20030811-1.c`, `compile/20180309-1.c`).
+  - Added dedicated regression test `test/jit/return_frame_address_test.c` covering level 0, level 1, and empty structs across all optimization levels.
+  - Removed `"return_address"` from `UNSUPPORTED_TARGETS` in `tools/torture_run.py`.
+  - `tools/torture_run.py --quick`: **3,054 PASS** (up from 3,049, +5 PASS), 12 REJECT (0 regressions vs baseline).
+  - `make test`: 159/159 passed.
+  - `make test-opt`: 120/120 passed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/diag_battery.py`: baseline OK.
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/style_check.py`: 0 errors.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: 18/18 OKF pages valid and reachable.
 
 Implemented complete end-to-end support for GNU C Integer Complex types (`_Complex int`, `_Complex long`, `_Complex short`, `_Complex char`, `_Complex unsigned`, `__complex__ int`) across semantic analysis, AST lowering, IR generation, and calling convention ABIs:
 

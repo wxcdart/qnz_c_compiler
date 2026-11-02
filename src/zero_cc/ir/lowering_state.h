@@ -52,6 +52,8 @@ typedef struct {
     bool omit_frame_pointer;           /* Option 4: frame pointer omitted; frame slots are
                                           addressed from the stack pointer instead. Only set
                                           for functions with a fully static frame (no VLA). */
+    bool has_frame_address;            /* True when function uses __builtin_frame_address or
+                                          __builtin_return_address; forces a real frame pointer */
     int32_t frame_delta;               /* Displacement delta added to FP-relative offsets when
                                           addressing frame slots from SP (0 when the frame
                                           pointer is present). Equals the ISA prologue's

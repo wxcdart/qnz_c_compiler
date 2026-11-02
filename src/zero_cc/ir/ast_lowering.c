@@ -748,13 +748,16 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     /* Option 1: Leaf functions with no stack needs are frameless */
-    c->lowering.is_frameless = (is_leaf && total_frame_size == 0 && c->regalloc.used_callee_saved_gpr_mask == 0 && c->lowering.static_local_rt_off == 0);
+    c->lowering.is_frameless = (is_leaf && total_frame_size == 0 &&
+                                c->regalloc.used_callee_saved_gpr_mask == 0 &&
+                                c->lowering.static_local_rt_off == 0 &&
+                                !c->lowering.has_frame_address);
 
     /* Option 3: x86-64 System V Red Zone optimization:
      * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
      * without adjusting %rsp. */
     size_t alloc_frame_size = total_frame_size;
-    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128) {
+    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address) {
         alloc_frame_size = 0;
     }
 
@@ -786,7 +789,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         /* Disable frame pointer omission for variadic functions:
          * va_start offset computation assumes a stable frame pointer. */
         bool is_variadic_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
-        if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn) {
+        if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn && !c->lowering.has_frame_address) {
             bool has_vla = false;
             for (size_t i = 0; i < ir_count; i++) {
                 if (ir_buf[i].op == OP_VLA_ALLOC) { has_vla = true; break; }

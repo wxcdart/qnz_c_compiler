@@ -166,7 +166,8 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     if (strcmp(base, "malloc") == 0 || strcmp(base, "calloc") == 0 ||
         strcmp(base, "realloc") == 0 || strcmp(base, "memcpy") == 0 ||
         strcmp(base, "memmove") == 0 || strcmp(base, "memchr") == 0 ||
-        strcmp(base, "memset") == 0) {
+        strcmp(base, "memset") == 0 ||
+        strcmp(base, "return_address") == 0 || strcmp(base, "frame_address") == 0) {
         return type_pointer_to(perm, type_void(perm));
     }
     if (strcmp(base, "strlen") == 0) {
