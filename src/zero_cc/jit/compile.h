@@ -601,29 +601,33 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                     c->tokens[c->token_pos].type == TK_RESTRICT)) {
                 c->token_pos++;
             }
+            const char *fp_name = "";
             if (c->tokens[c->token_pos].type == TK_IDENT) {
-                if (*param_count >= ZERO_CC_MAX_PARAMS) {
-                    diag_report_error_at_token(c,
-                        "function '%s' has too many parameters (max %d)",
-                        fn_name, ZERO_CC_MAX_PARAMS);
-                } else {
-                    zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
-                    (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
-                    /* ABI: an 8-byte pointer in a register.  The pointee
-                     * carries the function's RETURN type (the declared
-                     * base type `ret` in `ret (*name)(params)`) so an
-                     * indirect call `(*name)(args)` knows whether the
-                     * result arrives in XMM0 (float/double) or RAX
-                     * (c-torture execute/921208-1, pr42231). */
-                    ZeroCCType fpt = zero_cc_type_ptr(&pt);
-                    fpt.is_func_ptr = true;
-                    (*param_types)[*param_count] = fpt;
-                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
-                    (*param_count)++;
-                    fn_ptr_param_done = true; /* the named branch must not re-record */
-                }
+                fp_name = c->tokens[c->token_pos].str_val;
+                c->token_pos++; /* name */
             }
-            c->token_pos++; /* name */
+            if (*param_count >= ZERO_CC_MAX_PARAMS) {
+                diag_report_error_at_token(c,
+                    "function '%s' has too many parameters (max %d)",
+                    fn_name, ZERO_CC_MAX_PARAMS);
+            } else {
+                zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                (*param_names)[*param_count] = zero_cc_intern_string(c, fp_name);
+                /* ABI: an 8-byte pointer in a register.  The pointee
+                 * carries the function's RETURN type (the declared
+                 * base type `ret` in `ret (*name)(params)`) so an
+                 * indirect call `(*name)(args)` knows whether the
+                 * result arrives in XMM0 (float/double) or RAX
+                 * (c-torture execute/921208-1, pr42231). */
+                ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                fpt.is_func_ptr = true;
+                (*param_types)[*param_count] = fpt;
+                if (fp_name[0] != '\0') {
+                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
+                }
+                (*param_count)++;
+                fn_ptr_param_done = true; /* the named branch must not re-record */
+            }
             if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
             /* Skip the parameter list (depth-counted) */
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -639,7 +643,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         }
         /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
          * makes the declaration a prototype but adds no parameter. */
-        bool is_void_param = (ptt == TK_VOID && !is_typeof_param &&
+        bool is_void_param = (!fn_ptr_param_done && ptt == TK_VOID && !is_typeof_param &&
                               ptr_depth == 0);
         /* Abstract declarator: `int ( int foo )` - a parenthesized
          * function parameter list on an anonymous declarator (C99
@@ -817,16 +821,21 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     bool fn_inline = false;
     bool fn_static = false;
     bool fn_ret_const = false; /* leading `const` qualifies the pointee of a pointer return type */
+    bool fn_ret_volatile = false;
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
            c->tokens[c->token_pos].type == TK_NORETURN || c->tokens[c->token_pos].type == TK_CONST ||
            c->tokens[c->token_pos].type == TK_VOLATILE ||
-           (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0)) {
+           (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0) ||
+           (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) {
         if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
         if (c->tokens[c->token_pos].type == TK_INLINE) fn_inline = true;
         if (c->tokens[c->token_pos].type == TK_STATIC) fn_static = true;
         if (c->tokens[c->token_pos].type == TK_CONST ||
             (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0))
             fn_ret_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE ||
+            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0))
+            fn_ret_volatile = true;
         c->token_pos++;
     }
 
@@ -956,18 +965,33 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         fn_ret_type = zero_cc_type_void();
         c->token_pos++;
     }
-    /* Leading `const` (e.g. `const char f(void)`) qualifies the BASE
-     * scalar, not a later pointer (C99 6.7.3): apply before the
+    /* Leading `const`/`volatile` (e.g. `const char f(void)`, `volatile foo_t *f()`)
+     * qualifies the BASE scalar, not a later pointer (C99 6.7.3): apply before the
      * pointer wraps below. */
     if (fn_ret_const) fn_ret_type.is_const = true;
+    if (fn_ret_volatile) fn_ret_type.is_volatile = true;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_RESTRICT)) {
+        if (c->tokens[c->token_pos].type == TK_CONST) fn_ret_type.is_const = true;
+        if (c->tokens[c->token_pos].type == TK_VOLATILE) fn_ret_type.is_volatile = true;
+        if (c->tokens[c->token_pos].type == TK_RESTRICT) fn_ret_type.is_restrict = true;
+        c->token_pos++;
+    }
     while (c->tokens[c->token_pos].type == TK_STAR) {
         fn_ret_type = zero_cc_type_ptr(&fn_ret_type);
         c->token_pos++;
-        /* A `const` immediately after a `*` applies to THAT pointer
+        /* Qualifiers immediately after a `*` apply to THAT pointer
          * level: `const char * const *` = pointer to (const pointer to
          * const char). */
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_CONST) {
-            fn_ret_type.is_const = true;
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_CONST ||
+                c->tokens[c->token_pos].type == TK_VOLATILE ||
+                c->tokens[c->token_pos].type == TK_RESTRICT)) {
+            if (c->tokens[c->token_pos].type == TK_CONST) fn_ret_type.is_const = true;
+            if (c->tokens[c->token_pos].type == TK_VOLATILE) fn_ret_type.is_volatile = true;
+            if (c->tokens[c->token_pos].type == TK_RESTRICT) fn_ret_type.is_restrict = true;
             c->token_pos++;
         }
     }

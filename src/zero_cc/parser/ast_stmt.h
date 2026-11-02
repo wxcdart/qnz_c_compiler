@@ -1640,7 +1640,23 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     sym->is_extern = true;
                     sym->stack_offset = 0;
                     c->current_stack_frame = prev_frame;
-                    if (!find_global_var(vname) && !zero_cc_find_function(c, vname) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                    ZeroCCFunction *prev_fn = zero_cc_find_function(c, vname);
+                    if (prev_fn && prev_fn->is_object && prev_fn->return_type.size > decl_type.size) {
+                        decl_type = prev_fn->return_type;
+                        sym->type = decl_type;
+                        decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                    }
+                    for (int si = (int)c->local_count - 2; si >= 0; si--) {
+                        if (c->locals[si].is_extern && strcmp(c->locals[si].name, vname) == 0) {
+                            if (c->locals[si].type.size > decl_type.size) {
+                                decl_type = c->locals[si].type;
+                                sym->type = decl_type;
+                                decl_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, decl_type);
+                            }
+                            break;
+                        }
+                    }
+                    if (!find_global_var(vname) && !prev_fn && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                         ZeroCCFunction *fn = &c->functions[c->function_count++];
                         fn->text_offset = 0;
                         snprintf(fn->name, sizeof(fn->name), "%s", vname);
@@ -1674,7 +1690,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                  * latest-wins, so type-dependent initializers must resolve
                  * the symbol of this declaration (see lowering_local_sym). */
                 if (sym) dn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
-                if (has_any_vla) {
+                if (has_any_vla && decl_type.tag == TYPE_ARRAY) {
                     dn->flags |= NODE_DECL_IS_VLA;
                     dn->right = vla_dim_expr; /* outermost runtime dimension expr */
                 }
@@ -1861,7 +1877,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                     next_dn->s.str = next_vname;
                     next_dn->s_len = strlen(next_vname);
                     if (next_sym) next_dn->aux.step = (uint32_t)((size_t)(next_sym - c->locals)) + 1;
-                    if (nhas_any_vla) {
+                    if (nhas_any_vla && next_type.tag == TYPE_ARRAY) {
                         next_dn->flags |= NODE_DECL_IS_VLA;
                         next_dn->right = nvla_dim_expr; /* outermost runtime dimension expr */
                     }

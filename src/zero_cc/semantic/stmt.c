@@ -2,8 +2,7 @@
 #include "zero_cc/semantic/promote.h"
 
 static bool is_scalar_type(const TypeInfo *t) {
-    if (!t) return false;
-    return type_is_arithmetic(t) || type_is_pointer(t);
+    return type_is_scalar(t);
 }
 
 bool stmt_handle_block(SemContext *ctx, ZeroCCASTNode *node) {

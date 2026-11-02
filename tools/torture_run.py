@@ -155,6 +155,11 @@ def skip_reason(path, d):
             return "SKIP-REFSEM"
     if d["ptr_output"]:
         return "SKIP-PTR"
+    if rel.as_posix() == "execute/941014-2.c":
+        # Reads uninitialized malloc memory (foo_p->a) and prints it if non-zero.
+        # Fresh AOT process gets zeroed pages from the kernel, but in-process JIT
+        # execution reuses dirty heap chunks. Nondeterministic stdout under JIT.
+        return "SKIP-UB"
     top = rel.parts[0]
     if top in ("compat", "unsorted"):
         return "SKIP-DIR:%s" % top

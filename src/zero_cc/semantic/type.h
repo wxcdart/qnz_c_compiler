@@ -118,6 +118,16 @@ TypeInfo *type_ushort(Arena *perm);
 TypeInfo *type_uint(Arena *perm);
 TypeInfo *type_ulong(Arena *perm);
 
+static inline TypeInfo *type_complex(Arena *perm, TypeInfo *elem) {
+    TypeInfo *t = type_new(perm);
+    if (t) {
+        t->kind = TYPE_KIND_COMPLEX;
+        t->details.array.base = elem;
+        t->details.array.count = 2;
+    }
+    return t;
+}
+
 /* C99 6.4.4.1p6: the type of an integer constant. `suffix` is the lexer
  * int_suffix bit pattern (bit0 = u, bit1 = l, bit2 = ll); a suffix fixes
  * the type even when the value fits a narrower type (1ULL is long long).
@@ -172,6 +182,8 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     }
     if (strcmp(base, "sqrtf") == 0) return type_float(perm);
     if (strcmp(base, "sqrt") == 0) return type_double(perm);
+    if (strcmp(base, "conjf") == 0) return type_complex(perm, type_float(perm));
+    if (strcmp(base, "conj") == 0 || strcmp(base, "conjl") == 0) return type_complex(perm, type_double(perm));
     /* libm math builtins: double family returns double, `f` variants float.
      * The lowering maps __builtin_<m> -> <m> (see the NODE_CALL builtin
      * table), so the call result must be read from XMM0, not RAX. */
@@ -209,6 +221,7 @@ bool type_is_bool(const TypeInfo *t);
 bool type_is_integer(const TypeInfo *t);
 bool type_is_floating(const TypeInfo *t);
 bool type_is_arithmetic(const TypeInfo *t);
+bool type_is_scalar(const TypeInfo *t);
 bool type_is_pointer(const TypeInfo *t);
 bool type_is_array(const TypeInfo *t);
 bool type_is_function(const TypeInfo *t);

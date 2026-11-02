@@ -365,6 +365,63 @@ static inline void zero_cc_parse_param_list(
     }
 }
 
+/* Evaluate an AST expression to a compile-time constant integer if possible */
+static inline bool zero_cc_ast_eval_const(ZeroCCASTArena *arena, ASTRef ref, int64_t *out) {
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (n->tag == NODE_INT) {
+        *out = n->int_val;
+        return true;
+    }
+    if (n->tag == NODE_TERNARY) {
+        int64_t cval, tval, eval;
+        if (!zero_cc_ast_eval_const(arena, n->left, &cval)) return false;
+        if (!zero_cc_ast_eval_const(arena, n->right, &tval)) return false;
+        if (!zero_cc_ast_eval_const(arena, n->aux.alt, &eval)) return false;
+        *out = cval != 0 ? tval : eval;
+        return true;
+    }
+    if (n->tag == NODE_BINOP) {
+        int64_t lval, rval;
+        if (!zero_cc_ast_eval_const(arena, n->left, &lval)) return false;
+        if (!zero_cc_ast_eval_const(arena, n->right, &rval)) return false;
+        switch (n->aux.op) {
+            case TK_PLUS: *out = lval + rval; return true;
+            case TK_MINUS: *out = lval - rval; return true;
+            case TK_STAR: *out = lval * rval; return true;
+            case TK_SLASH: if (rval == 0) return false; *out = lval / rval; return true;
+            case TK_PERCENT: if (rval == 0) return false; *out = lval % rval; return true;
+            case TK_EQ: *out = (lval == rval); return true;
+            case TK_NE: *out = (lval != rval); return true;
+            case TK_LT: *out = (lval < rval); return true;
+            case TK_GT: *out = (lval > rval); return true;
+            case TK_LE: *out = (lval <= rval); return true;
+            case TK_GE: *out = (lval >= rval); return true;
+            case TK_AMP: *out = (lval & rval); return true;
+            case TK_PIPE: *out = (lval | rval); return true;
+            case TK_CARET: *out = (lval ^ rval); return true;
+            case TK_SHL: *out = (lval << rval); return true;
+            case TK_SHR: *out = (lval >> rval); return true;
+            case TK_LOGAND: *out = (lval && rval); return true;
+            case TK_LOGOR: *out = (lval || rval); return true;
+            default: return false;
+        }
+    }
+    if (n->tag == NODE_UNOP) {
+        int64_t val;
+        if (!zero_cc_ast_eval_const(arena, n->left, &val)) return false;
+        switch (n->aux.op) {
+            case TK_PLUS: *out = val; return true;
+            case TK_MINUS: *out = -val; return true;
+            case TK_TILDE: *out = ~val; return true;
+            case TK_BANG: *out = !val; return true;
+            default: return false;
+        }
+    }
+    return false;
+}
+
 /* Recursive declarator parse */
 static inline bool zero_cc_parse_declarator_internal(
     ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx,
@@ -478,9 +535,9 @@ static inline bool zero_cc_parse_declarator_internal(
                     diag_report_error_at_token(c, "expected ']' after array dimension");
                     return false;
                 }
-                ZeroCCASTNode *dim_node = zero_cc_ast_get(arena, dim_expr);
-                if (dim_node && dim_node->tag == NODE_INT && dim_node->int_val >= 0) {
-                    arr_chunk.array_len = (size_t)dim_node->int_val;
+                int64_t cval = 0;
+                if (zero_cc_ast_eval_const(arena, dim_expr, &cval) && cval >= 0) {
+                    arr_chunk.array_len = (size_t)cval;
                 } else {
                     arr_chunk.is_vla = true;
                     arr_chunk.dim_expr = dim_expr;

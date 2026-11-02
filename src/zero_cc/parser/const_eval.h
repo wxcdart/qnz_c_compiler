@@ -12,17 +12,202 @@
 #include "zero_cc/types/registry.h"
 #include "zero_cc/types/global_vars.h"
 
+/* Value representation for constant expressions (supports int, float, and complex) */
+typedef enum {
+    ZC_CV_INT,
+    ZC_CV_FLOAT,
+    ZC_CV_COMPLEX,
+} ZCConstValKind;
+
+typedef struct {
+    ZCConstValKind kind;
+    int64_t i;
+    double r;
+    double im;
+} ZCConstVal;
+
+static inline ZCConstVal zc_cv_int(int64_t i) {
+    ZCConstVal v;
+    v.kind = ZC_CV_INT;
+    v.i = i;
+    v.r = (double)i;
+    v.im = 0.0;
+    return v;
+}
+
+static inline ZCConstVal zc_cv_float(double r) {
+    ZCConstVal v;
+    v.kind = ZC_CV_FLOAT;
+    v.i = (int64_t)r;
+    v.r = r;
+    v.im = 0.0;
+    return v;
+}
+
+static inline ZCConstVal zc_cv_complex(double r, double im) {
+    ZCConstVal v;
+    v.kind = ZC_CV_COMPLEX;
+    v.i = (int64_t)r;
+    v.r = r;
+    v.im = im;
+    return v;
+}
+
+static inline bool zc_cv_is_true(ZCConstVal v) {
+    if (v.kind == ZC_CV_COMPLEX) return v.r != 0.0 || v.im != 0.0;
+    if (v.kind == ZC_CV_FLOAT) return v.r != 0.0;
+    return v.i != 0;
+}
+
+static inline ZCConstVal zc_cv_cast(ZCConstVal v, ZeroCCType ty) {
+    if (ty.is_complex) {
+        double r = (v.kind == ZC_CV_INT) ? (double)v.i : v.r;
+        double im = (v.kind == ZC_CV_COMPLEX) ? v.im : 0.0;
+        return zc_cv_complex(r, im);
+    }
+    if (ty.tag == TYPE_FLOAT || ty.tag == TYPE_DOUBLE) {
+        double r = (v.kind == ZC_CV_INT) ? (double)v.i : v.r;
+        return zc_cv_float(r);
+    }
+    int64_t val = (v.kind == ZC_CV_INT) ? v.i : (int64_t)v.r;
+    uint64_t u = (uint64_t)val;
+    switch (ty.tag) {
+        case TYPE_BOOL:   u = u ? 1 : 0; break;
+        case TYPE_INT8:   u &= 0xFFULL;       u = (uint64_t)(((int64_t)(u << 56)) >> 56); break;
+        case TYPE_UINT8:  u &= 0xFFULL; break;
+        case TYPE_INT16:  u &= 0xFFFFULL;     u = (uint64_t)(((int64_t)(u << 48)) >> 48); break;
+        case TYPE_UINT16: u &= 0xFFFFULL; break;
+        case TYPE_INT32:  u &= 0xFFFFFFFFULL; u = (uint64_t)(((int64_t)(u << 32)) >> 32); break;
+        case TYPE_UINT32: u &= 0xFFFFFFFFULL; break;
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        default:
+            break;
+    }
+    return zc_cv_int((int64_t)u);
+}
+
+static inline ZCConstVal zc_cv_add(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        double bi = (b.kind == ZC_CV_COMPLEX) ? b.im : 0.0;
+        return zc_cv_complex(ar + br, ai + bi);
+    }
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        return zc_cv_float(ar + br);
+    }
+    return zc_cv_int(a.i + b.i);
+}
+
+static inline ZCConstVal zc_cv_sub(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        double bi = (b.kind == ZC_CV_COMPLEX) ? b.im : 0.0;
+        return zc_cv_complex(ar - br, ai - bi);
+    }
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        return zc_cv_float(ar - br);
+    }
+    return zc_cv_int(a.i - b.i);
+}
+
+static inline ZCConstVal zc_cv_mul(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        double bi = (b.kind == ZC_CV_COMPLEX) ? b.im : 0.0;
+        return zc_cv_complex(ar * br - ai * bi, ar * bi + ai * br);
+    }
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        return zc_cv_float(ar * br);
+    }
+    return zc_cv_int(a.i * b.i);
+}
+
+static inline ZCConstVal zc_cv_div(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        double bi = (b.kind == ZC_CV_COMPLEX) ? b.im : 0.0;
+        double denom = br * br + bi * bi;
+        if (denom == 0.0) return zc_cv_complex(0.0, 0.0);
+        return zc_cv_complex((ar * br + ai * bi) / denom, (ai * br - ar * bi) / denom);
+    }
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        return zc_cv_float(br != 0.0 ? ar / br : 0.0);
+    }
+    return zc_cv_int(b.i != 0 ? a.i / b.i : 0);
+}
+
+static inline ZCConstVal zc_cv_eq(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        double bi = (b.kind == ZC_CV_COMPLEX) ? b.im : 0.0;
+        return zc_cv_int((ar == br && ai == bi) ? 1 : 0);
+    }
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        return zc_cv_int(ar == br ? 1 : 0);
+    }
+    return zc_cv_int(a.i == b.i ? 1 : 0);
+}
+
+static inline ZCConstVal zc_cv_ne(ZCConstVal a, ZCConstVal b) {
+    ZCConstVal eq = zc_cv_eq(a, b);
+    return zc_cv_int(eq.i ? 0 : 1);
+}
+
+static inline ZCConstVal zc_cv_cmp(ZeroCCTokType op, ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT || a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
+        double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
+        double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
+        int res = 0;
+        if (op == TK_LT) res = (ar < br);
+        else if (op == TK_GT) res = (ar > br);
+        else if (op == TK_LE) res = (ar <= br);
+        else if (op == TK_GE) res = (ar >= br);
+        return zc_cv_int(res);
+    }
+    int64_t left = a.i, right = b.i;
+    int res = 0;
+    if (op == TK_LT) res = (left < right);
+    else if (op == TK_GT) res = (left > right);
+    else if (op == TK_LE) res = (left <= right);
+    else if (op == TK_GE) res = (left >= right);
+    return zc_cv_int(res);
+}
+
 /* Forward declarations for recursive functions */
-static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_bitand(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_bitxor(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_bitor(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_additive(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_multiplicative(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_conditional(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_logical_or(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_logical_and(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_bitor(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_bitxor(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_bitand(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_equality(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_relational(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_shift(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_additive(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_multiplicative(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos);
+static inline ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos);
 
 static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_type_of_relational(ZeroCCCompiler *c, size_t *pos);
@@ -258,7 +443,7 @@ static inline size_t zero_cc_sizeof_ident_align(ZeroCCCompiler *c, size_t *pos) 
         ZeroCCFunction *fn = fn_call ? NULL : zero_cc_find_function(c, name);
         if (fn) {
             if (fn->is_object) { ty = fn->return_type; found = true; }
-            else { (*pos)++; return 8; }
+            else { (*pos)++; return fn->align > 0 ? fn->align : 8; }
         }
     }
     if (!found) return 0;
@@ -370,18 +555,86 @@ static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos)
     return ty.align ? ty.align : 1;
 }
 
-static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_conditional(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_bitand(c, pos);
-    while (true) {
+    ZCConstVal left = parse_logical_or(c, pos);
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_QUESTION) {
+        (*pos)++;
+        ZCConstVal t = parse_conditional(c, pos);
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_COLON) (*pos)++;
+        ZCConstVal f = parse_conditional(c, pos);
+        left = zc_cv_is_true(left) ? t : f;
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_logical_or(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_logical_and(c, pos);
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_LOGOR) {
+        (*pos)++;
+        ZCConstVal right = parse_logical_and(c, pos);
+        left = zc_cv_int(zc_cv_is_true(left) || zc_cv_is_true(right));
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_logical_and(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_bitor(c, pos);
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_LOGAND) {
+        (*pos)++;
+        ZCConstVal right = parse_bitor(c, pos);
+        left = zc_cv_int(zc_cv_is_true(left) && zc_cv_is_true(right));
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_bitor(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_bitxor(c, pos);
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_PIPE) {
+        (*pos)++;
+        ZCConstVal right = parse_bitxor(c, pos);
+        left = zc_cv_int(left.i | right.i);
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_bitxor(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_bitand(c, pos);
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_CARET) {
+        (*pos)++;
+        ZCConstVal right = parse_bitand(c, pos);
+        left = zc_cv_int(left.i ^ right.i);
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_bitand(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_equality(c, pos);
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_AMP) {
+        (*pos)++;
+        ZCConstVal right = parse_equality(c, pos);
+        left = zc_cv_int(left.i & right.i);
+    }
+    return left;
+}
+
+static inline ZCConstVal parse_equality(ZeroCCCompiler *c, size_t *pos)
+{
+    ZCConstVal left = parse_relational(c, pos);
+    while (*pos < c->token_count) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_EQ || op == TK_NE) {
             (*pos)++;
-            int64_t right = parse_bitand(c, pos);
+            ZCConstVal right = parse_relational(c, pos);
             if (op == TK_EQ)
-                left = (left == right);
+                left = zc_cv_eq(left, right);
             else
-                left = (left != right);
+                left = zc_cv_ne(left, right);
         } else {
             break;
         }
@@ -389,50 +642,15 @@ static inline int64_t parse_equality(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
-static inline int64_t parse_bitand(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_relational(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_bitxor(c, pos);
-    while (c->tokens[*pos].type == TK_AMP) {
-        (*pos)++;
-        left &= parse_bitxor(c, pos);
-    }
-    return left;
-}
-
-static inline int64_t parse_bitxor(ZeroCCCompiler *c, size_t *pos)
-{
-    int64_t left = parse_bitor(c, pos);
-    while (c->tokens[*pos].type == TK_CARET) {
-        (*pos)++;
-        left ^= parse_bitor(c, pos);
-    }
-    return left;
-}
-
-static inline int64_t parse_bitor(ZeroCCCompiler *c, size_t *pos)
-{
-    int64_t left = parse_relational(c, pos);
-    while (c->tokens[*pos].type == TK_PIPE) {
-        (*pos)++;
-        left |= parse_relational(c, pos);
-    }
-    return left;
-}
-
-static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos)
-{
-    int64_t left = parse_shift(c, pos);
+    ZCConstVal left = parse_shift(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_LT || op == TK_GT || op == TK_LE || op == TK_GE) {
             (*pos)++;
-            int64_t right = parse_shift(c, pos);
-            int64_t res = 0;
-            if (op == TK_LT) res = (left < right);
-            else if (op == TK_GT) res = (left > right);
-            else if (op == TK_LE) res = (left <= right);
-            else if (op == TK_GE) res = (left >= right);
-            left = res;
+            ZCConstVal right = parse_shift(c, pos);
+            left = zc_cv_cmp(op, left, right);
         } else {
             break;
         }
@@ -440,20 +658,20 @@ static inline int64_t parse_relational(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
-static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_shift(ZeroCCCompiler *c, size_t *pos)
 {
     size_t left_begin = *pos;
-    int64_t left = parse_additive(c, pos);
+    ZCConstVal left = parse_additive(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_SHL || op == TK_SHR) {
             (*pos)++;
-            int64_t right = parse_additive(c, pos);
-            unsigned long ul = (unsigned long)left;
-            unsigned long ur = (unsigned long)right;
+            ZCConstVal right = parse_additive(c, pos);
+            unsigned long ul = (unsigned long)left.i;
+            unsigned long ur = (unsigned long)right.i;
             if (ur >= 64) ur = 0; /* avoid UB; C99 leaves it undefined anyway */
             if (op == TK_SHL) {
-                left = (int64_t)(ul << ur);
+                left = zc_cv_int((int64_t)(ul << ur));
             } else {
                 /* C99 6.5.7: >> on a SIGNED operand is an arithmetic (sign-
                  * extending) shift; on unsigned it is logical. The evaluator
@@ -464,9 +682,9 @@ static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
                 bool l_unsigned = (c->tokens[left_begin].type == TK_INT) &&
                     (c->tokens[left_begin].int_suffix & 0x1);
                 if (l_unsigned) {
-                    left = (int64_t)(ul >> ur);
+                    left = zc_cv_int((int64_t)(ul >> ur));
                 } else {
-                    left = (int64_t)left >> ur;
+                    left = zc_cv_int((int64_t)left.i >> ur);
                 }
             }
         } else {
@@ -476,18 +694,18 @@ static inline int64_t parse_shift(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
-static inline int64_t parse_additive(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_additive(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_multiplicative(c, pos);
+    ZCConstVal left = parse_multiplicative(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_PLUS || op == TK_MINUS) {
             (*pos)++;
-            int64_t right = parse_multiplicative(c, pos);
+            ZCConstVal right = parse_multiplicative(c, pos);
             if (op == TK_PLUS)
-                left = left + right;
+                left = zc_cv_add(left, right);
             else
-                left = left - right;
+                left = zc_cv_sub(left, right);
         } else {
             break;
         }
@@ -495,20 +713,20 @@ static inline int64_t parse_additive(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
-static inline int64_t parse_multiplicative(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_multiplicative(ZeroCCCompiler *c, size_t *pos)
 {
-    int64_t left = parse_unary(c, pos);
+    ZCConstVal left = parse_unary(c, pos);
     while (true) {
         ZeroCCTokType op = c->tokens[*pos].type;
         if (op == TK_STAR || op == TK_SLASH || op == TK_PERCENT) {
             (*pos)++;
-            int64_t right = parse_unary(c, pos);
+            ZCConstVal right = parse_unary(c, pos);
             if (op == TK_STAR)
-                left = left * right;
+                left = zc_cv_mul(left, right);
             else if (op == TK_SLASH)
-                left = left / right;
+                left = zc_cv_div(left, right);
             else
-                left = left % right;
+                left = zc_cv_int(right.i != 0 ? left.i % right.i : 0);
         } else {
             break;
         }
@@ -516,7 +734,7 @@ static inline int64_t parse_multiplicative(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
-static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_PLUS) {
@@ -525,21 +743,24 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
     }
     if (t == TK_MINUS) {
         (*pos)++;
-        return -parse_unary(c, pos);
+        ZCConstVal v = parse_unary(c, pos);
+        if (v.kind == ZC_CV_COMPLEX) return zc_cv_complex(-v.r, -v.im);
+        if (v.kind == ZC_CV_FLOAT) return zc_cv_float(-v.r);
+        return zc_cv_int(-v.i);
     }
     if (t == TK_TILDE) {
         (*pos)++;
-        return ~parse_unary(c, pos);
+        return zc_cv_int(~parse_unary(c, pos).i);
     }
     if (t == TK_BANG) {
         (*pos)++;
-        return !parse_unary(c, pos);
+        return zc_cv_int(!zc_cv_is_true(parse_unary(c, pos)));
     }
     if (t == TK_SIZEOF) {
-        return eval_sizeof(c, pos);
+        return zc_cv_int(eval_sizeof(c, pos));
     }
     if (t == TK_ALIGNOF) {
-        return eval_alignof(c, pos);
+        return zc_cv_int(eval_alignof(c, pos));
     }
     if (t == TK_AMP) {
         size_t save = *pos;
@@ -558,7 +779,7 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
             (*pos)++; /* consume '(' */
             ZeroCCType ty = zero_cc_parse_type_name_at_pos(c, pos);
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-            int64_t base_val = parse_unary(c, pos);
+            int64_t base_val = parse_unary(c, pos).i;
             if (open_parens > 0 && *pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) {
                 (*pos)++;
                 open_parens--;
@@ -599,7 +820,7 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
                     }
                 } else if (c->tokens[*pos].type == TK_LBRACKET) {
                     (*pos)++;
-                    int64_t idx = parse_equality(c, pos);
+                    int64_t idx = parse_equality(c, pos).i;
                     if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
                     size_t elem_sz = (ty.base && ty.base->size > 0) ? ty.base->size : (ty.size > 0 ? ty.size : 4);
                     total_offset += idx * (int64_t)elem_sz;
@@ -612,7 +833,7 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
                 (*pos)++;
                 open_parens--;
             }
-            return base_val + total_offset;
+            return zc_cv_int(base_val + total_offset);
         }
         /* Fallback if not an offsetof pattern: restore *pos */
         *pos = save;
@@ -666,7 +887,7 @@ static inline int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *p
             }
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
             (*pos)++; /* consume '[' */
-            int64_t idx = parse_equality(c, pos);
+            int64_t idx = parse_equality(c, pos).i;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) {
                 (*pos)++; /* consume ']' */
             }
@@ -731,34 +952,39 @@ static inline bool zc_const_global_scalar(ZeroCCCompiler *c, const char *name,
     return true;
 }
 
-static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
+static inline ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_NUM) {
         int64_t val = c->tokens[*pos].num_val;
+        uint8_t suf = c->tokens[*pos].int_suffix;
         (*pos)++;
-        return val;
+        if ((suf & 8) != 0) return zc_cv_complex(0.0, (double)val);
+        return zc_cv_int(val);
+    }
+    if (t == TK_FLOAT) {
+        double val = c->tokens[*pos].float_val;
+        uint8_t suf = c->tokens[*pos].int_suffix;
+        (*pos)++;
+        if ((suf & 8) != 0) return zc_cv_complex(0.0, val);
+        return zc_cv_float(val);
     }
     if (t == TK_CHAR_LIT) {
         int64_t val = c->tokens[*pos].num_val;
         (*pos)++;
-        return val;
+        return zc_cv_int(val);
     }
     if (t == TK_TRUE) {
         (*pos)++;
-        return 1;
+        return zc_cv_int(1);
     }
-    if (t == TK_FALSE) {
+    if (t == TK_FALSE || t == TK_NULLPTR) {
         (*pos)++;
-        return 0;
-    }
-    if (t == TK_NULLPTR) {
-        (*pos)++;
-        return 0;
+        return zc_cv_int(0);
     }
     if (t == TK_IDENT) {
         if (strcmp(c->tokens[*pos].str_val, "__builtin_offsetof") == 0) {
-            return zero_cc_eval_builtin_offsetof(c, pos);
+            return zc_cv_int(zero_cc_eval_builtin_offsetof(c, pos));
         }
         if (strcmp(c->tokens[*pos].str_val, "__builtin_constant_p") == 0) {
             /* GCC extension: 1 if the argument is a constant expression
@@ -771,6 +997,7 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
             (*pos)++;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
             size_t a0 = *pos, a1 = *pos;
+            (void)a0;
             int pd = 0;
             bool const_ok = true;
             while (a1 < c->token_count) {
@@ -796,7 +1023,7 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
             /* Skip past the argument for the caller (to matching ')'). */
             *pos = a1;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-            return const_ok ? 1 : 0;
+            return zc_cv_int(const_ok ? 1 : 0);
         }
         if (strcmp(c->tokens[*pos].str_val, "__builtin_choose_expr") == 0) {
             /* GCC extension: __builtin_choose_expr(cond, a, b) picks a or b
@@ -806,15 +1033,16 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
              * context) and select. */
             (*pos)++;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
-            int64_t cond = parse_equality(c, pos);
+            ZCConstVal cond = parse_conditional(c, pos);
             if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
-            int64_t a = parse_equality(c, pos);
+            ZCConstVal a = parse_conditional(c, pos);
             if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
-            int64_t b = parse_equality(c, pos);
+            ZCConstVal b = parse_conditional(c, pos);
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-            return cond != 0 ? a : b;
+            return zc_cv_is_true(cond) ? a : b;
         }
-        if (strcmp(c->tokens[*pos].str_val, "__alignof__") == 0) {
+        if (strcmp(c->tokens[*pos].str_val, "__alignof__") == 0 ||
+            strcmp(c->tokens[*pos].str_val, "__alignof") == 0) {
             /* C99 6.5.3.4: __alignof__(E) = alignment of E's type.
              * E may be a type name (`__alignof__(int)`). */
             (*pos)++;
@@ -831,17 +1059,17 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
                 }
                 aty = zero_cc_type_of_equality(c, pos);
                 if (aln_fn && aln_fn->align > 0) {
-                    return (int64_t)aln_fn->align;
+                    return zc_cv_int((int64_t)aln_fn->align);
                 }
             }
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-            return (int64_t)(aty.align > 0 ? aty.align : 8);
+            return zc_cv_int((int64_t)(aty.align > 0 ? aty.align : 8));
         }
         /* Enum constants are valid in constant expressions (C99 6.6). */
         const ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[*pos].str_val);
         if (ec) {
             (*pos)++;
-            return ec->value;
+            return zc_cv_int(ec->value);
         }
         /* An earlier global's value (object constants in constant
          * expressions, e.g. `const char a = 0x42; ... (double) a`). */
@@ -851,57 +1079,27 @@ static inline int64_t parse_primary(ZeroCCCompiler *c, size_t *pos)
             double g_d = 0.0;
             if (zc_const_global_scalar(c, c->tokens[*pos].str_val, &g_is_f, &g_i, &g_d)) {
                 (*pos)++;
-                return g_i;
+                return g_is_f ? zc_cv_float(g_d) : zc_cv_int(g_i);
             }
         }
-        return 0; /* unknown identifier in constant expression */
+        return zc_cv_int(0); /* unknown identifier in constant expression */
     }
     if (t == TK_LPAREN) {
         (*pos)++;
         if (zero_cc_tok_is_type_start(c, *pos)) {
-            /* Cast: (type) expr - convert the operand to the cast type.
-             * The result is the value AS THE CAST TYPE (C99 6.5.4): a
-             * narrow unsigned cast yields the masked (non-negative)
-             * value, a narrow signed cast sign-extends.  Dropping the
-             * cast type (as before) made `(unsigned short)-4` evaluate
-             * to -4, so `unsigned long l = (unsigned short)-4;` stored
-             * 0xFFFFFFFFFFFFFFFC instead of 0xFFFC (c-torture
-             * execute/pr39240). */
             ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
             if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-            int64_t val = parse_unary(c, pos);
-            uint64_t u = (uint64_t)val;
-            switch (cast_ty.tag) {
-                case TYPE_BOOL:
-                    u = u ? 1 : 0;
-                    break;
-                case TYPE_INT8:   u &= 0xFFULL;      u = (uint64_t)(((int64_t)(u << 56)) >> 56);
-                    break;
-                case TYPE_UINT8:  u &= 0xFFULL;
-                    break;
-                case TYPE_INT16:  u &= 0xFFFFULL;    u = (uint64_t)(((int64_t)(u << 48)) >> 48);
-                    break;
-                case TYPE_UINT16: u &= 0xFFFFULL;
-                    break;
-                case TYPE_INT32:  u &= 0xFFFFFFFFULL; u = (uint64_t)(((int64_t)(u << 32)) >> 32);
-                    break;
-                case TYPE_UINT32: u &= 0xFFFFFFFFULL;
-                    break;
-                case TYPE_INT64:
-                case TYPE_UINT64:
-                default:
-                    break;
-            }
-            return (int64_t)u;
+            ZCConstVal val = parse_unary(c, pos);
+            return zc_cv_cast(val, cast_ty);
         }
-        int64_t val = parse_equality(c, pos);
+        ZCConstVal val = parse_conditional(c, pos);
         if (c->tokens[*pos].type == TK_RPAREN) {
             (*pos)++;
         }
         return val;
     }
     /* Should not reach here for valid constant expression */
-    return 0;
+    return zc_cv_int(0);
 }
 
 static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos)
@@ -2016,22 +2214,9 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
 static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c)
 {
     size_t pos = c->token_pos;
-    int64_t result = parse_equality(c, &pos);
-    /* C99 6.5.15: conditional operator in constant expressions
-     * (`int a[4 == 4 ? 1 : -1];`, sizeof-macros-1). */
-    if (pos < c->token_count && c->tokens[pos].type == TK_QUESTION) {
-        pos++;
-        int64_t t = parse_equality(c, &pos);
-        if (pos < c->token_count && c->tokens[pos].type == TK_COLON) pos++;
-        int64_t save_pos = c->token_pos;
-        c->token_pos = pos;
-        int64_t f = zero_cc_eval_const_expr(c); /* recurses for nested ? : */
-        pos = c->token_pos;
-        c->token_pos = save_pos;
-        result = result ? t : f;
-    }
+    ZCConstVal result = parse_conditional(c, &pos);
     c->token_pos = pos;
-    return result;
+    return result.i;
 }
 
 #endif /* ZERO_CC_PARSER_CONST_EVAL_H */

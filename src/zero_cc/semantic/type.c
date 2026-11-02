@@ -176,6 +176,11 @@ bool type_is_arithmetic(const TypeInfo *t) {
     return type_is_integer(t) || type_is_floating(t);
 }
 
+bool type_is_scalar(const TypeInfo *t) {
+    if (!t) return false;
+    return type_is_arithmetic(t) || type_is_pointer(t) || t->kind == TYPE_KIND_COMPLEX;
+}
+
 bool type_is_pointer(const TypeInfo *t) {
     return t && t->kind == TYPE_KIND_POINTER;
 }

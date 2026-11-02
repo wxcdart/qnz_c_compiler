@@ -283,7 +283,7 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
             c->tokens[c->token_pos].allocated_str ? c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val,
             zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1);
         snprintf(a->base_str, sizeof(a->base_str), "%s",
-            c->tokens[c->token_pos - 1].allocated_str ? c->tokens[c->token_pos - 1].allocated_str : c->tokens[c->token_pos - 1].str_val);
+            c->tokens[c->token_pos].allocated_str ? c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val);
         c->token_pos++;
         a->kind = 0;
         a->ro_off = ro_off;
@@ -388,6 +388,29 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
                c->tokens[c->token_pos].type == TK_LPAREN) {
             depth++;
             c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
+            size_t ro_off = c->rodata_section.length;
+            zero_cc_buf_put_bytes(&c->rodata_section,
+                c->tokens[c->token_pos].allocated_str ? c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val,
+                zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1);
+            snprintf(a->base_str, sizeof(a->base_str), "%s",
+                c->tokens[c->token_pos].allocated_str ? c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+            a->kind = 0;
+            a->ro_off = ro_off;
+            a->esz = 1;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                c->token_pos++;
+                int64_t n = zero_cc_eval_const_expr(c);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                a->off += n;
+            }
+            while (depth > 0 && c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                depth--;
+                c->token_pos++;
+            }
+            return true;
         }
         if (c->token_pos >= c->token_count ||
             c->tokens[c->token_pos].type != TK_IDENT) {
@@ -1367,6 +1390,35 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                     /* This is a function definition, back up to start and let function parser handle it */
                     c->token_pos = global_start;
+                } else if (gtype.is_func) {
+                    /* C99 6.7: A declaration with a function-type typedef declares a function.
+                     * e.g. `typedef void f(); f g;` declares function `g`. */
+                    do {
+                        char fn_name[128];
+                        snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
+                        c->token_pos++;
+                        ZeroCCType ret_t = gtype;
+                        ret_t.is_func = false;
+                        if (!zero_cc_find_function(c, fn_name) && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                            ZeroCCFunction *fn = &c->functions[c->function_count++];
+                            snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
+                            fn->text_offset = 0;
+                            fn->return_type = ret_t;
+                            fn->returns_struct = (ret_t.tag == TYPE_STRUCT || ret_t.tag == TYPE_UNION ||
+                                                  (ret_t.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ret_t)));
+                            fn->is_object = false;
+                        }
+                        TypeInfo *ret_ti = zero_cc_type_to_typeinfo(perm, ret_t);
+                        TypeInfo *fn_ti = type_function(perm, ret_ti, NULL, 0, false);
+                        scope_put_symbol(shared_ctx.current_scope, fn_name, SYMBOL_FUNC, fn_ti);
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                            c->token_pos++;
+                            continue;
+                        }
+                        break;
+                    } while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT);
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+                    continue;
                 } else {
                     /* This is a variable declaration (may declare several names: int a, b = 3;) */
                     if (gtype.tag == TYPE_VOID) {

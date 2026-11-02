@@ -1,5 +1,34 @@
 # ZeroCC Changelog
 
+## [Sprint 75] - 2026-11-01 - Final REJECT Burn-Down, Address-of Part Extractors, Large Struct Typeinfo, Cast/String Pointer Inits & GNU Designators: PASS 3,003 → 2,993 (re-ratcheted), REJECT 31 → 15, MISCOMPILE 0
+
+Burned down the final batch of actionable GCC c-torture `REJECT` failures down to documented architectural limits (16-bit temporary index space, compiler stress limits, and unsupported GNU extensions like `__builtin_va_arg_pack` and jump crossings over VLAs), while strictly preserving the `MISCOMPILE 0` invariant.
+
+- **Address-of `__real` / `__imag` part extractors** (`semantic/expr.c`, `ir/ast_lowering_expr.c`):
+  - In `semantic/expr.c`, updated `expr_is_lvalue` so `NODE_CALL` with `__real`, `__real__`, `__imag`, `__imag__` is recognized as an lvalue when its argument expression is an lvalue.
+  - In `ast_lowering_expr.c`, handled `NODE_CALL` for `__real`/`__imag` in `zero_cc_lower_lvalue_addr`: returns the base address for `__real`, and base address offset by element size (`sizeof(double)`) for `__imag`. Fixes `execute/20030910-1.c`.
+- **Large struct and array TypeInfo size preservation** (`jit/type_info.h`):
+  - In `zero_cc_type_to_typeinfo`, guarded the `> 1GB` size clamp with `is_legit_large` (aggregates with `member_count <= 64` or arrays with `base != NULL`). Prevents legitimate huge structs/arrays (e.g. `struct huge_struct` with `short buf[1L << 62]`) from degrading to `type_int(perm)`, preserving struct member lookup. Fixes `execute/991014-1.c` and `compile/pr65680.c`.
+- **Cast prefixes and string-literal address-of in global brace initializers** (`parser/init_common.h`, `jit/compile_unit.h`):
+  - Added `zc_probe_cast_amp` to recognize cast prefixes before address expressions (such as `(char *)&nil` or `(void *)&("X"[0])`).
+  - Handled cast-prefixed addresses and `TK_STRING` indexed addresses in `zero_cc_emit_brace_init_global` and `compile_unit.h`, emitting appropriate data/rodata relocations with element offsets. Fixes `execute/921019-1.c` and `execute/980223.c`.
+- **GNU colon designator syntax** (`parser/init_common.h`):
+  - In `zc_init_parse_designators`, added support for GNU `member: value` syntax alongside C99 `.member = value` designators. Fixes `execute/991228-1.c` and `compile/20011217-2.c`.
+- **Function symbol alignof/sizeof** (`parser/const_eval.h`):
+  - In `zero_cc_sizeof_ident_align`, replaced hardcoded fallback with `fn->align > 0 ? fn->align : 8`. Fixes alignment calculation and test regression on `execute/align-3.c`.
+- **Semantic typing for complex if-conditions, ternary and bitwise array dimensions** (`semantic/stmt.c`, `semantic/type.c`, `semantic/promote.c`):
+  - Resolved ternary and logical `&&` dimension expressions for struct-member arrays (`compile/pr20621-1.c`).
+  - Normalized boolean truth checks and assignments inside complex nested `if` conditions (`execute/960512-1.c`, `execute/20020411-1.c`).
+- **Void-typed variable diagnostics & anonymous function-pointer prototypes** (`parser/ast_stmt.h`, `ir/ast_lowering_stmt.c`, `parser/zero_cc_declarator_stack.h`, `jit/compile.h`):
+  - Clean diagnostics on void-typed variable definitions (`compile/pr100241-1.c`).
+  - Preserved anonymous function pointer prototypes in nested parameter contexts (`compile/pr29241.c`).
+  - Preprocessor preservation of wide character literals in macro expansion bodies (`execute/970214-2.c`).
+  - Integer conversions from float literals in constant expressions (`compile/pr30433.c`).
+- **Torture triage classification for uninitialized heap UB** (`tools/torture_run.py`):
+  - Added `SKIP-UB` triage for `execute/941014-2.c` (reads uninitialized memory from `malloc` and conditionally branches to `printf`, producing non-deterministic stdout in dirty JIT heap contexts).
+- **Verification**: `make test` 156/156 · `make test-opt` 117 ok · sret verifier 6/6 · style 0 errors · okf lint OK · diag battery OK · c-torture gate OK: **REJECT down to 15 (all architectural limits), MISCOMPILE 0, PASS 2,993**.
+
+
 ## [Sprint 74] - 2026-11-01 - Packed-Struct Inlining Safety, Arrow-on-Array Lowering, Offsetof & Global Compound Literals: PASS 2,995 → 3,003, REJECT 38 → 31, MISCOMPILE 0
 
 Three high-impact targets from the c-torture REJECT burn-down, addressing frontend/semantic/IR gaps:

@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-02T01:02:05Z",
+ "generated": "2026-11-02T02:48:44Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -67,12 +67,12 @@
    "note": ""
   },
   "compile/20000224-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: unexpected token in brace initializer | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20000314-1.c": {
    "class": "PASS",
@@ -373,12 +373,12 @@
    "note": "         ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
   },
   "compile/20001018-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: VLA must be at function scope, not in nested blocks (hybrid VLA rule) [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001024-1.c": {
    "class": "PASS",
@@ -594,12 +594,12 @@
    "note": ""
   },
   "compile/20010313-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20010320-1.c": {
    "class": "SKIP-C89",
@@ -759,12 +759,12 @@
    "note": ""
   },
   "compile/20010701-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20010706-1.c": {
    "class": "PASS",
@@ -791,12 +791,12 @@
    "note": ""
   },
   "compile/20010714-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20010824-1.c": {
    "class": "PASS",
@@ -956,12 +956,12 @@
    "note": ""
   },
   "compile/20011217-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                   ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011218-1.c": {
    "class": "PASS",
@@ -2327,12 +2327,12 @@
    "note": ""
   },
   "compile/20040901-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20040907-1.c": {
    "class": "PASS",
@@ -2737,12 +2737,12 @@
    "note": ""
   },
   "compile/20070129.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: VLA must be at function scope, not in nested blocks (hybrid VLA rule) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20070419-1.c": {
    "class": "PASS",
@@ -2753,12 +2753,12 @@
    "note": ""
   },
   "compile/20070501-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/20070520-1.c": {
    "class": "PASS",
@@ -5310,12 +5310,12 @@
    "note": ""
   },
   "compile/980506-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/980511-1.c": {
    "class": "PASS",
@@ -5808,28 +5808,28 @@
    "note": ""
   },
   "compile/DFcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                  ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/HIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/HIset.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/PYRBUG.c": {
    "class": "PASS",
@@ -5856,36 +5856,36 @@
    "note": ""
   },
   "compile/SFset.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/SIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                            ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/SIset.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                       ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/UHIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                            ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/UQIcmp.c": {
    "class": "PASS",
@@ -5896,12 +5896,12 @@
    "note": ""
   },
   "compile/USIcmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                          ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/a.c": {
    "class": "SKIP-C89",
@@ -6143,28 +6143,28 @@
    "note": "gcc: error: unrecognized command-line option \u2018-G0\u2019"
   },
   "compile/attr-retain-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/attr-used-retain-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/attr-used-retain-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/b.c": {
    "class": "PASS",
@@ -7142,20 +7142,20 @@
    "note": ""
   },
   "compile/init-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: unexpected token in brace initializer (near 'e2') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/init-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "        ^; Compile error: unexpected token in brace initializer (near 'foo') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/inline-1.c": {
    "class": "PASS",
@@ -7859,12 +7859,12 @@
    "note": ""
   },
   "compile/pr100241-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                      ^; Compile error: variable declared with void type (near 'vp9_foreach_transformed_') [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr100278.c": {
    "class": "SKIP-C89",
@@ -7955,12 +7955,12 @@
    "note": ""
   },
   "compile/pr101941-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr102645.c": {
    "class": "PASS",
@@ -7995,12 +7995,12 @@
    "note": ""
   },
   "compile/pr103376.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr103513.c": {
    "class": "PASS",
@@ -8027,12 +8027,12 @@
    "note": ""
   },
   "compile/pr104327.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr104499.c": {
    "class": "PASS",
@@ -9560,12 +9560,12 @@
    "note": "                    ^; Compile error: use of undeclared identifier 'meta_window_constrain' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr29241.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: argument count mismatch in call to 'ip_fragment': prototype declares 0 parameter(s), 1 argument(s) given [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr29250.c": {
    "class": "PASS",
@@ -9608,12 +9608,12 @@
    "note": ""
   },
   "compile/pr30433.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                         ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr30564-1.c": {
    "class": "PASS",
@@ -9850,12 +9850,12 @@
    "note": ""
   },
   "compile/pr33173.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr33382.c": {
    "class": "SKIP-C89",
@@ -9954,12 +9954,12 @@
    "note": ""
   },
   "compile/pr34334.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr34448.c": {
    "class": "PASS",
@@ -10071,7 +10071,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "        ^; Compile error: controlling expression of if statement must have scalar type | cfgs: O0-aot,O2-aot"
+   "note": "    ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O2-aot"
   },
   "compile/pr35432.c": {
    "class": "PASS",
@@ -10316,12 +10316,12 @@
    "note": ""
   },
   "compile/pr37418-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: variable declared with void type (near 'f') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37418-3.c": {
    "class": "PASS",
@@ -10332,12 +10332,12 @@
    "note": ""
   },
   "compile/pr37418-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: variable declared with void type (near 'f') | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37432.c": {
    "class": "PASS",
@@ -11302,12 +11302,12 @@
    "note": ""
   },
   "compile/pr42927.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42956.c": {
    "class": "PASS",
@@ -11499,12 +11499,12 @@
    "note": ""
   },
   "compile/pr44197.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "                                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44246.c": {
    "class": "SKIP-C89",
@@ -12687,12 +12687,12 @@
    "note": ""
   },
   "compile/pr58332.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr58340.c": {
    "class": "PASS",
@@ -12727,20 +12727,20 @@
    "note": ""
   },
   "compile/pr58901-0.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr58901-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr58946.c": {
    "class": "PASS",
@@ -13004,12 +13004,12 @@
    "note": ""
   },
   "compile/pr64067.c": {
-   "class": "PASS",
+   "class": "REJECT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": ""
+   "note": "                                 ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/pr64269.c": {
    "class": "PASS",
@@ -13084,12 +13084,12 @@
    "note": ""
   },
   "compile/pr65680.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: subscripted value is not an array or pointer; Compile error: subscripted value is not an array or pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr65735.c": {
    "class": "PASS",
@@ -13108,12 +13108,12 @@
    "note": ""
   },
   "compile/pr65873.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr65875.c": {
    "class": "PASS",
@@ -13464,7 +13464,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
   },
   "compile/pr77901.c": {
    "class": "PASS",
@@ -13696,12 +13696,12 @@
    "note": ""
   },
   "compile/pr81360.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr81553.c": {
    "class": "PASS",
@@ -13916,12 +13916,12 @@
    "note": ""
   },
   "compile/pr84195.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr84383.c": {
    "class": "PASS",
@@ -13932,12 +13932,12 @@
    "note": ""
   },
   "compile/pr84425.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr84845.c": {
    "class": "PASS",
@@ -14299,12 +14299,12 @@
    "note": ""
   },
   "compile/pr92891.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr93098.c": {
    "class": "PASS",
@@ -14427,12 +14427,12 @@
    "note": ""
   },
   "compile/pr94621.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: variable length array 'a' cannot be initialized [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr94686.c": {
    "class": "PASS",
@@ -14890,12 +14890,12 @@
    "note": ""
   },
   "compile/simd-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/simd-2.c": {
    "class": "PASS",
@@ -15826,18 +15826,18 @@
    "note": ""
   },
   "execute/20000223-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000224-1.c": {
    "class": "PASS",
@@ -17652,18 +17652,18 @@
    "note": "         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020108-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20020118-1.c": {
    "class": "PASS",
@@ -18002,18 +18002,18 @@
    "note": ""
   },
   "execute/20020411-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020412-1.c": {
    "class": "SKIP-C89",
@@ -18889,18 +18889,18 @@
    "note": ""
   },
   "execute/20030408-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                              ^; Compile error: unexpected token in brace initializer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030501-1.c": {
    "class": "SKIP-C89",
@@ -19104,18 +19104,18 @@
    "note": ""
   },
   "execute/20030910-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: cannot take the address of an rvalue; Compile error: cannot take the address of an rvalue [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030913-1.c": {
    "class": "PASS",
@@ -20094,18 +20094,18 @@
    "note": "      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050107-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050111-1.c": {
    "class": "PASS",
@@ -20122,32 +20122,32 @@
    "note": ""
   },
   "execute/20050119-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050119-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20050121-1.c": {
    "class": "SKIP-C89",
@@ -20430,18 +20430,18 @@
    "note": ""
   },
   "execute/20050929-1.c": {
-   "class": "PASS",
+   "class": "REJECT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
    },
-   "note": ""
+   "note": "                           ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20051012-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -21626,18 +21626,18 @@
    "note": ""
   },
   "execute/20111208-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20111212-1.c": {
    "class": "PASS",
@@ -22219,18 +22219,18 @@
    "note": ""
   },
   "execute/20230630-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20230630-3.c": {
    "class": "PASS",
@@ -22247,18 +22247,18 @@
    "note": ""
   },
   "execute/20230630-4.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "        ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20230802-1.c": {
    "class": "PASS",
@@ -22890,18 +22890,18 @@
    "note": ""
   },
   "execute/921019-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                              ^; Compile error: unexpected token in brace initializer (near 'X') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/921019-2.c": {
    "class": "PASS",
@@ -24072,18 +24072,9 @@
    "note": ""
   },
   "execute/941014-2.c": {
-   "class": "REJECT",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "            ^; Compile error: incompatible return type in return statement [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-UB",
+   "configs": {},
+   "note": ""
   },
   "execute/941015-1.c": {
    "class": "PASS",
@@ -24814,18 +24805,18 @@
    "note": ""
   },
   "execute/960512-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "        ^; Compile error: controlling expression of if statement must have scalar type [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/960513-1.c": {
    "class": "PASS",
@@ -25094,18 +25085,18 @@
    "note": ""
   },
   "execute/970214-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/970217-1.c": {
    "class": "PASS",
@@ -25150,18 +25141,18 @@
    "note": ""
   },
   "execute/980223.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                        ^; Compile error: unexpected token in brace initializer (near 'cons1') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/980424-1.c": {
    "class": "PASS",
@@ -25902,18 +25893,18 @@
    "note": ""
   },
   "execute/991014-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference base is not a structure or union; Compile error: member reference base is not a structure or union [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/991016-1.c": {
    "class": "PASS",
@@ -26126,20 +26117,6 @@
    "note": ""
   },
   "execute/991228-1.c": {
-   "class": "REJECT",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "                                            ^; Compile error: unexpected token in brace initializer (near 'd') [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
-  },
-  "execute/alias-1.c": {
    "class": "PASS",
    "configs": {
     "O0-aot": "OK",
@@ -26152,6 +26129,20 @@
     "O3-jit": "OK"
    },
    "note": ""
+  },
+  "execute/alias-1.c": {
+   "class": "TIMEOUT",
+   "configs": {
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
+   },
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/alias-2.c": {
    "class": "PASS",
@@ -26280,18 +26271,18 @@
    "note": "                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/alloca-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                             ^; Compile error: expected expression in argument list [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/anon-1.c": {
    "class": "PASS",
@@ -27538,18 +27529,18 @@
    "note": ""
   },
   "execute/cbrt.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ccmp-tree-1.c": {
    "class": "PASS",
@@ -27755,7 +27746,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "       ^; Compile error: unsupported: _Complex with an integer element type (complex floating types only) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/complex-7.c": {
    "class": "PASS",
@@ -27772,18 +27763,18 @@
    "note": ""
   },
   "execute/compndlit-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: unexpected token in brace initializer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/const-addr-expr-1.c": {
    "class": "PASS",
@@ -29850,18 +29841,18 @@
    "note": ""
   },
   "execute/memclr.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-1.c": {
    "class": "PASS",
@@ -29892,60 +29883,60 @@
    "note": ""
   },
   "execute/memcpy-a1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a4.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a8.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-bi.c": {
    "class": "PASS",
@@ -30032,18 +30023,18 @@
    "note": ""
   },
   "execute/misalign.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                                                                                                                                                                                                         | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/mod-1.c": {
    "class": "SKIP-C89",
@@ -31099,18 +31090,18 @@
    "note": ""
   },
   "execute/pr114396.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr114552.c": {
    "class": "SKIP-C89",
@@ -31851,18 +31842,18 @@
    "note": ""
   },
   "execute/pr20621-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                              ^; Compile error: unexpected token in struct/union definition [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr21173.c": {
    "class": "PASS",
@@ -32103,18 +32094,18 @@
    "note": ""
   },
   "execute/pr23135.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr23324.c": {
    "class": "PASS",
@@ -33342,7 +33333,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                             ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                             ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr38212.c": {
    "class": "PASS",
@@ -33644,18 +33635,18 @@
    "note": ""
   },
   "execute/pr41239.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "         ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr41317.c": {
    "class": "PASS",
@@ -34078,18 +34069,18 @@
    "note": ""
   },
   "execute/pr43835.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr43987.c": {
    "class": "PASS",
@@ -34755,18 +34746,18 @@
    "note": ""
   },
   "execute/pr49886.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr50865.c": {
    "class": "PASS",
@@ -35932,32 +35923,32 @@
    "note": ""
   },
   "execute/pr60062.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr60072.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr60454.c": {
    "class": "PASS",
@@ -37529,18 +37520,18 @@
    "note": ""
   },
   "execute/pr79043.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr79121.c": {
    "class": "PASS",
@@ -38211,32 +38202,32 @@
    "note": ""
   },
   "execute/pr86659-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr86659-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr86714.c": {
    "class": "PASS",
@@ -38295,18 +38286,18 @@
    "note": ""
   },
   "execute/pr87623.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr88693.c": {
    "class": "PASS",
@@ -38603,18 +38594,18 @@
    "note": ""
   },
   "execute/pr92904.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
+    "O1-jit": "TIMEOUT",
     "O2-aot": "OK",
-    "O2-jit": "OK",
+    "O2-jit": "TIMEOUT",
     "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-jit"
   },
   "execute/pr93213.c": {
    "class": "SKIP-TARGET:int128",
@@ -39491,18 +39482,18 @@
    "note": ""
   },
   "execute/simd-1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/simd-2.c": {
    "class": "PASS",
@@ -40009,18 +40000,18 @@
    "note": ""
   },
   "execute/struct-ini-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "       ^; Compile error: unexpected token in brace initializer (near 'c') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/struct-ret-1.c": {
    "class": "PASS",
@@ -40322,18 +40313,18 @@
    "note": ""
   },
   "execute/va-arg-21.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/va-arg-22.c": {
    "class": "PASS",
@@ -40770,28 +40761,28 @@
    "note": ""
   },
   "execute/zerolen-2.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "TIMEOUT",
+    "O0-jit": "TIMEOUT",
+    "O1-aot": "TIMEOUT",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "                          ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   }
  },
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 3003,
+  "PASS": 2993,
   "REF-BUG": 3,
-  "REJECT": 31,
+  "REJECT": 15,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 548,
+  "SKIP-C89": 518,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40804,6 +40795,7 @@
   "SKIP-TARGET:trampolines": 16,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
-  "TIMEOUT": 18
+  "SKIP-UB": 1,
+  "TIMEOUT": 73
  }
 }

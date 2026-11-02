@@ -299,12 +299,12 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
         return type_is_compatible(dst, src);
     }
 
-    /* C99 6.2.5 complex: complex<->complex of the same element, and
+    /* C99 6.2.5 complex: complex<->complex, and
      * complex<->scalar (GCC permits the implicit conversions with a
      * warning - the complex value's real part is used, the scalar is
      * converted to (scalar, 0)). */
     if (dst->kind == TYPE_KIND_COMPLEX && src->kind == TYPE_KIND_COMPLEX) {
-        return type_is_compatible(dst->details.array.base, src->details.array.base);
+        return true;
     }
     if (dst->kind == TYPE_KIND_COMPLEX && type_is_arithmetic(src)) {
         return true;

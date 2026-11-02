@@ -2736,6 +2736,27 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                     if (depth > 0) depth--;
                                 }
                             }
+                            if (!ex) {
+                                /* Check for bare `aligned` / `__aligned__` without parens
+                                 * (GCC extension: default alignment, 16 bytes). */
+                                for (const char *q = it; q < it + il; ) {
+                                    while (q < it + il && (*q == ' ' || *q == '\t' || *q == ',')) q++;
+                                    const char *start = q;
+                                    while (q < it + il && (isalnum((unsigned char)*q) || *q == '_')) q++;
+                                    size_t len = (size_t)(q - start);
+                                    if ((len == 7 && strncmp(start, "aligned", 7) == 0) ||
+                                        (len == 11 && strncmp(start, "__aligned__", 11) == 0)) {
+                                        const char *nxt = q;
+                                        while (nxt < it + il && (*nxt == ' ' || *nxt == '\t')) nxt++;
+                                        if (nxt >= it + il || *nxt != '(') {
+                                            ex = "16";
+                                            el = 2;
+                                            ex_marker = 2;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                             if (!ex) continue;
                             char expr_text[512];
                             if (el > sizeof(expr_text) - 1) el = sizeof(expr_text) - 1;
@@ -2785,6 +2806,105 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                             paste_len = 0;
                             paste_buf[0] = '\0';
                             pending_paste = true;
+                            continue;
+                        }
+
+                        /* Wide/UTF string & character literal prefixes in macro body:
+                         * L'X', L"s", u'X', u"s", U'X', U"s", u8"s".
+                         * The prefix is not an identifier, so parameter substitution
+                         * must not rewrite e.g. L'1' into 0'1' (c-torture 970214-2). */
+                        if ((*b == 'L' || *b == 'u' || *b == 'U') && (b[1] == '\'' || b[1] == '"')) {
+                            char pfx = *b++;
+                            char quote = *b;
+                            if (pending_paste) {
+                                paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c%c", pfx, *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                    }
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                if (*b == quote) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                zero_cc_buf_puts(&temp_buf, paste_buf);
+                                paste_len = 0;
+                                paste_buf[0] = '\0';
+                                pending_paste = false;
+                            } else {
+                                zero_cc_buf_putc(&temp_buf, pfx);
+                                zero_cc_buf_putc(&temp_buf, *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        zero_cc_buf_putc(&temp_buf, *b++);
+                                    }
+                                    zero_cc_buf_putc(&temp_buf, *b++);
+                                }
+                                if (*b == quote) zero_cc_buf_putc(&temp_buf, *b++);
+                            }
+                            continue;
+                        }
+                        if (b[0] == 'u' && b[1] == '8' && b[2] == '"') {
+                            b += 2;
+                            char quote = '"';
+                            if (pending_paste) {
+                                paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "u8%c", *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                    }
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                if (*b == quote) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                zero_cc_buf_puts(&temp_buf, paste_buf);
+                                paste_len = 0;
+                                paste_buf[0] = '\0';
+                                pending_paste = false;
+                            } else {
+                                zero_cc_buf_puts(&temp_buf, "u8");
+                                zero_cc_buf_putc(&temp_buf, *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        zero_cc_buf_putc(&temp_buf, *b++);
+                                    }
+                                    zero_cc_buf_putc(&temp_buf, *b++);
+                                }
+                                if (*b == quote) zero_cc_buf_putc(&temp_buf, *b++);
+                            }
+                            continue;
+                        }
+
+                        /* String literals and character literals in macro body:
+                         * copy verbatim without parameter substitution. */
+                        if (*b == '"' || *b == '\'') {
+                            char quote = *b;
+                            if (pending_paste) {
+                                paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                    }
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                if (*b == quote) {
+                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%c", *b++);
+                                }
+                                zero_cc_buf_puts(&temp_buf, paste_buf);
+                                paste_len = 0;
+                                paste_buf[0] = '\0';
+                                pending_paste = false;
+                            } else {
+                                zero_cc_buf_putc(&temp_buf, *b++);
+                                while (*b && *b != quote) {
+                                    if (*b == '\\' && b[1]) {
+                                        zero_cc_buf_putc(&temp_buf, *b++);
+                                    }
+                                    zero_cc_buf_putc(&temp_buf, *b++);
+                                }
+                                if (*b == quote) zero_cc_buf_putc(&temp_buf, *b++);
+                            }
                             continue;
                         }
 

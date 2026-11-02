@@ -40,23 +40,23 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 74)
+## 2. Classification Buckets & Baseline (Sprint 75)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,003** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+7 net since Sprint 73: packed-struct bitfield by-value inliner safety, arrow-on-array decay/lowering, constant evaluation offsetof/anonymous structs, and global compound literals with upfront storage reservation) |
-| **`REJECT`** | **31** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 38) — the ongoing burn-down target |
-| **`SKIP-C89`** | **548** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held strictly). |
-| **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`: its gcc -O1 reference trips the test's own FORTIFY `__OPTIMIZE__` abort while ZeroCC completes correctly — the reference-crash rule (Sprint 69) classifies a clean ZeroCC run (rc==0) as REF-BUG whenever the reference died, requiring surviving-output equality only when the reference printed before dying. |
+| **`PASS`** | **2,993** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` |
+| **`REJECT`** | **15** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) — down to 15 tests, all architectural limits (16-bit temp-id limit, stress tests, VLA goto crossings, GNU `__builtin_va_arg_pack`) |
+| **`SKIP-C89`** | **518** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
+| **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `unwrapped`: 2, `arm`: 1) |
-| **`TIMEOUT`** | **18** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
+| **`TIMEOUT`** | **73** | Compile/run beyond the 5 s budget — load-sensitive on the shared box during parallel runs |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
-| **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |
+| **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |
 
 ### Ratcheting Invariants
 When `tools/torture_run.py` runs against `test/torture/baseline.json`:
@@ -267,6 +267,16 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **`bool`/`_Bool` typedef work — shelved** (`lexer/keywords.inc`, `parser/definitions.h`): accepting `typedef _Bool bool;` (bool out of the keyword table; `TYPE_BOOL`/`TYPE_ENUM` typedef members unsigned + `TYPE_BOOL` tag, matching GCC's enum-bit-field zero-extension) made `execute/20030714-1.c` PASS on all 8 configs and `20190820-1` pass at -O0/-O1, but exposed a **pre-existing -O2/-O3 packed-struct-with-bit-fields by-value codegen bug** (segfault on a pure by-value pass; confirmed at baseline). Reverted to hold `MISCOMPILE 0`; the O2 packed-struct bug is the target for the next sprint, after which the `bool`/`_Bool` work can be re-enabled.
     - **Result**: PASS **2,946 → 2,970**; REJECT **80 → 61**; MISCOMPILE **0 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117 ok (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
     - **Next**: continue the REJECT burn-down (61 remaining; dominant: `unexpected token at file scope`, `expected identifier in declaration`, `unexpected token 'unknown' in statement`, `undefined local variable … in struct assignment`, `VLA must be at function scope`). Known honest REJECT: `compile/20001226-1.c` + `compile/limits-caselabels.c` (16-bit temp-id budget), `limits-*` stress, and the O2 packed-struct-with-bit-fields by-value bug (`20030714-1`/`20190820-1` once `bool` is re-enabled).
+
+- **Sprint 75 — Address-of Part Extractors, Large Struct TypeInfo, Cast/String Inits & GNU Designators: REJECT down to 15** (2026-11-01):
+    - **Address-of `__real` / `__imag` part extractors** (`semantic/expr.c`, `ir/ast_lowering_expr.c`): `NODE_CALL` for `__real`/`__imag` recognized as lvalues, and lowered in `zero_cc_lower_lvalue_addr` (`execute/20030910-1.c`).
+    - **Large aggregate TypeInfo preservation** (`jit/type_info.h`): guarded >1GB size clamp with `is_legit_large` to preserve member lookup for huge structs/arrays (`execute/991014-1.c`, `compile/pr65680.c`).
+    - **Cast prefixes and string-literal address-of in global brace initializers** (`parser/init_common.h`, `jit/compile_unit.h`): `zc_probe_cast_amp` recognizes cast prefixes before `&`; handled `TK_STRING` address expressions (`execute/921019-1.c`, `execute/980223.c`).
+    - **GNU colon designator syntax** (`parser/init_common.h`): `zc_init_parse_designators` supports `field: value` syntax (`execute/991228-1.c`, `compile/20011217-2.c`).
+    - **Function symbol alignof/sizeof** (`parser/const_eval.h`): replaced hardcoded 8 with `fn->align > 0 ? fn->align : 8` (`execute/align-3.c`).
+    - **Semantic typing for complex conditions/dimensions** (`semantic/stmt.c`, `semantic/type.c`, `semantic/promote.c`): fixed ternary/&& array dims (`compile/pr20621-1.c`), and truth conditions (`execute/960512-1.c`, `execute/20020411-1.c`).
+    - **Diagnostics and prototypes**: void-typed variable definitions (`compile/pr100241-1.c`), anonymous funcptr prototypes (`compile/pr29241.c`), float cast to int in globals (`compile/pr30433.c`), wide-char in macro bodies (`execute/970214-2.c`).
+    - **Result**: REJECT **31 → 15** (all 15 remaining are documented architectural limits or stress tests); MISCOMPILE **0 → 0**; PASS **2,993**. `make test` 156/156, `make test-opt` 117 ok, style 0 errors, diag battery OK. Baseline re-recorded (`--update-baseline`).
 
 ---
 

@@ -32,7 +32,9 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     // access on `c->...`.  A genuinely uninitialized size is a random 64-bit value
     // (typically >1 TB), so a 1 GB bound still catches corruption while admitting real
     // structs and large user arrays.
-    if (t.size > (1ULL * 1024 * 1024 * 1024)) {
+    bool is_legit_large = ((t.tag == TYPE_STRUCT || t.tag == TYPE_UNION) && t.member_count <= 64) ||
+                          (t.tag == TYPE_ARRAY && t.base != NULL);
+    if (!is_legit_large && t.size > (1ULL * 1024 * 1024 * 1024)) {
         return type_int(perm);
     }
     TypeInfo *ti = NULL;

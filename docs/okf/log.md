@@ -674,3 +674,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `c-torture-gate.md`
 - Sprint 74: Ratchet baseline to PASS 3003, REJECT 31, MISCOMPILE 0
+
+## 2026-11-02 — Updated `c-torture-gate.md`
+- Sprint 75: REJECT burned down to 15 (all architectural limits), MISCOMPILE 0, PASS 2,993. Address-of part extractors, large struct TypeInfo preservation, cast/string pointer inits, and GNU designators.

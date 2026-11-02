@@ -416,6 +416,11 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
     } else if (c->token_pos < c->token_count &&
                c->tokens[c->token_pos].type == TK_LBRACKET) {
         *has_desig = true;
+    } else if (c->token_pos + 1 < c->token_count &&
+               c->tokens[c->token_pos].type == TK_IDENT &&
+               c->tokens[c->token_pos + 1].type == TK_COLON) {
+        /* GNU member designator: `field: value` */
+        *has_desig = true;
     } else {
         *pos = c->token_pos;
         return true;
@@ -424,12 +429,16 @@ static bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
     bool desig_err = false;
     bool first_step = true;
     for (;;) {
-        if (c->token_pos + 1 < c->token_count &&
-            c->tokens[c->token_pos].type == TK_DOT &&
-            c->tokens[c->token_pos + 1].type == TK_IDENT) {
-            /* member designator */
+        if ((c->token_pos + 1 < c->token_count &&
+             c->tokens[c->token_pos].type == TK_DOT &&
+             c->tokens[c->token_pos + 1].type == TK_IDENT) ||
+            (c->token_pos + 1 < c->token_count &&
+             c->tokens[c->token_pos].type == TK_IDENT &&
+             c->tokens[c->token_pos + 1].type == TK_COLON)) {
+            /* member designator (.field or field:) */
+            bool is_colon = (c->tokens[c->token_pos].type == TK_IDENT);
+            const char *name = is_colon ? c->tokens[c->token_pos].str_val : c->tokens[c->token_pos + 1].str_val;
             c->token_pos += 2;
-            const char *name = c->tokens[c->token_pos - 1].str_val;
             ZeroCCType *cur = &tgt->val_type;
             bool found = false;
             if (cur->tag == TYPE_STRUCT || cur->tag == TYPE_UNION) {
@@ -938,6 +947,22 @@ static inline size_t zc_measure_fam_init_bytes(ZeroCCCompiler *c, const ZeroCCTy
  * 6.7.2.1p3) may write past the struct's fixed size (0 when the object has
  * no such member or it is not initialized); the object's allocation must
  * already include it. */
+static inline bool zc_probe_cast_amp(ZeroCCCompiler *c) {
+    size_t cast_probe = c->token_pos;
+    while (cast_probe < c->token_count && c->tokens[cast_probe].type == TK_LPAREN &&
+           zero_cc_tok_is_type_start(c, cast_probe + 1)) {
+        size_t tp = cast_probe + 1;
+        (void)zero_cc_parse_type_name_at_pos(c, &tp);
+        while (tp < c->token_count && c->tokens[tp].type == TK_STAR) tp++;
+        if (tp < c->token_count && c->tokens[tp].type == TK_RPAREN) {
+            cast_probe = tp + 1;
+        } else {
+            break;
+        }
+    }
+    return (cast_probe < c->token_count && c->tokens[cast_probe].type == TK_AMP);
+}
+
 static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                                                   uint8_t *buf, size_t buf_off, size_t buf_cap,
                                                   size_t data_patch_off, size_t *cursor,
@@ -1128,40 +1153,47 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 *cursor += tgt.advance;
             }
         }
-        } else if (c->token_pos + 1 < c->token_count &&
-                   c->tokens[c->token_pos].type == TK_AMP &&
-                   c->tokens[c->token_pos + 1].type == TK_IDENT) {
-            /* Address of a global as a member initializer (`struct T g =
-             * { &var };`, c-torture execute/20071120-1): emit a kind-1
-             * data reloc against the referenced global's storage base
-             * (optional [N] element addend). */
-            size_t ap = c->token_pos + 1; /* at the ident */
-            char refn[128];
-            snprintf(refn, sizeof(refn), "%s", c->tokens[ap].str_val);
-            ZeroCCGlobalVar *rgv = find_global_var(refn);
-            ap++; /* past the ident */
-            size_t addoff = 0;
-            if (rgv && ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
-                ZeroCCType rtt = rgv->type;
-                int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
-                    (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 8);
-                ap++; /* past '[' */
-                if (ap < c->token_count && c->tokens[ap].type == TK_NUM) {
-                    addoff = (size_t)(c->tokens[ap].num_val * (resz > 0 ? resz : 8));
+        } else if (c->tokens[c->token_pos].type == TK_AMP ||
+                   (c->tokens[c->token_pos].type == TK_LPAREN && zc_probe_cast_amp(c))) {
+            while (c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+                (void)zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            }
+            size_t ap = c->token_pos + 1; /* past '&' */
+            int pdepth = 0;
+            while (ap < c->token_count && c->tokens[ap].type == TK_LPAREN) {
+                pdepth++;
+                ap++;
+            }
+            if (ap < c->token_count && c->tokens[ap].type == TK_STRING) {
+                const char *sv = c->tokens[ap].allocated_str ?
+                    c->tokens[ap].allocated_str : c->tokens[ap].str_val;
+                size_t ro_off = c->rodata_section.length;
+                zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(&c->tokens[ap]) + 1);
+                ap++;
+                size_t addoff = 0;
+                if (ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
+                    ap++;
+                    c->token_pos = ap;
+                    int64_t n = zero_cc_eval_const_expr(c);
+                    ap = c->token_pos;
+                    if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
+                    if (n > 0) addoff = (size_t)n;
+                }
+                while (pdepth > 0 && ap < c->token_count && c->tokens[ap].type == TK_RPAREN) {
+                    pdepth--;
                     ap++;
                 }
-                if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
-            }
-            if (rgv) {
                 c->token_pos = ap;
                 if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                     ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                     dr->data_patch_offset = data_patch_off + tgt.abs_off;
-                    dr->target_kind = 1; /* .data global target */
-                    dr->rodata_offset = 0;
-                    dr->target_data_offset = (addoff > 0)
-                        ? rgv->data_offset + addoff : (size_t)-1; /* global base */
-                    dr->target_global_idx = (int)(rgv - global_vars);
+                    dr->target_kind = 0; /* .rodata target */
+                    dr->rodata_offset = ro_off;
+                    dr->target_data_offset = addoff;
+                    dr->target_global_idx = -1;
                 }
                 if (cursor) {
                     if (has_desig) {
@@ -1169,19 +1201,62 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                         if (nc > *cursor) *cursor = nc;
                     } else {
                         *cursor += tgt.advance;
+                    }
+                }
+            } else if (ap < c->token_count && c->tokens[ap].type == TK_IDENT) {
+                char refn[128];
+                snprintf(refn, sizeof(refn), "%s", c->tokens[ap].str_val);
+                ZeroCCGlobalVar *rgv = find_global_var(refn);
+                ap++; /* past the ident */
+                size_t addoff = 0;
+                if (rgv && ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
+                    ZeroCCType rtt = rgv->type;
+                    int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
+                        (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 8);
+                    ap++; /* past '[' */
+                    c->token_pos = ap;
+                    int64_t n = zero_cc_eval_const_expr(c);
+                    ap = c->token_pos;
+                    if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
+                    addoff = (size_t)(n * (resz > 0 ? resz : 8));
+                }
+                while (pdepth > 0 && ap < c->token_count && c->tokens[ap].type == TK_RPAREN) {
+                    pdepth--;
+                    ap++;
+                }
+                if (rgv) {
+                    c->token_pos = ap;
+                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                        dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                        dr->target_kind = 1; /* .data global target */
+                        dr->rodata_offset = 0;
+                        dr->target_data_offset = (addoff > 0)
+                            ? rgv->data_offset + addoff : (size_t)-1; /* global base */
+                        dr->target_global_idx = (int)(rgv - global_vars);
+                    }
+                    if (cursor) {
+                        if (has_desig) {
+                            size_t nc = tgt.leaf_idx + 1;
+                            if (nc > *cursor) *cursor = nc;
+                        } else {
+                            *cursor += tgt.advance;
+                        }
+                    }
+                } else {
+                    /* Not a known global: skip & ident (zero-fill, no reloc). */
+                    c->token_pos = ap;
+                    if (cursor) {
+                        if (has_desig) {
+                            size_t nc = tgt.leaf_idx + 1;
+                            if (nc > *cursor) *cursor = nc;
+                        } else {
+                            *cursor += tgt.advance;
+                        }
                     }
                 }
             } else {
-                /* Not a known global: skip & ident (zero-fill, no reloc). */
                 c->token_pos = ap;
-                if (cursor) {
-                    if (has_desig) {
-                        size_t nc = tgt.leaf_idx + 1;
-                        if (nc > *cursor) *cursor = nc;
-                    } else {
-                        *cursor += tgt.advance;
-                    }
-                }
             }
         } else if (c->token_pos < c->token_count &&
                    c->tokens[c->token_pos].type == TK_IDENT &&

@@ -60,6 +60,17 @@ static bool expr_is_lvalue(SemContext *ctx, const ZeroCCASTNode *node) {
                 return true;
             }
             return false;
+        case NODE_CALL: {
+            /* GNU part-extractor lvalues: `__real(e)` / `__imag(e)` where e is an lvalue */
+            const ZeroCCASTNode *callee = expr_get_node(ctx, node->left);
+            if (callee && callee->tag == NODE_IDENT && callee->s.str &&
+                (strcmp(callee->s.str, "__real") == 0 || strcmp(callee->s.str, "__real__") == 0 ||
+                 strcmp(callee->s.str, "__imag") == 0 || strcmp(callee->s.str, "__imag__") == 0)) {
+                const ZeroCCASTNode *arg = expr_get_node(ctx, node->right);
+                return expr_is_lvalue(ctx, arg);
+            }
+            return false;
+        }
         default:
             (void)ctx;
             return false;
@@ -253,8 +264,8 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case '!':
         case TK_BANG: {
-            /* Logical NOT: operand must be scalar (arithmetic or pointer) */
-            if (!type_is_arithmetic(op_type) && !type_is_pointer(op_type)) {
+            /* Logical NOT: operand must be scalar (arithmetic, pointer, or complex) */
+            if (!type_is_scalar(op_type)) {
                 expr_error(ctx, node, "logical NOT requires scalar operand");
                 return NULL;
             }
@@ -805,7 +816,7 @@ TypeInfo *expr_handle_ternary(SemContext *ctx, ZeroCCASTNode *node) {
         return NULL;
     }
 
-    if (!type_is_arithmetic(cond_t) && !type_is_pointer(cond_t)) {
+    if (!type_is_scalar(cond_t)) {
         expr_error(ctx, node, "conditional expression condition must be scalar");
         return NULL;
     }

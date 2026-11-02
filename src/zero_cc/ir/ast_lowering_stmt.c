@@ -1112,7 +1112,37 @@ void emit_return_jumps(ZeroCCCompiler *c) {
 }
 
 static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef expr_ref) {
+    TypeInfo *cond_ti = (expr_ref != AST_NULL) ? ast_node_get_typeinfo(c, zero_cc_ast_get(arena, expr_ref)) : NULL;
     int cond_temp = lower_expr(c, arena, expr_ref);
+    if (cond_ti && cond_ti->kind == TYPE_KIND_COMPLEX) {
+        size_t esz = (cond_ti->details.array.base) ? type_size(cond_ti->details.array.base) : 8;
+        if (esz != 4 && esz != 8) esz = 8;
+        int rh = c->next_temp_id++;
+        int li = c->next_temp_id++;
+        if (esz == 4) {
+            ir_emit_vloadss(rh, (uint16_t)cond_temp);
+            int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 4);
+            int a2 = c->next_temp_id++; ir_emit_add(a2, cond_temp, o2);
+            ir_emit_vloadss(li, (uint16_t)a2);
+        } else {
+            ir_emit_vloadsd(rh, (uint16_t)cond_temp);
+            int o2 = c->next_temp_id++; ir_emit_mov_imm(o2, 8);
+            int a2 = c->next_temp_id++; ir_emit_add(a2, cond_temp, o2);
+            ir_emit_vloadsd(li, (uint16_t)a2);
+        }
+        int zf = c->next_temp_id++;
+        ir_emit_fmov_imm((uint16_t)zf, (int64_t)zc_rodata_double_offset(c, 0.0));
+        int cr = c->next_temp_id++;
+        ir_emit_cmp(rh, zf);
+        ir_emit_cond_set(cr, CC_NE);
+        int ci = c->next_temp_id++;
+        ir_emit_cmp(li, zf);
+        ir_emit_cond_set(ci, CC_NE);
+        int res = c->next_temp_id++;
+        ir_emit_or(res, cr, ci);
+        c->last_expr_is_float = 0;
+        return res;
+    }
     if (c->last_expr_is_float) {
         int zero_i = c->next_temp_id++;
         ir_emit_mov_imm(zero_i, 0);
