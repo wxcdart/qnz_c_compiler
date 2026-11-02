@@ -2741,6 +2741,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                  * (GCC extension: default alignment, 16 bytes). */
                                 for (const char *q = it; q < it + il; ) {
                                     while (q < it + il && (*q == ' ' || *q == '\t' || *q == ',')) q++;
+                                    if (q >= it + il) break;
                                     const char *start = q;
                                     while (q < it + il && (isalnum((unsigned char)*q) || *q == '_')) q++;
                                     size_t len = (size_t)(q - start);
@@ -2755,6 +2756,7 @@ static inline void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char 
                                             break;
                                         }
                                     }
+                                    if (q == start) q++;
                                 }
                             }
                             if (!ex) continue;

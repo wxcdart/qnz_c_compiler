@@ -1,5 +1,30 @@
 # ZeroCC Changelog
 
+## [Sprint 77] - 2026-11-01 - Fix Preprocessor Attribute Infinite Loop & Compound Literal Brace Init Regressions: PASS 2,993 → 3,039, REJECT 15 → 13, TIMEOUT 73 → 18, MISCOMPILE 0
+
+Investigated and resolved compiler regressions uncovered during baseline inspection, restoring 43 spuriously hanging tests and 2 compound literal rejects, and setting a new all-time conformance record with zero miscompiles.
+
+- **Preprocessor Attribute Infinite Loop Fix** (`core/preprocessor.h`):
+  - In `zero_cc_cpp_process_text`, the bare `aligned` attribute scanning loop added in Sprint 75 did not advance the pointer when encounter punctuation/parentheses in non-matching attributes (e.g., `__attribute__((__mode__(__SI__)))`, `alias`, `warn_unused_result`, `weak`).
+  - Added boundary check `if (q >= it + il) break;` and advancement `if (q == start) q++;` to ensure continuous progress.
+  - Restored 43 tests that hung during compilation (e.g., `compile/20010313-1.c`, `execute/simd-1.c`, `compile/simd-1.c`, `va-arg-21.c`) and 12 `SKIP-C89` tests from `TIMEOUT` back to fast `PASS`.
+- **Compound Literal Address in Global Brace Initializers** (`parser/init_common.h`):
+  - The Sprint 75 cast/address branch in `zero_cc_emit_brace_init_global` eagerly matched `TK_AMP` without checking whether the operand was a compound literal (`zc_probe_clit_init`), causing `&((struct S){...}).s` and `&(struct B){...}` to skip into the scalar address fallback and fail with `unexpected token in brace initializer`.
+  - Guarded the `TK_AMP` branch with `!zc_probe_clit_init(c, c->token_pos, NULL, NULL)`, allowing address-of compound literals to cleanly fall through to `zc_probe_clit_init`.
+  - Restored `compile/pr64067.c` and `execute/20050929-1.c` from `REJECT` back to `PASS`.
+- **Zero-Length Array Dimension Support** (`parser/definitions.h`):
+  - In `zero_cc_parse_struct_body`, struct member dimension parsing previously checked `if (cd > 0) dim = (size_t)cd;`. For GNU zero-length arrays (`[0]`), `cd == 0` left `dim = 1`, incorrectly allocating member storage and inflating struct sizes.
+  - Changed condition to `if (cd >= 0) { dim = (size_t)cd; if (cd == 0) is_flexible = true; }`.
+  - Fixes `execute/zerolen-2.c` in both AOT and JIT.
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 30/30 passed.
+  - `make test-opt`: 117/117 passed, 0 failed, 0 regressions across -O0/-O1/-O2/-O3 in both JIT and AOT.
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/style_check.py`: 0 errors.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `make test-torture`: **PASS 3,039** (all-time high, +46 vs Sprint 75), **REJECT 13** (down from 15), **TIMEOUT 18** (down from 73), **MISCOMPILE 0** (strictly preserved).
+
 ## [Sprint 76] - 2026-11-01 - Monolithic ast_lowering Modularization: Split into 5 Dedicated Translation Units
 
 Split the monolithic 9,330-line `src/zero_cc/ir/ast_lowering_expr.c` and 3,086-line `src/zero_cc/ir/ast_lowering_call.c` into clean, modular translation units while maintaining green gates across all test suites, optimizer sweeps, and verifiers.

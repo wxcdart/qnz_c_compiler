@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T03:58:06Z
+timestamp: 2026-11-02T04:37:38Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -683,3 +683,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `architecture-pipeline.md`
 - Split GCC/Clang builtins, intrinsics, and atomics out of ast_lowering_call.c into ast_lowering_builtins.c
+
+## 2026-11-02 — Updated `c-torture-gate.md`
+- Sprint 77: Fix attribute infinite loop and compound literal brace init regressions; PASS 2,993 -> 3,039, REJECT 15 -> 13, TIMEOUT 73 -> 18, MISCOMPILE 0

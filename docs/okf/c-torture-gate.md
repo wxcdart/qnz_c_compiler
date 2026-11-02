@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-02T01:08:46Z
+timestamp: 2026-11-02T04:37:38Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 75)
+## 2. Classification Buckets & Baseline (Sprint 77)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,993** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` |
-| **`REJECT`** | **15** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) — down to 15 tests, all architectural limits (16-bit temp-id limit, stress tests, VLA goto crossings, GNU `__builtin_va_arg_pack`) |
-| **`SKIP-C89`** | **518** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`PASS`** | **3,039** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+46 vs Sprint 75) |
+| **`REJECT`** | **13** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) — down to 13 tests, all architectural limits (16-bit temp-id limit, stress tests, VLA goto crossings, GNU `__builtin_va_arg_pack`) |
+| **`SKIP-C89`** | **529** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
 | **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `unwrapped`: 2, `arm`: 1) |
-| **`TIMEOUT`** | **73** | Compile/run beyond the 5 s budget — load-sensitive on the shared box during parallel runs |
+| **`TIMEOUT`** | **18** | Compile/run beyond the 5 s budget — down from 73 after fixing preprocessor attribute infinite loops |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |

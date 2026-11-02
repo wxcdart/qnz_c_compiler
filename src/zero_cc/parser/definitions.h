@@ -434,7 +434,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     dim = 0;
                 } else {
                     int64_t cd = zero_cc_eval_const_expr(c);
-                    if (cd > 0) dim = (size_t)cd;
+                    if (cd >= 0) { dim = (size_t)cd; if (cd == 0) is_flexible = true; }
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -1014,7 +1014,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     dim = 0;
                 } else {
                     int64_t cd = zero_cc_eval_const_expr(c);
-                    if (cd > 0) dim = (size_t)cd;
+                    if (cd >= 0) { dim = (size_t)cd; if (cd == 0) is_flexible = true; }
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -1381,7 +1381,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         dim = 0;
                     } else {
                         int64_t cd = zero_cc_eval_const_expr(c);
-                        if (cd > 0) dim = (size_t)cd;
+                        if (cd >= 0) { dim = (size_t)cd; if (cd == 0) c_is_flexible = true; }
                     }
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                     if (c_is_flexible) break;

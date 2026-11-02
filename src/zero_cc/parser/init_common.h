@@ -1153,8 +1153,9 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 *cursor += tgt.advance;
             }
         }
-        } else if (c->tokens[c->token_pos].type == TK_AMP ||
-                   (c->tokens[c->token_pos].type == TK_LPAREN && zc_probe_cast_amp(c))) {
+        } else if ((c->tokens[c->token_pos].type == TK_AMP ||
+                   (c->tokens[c->token_pos].type == TK_LPAREN && zc_probe_cast_amp(c))) &&
+                   !zc_probe_clit_init(c, c->token_pos, NULL, NULL)) {
             while (c->tokens[c->token_pos].type == TK_LPAREN) {
                 c->token_pos++;
                 (void)zero_cc_parse_type_name_at_pos(c, &c->token_pos);
