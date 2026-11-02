@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-01T19:11:42Z
+timestamp: 2026-11-02T00:04:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -662,3 +662,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-01 — Updated `ir-and-regalloc.md`
 - Sprint 72: static-local address-of routes to data-section __sl_N (pre-scan static_addr_taken), not the dead per-call stack mirror
+
+## 2026-11-02 — Updated `c-torture-gate.md`
+- Sprint 73: baseline PASS 2996 / REJECT 38, MISCOMPILE 0 (nested-subscript lexer, const declarators, pointer/null comparison, member pointer-arrays & multi-level pointers, dot-on-array, sizeof extern-object subscript, convertvector).
+
+## 2026-11-02 — Updated `frontend-and-types.md`
+- Sprint 73: const-qualified scalar typedefs & const funcptr params, pointer vs null-pointer-constant comparison, [[/]] not two-char tokens, sizeof of extern-object subscript, struct/union member pointer-arrays & multi-level pointers, dot-on-array member access.
