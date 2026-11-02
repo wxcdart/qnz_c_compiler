@@ -57,7 +57,6 @@ static const KeywordEntry keyword_table[] = {
     /* C23 keywords */
     {"alignas",        TK_ALIGNAS},
     {"alignof",        TK_ALIGNOF},
-    {"bool",           TK_BOOL_KW},
     {"constexpr",      TK_CONSTEXPR},
     {"nullptr",        TK_NULLPTR},
     {"static_assert",  TK_STATIC_ASSERT},

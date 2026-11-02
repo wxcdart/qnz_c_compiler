@@ -342,6 +342,9 @@ static bool zero_cc_ast_assigns_to_param_impl(ZeroCCASTArena *arena, ASTRef ref,
     if (!n) return false;
     if ((n->tag == NODE_ASSIGN || (n->tag == NODE_UNOP && (n->aux.op == TK_INC || n->aux.op == TK_DEC))) && n->left != AST_NULL) {
         ZeroCCASTNode *lhs = zero_cc_ast_get(arena, n->left);
+        while (lhs && lhs->tag == NODE_MEMBER) {
+            lhs = zero_cc_ast_get(arena, lhs->left);
+        }
         if (lhs && lhs->tag == NODE_IDENT && lhs->s.str) {
             for (size_t p = 0; p < param_count; p++) {
                 if (param_names[p] && strcmp(lhs->s.str, param_names[p]) == 0) return true;

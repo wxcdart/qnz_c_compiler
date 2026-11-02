@@ -616,6 +616,22 @@ static int zc_ovf_not1(ZeroCCCompiler *c, int a) {
     return t;
 }
 
+static inline bool zc_is_array_base(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *innermost, ZeroCCASTNode *base_node) {
+    if (!innermost || !(innermost->flags & NODE_MEMBER_IS_ARROW)) return false;
+    ZeroCCASTNode *bl = zero_cc_ast_get(arena, innermost->left);
+    if (bl) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, bl);
+        if (ti && ti->kind == TYPE_KIND_ARRAY) return true;
+    }
+    if (base_node && base_node->tag == NODE_IDENT) {
+        ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
+        if (sym && !sym->is_extern && sym->type.tag == TYPE_ARRAY) return true;
+        ZeroCCGlobalVar *gv = find_global_var(base_node->s.str);
+        if (gv && gv->type.tag == TYPE_ARRAY) return true;
+    }
+    return false;
+}
+
 /* Compute the address of the final member of a multi-segment member
  * chain (o.p->v, a.b.c, p->a->b, ...) - C5. The flat "sum all offsets"
  * model cannot dereference intermediate pointer members, so the segments
@@ -681,7 +697,8 @@ static int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
         ZeroCCASTNode *m = stack[i];
         int32_t off = (int32_t)m->aux.alt;
         bool skip_load = (generic_base && i == n - 1);
-        if ((m->flags & NODE_MEMBER_IS_ARROW) && !skip_load) {
+        bool is_arr_base = (i == n - 1) && zc_is_array_base(c, arena, m, base_node);
+        if ((m->flags & NODE_MEMBER_IS_ARROW) && !skip_load && !is_arr_base) {
             int ptr = c->next_temp_id++;
             ir_emit_deref(ptr, addr);
             addr = ptr;
@@ -753,6 +770,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             if (ch != TEMP_NONE) return ch;
         }
         bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
+        if (base_is_ptr && zc_is_array_base(c, arena, innermost, base_node)) base_is_ptr = false;
         if (!base_is_ptr && base_node && base_node->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
             if (sym && !sym->is_extern) {
@@ -4656,6 +4674,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 /* The member node directly above the base decides whether the
                  * base is a pointer (->) or a struct object (.). */
                 bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
+                if (base_is_ptr && zc_is_array_base(c, arena, innermost, base_node)) base_is_ptr = false;
                 int32_t base_stack_offset = 0;
 
                 /* Multi-segment chains (o.p->v = x): compute the address
@@ -6416,6 +6435,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             /* The member node directly above the base decides whether the
              * base is a pointer (->) or a struct object (.). */
             bool base_is_ptr = (innermost && (innermost->flags & NODE_MEMBER_IS_ARROW)) != 0;
+            if (base_is_ptr && zc_is_array_base(c, arena, innermost, base_node)) base_is_ptr = false;
             TypeInfo *member_ti = ast_node_get_typeinfo(c, node);
             /* C99 6.7.2.3: a complex member is an address-form value, just
              * like a complex local - consumers (__real__/__imag__, complex

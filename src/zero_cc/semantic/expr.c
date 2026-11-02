@@ -619,11 +619,15 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
     /* If arrow -> target must be pointer to struct/union */
     TypeInfo *struct_t = NULL;
     if (is_arrow) {
-        if (!type_is_pointer(target_t) || !target_t->details.pointer.base) {
+        if (target_t->kind == TYPE_KIND_ARRAY && target_t->details.array.base) {
+            /* Array decay (C99 6.5.2.1): `d->x` on array `d` decays to `(&d[0])->x` */
+            struct_t = target_t->details.array.base;
+        } else if (!type_is_pointer(target_t) || !target_t->details.pointer.base) {
             expr_error(ctx, node, "member reference type is not a pointer");
             return NULL;
+        } else {
+            struct_t = target_t->details.pointer.base;
         }
-        struct_t = target_t->details.pointer.base;
     } else {
         struct_t = target_t;
         /* Array decay (C99 6.5.2.3): `d.x` where d is `struct B[N]` is the

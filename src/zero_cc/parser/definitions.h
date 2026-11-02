@@ -152,6 +152,46 @@ static inline void zero_cc_member_make_ptr_array(ZeroCCStructMember *m) {
     m->base = zero_cc_type_alloc_base(&pt);
 }
 
+static inline void zero_cc_setup_bitfield_type(ZeroCCCompiler *c, ZeroCCStructMember *m,
+                                               ZeroCCTokType mt, const char *type_ident, bool is_unsigned) {
+    if (mt == TK_CHAR || mt == TK_BOOL_KW) {
+        m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+        m->is_signed = !is_unsigned;
+    } else if (mt == TK_SHORT) {
+        m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
+        m->is_signed = !is_unsigned;
+    } else if (mt == TK_INT) {
+        m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+        m->is_signed = !is_unsigned;
+    } else if (mt == TK_LONG || mt == TK_VOID) {
+        m->tag = is_unsigned ? TYPE_UINT64 : TYPE_INT64;
+        m->is_signed = !is_unsigned;
+    } else if (mt == TK_IDENT) {
+        ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
+        if (!td) td = zero_cc_find_enum(c, type_ident);
+        if (td && td->tag == TYPE_BOOL) {
+            m->tag = TYPE_BOOL;
+            m->is_signed = false;
+        } else if ((td && td->tag == TYPE_ENUM) || zero_cc_find_enum(c, type_ident)) {
+            m->tag = TYPE_UINT32;
+            m->is_signed = false;
+        } else if (td && (td->tag == TYPE_UINT8 || td->tag == TYPE_UINT16 ||
+                          td->tag == TYPE_UINT32 || td->tag == TYPE_UINT64)) {
+            m->tag = td->tag;
+            m->is_signed = false;
+        } else if (td) {
+            m->tag = td->tag;
+            m->is_signed = !is_unsigned;
+        } else {
+            m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+            m->is_signed = !is_unsigned;
+        }
+    } else {
+        m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+        m->is_signed = !is_unsigned;
+    }
+}
+
 static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     ZeroCCType st; memset(&st, 0, sizeof(st));
     st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
@@ -444,9 +484,16 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_bitfield = is_bitfield;
                     m->bit_offset = 0;
                     m->bit_width = is_bitfield ? bit_width : (uint8_t)(base_size * 8);
-                    m->is_signed = true;
+                    bool t_signed = !is_enum && (inner_type.tag != TYPE_BOOL && inner_type.tag != TYPE_UINT8 &&
+                                                 inner_type.tag != TYPE_UINT16 && inner_type.tag != TYPE_UINT32 &&
+                                                 inner_type.tag != TYPE_UINT64);
+                    m->is_signed = t_signed;
                     m->is_func_ptr = dcl_is_fnptr;
-                    m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
+                    if (is_bitfield) {
+                        m->tag = (inner_type.tag == TYPE_BOOL) ? TYPE_BOOL : (t_signed ? TYPE_INT32 : TYPE_UINT32);
+                    } else {
+                        m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
+                    }
                     /* A leading qualifier on a struct/union/enum member
                      * attaches to the BASE type (C99 6.7.3): `const struct S *p`
                      * is a pointer to const S, so the pointee must carry it
@@ -521,8 +568,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_bitfield = true;
                         m->bit_offset = m_bit_off;
                         m->bit_width = bit_width;
-                        m->is_signed = true;
-                        m->tag = TYPE_INT32;
+                        bool t_signed = !is_enum && (inner_type.tag != TYPE_BOOL && inner_type.tag != TYPE_UINT8 &&
+                                                     inner_type.tag != TYPE_UINT16 && inner_type.tag != TYPE_UINT32 &&
+                                                     inner_type.tag != TYPE_UINT64);
+                        m->is_signed = t_signed;
+                        m->tag = (inner_type.tag == TYPE_BOOL) ? TYPE_BOOL : (t_signed ? TYPE_INT32 : TYPE_UINT32);
                     }
                 } else {
                     if (in_bitfield) {
@@ -543,8 +593,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_bitfield = true;
                         m->bit_offset = 0;
                         m->bit_width = bit_width;
-                        m->is_signed = true;
-                        m->tag = TYPE_INT32;
+                        bool t_signed = !is_enum && (inner_type.tag != TYPE_BOOL && inner_type.tag != TYPE_UINT8 &&
+                                                     inner_type.tag != TYPE_UINT16 && inner_type.tag != TYPE_UINT32 &&
+                                                     inner_type.tag != TYPE_UINT64);
+                        m->is_signed = t_signed;
+                        m->tag = (inner_type.tag == TYPE_BOOL) ? TYPE_BOOL : (t_signed ? TYPE_INT32 : TYPE_UINT32);
                     }
                 }
             } else {
@@ -1003,7 +1056,9 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                     m->is_atomic = member_is_atomic;
                     m->is_complex = member_cx_scalar;
                     m->is_func_ptr = member_is_func_ptr;
-                    if (is_typeof) {
+                    if (is_bitfield) {
+                        zero_cc_setup_bitfield_type(c, m, mt, type_ident, is_unsigned);
+                    } else if (is_typeof) {
                         m->tag = typeof_type.tag;
                         if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
                     }
@@ -1116,16 +1171,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                                 m->is_atomic = member_is_atomic;
                                 if (is_typeof) {
-                        m->tag = typeof_type.tag;
-                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
-                    }
-                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
-                                else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
-                                else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
-                                else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
-                                else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
-                                else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
-                                else m->tag = TYPE_INT32;
+                                    m->tag = typeof_type.tag;
+                                    if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                                } else {
+                                    zero_cc_setup_bitfield_type(c, m, mt, type_ident, is_unsigned);
+                                }
                             }
                         } else {
                             /* Allocate new storage unit */
@@ -1152,16 +1202,11 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                                 m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
                                 m->is_atomic = member_is_atomic;
                                 if (is_typeof) {
-                        m->tag = typeof_type.tag;
-                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
-                    }
-                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
-                                else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
-                                else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
-                                else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
-                                else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
-                                else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
-                                else m->tag = TYPE_INT32;
+                                    m->tag = typeof_type.tag;
+                                    if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                                } else {
+                                    zero_cc_setup_bitfield_type(c, m, mt, type_ident, is_unsigned);
+                                }
                             }
                         }
                     }
@@ -1189,10 +1234,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_complex = member_cx_scalar;
                         m->is_func_ptr = member_is_func_ptr;
                         if (is_typeof) {
-                        m->tag = typeof_type.tag;
-                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
-                    }
-                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                            m->tag = typeof_type.tag;
+                            if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                        }
+                        else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1379,10 +1424,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_complex = member_cx_scalar;
                         m->is_func_ptr = member_is_func_ptr;
                         if (is_typeof) {
-                        m->tag = typeof_type.tag;
-                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
-                    }
-                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                            m->tag = typeof_type.tag;
+                            if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                        }
+                        else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1498,8 +1543,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->is_bitfield = true;
                             m->bit_offset = m_bit_off;
                             m->bit_width = c_bit_width;
-                            m->is_signed = !is_unsigned;
-                            m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+                            zero_cc_setup_bitfield_type(c, m, mt, type_ident, is_unsigned);
                         }
                     } else {
                         if (in_bitfield) {
@@ -1520,8 +1564,7 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->is_bitfield = true;
                             m->bit_offset = 0;
                             m->bit_width = c_bit_width;
-                            m->is_signed = !is_unsigned;
-                            m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
+                            zero_cc_setup_bitfield_type(c, m, mt, type_ident, is_unsigned);
                         }
                     }
                 } else {
@@ -1547,10 +1590,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                         m->is_complex = member_cx_scalar;
                         m->is_func_ptr = member_is_func_ptr;
                         if (is_typeof) {
-                        m->tag = typeof_type.tag;
-                        if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
-                    }
-                    else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
+                            m->tag = typeof_type.tag;
+                            if (typeof_type.base) m->base = zero_cc_type_alloc_base(typeof_type.base);
+                        }
+                        else if (mt == TK_CHAR || mt == TK_BOOL_KW) m->tag = is_unsigned ? TYPE_UINT8 : TYPE_INT8;
                         else if (mt == TK_SHORT) m->tag = is_unsigned ? TYPE_UINT16 : TYPE_INT16;
                         else if (mt == TK_FLOAT_KW) m->tag = TYPE_FLOAT;
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1975,13 +2018,13 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                                 size_t fam_extra = (vdim_count == 0 && vptr_depth == 0) ?
                                     zc_measure_fam_init_bytes(c, &vt) : 0;
                                 if (fam_extra > 0) vsize += fam_extra;
+                                for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
                                 uint8_t *vbuf = calloc(vsize > 0 ? vsize : 1, 1);
                                 if (vbuf) {
                                     size_t top_cursor = 0;
                                     zero_cc_emit_brace_init_global(c, vreg_type, vbuf, 0, vsize, var_offset, &top_cursor, fam_extra);
-                                    zero_cc_buf_put_bytes(&c->data_section, vbuf, vsize);
+                                    memcpy((uint8_t *)c->data_section.data + var_offset, vbuf, vsize);
                                 } else {
-                                    for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
                                     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) c->token_pos++;
                                     if (c->token_pos < c->token_count) c->token_pos++;
                                 }

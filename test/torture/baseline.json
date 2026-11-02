@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-02T00:01:45Z",
+ "generated": "2026-11-02T01:02:05Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -961,7 +961,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: expected ';' after return statement [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": "                                                   ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/20011218-1.c": {
    "class": "PASS",
@@ -3761,12 +3761,12 @@
    "note": ""
   },
   "compile/920428-2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "TIMEOUT",
+    "O2-aot": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:label_values",
@@ -4286,12 +4286,12 @@
    "note": ""
   },
   "compile/920928-4.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                              ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920928-5.c": {
    "class": "PASS",
@@ -7134,12 +7134,12 @@
    "note": ""
   },
   "compile/init-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/init-2.c": {
    "class": "SKIP-C89",
@@ -13004,12 +13004,12 @@
    "note": ""
   },
   "compile/pr64067.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                      ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr64269.c": {
    "class": "PASS",
@@ -14930,12 +14930,12 @@
    "note": ""
   },
   "compile/simd-6.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: unexpected token in brace initializer | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/simple.c": {
    "class": "SKIP-C89",
@@ -16629,18 +16629,18 @@
    "note": ""
   },
   "execute/20000914-1.c": {
-   "class": "SKIP-C89",
+   "class": "TIMEOUT",
    "configs": {
-    "O0-aot": "REJECT",
+    "O0-aot": "TIMEOUT",
     "O0-jit": "TIMEOUT",
-    "O1-aot": "REJECT",
+    "O1-aot": "TIMEOUT",
     "O1-jit": "TIMEOUT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -17176,18 +17176,18 @@
    "note": ""
   },
   "execute/20010409-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20010422-1.c": {
    "class": "PASS",
@@ -18973,18 +18973,18 @@
    "note": ""
   },
   "execute/20030714-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030715-1.c": {
    "class": "PASS",
@@ -20430,18 +20430,18 @@
    "note": ""
   },
   "execute/20050929-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                ^; Compile error: unexpected token in brace initializer [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20051012-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -22116,18 +22116,18 @@
    "note": ""
   },
   "execute/20190820-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                       ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20190901-1.c": {
    "class": "PASS",
@@ -22784,7 +22784,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "        ^; Compile error: member reference type is not a pointer | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "        ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920909-1.c": {
    "class": "SKIP-C89",
@@ -40787,11 +40787,11 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2996,
+  "PASS": 3003,
   "REF-BUG": 3,
-  "REJECT": 38,
+  "REJECT": 31,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 550,
+  "SKIP-C89": 548,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 5,
   "SKIP-TARGET:arm": 1,
@@ -40804,6 +40804,6 @@
   "SKIP-TARGET:trampolines": 16,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
-  "TIMEOUT": 16
+  "TIMEOUT": 18
  }
 }

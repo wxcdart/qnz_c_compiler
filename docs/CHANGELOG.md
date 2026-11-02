@@ -1,5 +1,26 @@
 # ZeroCC Changelog
 
+## [Sprint 74] - 2026-11-01 - Packed-Struct Inlining Safety, Arrow-on-Array Lowering, Offsetof & Global Compound Literals: PASS 2,995 → 3,003, REJECT 38 → 31, MISCOMPILE 0
+
+Three high-impact targets from the c-torture REJECT burn-down, addressing frontend/semantic/IR gaps:
+
+- **Packed struct-with-bitfields by-value inliner safety** (`jit/compile.h`, `parser/parser.c`, `parser/definitions.h`, `lexer/keywords.inc`):
+  - Inliner guard: functions accepting or returning aggregates (struct/union/complex/vector) are disallowed from small-function inlining (`can_inline = false` in `jit/compile.h`). The inliner operates by virtual register substitution without stack frame slots; member writes directly corrupted or read caller registers.
+  - Parameter assignment detection: `zero_cc_ast_assigns_to_param_impl` in `parser/parser.c` unwraps `NODE_MEMBER` chains (`p.field = x`), correctly marking parameters as modified and preventing inlining.
+  - `bool` keyword removal: `bool` removed from `lexer/keywords.inc` so `typedef _Bool bool;` functions cleanly in C99.
+  - Bitfield signedness/tag setup: added `zero_cc_setup_bitfield_type()` helper in `parser/definitions.h` to ensure enum and `bool` bitfields are treated as unsigned (zero-extended) and tagged properly. Fixes `execute/20030714-1.c` and `execute/20190820-1.c`.
+- **Arrow-on-array semantic decay and IR lowering** (`semantic/expr.c`, `ir/ast_lowering_expr.c`):
+  - In `semantic/expr.c`, admitted array bases for `->` member access (decaying to pointer to first element per C99 6.5.2.1/6.5.3.2).
+  - In `ast_lowering_expr.c`, added `zc_is_array_base()` helper; suppressed memory dereference for array bases across member chains, lvalue address calculation, and assignments. Fixes `execute/20010409-1.c`.
+- **Constant evaluation of offsetof and anonymous structs** (`parser/const_eval.h`, `types/symbols.h`, `main.c`):
+  - Added `comp->parse_struct_body` callback to parse anonymous `struct { ... }` / `union { ... }` in constant evaluation type contexts (`sizeof`, casts).
+  - Evaluated `&((Type *)0)->member` offsetof chains in `parse_unary` in `parser/const_eval.h`, computing precise member offsets and handling pointer arithmetic constant differences (`offset - 0 = offset`). Fixes `compile/920928-4.c`.
+- **Compound literals in global and aggregate initializers** (`parser/init_common.h`, `jit/compile_unit.h`, `parser/definitions.h`):
+  - Added `zc_probe_clit_init` probe and handler in `zero_cc_emit_brace_init_global` to recognize `(Type){ ... }`, `&(Type){ ... }`, and `(cast)&(Type){ ... }` inside aggregate initializers.
+  - Allocated static global storage (`__clit_anon_g_N`) in `.data` with proper alignment, recursively evaluated initializers, and emitted kind-1 data relocations with member/index addends.
+  - Storage reservation invariant: reserved variable and compound literal storage upfront in `.data` before recursive brace initialization, ensuring nested compound literals allocate disjoint offsets without corrupting enclosing object placement. Fixes `compile/init-1.c`, `compile/pr64067.c`, `compile/simd-6.c`, and `execute/20050929-1.c`.
+- **Verification**: `make test` 156/156 · `make test-opt` 117 ok · sret verifier 6/6 · style 0 errors · okf lint OK · diag battery OK · c-torture gate OK: **PASS 3,003, REJECT 31, MISCOMPILE 0**.
+
 ## [Sprint 73] - 2026-11-01 - Nested-Subscript Lexer, Extern/Const Declarators, Pointer-Array Members & Pointer/Zero Comparisons: PASS 2,970 → 2,995, REJECT 61 → 38, MISCOMPILE 0
 
 Six-part REJECT burn-down. The themes: (1) a lexer maximal-munch regression that corrupted legal nested subscripts, (2) a family of **const-qualified declarator** gaps (typedefs, function-pointer parameters, pointer/null comparisons), (3) **extern-object** type-resolution holes (member assignment, sizeof of a subscript), and (4) **struct/union member** pointer-array and multi-level-pointer types that were being collapsed to a single pointer.

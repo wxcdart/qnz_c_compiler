@@ -541,6 +541,82 @@ static inline int64_t parse_unary(ZeroCCCompiler *c, size_t *pos)
     if (t == TK_ALIGNOF) {
         return eval_alignof(c, pos);
     }
+    if (t == TK_AMP) {
+        size_t save = *pos;
+        (*pos)++; /* consume '&' */
+        /* Check for &((Type *)0)->member offsetof pattern */
+        int open_parens = 0;
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+            if (*pos + 1 < c->token_count && zero_cc_tok_is_type_start(c, *pos + 1)) {
+                break; /* start of type cast */
+            }
+            open_parens++;
+            (*pos)++;
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
+            *pos + 1 < c->token_count && zero_cc_tok_is_type_start(c, *pos + 1)) {
+            (*pos)++; /* consume '(' */
+            ZeroCCType ty = zero_cc_parse_type_name_at_pos(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            int64_t base_val = parse_unary(c, pos);
+            if (open_parens > 0 && *pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) {
+                (*pos)++;
+                open_parens--;
+            }
+            if (ty.tag == TYPE_PTR && ty.base) ty = *ty.base;
+            int64_t total_offset = 0;
+            while (*pos < c->token_count) {
+                if (c->tokens[*pos].type == TK_ARROW || c->tokens[*pos].type == TK_DOT) {
+                    (*pos)++;
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+                        const char *mname = c->tokens[*pos].str_val;
+                        (*pos)++;
+                        bool found = false;
+                        if (ty.tag == TYPE_STRUCT || ty.tag == TYPE_UNION) {
+                            for (size_t m = 0; m < ty.member_count; m++) {
+                                if (strcmp(ty.members[m].name, mname) == 0) {
+                                    total_offset += (int64_t)ty.members[m].offset;
+                                    if (ty.members[m].base && (ty.members[m].tag == TYPE_STRUCT || ty.members[m].tag == TYPE_UNION)) {
+                                        ty = *ty.members[m].base;
+                                    } else if (ty.members[m].base && ty.members[m].tag == TYPE_ARRAY) {
+                                        ty.base = ty.members[m].base;
+                                        ty.tag = TYPE_ARRAY;
+                                        ty.size = ty.members[m].size;
+                                    } else {
+                                        ty.tag = ty.members[m].tag;
+                                        ty.size = ty.members[m].size;
+                                        ty.base = ty.members[m].base;
+                                        ty.member_count = 0;
+                                    }
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!found) break;
+                    } else {
+                        break;
+                    }
+                } else if (c->tokens[*pos].type == TK_LBRACKET) {
+                    (*pos)++;
+                    int64_t idx = parse_equality(c, pos);
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    size_t elem_sz = (ty.base && ty.base->size > 0) ? ty.base->size : (ty.size > 0 ? ty.size : 4);
+                    total_offset += idx * (int64_t)elem_sz;
+                    if (ty.base) ty = *ty.base;
+                } else {
+                    break;
+                }
+            }
+            while (open_parens > 0 && *pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) {
+                (*pos)++;
+                open_parens--;
+            }
+            return base_val + total_offset;
+        }
+        /* Fallback if not an offsetof pattern: restore *pos */
+        *pos = save;
+    }
     return parse_primary(c, pos);
 }
 
@@ -1391,6 +1467,12 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
                 ty = zero_cc_type_int64();
             }
             (*pos)++;
+        } else if (c->tokens[*pos].type == TK_LBRACE && c->parse_struct_body) {
+            size_t save = c->token_pos;
+            c->token_pos = *pos;
+            ty = c->parse_struct_body(c, t == TK_UNION);
+            *pos = c->token_pos;
+            c->token_pos = save;
         } else {
             ty = zero_cc_type_int64();
         }

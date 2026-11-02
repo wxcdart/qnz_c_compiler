@@ -19,6 +19,46 @@
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/const_eval.h"
 #include "zero_cc/semantic/diagnostics.h"
+#include "zero_cc/types/emit_helpers.h"
+
+/* Probe if c->token_pos starts a compound-literal pointer initializer:
+ *   [ (cast) ]* & [ ( ) ]* (Type) { ... } [ .member | [idx] ]*
+ * Returns true if matched. */
+static inline bool zc_probe_clit_init(ZeroCCCompiler *c, size_t pos,
+                                      size_t *out_clit_type_pos,
+                                      size_t *out_brace_pos) {
+    size_t p = pos;
+    while (p < c->token_count) {
+        if (c->tokens[p].type == TK_AMP) {
+            p++;
+            continue;
+        }
+        if (c->tokens[p].type == TK_LPAREN) {
+            if (p + 1 < c->token_count && zero_cc_tok_is_type_start(c, p + 1)) {
+                size_t q = p + 1;
+                size_t type_start = q;
+                (void)zero_cc_parse_type_name_at_pos(c, &q);
+                while (q < c->token_count && c->tokens[q].type == TK_STAR) q++;
+                if (q < c->token_count && c->tokens[q].type == TK_RPAREN) {
+                    if (q + 1 < c->token_count && c->tokens[q + 1].type == TK_LBRACE) {
+                        /* Found (Type) { */
+                        if (out_clit_type_pos) *out_clit_type_pos = type_start;
+                        if (out_brace_pos) *out_brace_pos = q + 1;
+                        return true;
+                    }
+                    /* It was a cast: (type) ... */
+                    p = q + 1;
+                    continue;
+                }
+            }
+            /* Plain '(' wrapper */
+            p++;
+            continue;
+        }
+        break;
+    }
+    return false;
+}
 
 /* Materialize a member's value-target type (for recursion into
  * sub-aggregates).  A struct/union member keeps its full type in m->base;
@@ -909,6 +949,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
         bool is_range = false;
         int64_t desig_lo = 0, desig_hi = 0;
         size_t step = 0;
+        size_t clit_t_pos = 0, clit_b_pos = 0;
         ZcInitTarget tgt;
         memset(&tgt, 0, sizeof(tgt));
         if (!zc_init_parse_designators(c, &c->token_pos, &obj_type, buf_off, &tgt,
@@ -1161,6 +1202,93 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 dr->target_data_offset = 0;
                 dr->target_global_idx = -1;
                 snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fnm);
+            }
+            if (cursor) {
+                if (has_desig) {
+                    size_t nc = tgt.leaf_idx + 1;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
+            }
+        } else if (zc_probe_clit_init(c, c->token_pos, &clit_t_pos, &clit_b_pos)) {
+            /* Compound literal in aggregate initializer (c-torture compile/init-1, compile/pr64067) */
+            size_t tp = clit_t_pos;
+            ZeroCCType clit_type = zero_cc_parse_type_name_at_pos(c, &tp);
+            while (tp < c->token_count && c->tokens[tp].type == TK_STAR) {
+                clit_type = zero_cc_type_ptr(&clit_type);
+                tp++;
+            }
+            static int s_anon_clit_g_id = 0;
+            char anon_name[48];
+            snprintf(anon_name, sizeof(anon_name), "__clit_anon_g_%d", s_anon_clit_g_id++);
+
+            size_t clit_sz = clit_type.size ? clit_type.size : 8;
+            size_t clit_al = clit_type.align ? clit_type.align : 8;
+            size_t clit_pad = (clit_al - (c->data_section.length % clit_al)) % clit_al;
+            for (size_t p = 0; p < clit_pad; p++) zero_cc_emit_u8(&c->data_section, 0);
+            size_t anon_offset = c->data_section.length;
+            for (size_t p = 0; p < clit_sz; p++) zero_cc_emit_u8(&c->data_section, 0);
+
+            c->token_pos = clit_b_pos; /* at '{' */
+            uint8_t *abuf = calloc(clit_sz > 0 ? clit_sz : 1, 1);
+            size_t clit_cursor = 0;
+            zero_cc_emit_brace_init_global(c, clit_type, abuf, 0, clit_sz, anon_offset, &clit_cursor, 0);
+            memcpy((uint8_t *)c->data_section.data + anon_offset, abuf, clit_sz);
+            free(abuf);
+            int anon_idx = add_global_var(anon_name, clit_type, anon_offset, clit_sz, true, true);
+
+            size_t extra_offset = 0;
+            ZeroCCType cur_t = clit_type;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_DOT || c->tokens[c->token_pos].type == TK_ARROW) {
+                    bool is_arrow = (c->tokens[c->token_pos].type == TK_ARROW);
+                    c->token_pos++;
+                    if (is_arrow && cur_t.tag == TYPE_PTR && cur_t.base) cur_t = *cur_t.base;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                        const char *mn = c->tokens[c->token_pos].str_val;
+                        c->token_pos++;
+                        bool mfound = false;
+                        if (cur_t.tag == TYPE_STRUCT || cur_t.tag == TYPE_UNION) {
+                            for (size_t mi = 0; mi < cur_t.member_count; mi++) {
+                                if (strcmp(cur_t.members[mi].name, mn) == 0) {
+                                    extra_offset += cur_t.members[mi].offset;
+                                    if (cur_t.members[mi].base) cur_t = *cur_t.members[mi].base;
+                                    else cur_t.tag = cur_t.members[mi].tag;
+                                    mfound = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!mfound) break;
+                    } else {
+                        break;
+                    }
+                } else if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+                    c->token_pos++;
+                    int64_t idx = zero_cc_eval_const_expr(c);
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
+                    size_t elsz = (cur_t.base && cur_t.base->size > 0) ? cur_t.base->size : 4;
+                    extra_offset += (size_t)idx * elsz;
+                    if (cur_t.base) cur_t = *cur_t.base;
+                } else if (c->tokens[c->token_pos].type == TK_RPAREN) {
+                    c->token_pos++;
+                } else {
+                    break;
+                }
+            }
+
+            for (size_t b = 0; b < 8 && tgt.abs_off + b < buf_cap; b++) {
+                buf[tgt.abs_off + b] = 0;
+            }
+
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                dr->target_kind = 1; /* .data global target */
+                dr->rodata_offset = 0;
+                dr->target_data_offset = anon_offset + extra_offset;
+                dr->target_global_idx = anon_idx;
             }
             if (cursor) {
                 if (has_desig) {

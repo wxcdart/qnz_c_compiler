@@ -961,6 +961,7 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     comp->isa_backend = backend;
     comp->omit_frame_pointer = -1; /* default: auto (omit at -O1+); CLI overrides */
     comp->local_lookup_bound = -1; /* default: unbounded */
+    comp->parse_struct_body = zero_cc_parse_struct_body;
 
     /* Initialize IR arenas */
     if (!ir_arena_init(&comp->ir_arena, 4096)) {

@@ -4,7 +4,7 @@ title: Global Variables, Data Section & Pointer Relocations
 description: File-scope variable initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from string literals), block-scope static locals (unsized arrays, pointer-to-string initializers, per-call stack mirror), the ZeroCCDataReloc mechanism, JIT data-page patching, and AOT .rela.<sec> emission.
 resource: backend/global-data-relocs
 tags: [globals, data-section, relocations, jit, aot, elf, initialization]
-timestamp: 2026-11-01T06:08:04Z
+timestamp: 2026-11-02T01:06:22Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,6 +24,7 @@ ZeroCC supports file-scope variable declarations in both JIT (`--run`) and AOT (
 - **Struct/union aggregates**: `struct S gs = {5, 1.5};` (positional) and `struct S gs = {.a = 7, .c = 'z'};` (designated, any order). Values are written into a zero-cleared `calloc(size, 1)` scratch buffer at true member offsets (padding-correct) and appended in one go. Member floatness is detected from the struct's `members[]` tags (`TYPE_FLOAT`/`TYPE_DOUBLE` — see [frontend-and-types.md](./frontend-and-types.md)). A **char-array member** initialized by a string literal (positional or designated, `struct S g = {7, "glob"};`) copies the string **bytes** into the member (bounded by the member's own size, never the whole object) instead of the pointer form — pre-fix this stored an 8-byte rodata address into the member (silent miscompile: `name[0]` held the low byte of the pointer). 2-D char arrays fill one row per string (`char m[2][4] = {"ab", "cd"};`). Local-scope forms (and the leaf-alignment rules) are documented in [frontend-and-types.md](./frontend-and-types.md) — *String-Literal Initialization of Char Arrays*.
 - **Pointer to string literal**: `const char *g = "abcd";` — string is appended to `.rodata`; 8 zero bytes go into `.data` plus a `ZeroCCDataReloc` (kind 0).
 - **Address of another global**: `int *p = &x;` — 8 zero bytes plus a `ZeroCCDataReloc` (kind 1). The referenced global must be declared earlier (C rule).
+- **Compound literals in global/aggregate initializers (Sprint 74)**: `T1 a[] = { { "", ((char *)&((T3) {1, (char *) 1})) } };` or `int *const v[1] = { &((struct S) { .s = 42 }).s };` — compound literals at file scope allocate static storage in `.data` (`__clit_anon_g_N`) with proper alignment, evaluate initializers via `zero_cc_emit_brace_init_global`, and record kind-1 relocations with optional member/index addends.
 - **`const`/`volatile`/`extern`/`static`** qualifiers are accepted; `static` maps to `ELF_STB_LOCAL`.
 
 ## ZeroCCDataReloc (`src/zero_cc/types/type_system.h`)

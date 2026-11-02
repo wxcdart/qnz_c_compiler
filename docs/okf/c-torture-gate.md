@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-02T00:04:56Z
+timestamp: 2026-11-02T01:08:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 73)
+## 2. Classification Buckets & Baseline (Sprint 74)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **2,996** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+26 since Sprint 72: nested-subscript lexer, `__builtin_convertvector`, extern struct-member assign, pointer/null-pointer-constant comparison, const function-pointer params, const-qualified scalar typedefs, sizeof of an extern-object subscript, and struct/union member **pointer-array** + **multi-level-pointer** types) |
-| **`REJECT`** | **38** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 61) — the ongoing burn-down target |
-| **`SKIP-C89`** | **550** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held since Sprint 68). Sprint 73 note: the arrow-on-array member access (GCC accepts `d->m` for `struct B[N] d`) was **not** enabled — the lowering loads the array value rather than its address, so enabling it segfaulted; it stays an honest REJECT (IR fix deferred). The pre-existing -O2/-O3 packed-struct-with-bit-fields by-value bug (Sprint 72) still blocks the `bool`/`_Bool` typedef work. |
+| **`PASS`** | **3,003** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` (+7 net since Sprint 73: packed-struct bitfield by-value inliner safety, arrow-on-array decay/lowering, constant evaluation offsetof/anonymous structs, and global compound literals with upfront storage reservation) |
+| **`REJECT`** | **31** | ZeroCC failed to compile a valid C99/C11 test (`[clean -std=c11]`) (was 38) — the ongoing burn-down target |
+| **`SKIP-C89`** | **548** | ZeroCC rejected a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (held strictly). |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`: its gcc -O1 reference trips the test's own FORTIFY `__OPTIMIZE__` abort while ZeroCC completes correctly — the reference-crash rule (Sprint 69) classifies a clean ZeroCC run (rc==0) as REF-BUG whenever the reference died, requiring surviving-output equality only when the reference printed before dying. |
 | **`NO-REF`** | **182** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **144** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `label_values`: 34, `indirect_jumps`: 32, `trampolines`: 16, `int128`: 7, `return_address`: 7, `named_sections`: 3, `nonlocal_goto`: 2, `unwrapped`: 2, `arm`: 1) |
-| **`TIMEOUT`** | **16** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
+| **`TIMEOUT`** | **18** | Compile/run beyond the 5 s budget — load-sensitive on the shared box (the count ratchets with machine load; re-run `--only-class TIMEOUT` under low load before treating as a real regression) |
 | **`SKIP-REFSEM`** | **5** | Special FP flags (`-ffast-math`, `-mfpmath=`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR`** | **2** | 1 `dg-bogus`, 1 `%p` stdout test |

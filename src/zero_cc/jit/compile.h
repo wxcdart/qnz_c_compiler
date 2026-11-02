@@ -1481,10 +1481,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 if (inline_ok) {
                     if (fn->param_count > 8)
                         inline_ok = false;
-                    if (fn->return_type.tag == TYPE_FLOAT || fn->return_type.tag == TYPE_DOUBLE)
+                    if (fn->returns_struct || fn->return_type.tag == TYPE_STRUCT ||
+                        fn->return_type.tag == TYPE_UNION || fn->return_type.is_complex ||
+                        (fn->return_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn->return_type)))
                         inline_ok = false;
                     for (size_t p = 0; inline_ok && p < fn->param_count; p++) {
-                        if (fn->param_types[p].tag == TYPE_FLOAT || fn->param_types[p].tag == TYPE_DOUBLE)
+                        if (fn->param_types[p].tag == TYPE_FLOAT || fn->param_types[p].tag == TYPE_DOUBLE ||
+                            fn->param_types[p].tag == TYPE_STRUCT || fn->param_types[p].tag == TYPE_UNION ||
+                            fn->param_types[p].tag == TYPE_ARRAY || fn->param_types[p].is_complex ||
+                            (fn->param_types[p].tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn->param_types[p])))
                             inline_ok = false;
                     }
                 }

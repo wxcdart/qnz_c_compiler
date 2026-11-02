@@ -1825,6 +1825,7 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 size_t fam_extra = has_array_suffix ? 0 :
                                     zc_measure_fam_init_bytes(c, &gtype);
                                 if (fam_extra > 0) size += fam_extra;
+                                for (size_t i = 0; i < size; i++) zero_cc_emit_u8(&c->data_section, 0);
                                 uint8_t *vbuf = calloc(size > 0 ? size : 1, 1);
                                 if (vbuf) {
                                     ZeroCCType init_type = gtype;
@@ -1852,10 +1853,9 @@ static inline void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                                                    size, var_offset,
                                                                    &top_cursor,
                                                                    has_array_suffix ? 0 : fam_extra);
-                                    zero_cc_buf_put_bytes(&c->data_section, vbuf, size);
+                                    memcpy((uint8_t *)c->data_section.data + var_offset, vbuf, size);
                                 } else {
                                     /* Allocation failed: zero-fill and skip to } */
-                                    for (size_t i = 0; i < size; i++) zero_cc_emit_u8(&c->data_section, 0);
                                     while (c->token_pos < c->token_count &&
                                            c->tokens[c->token_pos].type != TK_RBRACE) c->token_pos++;
                                     if (c->token_pos < c->token_count) c->token_pos++;
