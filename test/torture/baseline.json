@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-01T23:32:20Z",
+ "generated": "2026-11-02T00:01:45Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -10633,12 +10633,12 @@
    "note": ""
   },
   "compile/pr39041.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39202.c": {
    "class": "PASS",
@@ -16634,13 +16634,13 @@
     "O0-aot": "REJECT",
     "O0-jit": "TIMEOUT",
     "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
+    "O1-jit": "TIMEOUT",
     "O2-aot": "REJECT",
     "O2-jit": "REJECT",
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -17960,18 +17960,18 @@
    "note": ""
   },
   "execute/20020402-3.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020404-1.c": {
    "class": "PASS",
@@ -20911,18 +20911,18 @@
    "note": ""
   },
   "execute/20071018-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                   ^; Compile error: incompatible initializer type for variable 'upper' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20071029-1.c": {
    "class": "PASS",
@@ -31622,18 +31622,18 @@
    "note": ""
   },
   "execute/pr15296.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                        ^; Compile error: incompatible initializer type for variable 'v5' [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr16790-1.c": {
    "class": "PASS",
@@ -33700,18 +33700,18 @@
    "note": ""
   },
   "execute/pr41463.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: incompatible types in assignment [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr41750.c": {
    "class": "PASS",
@@ -37026,7 +37026,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "            ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: use of undeclared identifier 'asm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr70005.c": {
    "class": "PASS",
@@ -40787,9 +40787,9 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 182,
-  "PASS": 2991,
+  "PASS": 2996,
   "REF-BUG": 3,
-  "REJECT": 43,
+  "REJECT": 38,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 550,
   "SKIP-PTR": 1,

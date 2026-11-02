@@ -338,8 +338,10 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
 
             /* Named struct/union member */
             bool is_ptr = false;
+            int ptr_depth = 0;
             while (c->tokens[c->token_pos].type == TK_STAR) {
                 is_ptr = true;
+                ptr_depth++;
                 c->token_pos++;
             }
             /* Sprint 72: function-pointer member with a struct/union/enum
@@ -480,6 +482,21 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             m->base = zero_cc_type_alloc_base(&et);
                         }
                     }
+                    if (is_ptr && is_array && !is_flexible && !is_bitfield) {
+                        /* Array of pointers to struct/union/enum in a union
+                         * (`struct S *arr[N]`): element is the pointer type. */
+                        ZeroCCType ptelem;
+                        memset(&ptelem, 0, sizeof(ptelem));
+                        ptelem.tag = TYPE_PTR;
+                        ptelem.size = 8;
+                        ptelem.align = 8;
+                        ptelem.base = m->base;
+                        if (ndims > 1) {
+                            ptelem = zero_cc_member_nest_array_elem(ptelem, dims, ndims);
+                        }
+                        m->tag = TYPE_ARRAY;
+                        m->base = zero_cc_type_alloc_base(&ptelem);
+                    }
                     if (m->size > max_size) max_size = m->size;
                 }
             } else if (is_bitfield) {
@@ -575,6 +592,30 @@ static inline ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_un
                             et = zero_cc_member_nest_array_elem(et, dims, ndims);
                             m->base = zero_cc_type_alloc_base(&et);
                         }
+                    }
+                    if (is_ptr && is_array && !is_flexible && !is_bitfield) {
+                        /* Array of pointers to struct/union/enum
+                         * (`struct S *arr[N]`): the member is an array whose
+                         * element is the pointer type (c-torture 20020402-3,
+                         * pr39041).  m->base is the pointed-to type from the
+                         * is_ptr branch; wrap it in a pointer to form the
+                         * array element, and nest any further dims. */
+                        ZeroCCType ptelem;
+                        memset(&ptelem, 0, sizeof(ptelem));
+                        ptelem.tag = TYPE_PTR;
+                        ptelem.size = 8;
+                        ptelem.align = 8;
+                        ptelem.base = m->base;
+                        if (ndims > 1) {
+                            ptelem = zero_cc_member_nest_array_elem(ptelem, dims, ndims);
+                        }
+                        m->tag = TYPE_ARRAY;
+                        m->base = zero_cc_type_alloc_base(&ptelem);
+                    }
+                    if (is_ptr && !is_array && !dcl_is_fnptr && ptr_depth > 1) {
+                        /* Multi-level pointer member (`struct A **a`): apply
+                         * the extra pointer levels (c-torture 20010409-1). */
+                        zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
                     }
                     if (!is_flexible) {
                         current_offset += m->size;
