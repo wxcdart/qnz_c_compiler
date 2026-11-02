@@ -403,6 +403,9 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                       int dst_addr, size_t struct_sz,
                                       ASTRef rhs_ref, int rhs_temp);
 
+bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                        ZeroCCASTNode *node, const char *name,
+                        int *out_temp);
 int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);

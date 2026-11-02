@@ -45,6 +45,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/ir/ast_lowering_stmt.o \
 	src/zero_cc/ir/ast_lowering_expr.o \
 	src/zero_cc/ir/ast_lowering_call.o \
+	src/zero_cc/ir/ast_lowering_builtins.o \
 	src/zero_cc/ir/ast_lowering_assign.o \
 	src/zero_cc/ir/ast_lowering_binop.o \
 	src/zero_cc/ir/ast_lowering_mc.o \

@@ -1,17 +1,18 @@
 # ZeroCC Changelog
 
-## [Sprint 76] - 2026-11-01 - Monolithic ast_lowering_expr.c Modularization: 9,330 Lines Split into 4 Dedicated Translation Units
+## [Sprint 76] - 2026-11-01 - Monolithic ast_lowering Modularization: Split into 5 Dedicated Translation Units
 
-Split the monolithic 9,330-line `src/zero_cc/ir/ast_lowering_expr.c` file into clean, modular translation units while maintaining green gates across all test suites, optimizer sweeps, and verifiers.
+Split the monolithic 9,330-line `src/zero_cc/ir/ast_lowering_expr.c` and 3,086-line `src/zero_cc/ir/ast_lowering_call.c` into clean, modular translation units while maintaining green gates across all test suites, optimizer sweeps, and verifiers.
 
 - **Modular IR Translation Units**:
-  - `src/zero_cc/ir/ast_lowering_call.c` (3,086 lines): handles `NODE_CALL`, `NODE_VA_START`, `NODE_VA_ARG`, constant evaluation (`zc_node_is_const_expr`, `zc_ast_const_eval`), overflow builtins (`zc_ovf_*`), and atomic builtins (`zc_atomic_*`).
+  - `src/zero_cc/ir/ast_lowering_call.c` (951 lines, down from 3,086 lines): handles pure function call lowering, SysV AMD64 argument passing, float/integer register allocation, sret struct-return conventions, and indirect function pointer dispatch.
+  - `src/zero_cc/ir/ast_lowering_builtins.c` (2,186 lines): handles GCC/Clang builtins & intrinsics (`__builtin_alloca`, `__builtin_constant_p`, `__builtin_expect`, `__builtin_bswap*`, `__builtin_clz/ctz/popcount*`, `__builtin_inf/nan*`, `__builtin_fabs*`), atomic builtins (`zc_atomic_*`), overflow helpers (`zc_ovf_*`), and varargs (`lower_expr_va_start`, `lower_expr_va_arg`).
   - `src/zero_cc/ir/ast_lowering_assign.c` (1,945 lines): handles `NODE_ASSIGN`, compound assignments, bitfield assignment (`assign_member_bitfield`), member compound application (`member_apply_compound`), and vector compound ops (`zc_emit_vector_compound_inplace`).
   - `src/zero_cc/ir/ast_lowering_binop.c` (2,441 lines): handles `NODE_BINOP`, `NODE_UNOP`, `NODE_CAST`, complex arithmetic helpers (`zc_cx_fabs`, `zc_cx_fselect`), bitfield reduction (`zc_binop_bitfield_reduce`), and integer width/sign analysis (`zero_cc_operand_int_width`, `zero_cc_expr_int_info`, `zero_cc_binop_is_unsigned`).
   - `src/zero_cc/ir/ast_lowering_expr.c` (1,828 lines, down from 9,330 lines): central `lower_expr` dispatcher, literals, identifiers, ternary, indexing, member access, compound literals, stmt expressions, and lvalue address resolution.
 - **Header Coordination & Build Integration** (`ir/ast_lowering_internal.h`, `Makefile`):
   - Shared inline helpers promoted to `ast_lowering_internal.h` (`ir_emit_global_addr`, `lower_extend_narrow`, `lower_assign_conv_zt`, `lvalue_inc_step`, `zc_is_array_base`).
-  - Function declarations added for inter-module lowering dispatch (`lower_expr_call`, `lower_expr_va_start`, `lower_expr_va_arg`, `lower_expr_assign`, `lower_expr_binop`, `lower_expr_unop`, `lower_expr_cast`).
+  - Function declarations added for inter-module lowering dispatch (`lower_expr_call`, `lower_expr_builtin`, `lower_expr_va_start`, `lower_expr_va_arg`, `lower_expr_assign`, `lower_expr_binop`, `lower_expr_unop`, `lower_expr_cast`).
   - Added new `.o` objects to `Makefile` `EXTRA_OBJS`.
 - **Verification Gate**:
   - `make test`: 156/156 passed, 0 failed.
