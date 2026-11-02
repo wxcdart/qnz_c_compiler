@@ -1,5 +1,33 @@
 # ZeroCC Changelog
 
+## [Sprint 83] - 2026-11-02 - Type System Consolidation (TypeInfo vs ZeroCCType)
+
+Streamlined and consolidated the dual type representation between semantic analysis (`TypeInfo` in `src/zero_cc/semantic/type.h`) and lowering/parser (`ZeroCCType` in `src/zero_cc/types/type_system.h`) through the canonical `src/zero_cc/jit/type_info.h` bridge:
+
+- **Symmetric Classification Predicates**:
+  - Added symmetric inline classification predicates to `src/zero_cc/types/type_funcs.h`: `zero_cc_type_is_void`, `zero_cc_type_is_bool`, `zero_cc_type_is_integer`, `zero_cc_type_is_floating`, `zero_cc_type_is_arithmetic`, `zero_cc_type_is_pointer`, `zero_cc_type_is_array`, `zero_cc_type_is_function`, `zero_cc_type_is_func_ptr`, `zero_cc_type_is_struct`, `zero_cc_type_is_union`, `zero_cc_type_is_struct_or_union`, `zero_cc_type_is_unsigned`, `zero_cc_type_is_signed`, `zero_cc_type_is_scalar`, `zero_cc_type_is_aggregate`, `zero_cc_type_size`, and `zero_cc_type_align`.
+  - Added matching predicates to `src/zero_cc/semantic/type.h`: `type_is_struct`, `type_is_union`, `type_is_struct_or_union`, `type_is_complex`, `type_is_func_ptr`, `type_is_callable`, and `type_is_aggregate`.
+  - Replaced repetitive open-coded checks (`tag == TYPE_STRUCT || tag == TYPE_UNION`, `vtype.tag == TYPE_FLOAT || vtype.tag == TYPE_DOUBLE`, `sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)`) across `ast_lowering_stmt.c`, `ast_lowering_binop.c`, `ast_lowering_internal.h`, and `type_parser.h`.
+- **Struct Member Query & Layout Harmonization**:
+  - Implemented `zero_cc_type_find_member_info` and `zero_cc_type_get_member_offset` in `type_funcs.h`, providing exact symmetry to `type_find_field_info` and `type_get_field_offset` on `TypeInfo`.
+  - Added `bool is_flexible;` to `struct StructField` in `TypeInfo` and implemented `type_add_field_ext` in `src/zero_cc/semantic/type.c` to preserve flexible array member metadata through `zero_cc_type_to_typeinfo`.
+  - Implemented `zero_cc_type_equal(a, b)` for structural equality of `ZeroCCType` values, matching `type_equal` on `TypeInfo`.
+- **Bidirectional Bridge Completeness & Bug Fixes**:
+  - Fixed `typeinfo_to_zero_cc_type` dropping `is_long_double` on `TYPE_KIND_DOUBLE` (now correctly returning `zero_cc_type_long_double()` with 16-byte size/alignment).
+  - Fixed `typeinfo_to_zero_cc_type` dropping function types (now properly mapping `TYPE_KIND_FUNCTION` to `is_func = true` with return type in `base`).
+  - Added `TYPE_NULLPTR` handling in `zero_cc_type_to_typeinfo` (mapping to pointer to void).
+  - Added `zero_cc_type_matches_typeinfo(zt, ti)` in `src/zero_cc/jit/type_info.h` for cross-system structural equivalence verification.
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `make test-opt`: 117/117 passed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/torture_run.py --quick`: gate OK (3,037 PASS, 0 regressions vs baseline; 12 bad vs 13 baseline).
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 157 files, 0 errors.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: 18/18 OKF pages valid and reachable.
+
 ## [Sprint 82] - 2026-11-02 - Monolithic Header Refactoring to Standalone Compilation Units
 
 Refactored the three largest monolithic header implementations into proper `.h` declarations and standalone `.c` compilation units, eliminating ~5,800 lines of static code duplication across all test and driver compilation units:

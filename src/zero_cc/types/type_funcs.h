@@ -216,6 +216,189 @@ static inline ZeroCCType zero_cc_type_strip_qualifiers(ZeroCCType ty) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Canonical type classification predicates & accessors for ZeroCCType.
+ * Synchronized with the TypeInfo predicates in semantic/type.h.
+ * ------------------------------------------------------------------------- */
+static inline bool zero_cc_type_is_void(const ZeroCCType *t) {
+    return t && t->tag == TYPE_VOID;
+}
+
+static inline bool zero_cc_type_is_bool(const ZeroCCType *t) {
+    return t && t->tag == TYPE_BOOL;
+}
+
+static inline bool zero_cc_type_is_integer(const ZeroCCType *t) {
+    if (!t) return false;
+    switch (t->tag) {
+        case TYPE_BOOL:
+        case TYPE_INT8:
+        case TYPE_UINT8:
+        case TYPE_INT16:
+        case TYPE_UINT16:
+        case TYPE_INT32:
+        case TYPE_UINT32:
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        case TYPE_ENUM:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static inline bool zero_cc_type_is_floating(const ZeroCCType *t) {
+    if (!t) return false;
+    return t->tag == TYPE_FLOAT || t->tag == TYPE_DOUBLE;
+}
+
+static inline bool zero_cc_type_is_arithmetic(const ZeroCCType *t) {
+    return zero_cc_type_is_integer(t) || zero_cc_type_is_floating(t);
+}
+
+static inline bool zero_cc_type_is_pointer(const ZeroCCType *t) {
+    return t && (t->tag == TYPE_PTR || t->tag == TYPE_NULLPTR);
+}
+
+static inline bool zero_cc_type_is_array(const ZeroCCType *t) {
+    return t && t->tag == TYPE_ARRAY;
+}
+
+static inline bool zero_cc_type_is_function(const ZeroCCType *t) {
+    return t && t->is_func;
+}
+
+static inline bool zero_cc_type_is_func_ptr(const ZeroCCType *t) {
+    if (!t) return false;
+    if (t->is_func_ptr) return true;
+    return t->tag == TYPE_PTR && t->base && t->base->is_func;
+}
+
+static inline bool zero_cc_type_is_struct(const ZeroCCType *t) {
+    return t && t->tag == TYPE_STRUCT;
+}
+
+static inline bool zero_cc_type_is_union(const ZeroCCType *t) {
+    return t && t->tag == TYPE_UNION;
+}
+
+static inline bool zero_cc_type_is_struct_or_union(const ZeroCCType *t) {
+    return t && (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION);
+}
+
+static inline bool zero_cc_type_is_unsigned(const ZeroCCType *t) {
+    if (!t) return false;
+    switch (t->tag) {
+        case TYPE_BOOL:
+        case TYPE_UINT8:
+        case TYPE_UINT16:
+        case TYPE_UINT32:
+        case TYPE_UINT64:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static inline bool zero_cc_type_is_signed(const ZeroCCType *t) {
+    if (!t) return false;
+    switch (t->tag) {
+        case TYPE_INT8:
+        case TYPE_INT16:
+        case TYPE_INT32:
+        case TYPE_INT64:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static inline bool zero_cc_type_is_scalar(const ZeroCCType *t) {
+    return zero_cc_type_is_arithmetic(t) || zero_cc_type_is_pointer(t) || zero_cc_type_is_complex(t);
+}
+
+static inline bool zero_cc_type_is_aggregate(const ZeroCCType *t) {
+    return zero_cc_type_is_struct_or_union(t) || zero_cc_type_is_array(t);
+}
+
+static inline size_t zero_cc_type_size(const ZeroCCType *t) {
+    return t ? t->size : 0;
+}
+
+static inline size_t zero_cc_type_align(const ZeroCCType *t) {
+    return t ? t->align : 0;
+}
+
+static inline const ZeroCCStructMember *zero_cc_type_find_member_info(const ZeroCCType *st, const char *name) {
+    if (!st || !st->members || !name) return NULL;
+    for (size_t i = 0; i < st->member_count; i++) {
+        if (strcmp(st->members[i].name, name) == 0) {
+            return &st->members[i];
+        }
+    }
+    return NULL;
+}
+
+static inline size_t zero_cc_type_get_member_offset(const ZeroCCType *st, const char *name) {
+    const ZeroCCStructMember *m = zero_cc_type_find_member_info(st, name);
+    return m ? m->offset : 0;
+}
+
+static inline bool zero_cc_type_equal(const ZeroCCType *a, const ZeroCCType *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    if (a->tag != b->tag) return false;
+    if (a->is_complex != b->is_complex) return false;
+    if (a->is_long_double != b->is_long_double) return false;
+    if (a->is_func != b->is_func) return false;
+    if (a->is_func_ptr != b->is_func_ptr) return false;
+
+    switch (a->tag) {
+        case TYPE_VOID:
+        case TYPE_BOOL:
+        case TYPE_INT8:
+        case TYPE_UINT8:
+        case TYPE_INT16:
+        case TYPE_UINT16:
+        case TYPE_INT32:
+        case TYPE_UINT32:
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_NULLPTR:
+            return true;
+
+        case TYPE_PTR:
+            if (!a->base || !b->base) return a->base == b->base;
+            return zero_cc_type_equal(a->base, b->base);
+
+        case TYPE_ARRAY:
+            if (a->array_len != b->array_len) return false;
+            if (!a->base || !b->base) return a->base == b->base;
+            return zero_cc_type_equal(a->base, b->base);
+
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+        case TYPE_ENUM:
+            if (a->struct_name[0] && b->struct_name[0]) {
+                return strcmp(a->struct_name, b->struct_name) == 0;
+            }
+            return a->size == b->size && a->align == b->align;
+
+        case TYPE_USER_0:
+        case TYPE_USER_1:
+        case TYPE_USER_2:
+        case TYPE_USER_3:
+            if (a->size != b->size) return false;
+            if (!a->base || !b->base) return a->base == b->base;
+            return zero_cc_type_equal(a->base, b->base);
+
+        default:
+            return false;
+    }
+}
+
+/* ---------------------------------------------------------------------------
  * Aggregate scalar-leaf walking (shared by the brace-initializer parser in
  * parser/ast_expr.h and the compound-literal lowering in ir/ast_lowering_expr.c).
  * A "scalar leaf" is the smallest initializable unit in C layout order: a

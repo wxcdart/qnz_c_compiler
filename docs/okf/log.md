@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T16:05:58Z
+timestamp: 2026-11-02T16:17:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -707,3 +707,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `sanitizer-roadmap.md`
 - Added sanitizer-roadmap.md: analysis & phased roadmap for the optional, parked zero_san target-side safety feature (UBSan-lite signed-overflow v1; bounds/leaks/ASan-LSan scoped out)
+
+## 2026-11-02 — Updated `frontend-and-types.md`
+- Consolidate ZeroCCType and TypeInfo classification predicates and bridge conversions

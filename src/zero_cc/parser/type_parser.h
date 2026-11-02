@@ -460,20 +460,19 @@ static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType 
     if (base.tag == TYPE_PTR && base.base) {
         base = *base.base;
     }
-    if (base.tag != TYPE_STRUCT && base.tag != TYPE_UNION) {
+    if (!zero_cc_type_is_struct_or_union(&base)) {
         return zero_cc_type_int();
     }
-    for (size_t i = 0; i < base.member_count; i++) {
-        if (strcmp(base.members[i].name, member_name) == 0) {
-            ZeroCCType member_ty;
-            memset(&member_ty, 0, sizeof(member_ty));
-            member_ty.tag = base.members[i].tag;
-            member_ty.size = base.members[i].size;
-            member_ty.align = base.members[i].align;
-            member_ty.base = base.members[i].base;
-            snprintf(member_ty.struct_name, sizeof(member_ty.struct_name), "%s", base.members[i].name);
-            return member_ty;
-        }
+    const ZeroCCStructMember *m = zero_cc_type_find_member_info(&base, member_name);
+    if (m) {
+        ZeroCCType member_ty;
+        memset(&member_ty, 0, sizeof(member_ty));
+        member_ty.tag = m->tag;
+        member_ty.size = m->size;
+        member_ty.align = m->align;
+        member_ty.base = m->base;
+        snprintf(member_ty.struct_name, sizeof(member_ty.struct_name), "%s", m->name);
+        return member_ty;
     }
     /* Member not found - return int */
     return zero_cc_type_int();

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-02T00:04:56Z
+timestamp: 2026-11-02T16:17:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -22,8 +22,12 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
    - **Scope Symbol Table (`src/zero_cc/semantic/scope.c`)**: Uses a dynamically resizing separate-chaining hash table with power-of-two bucket count (starts at 64 buckets, doubles when load factor exceeds 75%). Symbols and duplicated names are allocated in the compilation permanent arena (`perm_arena`), while bucket pointers are freed on `scope_leave()`. This completely replaced the fixed-capacity TPHT (Two-Phase Hash Table) in the semantic analyzer, removing the fixed ~3,000 / ~8,000 symbols-per-scope cap (M5) and eliminating TPHT collision insertion failures.
 3. **Canonical Type Bridge & AST Accessors (`src/zero_cc/jit/type_info.h`)**:
    - `zero_cc_resolve_base_type(c, type_tok, type_name)`: Single source of truth for resolving base declaration, parameter, and return types (primitives, structs, unions, enums, and typedefs).
-   - `zero_cc_type_to_typeinfo(perm, t)` and `typeinfo_to_zero_cc_type(ti)`: Bidirectional conversion between `ZeroCCType` and `TypeInfo *`, preserving pointers, function pointers (`is_func_ptr`), multi-dimensional arrays/VLAs, structs/unions, enums, and qualifiers (`const`, `volatile`, `restrict`, `_Atomic`). The parser constructs `ZeroCCType` once per declarator and derives `TypeInfo *` via `zero_cc_type_to_typeinfo()` rather than building parallel type trees.
+   - `zero_cc_type_to_typeinfo(perm, t)` and `typeinfo_to_zero_cc_type(ti)`: Bidirectional conversion between `ZeroCCType` and `TypeInfo *`, preserving pointers, `nullptr_t` (`TYPE_NULLPTR`), function pointers (`is_func_ptr`), `long double` (`is_long_double`), multi-dimensional arrays/VLAs, structs/unions (including bitfields and flexible array members `is_flexible`), enums, and qualifiers (`const`, `volatile`, `restrict`, `_Atomic`). The parser constructs `ZeroCCType` once per declarator and derives `TypeInfo *` via `zero_cc_type_to_typeinfo()` rather than building parallel type trees.
+   - `zero_cc_type_matches_typeinfo(zt, ti)`: Cross-system structural compatibility check between `ZeroCCType` and `TypeInfo`.
    - `ast_node_set_typeinfo(c, node, ti)` and `ast_node_get_typeinfo(c, node)`: Canonical accessors for attaching and querying semantic `TypeInfo *` on `ZeroCCASTNode.aux.extra` across parser (`ast_expr.h`), semantic analyzer (`visitor.c`), and IR lowering (`ast_lowering_expr.c`).
+4. **Symmetric Classification Predicates**:
+   - `ZeroCCType` (`src/zero_cc/types/type_funcs.h`) and `TypeInfo` (`src/zero_cc/semantic/type.h`) share symmetric, inline classification predicates: `is_void`, `is_bool`, `is_integer`, `is_floating`, `is_arithmetic`, `is_pointer`, `is_array`, `is_struct`, `is_union`, `is_struct_or_union`, `is_unsigned`, `is_signed`, `is_scalar`, `is_aggregate`, `is_complex`, `is_vector`, `is_func_ptr`, and structural equality (`zero_cc_type_equal` vs `type_equal`).
+   - Struct member lookup is unified via `zero_cc_type_find_member_info` / `zero_cc_type_get_member_offset` (`ZeroCCType`) and `type_find_field_info` / `type_get_field_offset` (`TypeInfo`).
 
 ## SemContext: Single Canonical Definition
 

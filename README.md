@@ -1,7 +1,7 @@
 # zero_cc — Standalone Embeddable C99/C11 Compiler
 
 ZeroCC is a lightweight, embeddable C99/C11 compiler (with C23 `[[...]]`
-attribute support) with a two-pass architecture: a flat 133-opcode IR that is
+attribute support) with a two-pass architecture: a flat 136-opcode IR that is
 lowered, optimized, register-allocated, and emitted to any of four target ISAs.
 It compiles to machine code for a JIT (`--run`, the default) or to assembly,
 ELF objects, and — via ZeroCC's own linker — directly-executable freestanding
@@ -93,10 +93,12 @@ zero_cc/
 │   └─ zero_cc/
 │       ├─ common/         # Arena allocator, hash tables, POSIX shims
 │       ├─ core/           # Compiler state, preprocessor, pragma state
+│       ├─ driver/         # Driver helpers extracted from main.c: CLI option
+│       │                   # parsing (driver_opts.h) & AOT asm emission (driver_asm.h)
 │       ├─ lexer/          # Tokenizer (C99/C11/C23 keyword tables)
 │       ├─ parser/         # Arena-based AST parser, const eval, static assert
 │       ├─ semantic/       # Semantic analysis: types, scopes, diagnostics
-│       ├─ ir/             # 133-opcode Instr IR, AST→IR lowering,
+│       ├─ ir/             # 136-opcode Instr IR, AST→IR lowering,
 │       │                   # linear-scan regalloc, asm/machine emitters
 │       ├─ opt/            # IR passes: constant_fold, dce, copy_prop,
 │       │                   # mem2reg, cse, gvn, licm, branchless,
@@ -130,7 +132,7 @@ Source → Preprocessor → Lexer → Arena AST Parser → Semantic Analysis
 ```
 
 **IR design:**
-- 133-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
+- 136-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
   opcodes) with an `IRCallArgs` side table for call-site operands
 - Dynamic, growing `IRArena` buffer — O(1) emission, cheap reset per function
 - Flat, non-SSA with implicit control flow; a lazy versioned **CFG layer**
@@ -308,7 +310,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/multi-tu.md`](docs/okf/multi-tu.md) | Multi-translation-unit driver & JIT image merge (T1) |
 | [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF linker & relocation set (T2) |
 | [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime |
-| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 133-opcode `Instr` IR & linear-scan register allocation |
+| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 136-opcode `Instr` IR & linear-scan register allocation |
 | [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes & safety invariants |
 | [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI & `>16B` struct return (`sret`) rules |
 | [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) | Multi-ISA backend vtable, JIT vs AOT emission, relocations |

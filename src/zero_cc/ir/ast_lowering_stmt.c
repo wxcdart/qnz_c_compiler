@@ -441,12 +441,12 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
                     bool is_inplace_brace_init = (init_node && init_node->tag == NODE_COMPOUND_LIT &&
                                                   init_node->s.str && strcmp(init_node->s.str, sym->name) == 0);
-                    if (!(sym->type.tag == TYPE_ARRAY && init_node && init_node->tag == NODE_COMPOUND_LIT)) {
+                    if (!zero_cc_type_is_array(&sym->type) || !init_node || init_node->tag != NODE_COMPOUND_LIT) {
                         ZeroCCSym *src_sym = (init_node && init_node->tag == NODE_IDENT) ? zero_cc_find_local(c, init_node->s.str) : NULL;
-                        if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
+                        if (zero_cc_type_is_struct_or_union(&sym->type) && sym->type.size > 16) {
                             if (!is_inplace_brace_init) {
                                 int num_chunks = (sym->type.size + 7) / 8;
-                                if (src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION)) {
+                                if (src_sym && zero_cc_type_is_struct_or_union(&src_sym->type)) {
                                     for (int i = 0; i < num_chunks; i++) {
                                         size_t rem = sym->type.size - (size_t)(i * 8);
                                         if (rem >= 8) {
@@ -555,10 +555,10 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     }
                                 }
                             }
-                        } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                        } else if (zero_cc_type_is_struct_or_union(&sym->type) &&
                                    is_inplace_brace_init) {
                             /* Struct/union already initialized in-place by brace initializer */
-                        } else if (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)) {
+                        } else if (zero_cc_type_is_vector(&sym->type)) {
                             /* GNU vector declaration initializer. The RHS form:
                              *  - NODE_CALL: value in the VREG_0/VREG_2 pair;
                              *  - vector local ident: value in its frame slot;
@@ -783,8 +783,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_jmp(c, c->lowering.epilogue_label);
             return;
         }
-        if (sym && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
-                    (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type)))) {
+        if (sym && (zero_cc_type_is_struct_or_union(&sym->type) || zero_cc_type_is_vector(&sym->type))) {
             if (sym->is_promoted) {
                 ir_emit_mov_reg(c, VREG_0, sym->promoted_vreg);
                 ir_emit_jmp(c, c->lowering.epilogue_label);

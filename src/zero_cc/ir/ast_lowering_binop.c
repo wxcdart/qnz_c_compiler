@@ -1726,9 +1726,9 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_float = 0;
                     return operand_temp;
                 }
-                if ((ti && ti->kind == TYPE_KIND_ARRAY) ||
-                    (op_ti && op_ti->kind == TYPE_KIND_POINTER && op_ti->details.pointer.base &&
-                     (op_ti->details.pointer.base->kind == TYPE_KIND_ARRAY ||
+                if (type_is_array(ti) ||
+                    (type_is_pointer(op_ti) && op_ti->details.pointer.base &&
+                     (type_is_array(op_ti->details.pointer.base) ||
                       type_is_function(op_ti->details.pointer.base)))) {
                     c->last_expr_is_float = 0;
                     return operand_temp;
@@ -1748,16 +1748,16 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
                     }
                 }
-                bool is_struct = (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION));
+                bool is_struct = type_is_struct_or_union(ti);
                 if (!is_struct) {
                     ZeroCCASTNode *inner = zero_cc_ast_get(arena, node->left);
                     if (inner && inner->tag == NODE_IDENT) {
                         ZeroCCSym *ptr_sym = zero_cc_find_local(c, inner->s.str);
-                        if (ptr_sym && ptr_sym->type.base && (ptr_sym->type.base->tag == TYPE_STRUCT || ptr_sym->type.base->tag == TYPE_UNION)) {
+                        if (ptr_sym && ptr_sym->type.base && zero_cc_type_is_struct_or_union(ptr_sym->type.base)) {
                             is_struct = true;
                         }
                         ZeroCCGlobalVar *gv = find_global_var(c, inner->s.str);
-                        if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION)) {
+                        if (gv && gv->type.base && zero_cc_type_is_struct_or_union(gv->type.base)) {
                             is_struct = true;
                         }
                     }

@@ -65,6 +65,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_UINT64: ti = type_ulong(perm); break;
         case TYPE_FLOAT: ti = type_float(perm); break;
         case TYPE_DOUBLE: ti = type_double(perm); if (t.is_long_double) ti->is_long_double = true; break;
+        case TYPE_NULLPTR: ti = type_pointer_to(perm, type_void(perm)); break;
         case TYPE_PTR: {
             // FIX: Guard against NULL base pointer (incomplete types like FILE*)
             if (!t.base) {
@@ -184,10 +185,12 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                 }
                 const char *fname = name_copy ? name_copy : t.members[i].name;
                 if (t.members[i].is_bitfield) {
-                    type_add_bitfield(perm, ti, fname, t.members[i].offset, mti,
-                                      t.members[i].bit_offset, t.members[i].bit_width, t.members[i].is_signed);
+                    type_add_field_ext(perm, ti, fname, t.members[i].offset, mti,
+                                       true, t.members[i].bit_offset, t.members[i].bit_width,
+                                       t.members[i].is_signed, t.members[i].is_flexible);
                 } else {
-                    type_add_field(perm, ti, fname, t.members[i].offset, mti);
+                    type_add_field_ext(perm, ti, fname, t.members[i].offset, mti,
+                                       false, 0, 0, false, t.members[i].is_flexible);
                 }
             }
             break;
@@ -244,8 +247,15 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
         case TYPE_KIND_INT:     t = is_u ? zero_cc_type_uint32() : zero_cc_type_int(); break;
         case TYPE_KIND_LONG:    t = is_u ? zero_cc_type_uint64() : zero_cc_type_int64(); break;
         case TYPE_KIND_FLOAT:   t = zero_cc_type_float(); break;
-        case TYPE_KIND_DOUBLE:  t = zero_cc_type_double(); break;
+        case TYPE_KIND_DOUBLE:  t = ti->is_long_double ? zero_cc_type_long_double() : zero_cc_type_double(); break;
         case TYPE_KIND_ENUM:    t = zero_cc_type_enum(ti->details.record.tag); break;
+        case TYPE_KIND_FUNCTION: {
+            ZeroCCType ret_t = typeinfo_to_zero_cc_type(ti->details.function.ret);
+            t = ret_t;
+            t.base = zero_cc_type_alloc_base(&ret_t);
+            t.is_func = true;
+            break;
+        }
         case TYPE_KIND_POINTER: {
             if (ti->details.pointer.base && ti->details.pointer.base->kind == TYPE_KIND_FUNCTION) {
                 ZeroCCType ret_t = typeinfo_to_zero_cc_type(ti->details.pointer.base->details.function.ret);
@@ -365,6 +375,40 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
         if (tdef) return *tdef;
     }
     return zero_cc_type_int64();
+}
+
+/* Cross-system type compatibility: checks if a ZeroCCType and TypeInfo match */
+static inline bool zero_cc_type_matches_typeinfo(const ZeroCCType *zt, const TypeInfo *ti) {
+    if (!zt || !ti) return false;
+    if (zt->is_complex != (ti->kind == TYPE_KIND_COMPLEX)) return false;
+    if (zt->is_long_double != ti->is_long_double) return false;
+    if (zero_cc_type_is_unsigned(zt) != type_is_unsigned(ti)) return false;
+
+    if (zero_cc_type_is_integer(zt)) return type_is_integer(ti) && zt->size == type_size(ti);
+    if (zero_cc_type_is_floating(zt)) return type_is_floating(ti) && zt->size == type_size(ti);
+    if (zero_cc_type_is_pointer(zt)) {
+        if (!type_is_pointer(ti)) return false;
+        if (zt->is_func_ptr || (zt->base && zt->base->is_func)) {
+            return ti->details.pointer.base && type_is_function(ti->details.pointer.base);
+        }
+        if (!zt->base || !ti->details.pointer.base) return true;
+        return zero_cc_type_matches_typeinfo(zt->base, ti->details.pointer.base);
+    }
+    if (zero_cc_type_is_array(zt)) {
+        if (!type_is_array(ti)) return false;
+        if (zt->array_len != ti->details.array.count && zt->array_len != 0 && ti->details.array.count != 0) return false;
+        if (!zt->base || !ti->details.array.base) return true;
+        return zero_cc_type_matches_typeinfo(zt->base, ti->details.array.base);
+    }
+    if (zero_cc_type_is_struct_or_union(zt)) {
+        if (!type_is_struct_or_union(ti)) return false;
+        if ((zt->tag == TYPE_STRUCT) != (ti->kind == TYPE_KIND_STRUCT)) return false;
+        if (zt->struct_name[0] && ti->details.record.tag) {
+            return strcmp(zt->struct_name, ti->details.record.tag) == 0;
+        }
+        return zt->size == ti->details.record.size;
+    }
+    return false;
 }
 
 #endif /* ZERO_CC_JIT_TYPE_INFO_H */

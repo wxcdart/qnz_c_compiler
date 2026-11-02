@@ -475,8 +475,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             if (fn_t && type_is_function(fn_t)) {
                 proto_t = fn_t;
                 res = fn_t->details.function.ret;
-            } else if (fn_t && type_is_pointer(fn_t) && fn_t->details.pointer.base &&
-                       type_is_function(fn_t->details.pointer.base)) {
+            } else if (type_is_func_ptr(fn_t)) {
                 proto_t = fn_t->details.pointer.base;
                 res = proto_t->details.function.ret;
             }

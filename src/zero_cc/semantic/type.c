@@ -350,13 +350,9 @@ size_t type_align(const TypeInfo *t) {
     }
 }
 
-/* Add a field to a struct type */
-void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type) {
-    type_add_bitfield(perm, struct_t, name, offset, field_type, 0, 0, false);
-}
-
-/* Add a bit-field to a struct type */
-void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed) {
+/* Add a field with full attributes (bitfield + flexible array member) to a struct/union type */
+void type_add_field_ext(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type,
+                        bool is_bitfield, uint8_t bit_offset, uint8_t bit_width, bool is_signed, bool is_flexible) {
     if (!struct_t || !name || !field_type) return;
 
     // Allocate or grow field array
@@ -379,13 +375,24 @@ void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t
     fields[new_count - 1].name = name_copy ? name_copy : name;
     fields[new_count - 1].offset = offset;
     fields[new_count - 1].type = field_type;
-    fields[new_count - 1].is_bitfield = (bit_width > 0);
+    fields[new_count - 1].is_bitfield = is_bitfield || (bit_width > 0);
     fields[new_count - 1].bit_offset = bit_offset;
     fields[new_count - 1].bit_width = bit_width;
     fields[new_count - 1].is_signed = is_signed;
+    fields[new_count - 1].is_flexible = is_flexible;
 
     struct_t->details.record.fields = fields;
     struct_t->details.record.field_count = new_count;
+}
+
+/* Add a field to a struct type */
+void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type) {
+    type_add_field_ext(perm, struct_t, name, offset, field_type, false, 0, 0, false, false);
+}
+
+/* Add a bit-field to a struct type */
+void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed) {
+    type_add_field_ext(perm, struct_t, name, offset, field_type, true, bit_offset, bit_width, is_signed, false);
 }
 
 /* Find full field info by name in a struct type */

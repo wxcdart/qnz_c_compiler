@@ -88,6 +88,7 @@ struct TypeInfo {
                 uint8_t     bit_offset;
                 uint8_t     bit_width;
                 bool        is_signed;
+                bool        is_flexible; /* Flexible array member */
             } *fields;
             size_t      field_count;
         } record;
@@ -228,6 +229,35 @@ bool type_is_function(const TypeInfo *t);
 bool type_is_vector(const TypeInfo *t);
 bool type_is_unsigned(const TypeInfo *t);
 
+static inline bool type_is_struct(const TypeInfo *t) {
+    return t && t->kind == TYPE_KIND_STRUCT;
+}
+
+static inline bool type_is_union(const TypeInfo *t) {
+    return t && t->kind == TYPE_KIND_UNION;
+}
+
+static inline bool type_is_struct_or_union(const TypeInfo *t) {
+    return t && (t->kind == TYPE_KIND_STRUCT || t->kind == TYPE_KIND_UNION);
+}
+
+static inline bool type_is_complex(const TypeInfo *t) {
+    return t && t->kind == TYPE_KIND_COMPLEX;
+}
+
+static inline bool type_is_func_ptr(const TypeInfo *t) {
+    return t && t->kind == TYPE_KIND_POINTER && t->details.pointer.base &&
+           t->details.pointer.base->kind == TYPE_KIND_FUNCTION;
+}
+
+static inline bool type_is_callable(const TypeInfo *t) {
+    return t && (t->kind == TYPE_KIND_FUNCTION || type_is_func_ptr(t));
+}
+
+static inline bool type_is_aggregate(const TypeInfo *t) {
+    return t && (t->kind == TYPE_KIND_STRUCT || t->kind == TYPE_KIND_UNION || t->kind == TYPE_KIND_ARRAY);
+}
+
 /* Comparison and metrics */
 bool   type_equal(const TypeInfo *a, const TypeInfo *b);
 size_t type_size(const TypeInfo *t);
@@ -236,6 +266,7 @@ size_t type_align(const TypeInfo *t);
 /* Struct field access */
 void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type);
 void type_add_bitfield(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, uint8_t bit_offset, uint8_t bit_width, bool is_signed);
+void type_add_field_ext(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type, bool is_bitfield, uint8_t bit_offset, uint8_t bit_width, bool is_signed, bool is_flexible);
 TypeInfo *type_find_field(const TypeInfo *struct_t, const char *name);
 size_t type_get_field_offset(const TypeInfo *struct_t, const char *name);
 struct StructField *type_find_field_info(const TypeInfo *struct_t, const char *name);

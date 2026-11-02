@@ -180,42 +180,41 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     if (!node) return false;
     if (node->tag == NODE_CALL) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
     } else if (node->tag == NODE_COMPOUND_LIT) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
     } else if (node->tag == NODE_UNOP && (node->aux.op == '*' || node->aux.op == TK_STAR)) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) && type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
         ZeroCCASTNode *in = zero_cc_ast_get(arena, node->left);
         if (in && in->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, in->s.str);
-            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION) && sym->type.base->size > 16) return true;
+            if (sym && sym->type.base && zero_cc_type_is_struct_or_union(sym->type.base) && sym->type.base->size > 16) return true;
             ZeroCCGlobalVar *gv = find_global_var(c, in->s.str);
-            if (gv && gv->type.base && (gv->type.base->tag == TYPE_STRUCT || gv->type.base->tag == TYPE_UNION) && gv->type.base->size > 16) return true;
+            if (gv && gv->type.base && zero_cc_type_is_struct_or_union(gv->type.base) && gv->type.base->size > 16) return true;
         }
     } else if (node->tag == NODE_INDEX) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
+        if (type_is_struct_or_union(ti)) return true;
         ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
         if (ln && ln->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, ln->s.str);
-            if (sym && sym->type.base && (sym->type.base->tag == TYPE_STRUCT || sym->type.base->tag == TYPE_UNION)) return true;
+            if (sym && sym->type.base && zero_cc_type_is_struct_or_union(sym->type.base)) return true;
         }
     } else if (node->tag == NODE_IDENT) {
         if (!zero_cc_find_local(c, node->s.str)) {
             ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
-            if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION)) return true;
+            if (gv && zero_cc_type_is_struct_or_union(&gv->type)) return true;
         }
     } else if (node->tag == NODE_MEMBER) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION)) return true;
+        if (type_is_struct_or_union(ti)) return true;
     } else if (node->tag == NODE_VA_ARG) {
         /* va_arg(ap, struct S) with sizeof(S) > 16 yields the hidden
          * pointer to the caller's variadic copy (SysV ABI) - an address. */
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (ti && (ti->kind == TYPE_KIND_STRUCT || ti->kind == TYPE_KIND_UNION) &&
-            type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
     }
     return false;
 }
