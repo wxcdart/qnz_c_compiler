@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T04:37:38Z
+timestamp: 2026-11-02T11:52:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -686,3 +686,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `c-torture-gate.md`
 - Sprint 77: Fix attribute infinite loop and compound literal brace init regressions; PASS 2,993 -> 3,039, REJECT 15 -> 13, TIMEOUT 73 -> 18, MISCOMPILE 0
+
+## 2026-11-02 — Updated `architecture-pipeline.md`
+- Sprint 78: Modularize preprocessor.h, definitions.h, and compile_unit.h into virtual_headers.h, cpp_expr.h, decl_struct.h, decl_enum.h, and const_ptr_eval.h

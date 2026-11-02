@@ -1,5 +1,26 @@
 # ZeroCC Changelog
 
+## [Sprint 78] - 2026-11-02 - Frontend & Core Modularization: Modularize preprocessor.h, definitions.h, and compile_unit.h
+
+Modularized the three largest remaining monolithic headers in the codebase (`preprocessor.h`, `definitions.h`, and `compile_unit.h`), decomposing them into cohesive, single-responsibility headers while keeping all test suites and verifiers 100% green:
+
+- **`src/zero_cc/core/preprocessor.h` Modularization (3,157 → 2,122 lines)**:
+  - Extracted freestanding embedded standard header literal strings (`<stddef.h>`, `<stdint.h>`, `<stdbool.h>`, `<stdarg.h>`, `<math.h>`, etc.) into `src/zero_cc/core/virtual_headers.h` (695 lines).
+  - Extracted `#if` / `#elif` constant expression recursive-descent arithmetic evaluator (`zero_cc_cpp_eval_*`) into `src/zero_cc/core/cpp_expr.h` (363 lines).
+- **`src/zero_cc/parser/definitions.h` Modularization (2,715 → 916 lines)**:
+  - Extracted struct/union body parsing, member layout, bitfield packing, and flexible array member calculations (`zero_cc_parse_struct_body`) into `src/zero_cc/parser/decl_struct.h` (1,678 lines).
+  - Extracted enum body parsing, member constants, and enum definitions into `src/zero_cc/parser/decl_enum.h` (151 lines).
+  - Left `definitions.h` focused cleanly on typedef statements (`zero_cc_stmt_typedef_struct`, `zero_cc_stmt_typedef_scalar`).
+- **`src/zero_cc/jit/compile_unit.h` Modularization (2,524 → 2,156 lines)**:
+  - Extracted constant pointer expression parsing and address arithmetic (`ZCPAddr`, `zc_eval_const_ptr_expr`, `zc_try_paren_ptr_init`) into `src/zero_cc/jit/const_ptr_eval.h` (383 lines).
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 passed.
+  - `make test-opt`: 117/117 passed, 0 failed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/style_check.py`: 150 files, 0 errors.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+
 ## [Sprint 77] - 2026-11-01 - Fix Preprocessor Attribute Infinite Loop & Compound Literal Brace Init Regressions: PASS 2,993 → 3,039, REJECT 15 → 13, TIMEOUT 73 → 18, MISCOMPILE 0
 
 Investigated and resolved compiler regressions uncovered during baseline inspection, restoring 43 spuriously hanging tests and 2 compound literal rejects, and setting a new all-time conformance record with zero miscompiles.
