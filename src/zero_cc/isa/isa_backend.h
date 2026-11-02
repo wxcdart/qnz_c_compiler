@@ -280,6 +280,8 @@ typedef struct ZeroCCISABackend {
     size_t (*emit_jcond)(ZeroCCCompiler *c, int cond, const char *label);
     void (*emit_call)(ZeroCCCompiler *c, const char *func_name);
     void (*emit_call_reg)(ZeroCCCompiler *c, int reg);
+    void (*emit_jmp_reg)(ZeroCCCompiler *c, int reg);
+    size_t (*emit_lea_label)(ZeroCCCompiler *c, int dst_reg);
     void (*emit_ret)(ZeroCCCompiler *c);
 
     /* Floating point */

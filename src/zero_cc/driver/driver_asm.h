@@ -124,6 +124,11 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                          * reloc against the function, not a literal 0. */
                         fprintf(comp->asm_out, "\t.quad\t%s\n",
                                 matching_reloc->target_extern_name);
+                    } else if (matching_reloc->target_kind == 5 &&
+                               matching_reloc->target_extern_name[0] != '\0') {
+                        /* Code label symbol (&&label) */
+                        fprintf(comp->asm_out, "\t.quad\t%s\n",
+                                matching_reloc->target_extern_name);
                     } else {
                         fprintf(comp->asm_out, "\t.quad\t0\n");
                     }

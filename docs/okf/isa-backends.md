@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-10-29T04:50:03Z
+timestamp: 2026-11-02T17:20:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -32,6 +32,18 @@ All four target ISAs (x86-64, aarch64, riscv64, riscv32) default to direct **RAW
 - **`-o`** (`compile_and_link`): generates a binary relocatable object `.o` via `zero_cc_emit_elf_obj` (`elf_writer`), then invokes the target system cross-linker (`gcc` / `ld`) with `-static` to link against libc/musl.
 - **`-c`**: writes the relocatable `.o` directly via `elf_writer` (ELF64 for x86-64, aarch64, riscv64; ELF32 for riscv32).
 - **Escape Hatch (`ZC_TEXT_AOT=1`)**: When `ZC_TEXT_AOT=1` is set in the environment, compilation routes through the text assembly path (`aarch64_asm.c` / `riscv_asm.c`) and system cross-assembler (`compile_object_cross`).
+
+### Computed Goto Indirect Jumps & Label Address Emission (Sprint 84)
+
+The backend interface `ZeroCCISABackend` defines two operations for computed gotos:
+- `void (*emit_jmp_reg)(ZeroCCCompiler *c, int reg)`: Emits an indirect jump to the address in physical register `reg`.
+  - **x86-64**: `0xFF /4` (`jmp *%reg`, rex.W if reg >= 8).
+  - **AArch64**: `br xN` (`0xD61F0000 | (reg << 5)`).
+  - **RISC-V**: `jalr zero, 0(reg)` (`0x00000067 | (reg << 15)`).
+- `size_t (*emit_lea_label)(ZeroCCCompiler *c, int dst_reg)`: Emits a PC-relative address computation targeting a code label, returning the byte offset of the displacement field to be patched:
+  - **x86-64**: `leaq disp32(%rip), %dst` (opcode `0x8D`, ModR/M `0x05 | (dst << 3)`). Patched with `rel32 = target_offset - (patch_pos + 4)`.
+  - **AArch64**: `adr xN, 0` (`0x10000000 | dst`). Patched with `imm21 = target_offset - patch_pos`.
+  - **RISC-V**: `auipc dst, 0` + `addi dst, dst, 0`. Patched with `hi20` + `lo12` sign-adjusted pair.
 
 **Measured state (`test/isa_qemu/` battery via `make test-isa-qemu` / `tools/isa_qemu_diff.py`):** all 4 target ISAs pass 100% cleanly (**44/44 PASS**): x86-64 (**11/11**), aarch64 (**11/11**), riscv64 (**11/11**), and riscv32 (**11/11**). For aarch64, stack frame setup, relocation pairs (`R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings were repaired. For riscv32, the ELF32 object emitter (`ELFCLASS32`, `EM_RISCV`), calling conventions, 4-byte frame setup (`sw`/`lw`), shifts, width extensions, and 5-8 byte struct return register pair (`a0`/`a1`) are fully functional.
 

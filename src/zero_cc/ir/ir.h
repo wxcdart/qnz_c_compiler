@@ -233,6 +233,10 @@ typedef enum {
      * RISC-V: fcvt.d.s / fcvt.s.d. */
     OP_CVTSS2SD,       /* dest (sd) = (double) src (ss) */
     OP_CVTSD2SS,       /* dest (ss) = (float) src (sd) */
+
+    /* Computed goto & label address (GNU extensions) */
+    OP_JMP_INDIRECT,   /* jmp through register temp_src1 */
+    OP_LEA_LABEL,      /* temp_dest = address of label_idx */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -384,6 +388,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VSHUFPS: return "VSHUFPS";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
+        case OP_JMP_INDIRECT: return "JMP_INDIRECT";
+        case OP_LEA_LABEL: return "LEA_LABEL";
         default: return "UNKNOWN";
     }
 }
@@ -855,6 +861,16 @@ static inline void ir_emit_mov_global(ZeroCCCompiler *c, uint16_t temp_dest, con
  * the relocator records an is_tls reloc resolved to R_X86_64_TPOFF64. */
 static inline void ir_emit_tls_lea(ZeroCCCompiler *c, uint16_t temp_dest, const char *symbol_name) {
     ir_emit(c, (Instr){.op = OP_TLS_LEA, .temp_dest = temp_dest, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)symbol_name, .label_idx = 0});
+}
+
+/* Computed goto (jump through register temp_src1) */
+static inline void ir_emit_jmp_ind(ZeroCCCompiler *c, int temp_target) {
+    ir_emit(c, (Instr){.op = OP_JMP_INDIRECT, .temp_dest = TEMP_NONE, .temp_src1 = (uint16_t)temp_target, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+
+/* Address of label (temp_dest = address of label_idx) */
+static inline void ir_emit_lea_label(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t label_idx) {
+    ir_emit(c, (Instr){.op = OP_LEA_LABEL, .temp_dest = temp_dest, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
 }
 
 #endif /* ZERO_CC_IR_H */

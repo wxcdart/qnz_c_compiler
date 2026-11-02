@@ -245,7 +245,10 @@ typedef struct {
  *   target_kind 4: an absolute offset within this TU's .data (address of an
  *                  in-TU static local; target_data_offset = the slot's
  *                  .data offset). AOT: reloc against the .data section
- *                  symbol; JIT: mem + data_offset + target_data_offset. */
+ *                  symbol; JIT: mem + data_offset + target_data_offset.
+ *   target_kind 5: code label target (address of a label within a function;
+ *                  target_global_idx = func_idx, target_data_offset = ir_label,
+ *                  target_extern_name = label name / assembly label). */
 typedef struct {
     size_t data_patch_offset;
     int    target_kind;

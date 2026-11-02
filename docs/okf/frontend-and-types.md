@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-02T16:17:09Z
+timestamp: 2026-11-02T17:20:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -381,6 +381,22 @@ A trailing flexible array member (`struct P { int n; char data[]; };`) is legal 
 
 - **Assignment expression value = field-reduced value**: `(l.m = j)` where `m` is an 11-bit bitfield must evaluate to the value **as stored in the field** — masked to the field width, sign-extended for signed fields — not the raw RHS (`execute/921016-1.c`: `(l.m = 1081) == 1081` must be false). Implemented in `assign_member_bitfield` (all three variants) and the member/compound-literal fallback assignment paths in `ir/ast_lowering_expr.c`.
 - **Shifts reduce too**: >32-bit bitfield `<<`/`>>` results reduce to the bitfield type per C11 6.5.7.3p2 (`zc_binop_bitfield_reduce` applies to `TK_SHL`/`TK_SHR`, not only `+`/`-`/`*`; `pr32244-1`, `pr34971`).
+
+## GNU Extension: Labels as Values (`&&label`) & Computed Goto (`goto *ptr;`) (Sprint 84)
+
+ZeroCC supports GNU C computed gotos and first-class label addresses:
+- **Unary `&&label` Syntax & `NODE_LABEL_ADDR`**:
+  - `&&` in unary position (disambiguated in `parse_unary_ast` by checking `TK_LOGAND` immediately followed by `TK_IDENT`) constructs a `NODE_LABEL_ADDR` AST node carrying the label identifier.
+  - Semantic analysis types `NODE_LABEL_ADDR` as `void *` and validates that the referenced label identifier is declared or defined within the enclosing function.
+  - Subtraction between two `void *` pointers (`&&l2 - &&l1`) is permitted as a GNU extension in `promote_binary()`.
+- **Computed Goto Statement (`goto *expr;`)**:
+  - Inside `ast_stmt.h`, when `TK_STAR` immediately follows `TK_GOTO`, the statement parses as an indirect computed goto, placing the target address expression in `node->left`.
+  - Semantic analysis checks that `node->left` has integer or pointer type.
+  - GNU local label declarations (`__label__ l1, l2;`) are accepted at block scope and skipped.
+- **Static & Global Label Dispatch Tables (`target_kind 5`)**:
+  - Declarations such as `static void *dispatch_table[] = { &&op1, &&op2 };` are parsed before the function IR is generated. Initializers record `ZeroCCDataReloc` entries with `target_kind = 5`.
+  - After function AST lowering completes, post-lowering resolves `target_kind 5` entries against `c->user_label_offsets` to record the exact byte offset in `.text` and the assembly label name `.L<fn>_<ir_lbl>`.
+  - AOT emission (`driver_asm.h` and `main.c`) generates `.quad .L<fn>_<ir_lbl>` and ELF `R_X86_64_64` relocations targeting the local `.text` symbol. JIT mode (`execution.h`) patches the in-memory function text offset.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

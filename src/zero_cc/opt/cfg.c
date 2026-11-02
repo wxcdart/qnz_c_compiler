@@ -15,6 +15,7 @@
 static bool cfg_is_terminal(int op) {
     switch (op) {
         case OP_JMP:
+        case OP_JMP_INDIRECT:
         case OP_JE:
         case OP_JNE:
         case OP_JL:
@@ -200,6 +201,14 @@ bool cfg_build(ZeroCCCompiler *c) {
             cfg_add_succ(&blocks[b], b + 1, nblocks); /* fallthrough (clamped/deduped) */
         } else if (op == OP_RET || op == OP_EPILOGUE) {
             /* no successors */
+        } else if (op == OP_JMP_INDIRECT) {
+            /* Indirect jump can target any block that starts with an OP_LABEL */
+            for (int tb = 0; tb < nblocks; tb++) {
+                Instr *first = ir_get(c, blocks[tb].start);
+                if (first && first->op == OP_LABEL) {
+                    cfg_add_succ(&blocks[b], tb, nblocks);
+                }
+            }
         } else {
             cfg_add_succ(&blocks[b], b + 1, nblocks); /* fallthrough (clamped/deduped) */
         }

@@ -1,5 +1,40 @@
 # ZeroCC Changelog
 
+## [Sprint 84] - 2026-11-02 - GNU Extension: Labels as Values (`&&label`) & Computed Goto (`goto *ptr;`)
+
+Implemented full support for GNU C Labels as Values (`&&label`) and Computed Goto (`goto *ptr;`) across the parser, semantic analyzer, IR, optimizers, and multi-ISA JIT/AOT code generation:
+
+- **Frontend & Semantic Parsing**:
+  - Added unary `&&label` syntax recognition in `parse_unary_ast()` (`src/zero_cc/parser/ast_expr.h`), constructing `NODE_LABEL_ADDR`.
+  - Added computed goto syntax `goto *expr;` in `parse_goto_stmt()` (`src/zero_cc/parser/ast_stmt.h`), placing the destination expression in `node->left`.
+  - Added support for GNU block-scope label declarations (`__label__ l1, l2;`) in `src/zero_cc/parser/ast_stmt.h`.
+  - Added semantic validation in `src/zero_cc/semantic/visitor.c` for `NODE_LABEL_ADDR` (typing as `void *`) and indirect `NODE_GOTO` (verifying pointer/integer target type).
+  - Allowed `void *` pointer arithmetic/subtraction in `src/zero_cc/semantic/promote.c`.
+- **Global & Static Dispatch Tables (`target_kind 5`)**:
+  - Extended brace-initializer parser (`src/zero_cc/parser/init_common.h`) to accept `&&label` targets in aggregate initializers (`static void *dispatch_table[] = { &&l1, &&l2 };`), creating `ZeroCCDataReloc` entries with `target_kind = 5`.
+  - Added post-lowering label relocation resolution in `src/zero_cc/ir/ast_lowering.c` and in-memory execution patching in `src/zero_cc/jit/execution.h`.
+  - Added `.text` section symbol generation and `R_X86_64_64` ELF data relocations in `src/main.c`, and assembly emission `.quad .L<fn>_<lbl>` in `src/zero_cc/driver/driver_asm.h`.
+- **Two-Pass IR & Optimizations**:
+  - Introduced opcodes `OP_LEA_LABEL` (loads PC-relative label address) and `OP_JMP_INDIRECT` (indirect register branch) in `src/zero_cc/ir/ir.h`.
+  - Handled control-flow effects in `src/zero_cc/opt/cfg.c` (terminal node and fan-out edges to candidate target blocks).
+  - Updated DCE (`opt_dce.c`), GVN (`opt_gvn.c`), LICM/loop passes (`opt_loop.c`), and `mem2reg` (`opt_mem2reg.c`) to treat `OP_JMP_INDIRECT` as a block barrier, preventing invalid induction variable promotion across indirect dispatch loops.
+- **Multi-ISA Code Generation (x86-64, AArch64, RISC-V 32/64)**:
+  - Extended `ZeroCCISABackend` with `emit_jmp_reg` and `emit_lea_label`.
+  - Implemented x86-64 (`jmp *%reg` and `leaq disp32(%rip), %dst`), AArch64 (`br xN` and `adr xN, label`), and RISC-V (`jalr zero, 0(reg)` and `auipc + addi` pair).
+  - Updated JIT branch patchers (`x86_patch_jmp`, `aarch64_patch_jmp`, `riscv64_patch_jmp`) to patch `OP_LEA_LABEL` displacements alongside forward branches.
+- **Verification Gate**:
+  - Direct test `test/jit/computed_goto_test.c`: 100% PASS in both JIT (`--run`) and AOT (`-o`) across `-O0`, `-O1`, `-O2`, and `-O3`.
+  - `make test`: 157/157 passed, 0 failed.
+  - `make test-driver`: 37/37 driver tests passed.
+  - `make test-linker`: 21/21 own-linker tests passed.
+  - `make test-opt`: 118/118 passed across -O0..-O3 in JIT and AOT.
+  - `make test-isa-qemu`: 44/44 passed across x86-64, aarch64, riscv64, riscv32.
+  - `python3 tools/torture_run.py --quick`: gate OK (3,039 PASS, 0 regressions vs baseline; 12 bad vs 13 baseline).
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+  - `python3 tools/style_check.py`: 157 files, 0 errors.
+  - `python3 tools/okf.py lint && python3 tools/okf.py index`: 18/18 OKF pages valid and reachable.
+
 ## [Sprint 83] - 2026-11-02 - Type System Consolidation (TypeInfo vs ZeroCCType)
 
 Streamlined and consolidated the dual type representation between semantic analysis (`TypeInfo` in `src/zero_cc/semantic/type.h`) and lowering/parser (`ZeroCCType` in `src/zero_cc/types/type_system.h`) through the canonical `src/zero_cc/jit/type_info.h` bridge:

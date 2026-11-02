@@ -673,6 +673,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                               data_idx,  /* .data section index */
                               0, 0);
     }
+    if (comp->text_section.length > 0) {
+        elf_writer_add_symbol(&elf_ctx, ".text",
+                              ELF_STB_LOCAL, ELF_STT_SECTION,
+                              text_idx,  /* .text section index */
+                              0, 0);
+    }
 
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
@@ -1022,6 +1028,21 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 }
                 elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
                                           dsym, reloc_type_data_abs,
+                                          (int64_t)dr->target_data_offset);
+            } else if (dr->target_kind == 5) {
+                /* Code label target: address in .text section */
+                int tsym = 0;
+                for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                    if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, ".text") == 0) { tsym = j + 1; break; }
+                }
+                if (tsym == 0) {
+                    elf_writer_add_symbol(&elf_ctx, ".text",
+                                          ELF_STB_LOCAL, ELF_STT_SECTION,
+                                          text_idx, 0, 0);
+                    tsym = elf_ctx.symbol_count;
+                }
+                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                                          tsym, reloc_type_data_abs,
                                           (int64_t)dr->target_data_offset);
             }
         }

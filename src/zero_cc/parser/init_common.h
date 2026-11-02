@@ -960,7 +960,10 @@ static inline bool zc_probe_cast_amp(ZeroCCCompiler *c) {
             break;
         }
     }
-    return (cast_probe < c->token_count && c->tokens[cast_probe].type == TK_AMP);
+    return (cast_probe < c->token_count &&
+            (c->tokens[cast_probe].type == TK_AMP ||
+             (c->tokens[cast_probe].type == TK_LOGAND && cast_probe + 1 < c->token_count &&
+              c->tokens[cast_probe + 1].type == TK_IDENT)));
 }
 
 static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
@@ -1154,6 +1157,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             }
         }
         } else if ((c->tokens[c->token_pos].type == TK_AMP ||
+                    (c->tokens[c->token_pos].type == TK_LOGAND && c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_IDENT) ||
                    (c->tokens[c->token_pos].type == TK_LPAREN && zc_probe_cast_amp(c))) &&
                    !zc_probe_clit_init(c, c->token_pos, NULL, NULL)) {
             while (c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -1162,6 +1166,29 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
             }
+            if (c->tokens[c->token_pos].type == TK_LOGAND &&
+                c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_IDENT) {
+                const char *lbl_name = c->tokens[c->token_pos + 1].str_val;
+                c->token_pos += 2; /* consume '&&' and ident */
+                if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                    ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                    dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                    dr->target_kind = 5; /* code label target */
+                    dr->rodata_offset = 0;
+                    dr->target_data_offset = 0; /* resolved after function IR lowering */
+                    dr->target_global_idx = (c->function_count > 0) ? (int)(c->function_count - 1) : 0;
+                    snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", lbl_name);
+                }
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
+                    }
+                }
+            } else {
             size_t ap = c->token_pos + 1; /* past '&' */
             int pdepth = 0;
             while (ap < c->token_count && c->tokens[ap].type == TK_LPAREN) {
@@ -1258,6 +1285,7 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 }
             } else {
                 c->token_pos = ap;
+            }
             }
         } else if (c->token_pos < c->token_count &&
                    c->tokens[c->token_pos].type == TK_IDENT &&

@@ -513,6 +513,33 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_LEA_LABEL: {
+            char lbl_buf[64];
+            snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+            const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tadrp\t%s, %s\n", dst_name, lbl_buf);
+                fprintf(out, "\tadd\t%s, %s, :lo12:%s\n", dst_name, dst_name, lbl_buf);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlla\t%s, %s\n", dst_name, lbl_buf);
+            } else {
+                fprintf(out, "\tleaq\t%s(%%rip),%%%s\n", lbl_buf, dst_name);
+            }
+            return;
+        }
+
+        case OP_JMP_INDIRECT: {
+            const char *src_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tbr\t%s\n", src_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tjr\t%s\n", src_name);
+            } else {
+                fprintf(out, "\tjmp\t*%%%s\n", src_name);
+            }
+            return;
+        }
+
         case OP_MOV_GLOBAL: {
             const char *symbol_name = (const char *)(intptr_t)instr->imm64;
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);

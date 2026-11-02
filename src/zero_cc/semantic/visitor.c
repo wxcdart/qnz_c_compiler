@@ -643,11 +643,21 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             }
             break;
         }
-        case NODE_GOTO: {
-            /* C99 6.8.4.3p1: the label must be defined in the enclosing
-             * function (labels are pre-collected over the whole body, so
-             * forward gotos are validated). */
+        case NODE_LABEL_ADDR: {
             if (node->s.str && !sem_find_label(ctx, node->s.str, node->s_len)) {
+                sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
+            }
+            res = type_pointer_to(ctx->perm_arena, type_void(ctx->perm_arena));
+            break;
+        }
+        case NODE_GOTO: {
+            if (node->left != AST_NULL) {
+                /* Computed goto: goto *expr; */
+                TypeInfo *t = sem_analyze_ref(ctx, node->left);
+                if (t && !type_is_pointer(t) && !type_is_integer(t)) {
+                    sem_node_error(ctx, node, "computed goto requires pointer or integer target");
+                }
+            } else if (node->s.str && !sem_find_label(ctx, node->s.str, node->s_len)) {
                 sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
             }
             break;

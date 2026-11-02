@@ -156,6 +156,9 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         } else if (dr->target_kind == 4) {
             /* Absolute .data offset: address of an in-TU static local. */
             target = (uintptr_t)((char *)mem + data_offset + dr->target_data_offset);
+        } else if (dr->target_kind == 5) {
+            /* Code label target: address of a label within a function */
+            target = (uintptr_t)((char *)mem + dr->target_data_offset);
         } else {
             target = (uintptr_t)((char *)mem + c->text_section.length + dr->rodata_offset + dr->target_data_offset);
         }

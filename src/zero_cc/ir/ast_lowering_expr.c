@@ -877,6 +877,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             lower_expr(c, arena, node->left);
             return lower_expr(c, arena, node->right);
 
+        case NODE_LABEL_ADDR: {
+            uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
+            int temp = c->next_temp_id++;
+            ir_emit_lea_label(c, (uint16_t)temp, lbl);
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+
         case NODE_UNOP:
             return lower_expr_unop(c, arena, node);
 

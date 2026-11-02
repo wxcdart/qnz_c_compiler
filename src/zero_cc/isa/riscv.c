@@ -544,6 +544,23 @@ static void riscv64_emit_call_reg(ZeroCCCompiler *c, int reg) {
     riscv_emit_u32(c, (uint32_t)(((uint32_t)(reg & 0x1F) << 15) | (1u << 7) | 0x67u));
 }
 
+/* jmp [reg] - indirect jump through register */
+static void riscv64_emit_jmp_reg(ZeroCCCompiler *c, int reg) {
+    /* jalr zero, 0(reg) */
+    riscv_emit_u32(c, (uint32_t)(((uint32_t)(reg & 0x1F) << 15) | 0x67u));
+}
+
+/* auipc + addi pair - load label address PC-relative */
+static size_t riscv64_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
+    size_t patch_pos = me_get_offset(c);
+    int r = dst_reg & 0x1F;
+    uint32_t auipc = (uint32_t)(((uint32_t)r << 7) | 0x17u);
+    uint32_t addi  = (uint32_t)(((uint32_t)r << 15) | ((uint32_t)r << 7) | 0x13u);
+    riscv_emit_u32(c, auipc);
+    riscv_emit_u32(c, addi);
+    return patch_pos;
+}
+
 /* stack_align - ensure 16-byte stack alignment (frames are 16-byte aligned) */
 static void riscv64_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
     (void)c;
@@ -745,6 +762,15 @@ static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t t
         uint32_t imm = ((u & 0x1000u) << 19) | ((u & 0x7E0u) << 20) |
                        ((u & 0x1Eu) << 7) | ((u & 0x800u) >> 4);
         *insn = (cur & keep) | imm;
+    } else if (op == 0x17u) {
+        /* AUIPC + ADDI pair: 32-bit PC-relative load */
+        int32_t hi20 = (rel + 0x800) >> 12;
+        int32_t lo12 = rel - (hi20 << 12);
+        *insn = (cur & 0xFFFu) | ((uint32_t)hi20 << 12);
+        if (patch_offset + 8 <= c->text_section.length) {
+            uint32_t *addi_insn = insn + 1;
+            *addi_insn = (*addi_insn & 0xFFFFF) | ((uint32_t)(lo12 & 0xFFF) << 20);
+        }
     }
     return patch_offset;
 }
@@ -1242,6 +1268,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_jge = riscv64_emit_jge,
     .emit_call = riscv64_emit_call,
     .emit_call_reg = riscv64_emit_call_reg,
+    .emit_jmp_reg = riscv64_emit_jmp_reg,
+    .emit_lea_label = riscv64_emit_lea_label,
     .emit_ret = riscv64_emit_ret,
     .emit_syscall = riscv_emit_syscall,
 
@@ -1461,6 +1489,8 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_jge = riscv64_emit_jge,
     .emit_call = riscv64_emit_call,
     .emit_call_reg = riscv64_emit_call_reg,
+    .emit_jmp_reg = riscv64_emit_jmp_reg,
+    .emit_lea_label = riscv64_emit_lea_label,
     .emit_ret = riscv64_emit_ret,
     .emit_syscall = riscv_emit_syscall,
 

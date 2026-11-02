@@ -1053,6 +1053,23 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             n->int_val = (int64_t)align;
             return ref;
         }
+        case TK_LOGAND: {
+            /* GNU address of label extension: &&label */
+            if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_IDENT) {
+                uint32_t line = (uint32_t)c->tokens[c->token_pos].line;
+                uint32_t col = (uint32_t)c->tokens[c->token_pos].col;
+                const char *lbl_str = c->tokens[c->token_pos + 1].str_val;
+                c->token_pos += 2; /* consume '&&' and ident */
+                ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_LABEL_ADDR);
+                ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
+                node->line = line;
+                node->col = col;
+                node->s.str = zero_cc_intern_string(c, lbl_str);
+                node->s_len = strlen(node->s.str);
+                return ref;
+            }
+            break;
+        }
         case TK_PLUS:
         case TK_MINUS:
         case TK_BANG:

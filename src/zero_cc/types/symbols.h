@@ -128,6 +128,14 @@ typedef struct ZeroCCCompiler {
     } labels[32];
     int label_count;
 
+    /* User label text offsets for JIT data-reloc resolution (static &&label tables) */
+    struct {
+        size_t func_idx;
+        uint16_t ir_label;
+        size_t text_offset;
+    } user_label_offsets[256];
+    size_t user_label_offset_count;
+
     /* ISA backend */
     ZeroCCISA isa;                        /* Target ISA */
     const ZeroCCISABackend *isa_backend;  /* ISA-specific codegen backend */

@@ -75,6 +75,7 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         /* Unconditional control flow leaves the basic block */
         case OP_JMP:
         case OP_JMP_LABEL:
+        case OP_JMP_INDIRECT:
             return 1;
 
         /* Conditional branches (OP_JE, OP_JNE, OP_JL, OP_JLE, OP_JG, OP_JCOND):
@@ -218,7 +219,8 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
                 loop_ins->op == OP_ATOMIC_XOR ||
                 loop_ins->op == OP_ATOMIC_CMPXCHG ||
                 loop_ins->op == OP_ATOMIC_CMPXCHG_BOOL ||
-                loop_ins->op == OP_ATOMIC_XCHG) {
+                loop_ins->op == OP_ATOMIC_XCHG ||
+                loop_ins->op == OP_JMP_INDIRECT) {
                 safe_loop = false;
                 break;
             }
@@ -469,15 +471,25 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     if (max_label >= 0) {
         label_targeted = (bool *)calloc(max_label + 1, sizeof(bool));
         if (label_targeted) {
+            bool has_indirect = false;
             for (size_t i = 0; i < count; i++) {
                 Instr *ins = ir_get(c, i);
                 if (!ins) continue;
+                if (ins->op == OP_JMP_INDIRECT) {
+                    has_indirect = true;
+                }
                 if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
                     ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG ||
-                    ins->op == OP_JCOND || ins->op == OP_JMP_LABEL) {
+                    ins->op == OP_JCOND || ins->op == OP_JMP_LABEL ||
+                    ins->op == OP_LEA_LABEL) {
                     if ((int)ins->label_idx <= max_label) {
                         label_targeted[ins->label_idx] = true;
                     }
+                }
+            }
+            if (has_indirect) {
+                for (int l = 0; l <= max_label; l++) {
+                    label_targeted[l] = true;
                 }
             }
         }

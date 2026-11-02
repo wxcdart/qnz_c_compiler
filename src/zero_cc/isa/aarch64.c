@@ -681,6 +681,20 @@ static void aarch64_emit_call_reg(ZeroCCCompiler *c, int reg) {
     arm64_emit_u32(c, 0xD63F0000 | (reg << 5));
 }
 
+/* jmp [reg] - indirect jump through register */
+static void aarch64_emit_jmp_reg(ZeroCCCompiler *c, int reg) {
+    /* br reg */
+    arm64_emit_u32(c, 0xD61F0000 | ((reg & 0x1F) << 5));
+}
+
+/* adr dst_reg, label - load label address PC-relative */
+static size_t aarch64_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
+    size_t patch_pos = me_get_offset(c);
+    uint32_t insn = 0x10000000 | (dst_reg & 0x1F); /* ADR dst_reg, 0 */
+    arm64_emit_u32(c, insn);
+    return patch_pos;
+}
+
 /* OS syscall (Linux AArch64 ABI): number in x8, args 1-6 in x0-x5, result
  * in x0 (= VREG_0, no fix-up needed). The kernel clobbers x0-x17 (x18 is
  * preserved), so every clobbered register that may hold a caller value is
@@ -979,22 +993,21 @@ static inline void aarch64_emit_fp_sqrt(ZeroCCCompiler *c, int dst, int src) {
 
 
 static size_t aarch64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
-    /* ARM64 branch instruction encoding:
-     * - Unconditional B/BL: 26-bit signed offset (bits 25:0)
-     * - Conditional B.COND: 19-bit signed offset (bits 23:5), condition in bits [3:0]
-     */
-    int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
-
     if (patch_offset + 4 <= c->text_section.length) {
         uint8_t *buf = (uint8_t *)c->text_section.data;
         uint32_t *insn = (uint32_t*)(buf + patch_offset);
 
-        /* Check if this is a conditional branch (0x54xxxxxx) or unconditional (0x14xxxxxx, 0x94xxxxxx) */
-        if ((*insn & 0xFF000010) == 0x54000000) {
+        if ((*insn & 0x9F000000) == 0x10000000) {
+            /* ADR Rd, label: 21-bit signed byte offset */
+            int32_t byte_delta = (int32_t)(target_offset - patch_offset);
+            *insn = (*insn & 0x9F00001F) | ((byte_delta & 3) << 29) | (((byte_delta >> 2) & 0x7FFFF) << 5);
+        } else if ((*insn & 0xFF000010) == 0x54000000) {
             /* B.COND: 19-bit offset in bits [23:5], preserve condition in bits [3:0] */
+            int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
             *insn = (*insn & 0xFF00001F) | ((rel & 0x7FFFF) << 5);
         } else {
             /* Unconditional B/BL: 26-bit offset */
+            int32_t rel = (int32_t)((target_offset - patch_offset) >> 2);
             *insn = (*insn & 0xFC000000) | (rel & 0x03FFFFFF);
         }
     }
@@ -1164,6 +1177,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_lnot = aarch64_emit_lnot,
     .emit_call = aarch64_emit_call,
     .emit_call_reg = aarch64_emit_call_reg,
+    .emit_jmp_reg = aarch64_emit_jmp_reg,
+    .emit_lea_label = aarch64_emit_lea_label,
     .emit_syscall = aarch64_emit_syscall,
     .emit_ret = aarch64_emit_ret,
 

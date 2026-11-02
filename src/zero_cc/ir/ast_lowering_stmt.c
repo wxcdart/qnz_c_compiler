@@ -1382,8 +1382,15 @@ void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     }
 }
 
-void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena __attribute__((unused)), ZeroCCASTNode *node) {
-    if (!node || !node->s.str) return;
+void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    if (!node) return;
+    if (node->left != AST_NULL) {
+        /* Computed goto: goto *expr; */
+        int target_temp = lower_expr(c, arena, node->left);
+        ir_emit_jmp_ind(c, target_temp);
+        return;
+    }
+    if (!node->s.str) return;
     uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
     ir_emit_jmp(c, lbl);
 }

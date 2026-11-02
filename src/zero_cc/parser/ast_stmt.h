@@ -144,14 +144,31 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         return AST_NULL;
     }
 
-    /* Goto statement: goto label; */
+    /* GNU local label declaration: __label__ l1, l2; */
+    if (t == TK_IDENT && c->tokens[c->token_pos].str_val &&
+        strcmp(c->tokens[c->token_pos].str_val, "__label__") == 0) {
+        c->token_pos++;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+               c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
+            c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        }
+        return zero_cc_parse_stmt_ast(c, arena, ctx);
+    }
+
+    /* Goto statement: goto label; OR goto *expr; */
     if (t == TK_GOTO) {
         c->token_pos++;
         ASTRef g_ref = zero_cc_ast_alloc_node(arena, NODE_GOTO);
         ZeroCCASTNode *gn = zero_cc_ast_get(arena, g_ref);
         gn->line = line;
         gn->col = col;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+            c->token_pos++;
+            gn->left = parse_expr_ast_internal(c, arena);
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
             gn->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
             gn->s_len = strlen(gn->s.str);
             c->token_pos++;

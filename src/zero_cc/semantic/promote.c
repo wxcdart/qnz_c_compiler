@@ -483,7 +483,8 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
             }
             /* pointer - pointer -> ptrdiff_t (long) */
             if (type_is_pointer(lp) && type_is_pointer(rp)) {
-                if (type_is_compatible(lp->details.pointer.base, rp->details.pointer.base)) {
+                if (type_is_compatible(lp->details.pointer.base, rp->details.pointer.base) ||
+                    type_is_void(lp->details.pointer.base) || type_is_void(rp->details.pointer.base)) {
                     return type_long(perm);
                 }
                 if (diag) diag_report(diag, 0, 0, "subtraction of incompatible pointer types");

@@ -322,6 +322,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_JG:
         case OP_JCOND:
         case OP_JMP_LABEL:
+        case OP_JMP_INDIRECT:
         case OP_PROLOGUE:
         case OP_EPILOGUE:
         case OP_CALLEE_SAVE_STORES:

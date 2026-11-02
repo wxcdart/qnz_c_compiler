@@ -63,8 +63,9 @@ typedef enum {
     NODE_DEFAULT,     /* left = stmt */
     NODE_BREAK,
     NODE_CONTINUE,
-    NODE_GOTO,        /* s.str = label name */
+    NODE_GOTO,        /* s.str = label name, or left = expr for computed goto */
     NODE_LABEL,       /* s.str = label name, left = stmt */
+    NODE_LABEL_ADDR,  /* GNU &&label unary expr: s.str = label name */
     NODE_RETURN,      /* left = expr (optional) */
     NODE_DECL,        /* var / func declaration: left = init, str_val = name */
     /* Flags for NODE_DECL: */

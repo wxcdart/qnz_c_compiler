@@ -360,6 +360,10 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                             break;
             case OP_LABEL: fprintf(f, "L%u:", instr->label_idx);
                            break;
+            case OP_JMP_INDIRECT: fprintf(f, "JMP_INDIRECT r%u", instr->temp_src1);
+                                  break;
+            case OP_LEA_LABEL: fprintf(f, "LEA_LABEL r%u, L%u", instr->temp_dest, instr->label_idx);
+                               break;
             case OP_PROLOGUE: fprintf(f, "PROLOGUE %lld", (long long)instr->imm64);
                               break;
             case OP_EPILOGUE: fprintf(f, "EPILOGUE");

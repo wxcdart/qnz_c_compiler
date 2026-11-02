@@ -770,6 +770,31 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             }
 
+            case OP_LEA_LABEL: {
+                if (BE(c)->emit_lea_label) {
+                    size_t patch_pos = BE(c)->emit_lea_label(c, phys_dst);
+                    if (instr->label_idx < label_count) {
+                        size_t label_idx = instr->label_idx;
+                        if (label_defined[label_idx]) {
+                            BE(c)->patch_jmp(c, patch_pos, label_offsets[label_idx]);
+                        } else {
+                            if (label_patch_counts[label_idx] >= label_patch_caps[label_idx]) {
+                                size_t new_cap = label_patch_caps[label_idx] ? label_patch_caps[label_idx] * 2 : 4;
+                                size_t *new_patches = (size_t *)realloc(label_patches[label_idx], new_cap * sizeof(size_t));
+                                if (new_patches) {
+                                    label_patches[label_idx] = new_patches;
+                                    label_patch_caps[label_idx] = new_cap;
+                                }
+                            }
+                            if (label_patches[label_idx] && label_patch_counts[label_idx] < label_patch_caps[label_idx]) {
+                                label_patches[label_idx][label_patch_counts[label_idx]++] = patch_pos;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+
             case OP_MOV_GLOBAL: {
                 /* Global variable load with relocation */
                 const char *symbol_name = (const char *)(intptr_t)instr->imm64;
@@ -1124,6 +1149,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         BE(c)->patch_jmp(c, label_patches[label_idx][j], label_offsets[label_idx]);
                     }
                     label_patch_counts[label_idx] = 0;
+                    if (c->user_label_offset_count < 256) {
+                        c->user_label_offsets[c->user_label_offset_count].func_idx = c->lowering.current_func_idx;
+                        c->user_label_offsets[c->user_label_offset_count].ir_label = (uint16_t)label_idx;
+                        c->user_label_offsets[c->user_label_offset_count].text_offset = label_offsets[label_idx];
+                        c->user_label_offset_count++;
+                    }
                 }
                 break;
 
@@ -1197,6 +1228,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 /* Call through register pointer */
                 if (BE(c)->emit_call_reg) {
                     BE(c)->emit_call_reg(c, phys_src1);
+                }
+                break;
+
+            case OP_JMP_INDIRECT:
+                /* Jump through register pointer */
+                if (BE(c)->emit_jmp_reg) {
+                    BE(c)->emit_jmp_reg(c, phys_src1);
                 }
                 break;
 

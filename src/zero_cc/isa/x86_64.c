@@ -1324,6 +1324,23 @@ static void x86_emit_call_reg(ZeroCCCompiler *c, int reg) {
     x86_modrm(c, 3, 2, reg & 7); /* call r/m64 */
 }
 
+/* jmp [reg] - indirect jump through register */
+static void x86_emit_jmp_reg(ZeroCCCompiler *c, int reg) {
+    x86_rex(c, 1, 0, 0, (reg >> 3) & 1);
+    me_emit_u8(c, 0xff);
+    x86_modrm(c, 3, 4, reg & 7); /* jmp r/m64 */
+}
+
+/* leaq disp32(%rip), dst_reg - load label address */
+static size_t x86_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
+    x86_rex(c, 1, (dst_reg >> 3) & 1, 0, 0);
+    me_emit_u8(c, 0x8D);
+    x86_modrm(c, 0, dst_reg & 7, 5);  /* Mod=00, R/M=5 (RIP-relative) */
+    size_t patch_pos = me_get_offset(c);
+    me_emit_u32(c, 0);
+    return patch_pos;
+}
+
 /* stack_align - ensure 16-byte stack alignment (x86-64 already handles this) */
 static void x86_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
     /* x86-64 ABI requires 16-byte alignment before call.
@@ -1948,6 +1965,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_jcond = x86_emit_jcond,
     .emit_call = x86_emit_call,
     .emit_call_reg = x86_emit_call_reg,
+    .emit_jmp_reg = x86_emit_jmp_reg,
+    .emit_lea_label = x86_emit_lea_label,
     .emit_ret = x86_emit_ret,
 
     .emit_load_fp = x86_emit_load_fp,

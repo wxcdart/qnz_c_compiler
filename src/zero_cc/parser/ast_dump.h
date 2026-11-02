@@ -230,6 +230,23 @@ void zero_cc_ast_dump(ZeroCCASTArena *arena, ASTRef root, int indent) {
         case NODE_CONTINUE:
             printf("ContinueStmt\n");
             break;
+        case NODE_GOTO:
+            if (n->left != AST_NULL) {
+                printf("GotoIndirect\n");
+                zero_cc_ast_dump(arena, n->left, indent + 1);
+            } else {
+                printf("Goto: %.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
+            }
+            break;
+        case NODE_LABEL:
+            printf("Label: %.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
+            if (n->left != AST_NULL) {
+                zero_cc_ast_dump(arena, n->left, indent + 1);
+            }
+            break;
+        case NODE_LABEL_ADDR:
+            printf("LabelAddr: &&%.*s\n", (int)n->s_len, n->s.str ? n->s.str : "");
+            break;
         case NODE_RETURN:
             printf("ReturnStmt\n");
             if (n->left != AST_NULL) {

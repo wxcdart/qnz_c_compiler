@@ -235,7 +235,7 @@ bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root) {
  * caller's target. */
 static bool zero_cc_ast_pred_label_goto(ZeroCCASTNode *n, size_t ctx) {
     (void)ctx;
-    return n->tag == NODE_LABEL || n->tag == NODE_GOTO;
+    return n->tag == NODE_LABEL || n->tag == NODE_GOTO || n->tag == NODE_LABEL_ADDR;
 }
 bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root) {
     return zero_cc_ast_walk(arena, root, 0, zero_cc_ast_pred_label_goto, 0);

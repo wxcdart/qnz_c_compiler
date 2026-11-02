@@ -891,6 +891,30 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Clear IR buffer for next function */
     ir_clear(c);
 
+    /* Resolve kind-5 data relocations (static label tables: &&label) for this function */
+    for (size_t r = 0; r < c->data_reloc_count; r++) {
+        ZeroCCDataReloc *dr = &c->data_relocs[r];
+        if (dr->target_kind == 5 && (size_t)dr->target_global_idx == current_fn_idx) {
+            for (int u = 0; u < c->label_patcher.user_label_count; u++) {
+                if (strcmp(dr->target_extern_name, c->label_patcher.user_labels[u].name) == 0) {
+                    uint16_t ir_lbl = c->label_patcher.user_labels[u].ir_label;
+                    size_t text_off = 0;
+                    for (size_t lo = 0; lo < c->user_label_offset_count; lo++) {
+                        if (c->user_label_offsets[lo].func_idx == current_fn_idx &&
+                            c->user_label_offsets[lo].ir_label == ir_lbl) {
+                            text_off = c->user_label_offsets[lo].text_offset;
+                            break;
+                        }
+                    }
+                    dr->target_data_offset = text_off;
+                    snprintf(dr->target_extern_name, sizeof(dr->target_extern_name),
+                             ".L%zu_%u", current_fn_idx, (unsigned)ir_lbl);
+                    break;
+                }
+            }
+        }
+    }
+
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
 }

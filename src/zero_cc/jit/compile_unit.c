@@ -307,6 +307,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         return;
     }
     c->reloc_count = 0;
+    c->user_label_offset_count = 0;
     zero_cc_init_standard_types(c);
     c->thread_local_count = 0;
     /* Initialise default TLS backend */

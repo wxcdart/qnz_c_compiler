@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-02T15:03:29Z
+timestamp: 2026-11-02T17:20:42Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 136 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, and 128-bit SIMD vector ops).
+- `op` (`Opcode`): One of 138 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, and computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
@@ -34,6 +34,17 @@ During code generation, if `temp_dest` is allocated to the identical physical AB
 ### Logical `&&` / `||` Lowering (Sprint 41)
 
 `NODE_BINOP` with `TK_LOGAND`/`TK_LOGOR` lowers to a **straight-line** sequence (no embedded branches): each operand is tested with `OP_CMP_ZERO`+`OP_COND_SET(CC_NE)` to a 0/1 temp, then combined with `OP_AND`/`OP_OR` — i.e. `a&&b = (a!=0) & (b!=0)`, `a||b = (a!=0) | (b!=0)`, matching C's 0/1 result. It was previously missing from the `NODE_BINOP` dispatch and fell through to the `default` arm, which returned only the **left** operand (dropping the right operand's comparison — the `while(s[n]&&n<7)` over-run). Straight-line form is deliberate: a branch-based short-circuit (both operands + embedded `je`/`jmp` + labels, as `NODE_TERNARY` uses) confuses the -O2/-O3 CSE/GVN/LICM passes. **Limitation**: no short-circuit, so the right operand is always evaluated (`p && *p` with `p==NULL` still derefs).
+
+### Computed Goto & Address-of-Label Lowering (Sprint 84)
+
+1. **`OP_LEA_LABEL` (`ir_emit_lea_label(c, temp_dest, label_idx)`)**:
+   - Materializes the PC-relative address of a local code label into virtual register `temp_dest`.
+   - On x86-64, emits `leaq disp32(%rip), %dst`. On AArch64, emits `adr xN, label`. On RISC-V, emits `auipc + addi` pair.
+   - Jump patchers record the displacement patch position and apply relocations uniformly alongside forward branches.
+2. **`OP_JMP_INDIRECT` (`ir_emit_jmp_ind(c, temp_target)`)**:
+   - Executes an unconditional indirect jump to the address in `temp_target` GPR (`jmp *%reg`, `br xN`, `jalr zero, 0(reg)`).
+   - Marked as a control-flow terminal in `cfg_is_terminal()`, with CFG edges added to all candidate target blocks.
+   - Treated as an invalidation boundary across DCE, GVN (`mf_reset`), loop optimization (`safe_loop = false`), and `mem2reg` slot tracking.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 
