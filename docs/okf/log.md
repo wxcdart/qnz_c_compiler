@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-02T11:52:15Z
+timestamp: 2026-11-02T13:30:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -689,3 +689,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-02 — Updated `architecture-pipeline.md`
 - Sprint 78: Modularize preprocessor.h, definitions.h, and compile_unit.h into virtual_headers.h, cpp_expr.h, decl_struct.h, decl_enum.h, and const_ptr_eval.h
+
+## 2026-11-02 — Updated `architecture-pipeline.md`
+- Modularize const_eval.h into type_parser.h, ast_stmt.h into decl_local.h, and main.c into driver_opts.h and driver_asm.h

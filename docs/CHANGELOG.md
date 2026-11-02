@@ -1,5 +1,27 @@
 # ZeroCC Changelog
 
+## [Sprint 79] - 2026-11-02 - Modularization Phase 2: Refactor const_eval.h, ast_stmt.h, and main.c
+
+Decomposed the next three large files (`const_eval.h`, `ast_stmt.h`, and `main.c`) into cohesive, single-responsibility modules, keeping all test suites, driver tests, and optimizer sweeps 100% green:
+
+- **`src/zero_cc/parser/const_eval.h` Modularization (2,222 → 1,115 lines)**:
+  - Extracted type name parsing and syntactic expression typeof resolution (`zero_cc_type_of_*`, `zero_cc_type_find_member`, `zc_parse_basic_type_spec`, `zero_cc_parse_type_name_at_pos`, `zero_cc_parse_type_name`) into `src/zero_cc/parser/type_parser.h` (1,142 lines).
+  - Left `const_eval.h` focused strictly on constant evaluation values (`ZCConstVal`), constant arithmetic parsing (`parse_conditional` ... `parse_primary`), `eval_sizeof`, and `eval_alignof`.
+- **`src/zero_cc/parser/ast_stmt.h` Modularization (1,997 → 616 lines)**:
+  - Extracted local variable declaration parsing (`zero_cc_parse_local_decl`), static local registration/patching (`zero_cc_static_local_register`, `zero_cc_static_local_patch_init`), and unsized array initializer measurement into `src/zero_cc/parser/decl_local.h` (1,428 lines).
+  - Left `ast_stmt.h` cleanly focused on AST statement control flow (`if`, `while`, `do`, `for`, `switch`, `case`, `default`, `break`, `continue`, `goto`, `return`, `_Static_assert`, compound blocks, and expression statements).
+- **`src/main.c` Modularization (1,996 → 1,424 lines)**:
+  - Extracted CLI argument options struct and command-line parser (`CompileOptions`, `parse_args`, `print_usage`, `print_version`) into `src/zero_cc/driver/driver_opts.h` (332 lines).
+  - Extracted GNU assembly data section directives (`.data`, `.rodata`, `.bss`, relocations, alignments, visibility) into `src/zero_cc/driver/driver_asm.h` (266 lines).
+- **Verification Gate**:
+  - `make test`: 156/156 passed, 0 failed.
+  - `make test-driver`: 37/37 passed.
+  - `make test-opt`: 117/117 passed, 0 failed across -O0..-O3 in JIT and AOT.
+  - `python3 tools/sret_verifier.py --verify-all`: 6/6 passed.
+  - `python3 tools/style_check.py`: 154 files, 0 errors.
+  - `python3 tools/diag_battery.py`: baseline OK (no regressions).
+
+
 ## [Sprint 78] - 2026-11-02 - Frontend & Core Modularization: Modularize preprocessor.h, definitions.h, and compile_unit.h
 
 Modularized the three largest remaining monolithic headers in the codebase (`preprocessor.h`, `definitions.h`, and `compile_unit.h`), decomposing them into cohesive, single-responsibility headers while keeping all test suites and verifiers 100% green:
