@@ -263,7 +263,7 @@ Diagnostics aim for gcc/clang-style quality:
 | **`_Generic`** | ✅ Simplified | Full C11 matching rules not implemented |
 | **`inline` semantics** | ✅ Implemented | Inlining at `-O2`/`-O3` with conservative candidate filters |
 | **`<threads.h>`** | ✅ Virtual header | `thrd_*`/`mtx_*` aliases over the pthread surface |
-| **Complex numbers** | 📋 Planned | — |
+| **`_Complex` (C99 + GNU)** | ✅ Implemented | `_Complex float`/`double` (C99 6.2.5) and GNU integer `_Complex`/`__complex__` (`int`/`long`/`short`/`char`): `+ - * /`, `==`/`!=`, `~` conjugate, `__real__`/`__imag__`; FP passed in `xmm0/xmm1`, integer ≤8B in 1 GPR / 16B in 2 GPRs — [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) |
 
 ### Preprocessor Pragmas
 
