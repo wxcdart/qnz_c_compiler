@@ -248,6 +248,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
                         nxt->op == OP_JE || nxt->op == OP_JNE || nxt->op == OP_JL ||
                         nxt->op == OP_JLE || nxt->op == OP_JG || nxt->op == OP_JCOND ||
                         nxt->op == OP_CALL || nxt->op == OP_CALL_INDIRECT ||
+                        nxt->op == OP_SETJMP || nxt->op == OP_LONGJMP ||
                         nxt->op == OP_RET || nxt->op == OP_EPILOGUE) {
                         flag_end[i] = j - 1; break;
                     }
@@ -397,6 +398,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
          * OP_SYSCALL uses the identical packing - it clobbers a subset of what
          * a call clobers, so it is recorded as a call position (spans_call
          * barrier) with the same side-table argument liveness. */
+        if (instr->op == OP_SETJMP) {
+            /* OP_SETJMP is a returns_twice boundary: any temp live across it
+             * must be treated as call-spanning so it is never placed in a
+             * caller-saved register clobbered before longjmp resumes here. */
+            live_range_record_call(lra, i);
+        }
+
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
             live_range_record_call(lra, i);
             const IRCallArgs *full_args = ir_call_args_find(c, i);

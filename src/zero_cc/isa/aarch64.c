@@ -252,6 +252,11 @@ static void aarch64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, 
 
 static void aarch64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
+    if ((dst & 0x1F) == 31 || (src & 0x1F) == 31) {
+        /* mov involving sp (31) is an alias of add Rd, Rn, #0 (orr uses xzr for 31) */
+        arm64_emit_u32(c, 0x91000000u | (((uint32_t)src & 0x1Fu) << 5) | ((uint32_t)dst & 0x1Fu));
+        return;
+    }
     /* mov dst, src - implemented as orr dst, xzr, src */
     arm64_emit_u32(c, 0xAA0003E0 | (src << 16) | (31 << 5) | dst);  /* orr dst, xzr, src */
 }

@@ -169,8 +169,8 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
         Instr *instr = ir_get(c, i);
         if (!instr) continue;
 
-        /* Profile: count basic blocks */
-        if (instr->op == OP_LABEL) {
+        /* Profile: count basic blocks (also reset at returns_twice setjmp boundary) */
+        if (instr->op == OP_LABEL || instr->op == OP_SETJMP || instr->op == OP_LONGJMP) {
             cse_clear_block();
             g_cse_bb_start = i;
             opt_profile_count_cse_basic_block();

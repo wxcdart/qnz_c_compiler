@@ -234,14 +234,15 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "setjmp.h") == 0) {
         return strdup(
             "#ifndef _SETJMP_H\n#define _SETJMP_H 1\n"
-            /* jmp_buf: 5 x 8 bytes = 40 bytes, matching the zc_setjmp/
-             * zc_longjmp runtime buffer layout (RSP, RBP, RA, RBX, R12).
-             * An array so `setjmp(env)` decays to the buffer's address. The
-             * macros map to the __builtin_setjmp/__builtin_longjmp builtins,
-             * which are lowered to calls to the host runtime. */
+            /* jmp_buf: 5 x 8 bytes = 40 bytes, matching GCC's 5-word
+             * __builtin_setjmp buffer convention (OP_SETJMP stores FP, PC,
+             * and SP in the first 3 words across all target ISAs).
+             * An array so `setjmp(env)` decays to the buffer's address. */
             "typedef unsigned long long jmp_buf[5];\n"
             "#define setjmp(env) __builtin_setjmp(env)\n"
+            "#define _setjmp(env) __builtin_setjmp(env)\n"
             "#define longjmp(env, val) __builtin_longjmp(env, val)\n"
+            "#define _longjmp(env, val) __builtin_longjmp(env, val)\n"
             "#endif\n"
         );
     }

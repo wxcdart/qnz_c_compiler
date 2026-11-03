@@ -645,71 +645,55 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
 
         /* __builtin_setjmp(buf) / __builtin_longjmp(buf, val) - non-local
-         * jumps. Lowered to calls to the host runtime zc_setjmp / zc_longjmp
-         * (see src/zero_cc/jit/jmp_runtime.c). The function keeps a real frame
-         * pointer (has_frame_address) and its automatics stay in stack slots
-         * (has_setjmp disables mem2reg), so zc_longjmp can restore RSP/RBP and
-         * jump to the saved return address with RAX = val. `buf` is a jmp_buf
-         * lvalue that decays to a pointer. */
+         * jumps lowered inline via OP_SETJMP / OP_LONGJMP across all target
+         * ISAs (x86-64, AArch64, RISC-V64, RISC-V32) in both JIT and AOT.
+         * Buffer layout (3 pointer-sized words, fitting GCC's 5-word buf):
+         *   buf[0] = caller FP (%rbp / x29 / s0)
+         *   buf[1] = resume PC (.Lsetjmp_resume)
+         *   buf[2] = caller SP (%rsp / sp / x2)
+         * Functions calling setjmp keep a real frame pointer (has_frame_address),
+         * keep automatics and call-spanning temps on the stack (has_setjmp), and
+         * save/restore the full ISA callee-saved GPR set in prologue/epilogue. */
         if (callee_is_ident && callee->s.str &&
             (strcmp(callee->s.str, "__builtin_setjmp") == 0 ||
              strcmp(callee->s.str, "__builtin_longjmp") == 0)) {
             bool is_longjmp = (strcmp(callee->s.str, "__builtin_longjmp") == 0);
             c->lowering.has_frame_address = true;
-            c->lowering.has_setjmp = true;
-
-            /* Register zc_setjmp/zc_longjmp as external prototypes so the AOT
-             * .o writer emits a proper PLT reloc for the call (the JIT
-             * resolves them via dlsym; the AOT links jmp_runtime.o into the
-             * executable so the PLT entry resolves). */
-            const char *rt_name = is_longjmp ? "zc_longjmp" : "zc_setjmp";
-            if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
-                !zero_cc_find_function(c, rt_name)) {
-                ZeroCCFunction *rtfn = &c->functions[c->function_count++];
-                memset(rtfn, 0, sizeof(*rtfn));
-                snprintf(rtfn->name, sizeof(rtfn->name), "%s", rt_name);
-                rtfn->text_offset = 0;
-                rtfn->is_prototype = true;
+            if (!is_longjmp) {
+                c->lowering.has_setjmp = true;
             }
 
             ASTRef buf_arg = node->right;                 /* first arg: the buf */
-            /* The buffer is passed as a pointer to the 5-word jmp_buf. It may
-             * be an array lvalue (decays to its address), an address-of
-             * (`&jmp_buf`), or a plain pointer (`void *`); lower_expr yields
-             * the pointer value in all three cases. */
             int buf_temp = lower_expr(c, arena, buf_arg);
-            int args[2] = { buf_temp, TEMP_NONE };
-            int is_fp[2] = { 0, 0 };
-            uint8_t stack_pos[2] = { 255, 255 };
-            int argc = 1;
+            c->last_expr_is_float = 0;
+
             if (is_longjmp) {
                 ZeroCCASTNode *bn = zero_cc_ast_get(arena, buf_arg);
                 ASTRef val_arg = (bn && bn->next != AST_NULL) ? bn->next : AST_NULL;
-                args[1] = lower_expr(c, arena, val_arg);
-                argc = 2;
-            }
+                int val_raw = lower_expr(c, arena, val_arg);
+                /* C99 7.13.2.1: if val == 0, setjmp returns 1.
+                 * Branchless normalization: val = val_raw | (val_raw == 0). */
+                int is_zero = c->next_temp_id++;
+                ir_emit_cmp_zero(c, val_raw);
+                ir_emit_cond_set(c, is_zero, CC_EQ);
+                int val_norm = c->next_temp_id++;
+                ir_emit_or(c, val_norm, val_raw, is_zero);
 
-            ir_emit_call(c, is_longjmp ? "zc_longjmp" : "zc_setjmp");
-            size_t cidx = ir_get_count(c) - 1;
-            Instr *li = (Instr*)&ir_get_buffer(c)[cidx];
-            li->temp_dest = (uint16_t)argc;
-            li->temp_src1 = (uint16_t)args[0];
-            if (argc > 1) li->temp_src2 = (uint16_t)args[1];
-            li->imm = 0;
-            ir_call_args_record(c, cidx, argc, args, is_fp, stack_pos);
-
-            c->last_expr_is_float = 0;
-            if (is_longjmp) {
+                ir_emit_longjmp(c, (uint16_t)buf_temp, (uint16_t)val_norm);
                 /* longjmp never returns: block fall-through with an infinite
-                 * loop (the setjmp call site in the target function resumes). */
+                 * loop (the setjmp site in the target function resumes). */
                 uint16_t loop_lbl = (uint16_t)c->ir_next_label++;
                 ir_emit_label(c, loop_lbl);
                 ir_emit_jmp(c, loop_lbl);
                 *out_temp = VREG_0;
                 return true;
             }
-            /* setjmp: capture the resume value (first pass 0, else val) from
-             * the ABI return register VREG_0 (rax). */
+
+            /* setjmp: emit inline OP_SETJMP (sets VREG_0 = 0 on first pass,
+             * or lands at resume label with VREG_0 = val from OP_LONGJMP),
+             * then capture VREG_0 into a fresh allocatable temp. */
+            uint16_t resume_lbl = (uint16_t)c->ir_next_label++;
+            ir_emit_setjmp(c, (uint16_t)buf_temp, resume_lbl);
             int res = c->next_temp_id++;
             ir_emit_mov_reg(c, res, VREG_0);
             *out_temp = res;

@@ -1238,6 +1238,39 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_SETJMP: {
+                int s2 = BE(c)->scratch_reg2;
+                int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
+                int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+                /* buf[0] = FP, buf[2] = SP (via s2 for AArch64 SP encoding),
+                 * buf[1] = .Lsetjmp_resume PC, VREG_0 = 0, then .Lsetjmp_resume: */
+                BE(c)->emit_store(c, BE(c)->fp_reg, phys_src1, 0);
+                BE(c)->emit_mov_reg(c, s2, BE(c)->sp_reg);
+                BE(c)->emit_store(c, s2, phys_src1, 2 * w);
+                size_t patch_pos = BE(c)->emit_lea_label(c, s2);
+                BE(c)->emit_store(c, s2, phys_src1, 1 * w);
+                BE(c)->emit_mov_imm(c, ret_reg, 0);
+                BE(c)->patch_jmp(c, patch_pos, BE(c)->get_code_offset(c));
+                break;
+            }
+
+            case OP_LONGJMP: {
+                int s1 = BE(c)->scratch_reg1;
+                int s2 = BE(c)->scratch_reg2;
+                int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
+                int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+                /* s1 = buf (never aliases phys_src2), VREG_0 = val,
+                 * FP = buf[0], SP = buf[2], jmp *buf[1] */
+                BE(c)->emit_mov_reg(c, s1, phys_src1);
+                BE(c)->emit_mov_reg(c, ret_reg, phys_src2);
+                BE(c)->emit_load(c, BE(c)->fp_reg, s1, 0);
+                BE(c)->emit_load(c, s2, s1, 2 * w);
+                BE(c)->emit_mov_reg(c, BE(c)->sp_reg, s2);
+                BE(c)->emit_load(c, s2, s1, 1 * w);
+                BE(c)->emit_jmp_reg(c, s2);
+                break;
+            }
+
             case OP_PUSH:
                 /* Push register to stack */
                 if (BE(c)->emit_push_reg) {

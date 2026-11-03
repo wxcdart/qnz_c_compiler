@@ -1303,16 +1303,9 @@ static int compile_and_link(CompileOptions *opts) {
                  "-o %s%s 2>&1",
                  all_objs, output, lib_args);
     } else {
-        /* The setjmp/longjmp runtime (x86-64-only, see
-         * src/zero_cc/jit/jmp_runtime.c) is linked into x86-64 AOT
-         * executables so __builtin_setjmp/longjmp resolve (the JIT resolves
-         * it via dlsym instead). The path is relative to the repo root,
-         * which is zerocc's working directory. */
-        const char *setjmp_rt = (target_isa == ISA_X86_64)
-            ? " build/obj/src/zero_cc/jit/jmp_runtime.o" : "";
         snprintf(cmd, sizeof(cmd),
-                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s%s -lc -lm%s 2>&1",
-                 linker, abi_flags, static_flag, output, all_objs, setjmp_rt, lib_args);
+                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s 2>&1",
+                 linker, abi_flags, static_flag, output, all_objs, lib_args);
     }
 
     if (opts->verbose) {

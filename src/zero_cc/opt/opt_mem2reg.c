@@ -441,9 +441,9 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
  */
 void opt_promote_mem2reg(ZeroCCCompiler *c) {
     /* setjmp/longjmp functions must keep their automatics in stack slots:
-     * zc_longjmp restores RSP/RBP and the automatics must be intact for the
-     * resume. mem2reg would promote them to registers, breaking the longjmp
-     * resume. Skip the whole pass for such functions. */
+     * OP_LONGJMP restores SP/FP and the automatics must be intact for the
+     * second return from OP_SETJMP. mem2reg would promote them to registers,
+     * breaking the longjmp resume. Skip the whole pass for such functions. */
     if (c->lowering.has_setjmp) return;
 
     /* First promote loop-carried variables across loop boundaries */

@@ -540,6 +540,55 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_SETJMP: {
+            int s2 = BE(c)->scratch_reg2;
+            int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
+            int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+            char lbl_buf[64];
+            snprintf(lbl_buf, sizeof(lbl_buf), ".Lsetjmp_%zu_%u", func_idx, (unsigned)instr->label_idx);
+            const char *s2_name = BE(c)->get_hw_reg_name(s2);
+            BE(c)->emit_store_asm(c, BE(c)->fp_reg, phys_src1, 0, out);
+            BE(c)->emit_mov_reg_asm(c, s2, BE(c)->sp_reg, out);
+            BE(c)->emit_store_asm(c, s2, phys_src1, 2 * w, out);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tadr\t%s, %s\n", s2_name, lbl_buf);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tlla\t%s, %s\n", s2_name, lbl_buf);
+            } else {
+                fprintf(out, "\tleaq\t%s(%%rip), %%%s\n", lbl_buf, s2_name);
+            }
+            BE(c)->emit_store_asm(c, s2, phys_src1, 1 * w, out);
+            BE(c)->emit_mov_imm_asm(c, ret_reg, 0, out);
+            fprintf(out, "%s:\n", lbl_buf);
+            return;
+        }
+
+        case OP_LONGJMP: {
+            int s1 = BE(c)->scratch_reg1;
+            int s2 = BE(c)->scratch_reg2;
+            int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
+            int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+            const char *s2_name = BE(c)->get_hw_reg_name(s2);
+            if (s1 != phys_src1) {
+                BE(c)->emit_mov_reg_asm(c, s1, phys_src1, out);
+            }
+            if (ret_reg != phys_src2) {
+                BE(c)->emit_mov_reg_asm(c, ret_reg, phys_src2, out);
+            }
+            BE(c)->emit_load_asm(c, BE(c)->fp_reg, s1, 0, out);
+            BE(c)->emit_load_asm(c, s2, s1, 2 * w, out);
+            BE(c)->emit_mov_reg_asm(c, BE(c)->sp_reg, s2, out);
+            BE(c)->emit_load_asm(c, s2, s1, 1 * w, out);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tbr\t%s\n", s2_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tjr\t%s\n", s2_name);
+            } else {
+                fprintf(out, "\tjmp\t*%%%s\n", s2_name);
+            }
+            return;
+        }
+
         case OP_MOV_GLOBAL: {
             const char *symbol_name = (const char *)(intptr_t)instr->imm64;
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);

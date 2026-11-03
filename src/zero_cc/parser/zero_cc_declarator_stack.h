@@ -330,6 +330,12 @@ static inline void zero_cc_parse_param_list(
         }
         if (is_param_func_ptr) {
             ptype.is_func_ptr = true;
+        } else if (ptype.tag == TYPE_ARRAY) {
+            /* C99 6.7.6.3p7: array parameter (via typedef/typeof) decays to pointer */
+            ZeroCCType elem = ptype.base ? *ptype.base : zero_cc_type_int64();
+            ptype = zero_cc_type_ptr(&elem);
+            ptype.is_const = param_base.is_const;
+            ptype.is_volatile = param_base.is_volatile;
         }
 
         ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);

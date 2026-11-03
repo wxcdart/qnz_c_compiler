@@ -181,8 +181,8 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
 
         opt_profile_count_copy_prop_instruction();
 
-        /* Reset at basic block boundaries */
-        if (instr->op == OP_LABEL) {
+        /* Reset at basic block boundaries (and returns_twice setjmp boundary) */
+        if (instr->op == OP_LABEL || instr->op == OP_SETJMP || instr->op == OP_LONGJMP) {
             copy_prop_reset_block();
             continue;
         }

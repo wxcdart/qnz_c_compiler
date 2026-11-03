@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-02T18:59:39Z
+timestamp: 2026-11-03T04:17:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 138 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, and computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`).
+- `op` (`Opcode`): One of 140 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`, and inline non-local jumps `OP_SETJMP`/`OP_LONGJMP`).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
@@ -46,6 +46,20 @@ During code generation, if `temp_dest` is allocated to the identical physical AB
    - Marked as a control-flow terminal in `cfg_is_terminal()`, with CFG edges added to all candidate target blocks.
    - Treated as an invalidation boundary across DCE, GVN (`mf_reset`), loop optimization (`safe_loop = false`), and `mem2reg` slot tracking.
    - **Linear Scan Live Range Extension (Sprint 86)**: In `src/zero_cc/ir/live_range.h`, indirect jumps (`OP_JMP_INDIRECT`) act as potential loop backedges. The linear scan live interval computation extends the end point of loop-carried values across `OP_JMP_INDIRECT`, preventing the register allocator from prematurely expiring intervals and clobbering physical registers (such as `%rdx` during division) across dispatch loops.
+
+### Inline Non-Local Jumps (`OP_SETJMP` / `OP_LONGJMP`)
+
+Both `<setjmp.h>` (`setjmp` / `_setjmp` / `sigsetjmp` and `longjmp` / `_longjmp` / `siglongjmp` in `virtual_headers.h`) and GCC's `__builtin_setjmp` / `__builtin_longjmp` lower to dedicated inline IR instructions (`ast_lowering_builtins.c`) with zero external runtime helper dependency:
+1. **3-Word Compact Buffer Layout (Fits GCC's 5-Word `void *buf[5]` & 5-Word `jmp_buf`)**:
+   - `buf[0]`: Frame pointer (`%rbp` on x86-64, `x29` on AArch64, `s0` on RISC-V).
+   - `buf[1]`: Resume program counter (`PC` immediately following `OP_SETJMP`).
+   - `buf[2]`: Stack pointer (`%rsp` on x86-64, `sp` on AArch64/RISC-V).
+2. **`returns_twice` Register Allocation & Prologue/Epilogue Invariants**:
+   - Functions containing `OP_SETJMP` (`c->lowering.has_setjmp = true`) disable frame-pointer omission (`omit_frame_pointer = false`), skip `mem2reg` and `licm`, and treat `OP_SETJMP` as a call boundary (`live_range_record_call`) and optimizer memory/value barrier (DCE, GVN, CSE, copy-prop).
+   - Setting `c->regalloc.spill_across_calls = true` forces all call-spanning virtual register intervals (`spans_call`) inside the `setjmp`-calling function onto stack spill slots rather than callee-saved registers, so values live across `OP_SETJMP` survive `OP_LONGJMP` even if intermediary callees clobbered CSRs before jumping.
+   - Setting `c->regalloc.used_callee_saved_gpr_mask` to the full ISA callee-saved mask forces the `has_setjmp` function's prologue (`OP_CALLEE_SAVE_STORES`) and epilogue (`OP_CALLEE_SAVE_LOADS`) to save and restore all architectural CSRs (`%rbx, %r12–%r15` on x86-64; `x19–x28` on AArch64; `s1–s11` on RISC-V) in its own stack frame, protecting the *caller* of the `setjmp`-using function when it returns after a `longjmp`.
+3. **Branchless `val == 0 ? 1 : val` Normalization**:
+   - Lowering normalizes the `longjmp` status value in IR via `cmp_zero + cond_set(CC_EQ) + or` before `OP_LONGJMP(buf_temp, val_temp)`, avoiding branchy clamp patterns at `-O1..-O3`.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

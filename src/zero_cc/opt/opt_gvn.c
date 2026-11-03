@@ -252,6 +252,7 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
             case OP_LABEL: case OP_JMP: case OP_JMP_LABEL: case OP_JMP_INDIRECT: case OP_JE: case OP_JNE:
             case OP_JL: case OP_JLE: case OP_JG: case OP_JCOND:
             case OP_CALL: case OP_CALL_INDIRECT: case OP_SYSCALL:
+            case OP_SETJMP: case OP_LONGJMP:
             case OP_RET: case OP_EPILOGUE:
             case OP_VLA_ALLOC: case OP_PUSH: case OP_POP:
             case OP_PARAM_SAVE_INT: case OP_PARAM_SAVE_FP: case OP_VARIADIC_SPILL:
@@ -363,8 +364,8 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
 
         opt_profile_count_gvn_instruction();
 
-        /* Reset at basic block boundaries */
-        if (instr->op == OP_LABEL) {
+        /* Reset at basic block boundaries (and returns_twice setjmp landing pad) */
+        if (instr->op == OP_LABEL || instr->op == OP_SETJMP || instr->op == OP_LONGJMP) {
             gvn_reset_block();
             continue;
         }

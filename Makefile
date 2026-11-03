@@ -27,7 +27,6 @@ TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
 PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser/parser.o
 TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
-JMP_OBJ = $(OBJ_DIR)/src/zero_cc/jit/jmp_runtime.o
 EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/core/compiler_free.o \
 	src/zero_cc/core/preprocessor.o \
@@ -144,14 +143,14 @@ $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(JMP_OBJ)
+.SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
 
 
 # ZeroCC CLI driver
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JMP_OBJ)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS)
 	@mkdir -p build/bin
-	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JMP_OBJ) -Wl,--export-dynamic-symbol=zc_setjmp -Wl,--export-dynamic-symbol=zc_longjmp $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(LDFLAGS)
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc

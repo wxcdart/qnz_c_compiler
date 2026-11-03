@@ -151,9 +151,9 @@ def skip_reason(path, d):
         if t in UNSUPPORTED_TARGETS:
             return "SKIP-TARGET:%s" % t
     # indirect_jumps is now supported (computed goto + &&label tables), and
-    # __builtin_setjmp/longjmp work (see src/zero_cc/jit/jmp_runtime.c + the
-    # JIT's absolute-call lowering in x86_emit_call). The only remaining
-    # blocker in the category is nonlocal goto (pr51447: a nested function
+    # __builtin_setjmp/longjmp work via inline OP_SETJMP/OP_LONGJMP across all
+    # target ISAs in both JIT and AOT modes. The only remaining blocker in the
+    # category is nonlocal goto (pr51447: a nested function
     # goto's to an outer-scope label).
     if rel.as_posix() == "execute/pr51447.c":
         return "SKIP-TARGET:nonlocal_goto"

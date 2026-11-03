@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-02T17:20:42Z
+timestamp: 2026-11-03T04:17:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -45,7 +45,19 @@ The backend interface `ZeroCCISABackend` defines two operations for computed got
   - **AArch64**: `adr xN, 0` (`0x10000000 | dst`). Patched with `imm21 = target_offset - patch_pos`.
   - **RISC-V**: `auipc dst, 0` + `addi dst, dst, 0`. Patched with `hi20` + `lo12` sign-adjusted pair.
 
-**Measured state (`test/isa_qemu/` battery via `make test-isa-qemu` / `tools/isa_qemu_diff.py`):** all 4 target ISAs pass 100% cleanly (**44/44 PASS**): x86-64 (**11/11**), aarch64 (**11/11**), riscv64 (**11/11**), and riscv32 (**11/11**). For aarch64, stack frame setup, relocation pairs (`R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings were repaired. For riscv32, the ELF32 object emitter (`ELFCLASS32`, `EM_RISCV`), calling conventions, 4-byte frame setup (`sw`/`lw`), shifts, width extensions, and 5-8 byte struct return register pair (`a0`/`a1`) are fully functional.
+### Multi-ISA Inline `OP_SETJMP` & `OP_LONGJMP` Emission
+
+Both the raw binary emitter (`ast_lowering_mc.c`) and the text assembly emitter (`asm_emitter.c`) emit inline machine instructions for `OP_SETJMP` and `OP_LONGJMP` across all 4 target ISAs (`x86-64`, `aarch64`, `riscv64`, `riscv32`), using `BE(c)->emit_lea_label` + `BE(c)->patch_jmp` for the resume label:
+- **`OP_SETJMP(buf_reg)`**:
+  - Stores `FP` (`%rbp`/`x29`/`s0`) at `0(buf_reg)`.
+  - Computes the PC-relative resume label address into `scratch_reg1` (`%r10`/`x16`/`t1`) via `emit_lea_label` and stores it at `word_size(buf_reg)` (`8` on 64-bit ISAs, `4` on `riscv32`).
+  - Copies `SP` (`%rsp`/`sp`) into `scratch_reg1` (using `add Rd, sp, #0` on AArch64 since register 31 in `orr` encodes `xzr`) and stores it at `2 * word_size(buf_reg)`.
+  - Zeros `VREG_0` (`%rax`/`x0`/`a0`) on the initial path; the resume label lands immediately after.
+- **`OP_LONGJMP(buf_reg, val_reg)`**:
+  - Copies `buf_reg` into `scratch_reg1` (`%r10`/`x16`/`t1`) and `val_reg` into `VREG_0` (`%rax`/`x0`/`a0`) carefully avoiding register overlap when `buf_reg` is already in `VREG_0`.
+  - Reloads `FP` from `0(scratch_reg1)`, `SP` from `2 * word_size(scratch_reg1)`, and target `PC` from `word_size(scratch_reg1)` into `scratch_reg2` (`%r11`/`x17`/`t2`), then jumps indirectly via `emit_jmp_reg(scratch_reg2)`.
+
+**Measured state (`test/isa_qemu/` battery via `make test-isa-qemu` / `tools/isa_qemu_diff.py`):** all 4 target ISAs pass 100% cleanly (**48/48 PASS**): x86-64 (**12/12**), aarch64 (**12/12**), riscv64 (**12/12**), and riscv32 (**12/12**). For aarch64, stack frame setup, relocation pairs (`R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings were repaired. For riscv32, the ELF32 object emitter (`ELFCLASS32`, `EM_RISCV`), calling conventions, 4-byte frame setup (`sw`/`lw`), shifts, width extensions, and 5-8 byte struct return register pair (`a0`/`a1`) are fully functional.
 
 ## Multi-ISA `sret` (>16B Struct Return) Conventions
 

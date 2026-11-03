@@ -262,6 +262,12 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
             dt = fpt;
         } else if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
             dt = zero_cc_type_ptr(&dt);
+        } else if (dt.tag == TYPE_ARRAY) {
+            /* C99 6.7.6.3p7: array parameter (via typedef/typeof) decays to pointer */
+            ZeroCCType elem = dt.base ? *dt.base : zero_cc_type_int64();
+            dt = zero_cc_type_ptr(&elem);
+            dt.is_const = d_const;
+            dt.is_volatile = d_volatile;
         }
         out_names[count] = dn;
         out_types[count] = dt;
@@ -744,6 +750,18 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                     t = zero_cc_type_array(&t, dims[i]);
                 }
                 (*param_types)[*param_count - 1] = zero_cc_type_ptr(&t);
+                if (c->local_count > 0) c->locals[c->local_count - 1].type = (*param_types)[*param_count - 1];
+            } else if (*param_count > 0 && (*param_types)[*param_count - 1].tag == TYPE_ARRAY) {
+                /* C99 6.7.6.3p7: parameter declared via an array typedef
+                 * (e.g. `jmp_buf env`) adjusts its outermost array dimension
+                 * to a pointer to the element type. */
+                ZeroCCType at = (*param_types)[*param_count - 1];
+                ZeroCCType elem = at.base ? *at.base : zero_cc_type_int64();
+                ZeroCCType adj = zero_cc_type_ptr(&elem);
+                adj.is_const = at.is_const;
+                adj.is_volatile = at.is_volatile;
+                (*param_types)[*param_count - 1] = adj;
+                if (c->local_count > 0) c->locals[c->local_count - 1].type = adj;
             }
         } else if (!fn_ptr_param_done && !is_void_param && *param_count < ZERO_CC_MAX_PARAMS &&
                    c->token_pos < c->token_count &&
@@ -794,6 +812,12 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                     t = zero_cc_type_array(&t, u_dims[i] > 0 ? u_dims[i] : 1);
                 }
                 pt = zero_cc_type_ptr(&t);
+            } else if (pt.tag == TYPE_ARRAY) {
+                ZeroCCType elem = pt.base ? *pt.base : zero_cc_type_int64();
+                ZeroCCType adj = zero_cc_type_ptr(&elem);
+                adj.is_const = pt.is_const;
+                adj.is_volatile = pt.is_volatile;
+                pt = adj;
             }
             (*param_types)[*param_count] = pt;
             (*param_count)++;

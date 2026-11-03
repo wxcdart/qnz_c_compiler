@@ -323,6 +323,8 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_JCOND:
         case OP_JMP_LABEL:
         case OP_JMP_INDIRECT:
+        case OP_SETJMP:
+        case OP_LONGJMP:
         case OP_PROLOGUE:
         case OP_EPILOGUE:
         case OP_CALLEE_SAVE_STORES:
@@ -343,6 +345,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
  * Hoists loop-invariant instructions to the loop preheader using a safe Two-Pass Rebuild.
  */
 void opt_licm(ZeroCCCompiler *c) {
+    if (c && c->lowering.has_setjmp) return;
     LoopAnalysisState state;
     loop_analysis_init(&state);
 

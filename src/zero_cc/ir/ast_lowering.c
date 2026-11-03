@@ -648,7 +648,23 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     live_range_scan_ir(&lra, ir_get_buffer(c), ir_get_count(c), c);
     live_range_compute(&lra, &c->regalloc, c);
 
+    c->regalloc.spill_across_calls = c->lowering.has_setjmp;
     regalloc_allocate(&c->regalloc);
+
+    /* Functions calling setjmp must save and restore all allocatable callee-saved
+     * GPRs in their prologue/epilogue: a child frame may modify any CSR before
+     * calling longjmp (which unwinds past the child's epilogue), so this frame's
+     * epilogue is responsible for restoring its caller's full CSR state. */
+    if (c->lowering.has_setjmp && BE(c)->conv && BE(c)->conv->callee_saved_gpr) {
+        const int *callee_regs = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        for (int i = 0; i < count; i++) {
+            int reg = callee_regs[i];
+            if (regalloc_is_callee_saved_gpr(&c->regalloc, reg)) {
+                c->regalloc.used_callee_saved_gpr_mask |= (1u << reg);
+            }
+        }
+    }
 
     if (c->dump_ir) {
         fprintf(stderr, "=== Allocated Intervals (%zu) ===\n", c->regalloc.interval_count);
@@ -741,7 +757,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     size_t ir_count = ir_get_count(c);
     const Instr *ir_buf = ir_get_buffer(c);
     for (size_t i = 0; i < ir_count; i++) {
-        if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT || ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL) {
+        if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT ||
+            ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL ||
+            ir_buf[i].op == OP_SETJMP || ir_buf[i].op == OP_LONGJMP) {
             is_leaf = false;
             break;
         }

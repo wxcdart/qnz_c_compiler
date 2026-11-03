@@ -42,7 +42,8 @@ void opt_flag_dce(ZeroCCCompiler *c) {
                 next->op == OP_JL || next->op == OP_JLE ||
                 next->op == OP_JG || next->op == OP_RET ||
                 next->op == OP_LABEL || next->op == OP_CALL ||
-                next->op == OP_SYSCALL || next->op == OP_JMP_INDIRECT) {
+                next->op == OP_SYSCALL || next->op == OP_JMP_INDIRECT ||
+                next->op == OP_SETJMP || next->op == OP_LONGJMP) {
                 break;
             }
 
@@ -110,6 +111,8 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_CALL:
         case OP_CALL_INDIRECT:
         case OP_SYSCALL:
+        case OP_SETJMP:
+        case OP_LONGJMP:
         case OP_RET:
         case OP_JMP:
         case OP_JMP_INDIRECT:

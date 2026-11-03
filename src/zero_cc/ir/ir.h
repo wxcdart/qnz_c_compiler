@@ -237,6 +237,10 @@ typedef enum {
     /* Computed goto & label address (GNU extensions) */
     OP_JMP_INDIRECT,   /* jmp through register temp_src1 */
     OP_LEA_LABEL,      /* temp_dest = address of label_idx */
+
+    /* Non-local jumps (__builtin_setjmp / __builtin_longjmp) */
+    OP_SETJMP,         /* save FP/PC/SP to [temp_src1], VREG_0 = 0 (or val on resume) */
+    OP_LONGJMP,        /* restore FP/SP from [temp_src1], VREG_0 = temp_src2, jmp PC */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -390,6 +394,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
         case OP_LEA_LABEL: return "LEA_LABEL";
+        case OP_SETJMP: return "SETJMP";
+        case OP_LONGJMP: return "LONGJMP";
         default: return "UNKNOWN";
     }
 }
@@ -871,6 +877,18 @@ static inline void ir_emit_jmp_ind(ZeroCCCompiler *c, int temp_target) {
 /* Address of label (temp_dest = address of label_idx) */
 static inline void ir_emit_lea_label(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t label_idx) {
     ir_emit(c, (Instr){.op = OP_LEA_LABEL, .temp_dest = temp_dest, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
+}
+
+/* Non-local jump setup: save [FP, PC(resume), SP] into buf (temp_src1);
+ * sets VREG_0 = 0 on first pass, or resumes with VREG_0 = val from OP_LONGJMP. */
+static inline void ir_emit_setjmp(ZeroCCCompiler *c, uint16_t temp_buf, uint16_t label_idx) {
+    ir_emit(c, (Instr){.op = OP_SETJMP, .temp_dest = TEMP_NONE, .temp_src1 = temp_buf, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
+}
+
+/* Non-local jump: restore FP/SP from buf (temp_src1), VREG_0 = temp_val (temp_src2),
+ * and jump to saved PC. Never returns. */
+static inline void ir_emit_longjmp(ZeroCCCompiler *c, uint16_t temp_buf, uint16_t temp_val) {
+    ir_emit(c, (Instr){.op = OP_LONGJMP, .temp_dest = TEMP_NONE, .temp_src1 = temp_buf, .temp_src2 = temp_val, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
 }
 
 #endif /* ZERO_CC_IR_H */

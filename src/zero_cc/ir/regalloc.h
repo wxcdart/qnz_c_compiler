@@ -133,6 +133,7 @@ typedef struct RegAllocator {
 
     /* Cost-based allocation flag */
     bool use_cost_based;  /* If true, use spill cost priority instead of start position */
+    bool spill_across_calls; /* True for has_setjmp functions: force spans_call intervals onto stack */
 } RegAllocator;
 
 /* Destroy and free register allocator allocations */
@@ -198,6 +199,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
+    ra->spill_across_calls = false;
     regalloc_set_isa(ra, ISA_X86_64);  /* Default to x86-64, caller can call regalloc_set_isa */
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
     for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
@@ -361,6 +363,9 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     /* Find a free register in the appropriate class */
     if (interval->reg_class == REG_CLASS_GPR) {
         if (interval->spans_call) {
+            if (ra->spill_across_calls) {
+                return -1;
+            }
             if (is_aarch64) {
                 /* AArch64: strictly allocate callee-saved registers (x19-x28) */
                 for (int i = 19; i <= 28; i++) {
@@ -591,9 +596,11 @@ static void regalloc_allocate(RegAllocator *ra) {
                         continue;
                     }
                     /* All FP/SIMD registers are caller-saved: an interval
-                     * spanning a call must spill, never steal (C8). */
+                     * spanning a call must spill, never steal (C8). Same for
+                     * has_setjmp functions where call-spanning GPRs must stay
+                     * on the stack across longjmp. */
                     if (current->spans_call &&
-                        (current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
+                        (ra->spill_across_calls || current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
                         continue;
                     }
 
@@ -623,9 +630,11 @@ static void regalloc_allocate(RegAllocator *ra) {
                         continue;
                     }
                     /* All FP/SIMD registers are caller-saved: an interval
-                     * spanning a call must spill, never steal (C8). */
+                     * spanning a call must spill, never steal (C8). Same for
+                     * has_setjmp functions where call-spanning GPRs must stay
+                     * on the stack across longjmp. */
                     if (current->spans_call &&
-                        (current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
+                        (ra->spill_across_calls || current->reg_class == REG_CLASS_XMM || current->reg_class == REG_CLASS_VEC)) {
                         continue;
                     }
                     if (active->end > spill->end) {
