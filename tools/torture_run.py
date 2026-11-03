@@ -686,6 +686,19 @@ def main():
         for p, r in results.items()
     }
 
+    # Persist this run's per-test results (same shape as the baseline) so a
+    # "regression" can be diffed per-test against test/torture/baseline.json
+    # (see .agents/skills/c-torture-gate/SKILL.md). Partial runs overwrite it
+    # with a subset — compare classes only for tests present in both.
+    last_run_path = BASELINE_PATH.with_name("last_run.json")
+    last_run_path.parent.mkdir(parents=True, exist_ok=True)
+    last_run_path.write_text(json.dumps({
+        "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "totals": totals,
+        "tests": compact,
+    }, indent=1, sort_keys=True))
+
     is_partial = bool(args.only or args.limit or args.quick or args.only_class or args.chunk)
     if args.update_baseline or (not BASELINE_PATH.exists() and not is_partial):
         if is_partial:

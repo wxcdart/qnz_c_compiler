@@ -12,3 +12,6 @@ __pycache__/
 *.pyc
 
 test/driver/*.s
+
+# c-torture gate: per-run results dump (diagnostic cache; see c-torture-gate skill)
+test/torture/last_run.json
