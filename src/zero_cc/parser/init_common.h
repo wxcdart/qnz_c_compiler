@@ -141,7 +141,9 @@ static inline size_t zc_init_member_leaf_start(const ZeroCCType *st, size_t mi) 
  * aggregate, the target is that sub-object (a nested brace list belongs
  * there); scalar leaves are direct value targets. */
 static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base_off,
-                                              size_t fam_bytes, ZcInitTarget *out) {
+                                              size_t fam_bytes, ZcInitTarget *out,
+                                              const ZeroCCToken *tok, size_t tok_pos,
+                                              size_t tok_count) {
     if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
         if (!t->members) return false;
         size_t member_start = 0;
@@ -183,7 +185,19 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
                 if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
                     const ZeroCCType *el = m->base;
                     size_t per = zc_object_count_scalar_leaves(el);
-                    if (per <= 1) {
+                    /* A designator nested inside the member's brace group
+                     * (`{{ [0 ... 87] = 0xaa }}`) requires the WHOLE member
+                     * as the value target so the range is broadcast per
+                     * element (c-torture execute/memclr). Every other shape
+                     * (plain scalars, strings, elided groups) keeps the
+                     * historic element-`local` scalar target (pr87053). */
+                    bool nested_desig = (per <= 1 && tok);
+                    if (nested_desig) {
+                        size_t p = tok_pos;
+                        while (p < tok_count && tok[p].type == TK_LBRACE) p++;
+                        nested_desig = (p < tok_count && tok[p].type == TK_LBRACKET);
+                    }
+                    if (per <= 1 && !nested_desig) {
                         out->abs_off = base_off + m->offset + local * el->size;
                         out->val_type.tag = el->tag;
                         out->val_type.size = el->size;
@@ -202,11 +216,12 @@ static inline bool zc_init_resolve_positional(const ZeroCCType *t, size_t *curso
                         }
                     } else {
                         /* Array member with aggregate elements (`char m[2][2]`,
-                         * `struct S0 m2[2]`): the value target is the WHOLE
-                         * member, so a nested brace list ({ {row0}, {row1} })
-                         * iterates the elements exactly like a top-level array
-                         * does (c-torture pr60017).  Scalar values (elided
-                         * braces) address leaves by `local` within the member. */
+                         * `struct S0 m2[2]`), or nested designators: the value
+                         * target is the WHOLE member, so a nested brace list
+                         * ({ {row0}, {row1} }) iterates the elements exactly
+                         * like a top-level array does (c-torture pr60017).
+                         * Scalar values (elided braces) address leaves by
+                         * `local` within the member. */
                         ZeroCCType full = zc_init_member_value_type(m);
                         out->abs_off = base_off + m->offset;
                         out->val_type = full;
@@ -995,7 +1010,8 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
         }
         if (!has_desig) {
             size_t cur = cursor ? *cursor : 0;
-            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, fam_bytes, &tgt)) {
+            if (!zc_init_resolve_positional(&obj_type, &cur, buf_off, fam_bytes, &tgt,
+                                            c->tokens, c->token_pos, c->token_count)) {
                 /* Excess elements: warn, stop (the rest stays zero). */
                 diag_report_warning_at_token(c, "excess elements in aggregate initializer");
                 int depth = 0;

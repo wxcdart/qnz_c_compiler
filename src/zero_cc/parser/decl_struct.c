@@ -406,6 +406,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
                     if (probe > member_align) member_align = probe;
                 }
+                zero_cc_skip_mode_attr(c);
             }
 
             if (in_bitfield && !is_bitfield) {
@@ -862,6 +863,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
                     if (probe > member_align) member_align = probe;
                 }
+                zero_cc_skip_mode_attr(c);
             }
             bool is_ptr = false;
             int ptr_depth = 0;
@@ -986,6 +988,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
                     if (probe > member_align) member_align = probe;
                 }
+                zero_cc_skip_mode_attr(c);
             }
 
             if (is_union) {

@@ -1024,6 +1024,8 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
             snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
             r->is_call = false;
             r->is_abs_call = true;
+        } else {
+            zero_cc_reloc_overflow_note(c);
         }
         return;
     }
@@ -1053,6 +1055,8 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
         snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
         r->is_call = true;
         /* For external functions, linker will use PLT; for internal, it's a direct call */
+    } else {
+        zero_cc_reloc_overflow_note(c);
     }
 }
 
@@ -1506,6 +1510,31 @@ static void x86_emit_store_64(ZeroCCCompiler *c, int src_reg, int base_reg) {
 }
 
 static void x86_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
+    int32_t sp_disp = c->lowering.vla.cur_sp_slot_disp;
+    if (sp_disp != 0) {
+        /* cmpq $0, sp_disp(%rbp): 48 83 BD <disp32> 00 (8B) */
+        me_emit_u8(c, 0x48);
+        me_emit_u8(c, 0x83);
+        me_emit_u8(c, 0xBD);
+        me_emit_u32(c, (uint32_t)sp_disp);
+        me_emit_u8(c, 0x00);
+        /* jne .Lrestore (+9B): 75 09 (2B) */
+        me_emit_u8(c, 0x75);
+        me_emit_u8(c, 0x09);
+        /* movq %rsp, sp_disp(%rbp): 48 89 A5 <disp32> (7B) */
+        me_emit_u8(c, 0x48);
+        me_emit_u8(c, 0x89);
+        me_emit_u8(c, 0xA5);
+        me_emit_u32(c, (uint32_t)sp_disp);
+        /* jmp .Lalloc (+7B): EB 07 (2B) */
+        me_emit_u8(c, 0xEB);
+        me_emit_u8(c, 0x07);
+        /* .Lrestore: movq sp_disp(%rbp), %rsp: 48 8B A5 <disp32> (7B) */
+        me_emit_u8(c, 0x48);
+        me_emit_u8(c, 0x8B);
+        me_emit_u8(c, 0xA5);
+        me_emit_u32(c, (uint32_t)sp_disp);
+    }
     /* sub rsp, size_reg: 48 29 /r */
     x86_rex(c, 1, (size_reg >> 3) & 1, 0, 0);
     me_emit_u8(c, 0x29);
@@ -2146,6 +2175,7 @@ static void zero_cc_init_backends_once(void) {
     x86_init_asm_emission(&x86_64_backend);
     aarch64_init_asm_emission(&aarch64_backend);
     riscv64_init_asm_emission(&riscv64_backend);
+    riscv64_init_asm_emission(&riscv32_backend);
     done = true;
 }
 

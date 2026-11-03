@@ -311,6 +311,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VLA_ALLOC:
+                c->lowering.vla.cur_sp_slot_disp = instr->imm;
                 if (BE(c)->emit_vla_alloc) {
                     BE(c)->emit_vla_alloc(c, phys_dst, phys_src1);
                 }
@@ -404,7 +405,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (!BE(c)->emit_syscall) {
                     c->had_error = true;
                     snprintf(c->error_msg, sizeof(c->error_msg),
-                             "__zerocc_syscall is not supported on this target (x86-64 only for now)");
+                             "__zerocc_syscall is not supported on this target");
                     break;
                 }
                 int s_arg_temps[8] = {0};
@@ -825,6 +826,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     r->text_patch_offset = BE(c)->get_code_offset(c) - reloc_field;
                     snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
                     r->is_call = false;
+                } else {
+                    zero_cc_reloc_overflow_note(c);
                 }
                 break;
             }
@@ -868,6 +871,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
                     r->is_call = false;
                     r->is_tls = true;
+                } else {
+                    zero_cc_reloc_overflow_note(c);
                 }
                 break;
             }

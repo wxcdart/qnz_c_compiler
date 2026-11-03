@@ -269,6 +269,58 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
         }
     }
 
+    /* Pre-collect loop backedges (hdr -> backedge_pos) once before the
+     * per-temp loop, avoiding an O(temps * instrs) scan over the IR buffer. */
+    typedef struct {
+        size_t hdr;
+        size_t backedge;
+    } LRABackedge;
+    LRABackedge *backedges = NULL;
+    size_t backedge_count = 0;
+    size_t backedge_cap = 0;
+    if (label_to_pos) {
+        for (size_t i = 0; i < instr_count; i++) {
+            Instr *ins = ir_get(c, i);
+            if (!ins) continue;
+            if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
+                ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
+                int lbl = (int)ins->label_idx;
+                if (lbl >= 0 && lbl <= max_label) {
+                    int hdr = label_to_pos[lbl];
+                    if (hdr >= 0 && (size_t)hdr < i) {
+                        if (backedge_count >= backedge_cap) {
+                            size_t ncap = backedge_cap ? backedge_cap * 2 : 32;
+                            LRABackedge *narr = (LRABackedge *)realloc(backedges, ncap * sizeof(LRABackedge));
+                            if (!narr) break;
+                            backedges = narr;
+                            backedge_cap = ncap;
+                        }
+                        backedges[backedge_count].hdr = (size_t)hdr;
+                        backedges[backedge_count].backedge = i;
+                        backedge_count++;
+                    }
+                }
+            } else if (ins->op == OP_JMP_INDIRECT) {
+                /* Indirect jump can jump back to any previous label in the function. */
+                for (int lbl = 0; lbl <= max_label; lbl++) {
+                    int hdr = label_to_pos[lbl];
+                    if (hdr >= 0 && (size_t)hdr < i) {
+                        if (backedge_count >= backedge_cap) {
+                            size_t ncap = backedge_cap ? backedge_cap * 2 : 32;
+                            LRABackedge *narr = (LRABackedge *)realloc(backedges, ncap * sizeof(LRABackedge));
+                            if (!narr) break;
+                            backedges = narr;
+                            backedge_cap = ncap;
+                        }
+                        backedges[backedge_count].hdr = (size_t)hdr;
+                        backedges[backedge_count].backedge = i;
+                        backedge_count++;
+                    }
+                }
+            }
+        }
+    }
+
     /* Process each temp that was defined */
     for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
         if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
@@ -283,45 +335,16 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
          * constant hoisted before an outer loop that is only directly used inside
          * an inner loop: first extends to the inner backedge, which is inside the
          * outer loop, and then extends to the outer backedge). */
-        if (label_to_pos) {
+        if (backedge_count > 0) {
             bool changed = true;
             while (changed) {
                 changed = false;
-                for (size_t i = 0; i < instr_count; i++) {
-                    Instr *ins = ir_get(c, i);
-                    if (!ins) continue;
-                    if (ins->op == OP_JMP || ins->op == OP_JE || ins->op == OP_JNE ||
-                        ins->op == OP_JL || ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
-                        int lbl = (int)ins->label_idx;
-                        if (lbl >= 0 && lbl <= max_label) {
-                            int hdr = label_to_pos[lbl];
-                            if (hdr >= 0 && (size_t)hdr < i) {
-                                /* Loop from hdr to i: any value defined BEFORE the loop header
-                                 * and live inside the loop [hdr..i] is loop-carried across the
-                                 * backedge at i, so its interval must cover [start..i]. */
-                                if (start < (size_t)hdr && end >= (size_t)hdr) {
-                                    if (end < i) {
-                                        end = i;
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
-                    } else if (ins->op == OP_JMP_INDIRECT) {
-                        /* Indirect jump can jump back to any previous label in the function.
-                         * Any value defined before a candidate loop header and live inside
-                         * must have its live range extended to cover the indirect jump. */
-                        for (int lbl = 0; lbl <= max_label; lbl++) {
-                            int hdr = label_to_pos[lbl];
-                            if (hdr >= 0 && (size_t)hdr < i) {
-                                if (start < (size_t)hdr && end >= (size_t)hdr) {
-                                    if (end < i) {
-                                        end = i;
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
+                for (size_t b = 0; b < backedge_count; b++) {
+                    size_t hdr = backedges[b].hdr;
+                    size_t i = backedges[b].backedge;
+                    if (start < hdr && end >= hdr && end < i) {
+                        end = i;
+                        changed = true;
                     }
                 }
             }
@@ -362,6 +385,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
         }
     }
 
+    if (backedges) free(backedges);
     if (label_to_pos) free(label_to_pos);
 }
 

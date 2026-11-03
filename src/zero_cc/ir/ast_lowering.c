@@ -33,20 +33,13 @@
  * persists across calls. Frame slots are aligned to >=8 bytes, and the
  * data allocation is rounded up to 8, so 8-byte chunks (with a possibly
  * smaller final chunk) never spill into a neighbouring object.
+ *
+ * The global's base address is loaded ONCE per direction and each chunk
+ * adds its own offset: a K-byte static costs 1 relocation instead of
+ * K/8. c-torture execute/memclr.c (2048 statics x 88 B) hit the 32k text
+ * reloc cap with the per-chunk version - the overflow was a SILENT drop
+ * (unpatched imm64 = 0 -> load from address 64 -> segfault).
  * ========================================================================= */
-static void static_local_chunk_addr(ZeroCCCompiler *c, const ZeroCCSym *ss,
-                                    size_t off, int *out_addr) {
-    *out_addr = c->next_temp_id++;
-    if (off == 0) {
-        ir_emit_mov_global(c, (uint16_t)*out_addr, ss->static_global_name);
-    } else {
-        int base = c->next_temp_id++;
-        ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
-        int o = c->next_temp_id++;
-        ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
-        ir_emit_add(c, (uint16_t)*out_addr, (uint16_t)base, (uint16_t)o);
-    }
-}
 
 /* =========================================================================
  * Sprint 72: pre-scan for address-taken static locals
@@ -204,9 +197,16 @@ static void zero_cc_prescan_static_addr_taken(ZeroCCCompiler *c, ZeroCCASTArena 
 static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
     size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
+    int base = c->next_temp_id++;
+    ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
     for (size_t off = 0; off < alloc_sz; off += 8) {
-        int addr;
-        static_local_chunk_addr(c, ss, off, &addr);
+        int addr = base;
+        if (off != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
+            addr = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)addr, (uint16_t)base, (uint16_t)o);
+        }
         int val = c->next_temp_id++;
         ir_emit_deref(c, val, addr);
         int sa = c->next_temp_id++;
@@ -221,13 +221,20 @@ static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
 static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
     size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
+    int base = c->next_temp_id++;
+    ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
     for (size_t off = 0; off < alloc_sz; off += 8) {
         int sa = c->next_temp_id++;
         ir_emit_lea(c, sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
         int val = c->next_temp_id++;
         ir_emit_deref(c, val, sa);
-        int addr;
-        static_local_chunk_addr(c, ss, off, &addr);
+        int addr = base;
+        if (off != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
+            addr = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)addr, (uint16_t)base, (uint16_t)o);
+        }
         ir_emit_store_64(c, (uint16_t)val, (uint16_t)addr);
     }
 }
@@ -239,6 +246,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * lowering), so capture the identity now for the implicit-`return 0`
      * check, diagnostics, and the -dump-ir label below. */
     size_t current_fn_idx = (c->function_count > 0) ? (c->function_count - 1) : 0;
+    while (current_fn_idx > 0 && c->functions[current_fn_idx].is_prototype) {
+        current_fn_idx--;
+    }
     ZeroCCFunction *lowering_fn = (c->function_count > 0)
         ? &c->functions[current_fn_idx] : NULL;
 
@@ -571,11 +581,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     zero_cc_prescan_static_addr_taken(c, arena, root);
 
     c->lowering.static_local_rt_off = 0;
+    c->lowering.static_local_rt2_off = 0;
     for (size_t i = 0; i < c->local_count; i++) {
         if (c->locals[i].is_static_local) {
             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
             c->current_stack_frame += 8;
             c->lowering.static_local_rt_off = (int)c->current_stack_frame;
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            c->lowering.static_local_rt2_off = (int)c->current_stack_frame;
             break;
         }
     }
@@ -605,13 +619,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * this single block runs on every exit path.
      *
      * The mirror-out's allocator temps may be assigned to the return
-     * register, so protect VREG_0 in the reserved frame slot around the
-     * block (integer return values and the sret pointer; FP results live
-     * in XMM registers, which the integer-only mirror-out cannot touch).
-     * CALLEE_SAVE_LOADS runs after the restore and re-establishes all
-     * callee-saved state. */
+     * registers, so protect VREG_0 AND VREG_2 in reserved frame slots
+     * around the block (9-16B integer struct returns live in
+     * VREG_0/VREG_2 = rax/rdx; c-torture execute/pr92618). FP results
+     * live in XMM/FP registers, which the integer-only mirror-out
+     * cannot touch. CALLEE_SAVE_LOADS runs after the restore and
+     * re-establishes all callee-saved state. */
     if (c->lowering.static_local_rt_off != 0) {
         ir_emit_store(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
+        ir_emit_store(c, VREG_2, BE(c)->fp_reg, -c->lowering.static_local_rt2_off);
         for (size_t i = 0; i < c->local_count; i++) {
             /* Sprint 72: skip the mirror-out for address-taken statics - the
              * slot is stale scratch and flushing it would clobber the data
@@ -620,6 +636,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             if (c->locals[i].is_static_local && !c->locals[i].static_addr_taken)
                 static_local_mirror_out(c, &c->locals[i]);
         }
+        ir_emit_load(c, VREG_2, BE(c)->fp_reg, -c->lowering.static_local_rt2_off);
         ir_emit_load(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
     }
 

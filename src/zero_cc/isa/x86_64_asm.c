@@ -895,8 +895,20 @@ static void x86_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FI
 
 /* VLA_ALLOC */
 static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
+    static int vla_lbl_seq = 0;
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *size_name = BE(c)->get_hw_reg_name(size);
+    int32_t sp_disp = c->lowering.vla.cur_sp_slot_disp;
+    if (sp_disp != 0) {
+        int seq = ++vla_lbl_seq;
+        fprintf(out, "\tcmpq\t$0,%d(%%rbp)\n", (int)sp_disp);
+        fprintf(out, "\tjne\t.Lvla_rst_%d\n", seq);
+        fprintf(out, "\tmovq\t%%rsp,%d(%%rbp)\n", (int)sp_disp);
+        fprintf(out, "\tjmp\t.Lvla_alc_%d\n", seq);
+        fprintf(out, ".Lvla_rst_%d:\n", seq);
+        fprintf(out, "\tmovq\t%d(%%rbp),%%rsp\n", (int)sp_disp);
+        fprintf(out, ".Lvla_alc_%d:\n", seq);
+    }
     fprintf(out, "\tsubq\t%%%s,%%rsp\n", size_name);
     fprintf(out, "\tmovq\t%%rsp,%%%s\n", dst_name);
 }

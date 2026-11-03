@@ -27,175 +27,21 @@
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
-/* C99 6.7.2.2p4: a VLA's storage must be released when control jumps to a
- * point before its declaration (backward goto loop), or when a forward
- * goto lands inside the VLA's scope without passing through its
- * allocation. ZeroCC's hybrid VLA model allocates each VLA with its own
- * OP_VLA_ALLOC and unwinds them only at function exit, so any goto whose
- * control path crosses a VLA's allocation point is unsound (stack leak
- * per jump -> segfault). Detect such crossings at the top-level function
- * block using statement-position analysis and reject them cleanly (honest
- * rejection beats a segfault). Gotos nested in compound statements take
- * the position of their top-level containing statement, which is a sound
- * approximation for crossing analysis. */
-#define ZC_VLA_GOTO_MAX 256
-
-static void zc_stmt_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                  const char **gotos, int *gpos, int *ngoto);
-
-static void zc_stmt_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                   const char **names, int *pos_arr, int *nnames);
-
-static void zc_list_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                   const char **names, int *pos_arr, int *nnames) {
-    ASTRef s = ref;
-    while (s != AST_NULL && *nnames < ZC_VLA_GOTO_MAX) {
-        zc_stmt_collect_labels(arena, s, pos, names, pos_arr, nnames);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
-        if (!n) break;
-        s = n->next;
-    }
-}
-
-static void zc_stmt_collect_labels(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                   const char **names, int *pos_arr, int *nnames) {
-    if (ref == AST_NULL || *nnames >= ZC_VLA_GOTO_MAX) return;
-    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-    if (!n) return;
-    switch (n->tag) {
-        case NODE_LABEL:
-            if (n->s.str) {
-                names[*nnames] = n->s.str;
-                pos_arr[*nnames] = pos;
-                (*nnames)++;
-            }
-            /* Also scan the labeled statement (a label may directly precede
-             * another label: `a: b:;`). */
-            zc_stmt_collect_labels(arena, n->left, pos, names, pos_arr, nnames);
-            break;
-        case NODE_BLOCK:
-            zc_list_collect_labels(arena, n->left, pos, names, pos_arr, nnames);
-            break;
-        case NODE_IF:
-            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
-            zc_stmt_collect_labels(arena, n->aux.alt, pos, names, pos_arr, nnames);
-            break;
-        case NODE_WHILE:
-        case NODE_DO_WHILE:
-            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
-            break;
-        case NODE_FOR:
-            zc_stmt_collect_labels(arena, n->aux.alt, pos, names, pos_arr, nnames);
-            break;
-        case NODE_SWITCH:
-            zc_stmt_collect_labels(arena, n->right, pos, names, pos_arr, nnames);
-            break;
-        default:
-            break;
-    }
-}
-
-static void zc_list_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                  const char **gotos, int *gpos, int *ngoto) {
-    ASTRef s = ref;
-    while (s != AST_NULL && *ngoto < ZC_VLA_GOTO_MAX) {
-        zc_stmt_collect_gotos(arena, s, pos, gotos, gpos, ngoto);
-        ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
-        if (!n) break;
-        s = n->next;
-    }
-}
-
-static void zc_stmt_collect_gotos(ZeroCCASTArena *arena, ASTRef ref, int pos,
-                                  const char **gotos, int *gpos, int *ngoto) {
-    if (ref == AST_NULL || *ngoto >= ZC_VLA_GOTO_MAX) return;
-    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-    if (!n) return;
-    switch (n->tag) {
-        case NODE_GOTO:
-            if (n->s.str) {
-                gotos[*ngoto] = n->s.str;
-                gpos[*ngoto] = pos;
-                (*ngoto)++;
-            }
-            break;
-        case NODE_BLOCK:
-            zc_list_collect_gotos(arena, n->left, pos, gotos, gpos, ngoto);
-            break;
-        case NODE_IF:
-            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
-            zc_stmt_collect_gotos(arena, n->aux.alt, pos, gotos, gpos, ngoto);
-            break;
-        case NODE_WHILE:
-        case NODE_DO_WHILE:
-            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
-            break;
-        case NODE_FOR:
-            zc_stmt_collect_gotos(arena, n->aux.alt, pos, gotos, gpos, ngoto);
-            break;
-        case NODE_SWITCH:
-            zc_stmt_collect_gotos(arena, n->right, pos, gotos, gpos, ngoto);
-            break;
-        case NODE_LABEL:
-            zc_stmt_collect_gotos(arena, n->left, pos, gotos, gpos, ngoto);
-            break;
-        default:
-            break;
-    }
-}
-
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
-    /* Track block depth for VLA hybrid rule enforcement */
     c->lowering.vla.block_depth++;
 
-    if (c->lowering.vla.block_depth == 1) {
-        const char *gotos[ZC_VLA_GOTO_MAX];
-        int gpos[ZC_VLA_GOTO_MAX];
-        int ngoto = 0;
-        const char *label_names[ZC_VLA_GOTO_MAX];
-        int label_idx[ZC_VLA_GOTO_MAX];
-        int nlabels = 0;
-        int vla_idx[ZC_VLA_GOTO_MAX];
-        int nvla = 0;
-
-        int total = 0;
-        int i = 0;
-        ASTRef s = ref;
-        while (s != AST_NULL) {
-            ZeroCCASTNode *n = zero_cc_ast_get(arena, s);
-            if (!n) break;
-            if (n->tag == NODE_DECL && (n->flags & NODE_DECL_IS_VLA) &&
-                nvla < ZC_VLA_GOTO_MAX) {
-                vla_idx[nvla++] = i;
-            }
-            zc_stmt_collect_gotos(arena, s, i, gotos, gpos, &ngoto);
-            zc_stmt_collect_labels(arena, s, i, label_names, label_idx, &nlabels);
-            s = n->next;
-            i++;
-        }
-        total = i;
-
-        for (int g = 0; g < ngoto && g < ZC_VLA_GOTO_MAX; g++) {
-            int t = -1;
-            for (int l = 0; l < nlabels; l++) {
-                if (strcmp(label_names[l], gotos[g]) == 0) { t = label_idx[l]; break; }
-            }
-            if (t < 0) {
-                /* Label not found in the top-level list (should not happen
-                 * for valid C); be conservative. */
-                t = total; /* past the end: only forward-crossings possible */
-            }
-            int gi = gpos[g];
-            for (int v = 0; v < nvla; v++) {
-                if ((t < vla_idx[v] && gi >= vla_idx[v]) ||
-                    (gi < vla_idx[v] && t >= vla_idx[v])) {
-                    ZeroCCASTNode *bn = zero_cc_ast_get(arena, ref);
-                    diag_report_error(&c->diag_buf,
-                                      bn ? bn->line : 1, bn ? bn->col : 1,
-                                      NULL,
-                                      "goto '%s' crosses a VLA declaration: stack rebalancing on jumps is not supported (VLA must be in a scope without crossing gotos)",
-                                      gotos[g]);
+    if (c->lowering.vla.block_depth == 1 && c->lowering.inlining.active_depth == 0) {
+        /* Initialize per-VLA saved-SP slots to 0 at function entry so any
+         * loop or backward goto re-entering a VLA declaration restores SP
+         * to the pre-allocation watermark instead of leaking stack space. */
+        int zero_sp = TEMP_NONE;
+        for (size_t li = 0; li < c->local_count; li++) {
+            if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
+                if (zero_sp == TEMP_NONE) {
+                    zero_sp = c->next_temp_id++;
+                    ir_emit_mov_imm(c, zero_sp, 0);
                 }
+                ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
             }
         }
     }
@@ -219,50 +65,62 @@ void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
     if (node->flags & NODE_DECL_IS_VLA) {
-        /* Variable Length Array (C99 VLA) - enforce hybrid rules */
-
-        /* Rule 1: multiple VLAs per function are supported (Sprint 40):
-         * each VLA emits its own OP_VLA_ALLOC (sub rsp, aligned-size;
-         * mov ptr, rsp) and stores the pointer in its own local slot;
-         * `leave` in the epilogue unwinds all of them. The legacy
-         * one-VLA-per-function restriction is lifted. */
         c->lowering.vla.has_runtime_vla = true;
         c->lowering.vla.vla_count++;
 
-        /* Rule 2: VLA must be at function scope (block_depth == 1) */
-        if (c->lowering.vla.block_depth > 1) {
-            diag_report_error_at_token(c, "VLA must be at function scope, not in nested blocks (hybrid VLA rule)");
-            return;
-        }
-
-        /* Rule 3: VLA not allowed in loops */
-        if (c->lowering.vla.loop_depth > 0) {
-            diag_report_error_at_token(c, "VLA not allowed inside loops (hybrid VLA rule)");
-            return;
-        }
-
         const char *var = node->s.str;
-        /* Use the declaration's own stashed symbol (aux.step) rather than a
-         * by-name lookup: after a preceding nested block, local_lookup_bound
-         * is capped at the block-entry symbol count, which excludes this
-         * declaration's own (later) symbol and silently drops the VLA
-         * allocation (vt5: `{ int k = 1; } int x[n];` -> x never allocated,
-         * segfault on first use). */
         ZeroCCSym *sym = lowering_local_sym(c, node, var);
         if (sym && node->right != AST_NULL) {
-            /* 1. Evaluate dimension expression */
+            /* Invalidate saved-SP watermarks of any lexically-later VLAs so
+             * they re-anchor below this VLA's new allocation. */
+            size_t self_idx = (size_t)(sym - c->locals);
+            int zero_sp = TEMP_NONE;
+            for (size_t li = self_idx + 1; li < c->local_count; li++) {
+                if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
+                    if (zero_sp == TEMP_NONE) {
+                        zero_sp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, zero_sp, 0);
+                    }
+                    ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
+                }
+            }
+
+            /* 1. Evaluate outermost dimension expression */
             int count_temp = lower_expr(c, arena, node->right);
 
-            /* 2. Multiply count by element size */
-            size_t elem_size = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
+            /* 2. Multiply count by element/row size (handling runtime inner VLA dims) */
             int size_temp;
-            if (elem_size == 1) {
-                size_temp = count_temp;
-            } else {
-                int sz_imm = c->next_temp_id++;
-                ir_emit_mov_imm(c, sz_imm, (int32_t)elem_size);
+            if (sym->type.base && sym->type.base->tag == TYPE_ARRAY && sym->type.base->is_vla) {
+                const ZeroCCType *leaf = sym->type.base;
+                while (leaf && leaf->tag == TYPE_ARRAY && leaf->is_vla) {
+                    leaf = leaf->base;
+                }
+                size_t leaf_sz = (leaf && leaf->size > 0) ? leaf->size : 4;
+                int stride_temp = c->next_temp_id++;
+                ir_emit_mov_imm(c, stride_temp, (int32_t)leaf_sz);
+                const ZeroCCType *it = sym->type.base;
+                while (it && it->tag == TYPE_ARRAY && it->is_vla) {
+                    if (it->vla_dim != 0) {
+                        int d_temp = lower_expr(c, arena, (ASTRef)it->vla_dim);
+                        int prod = c->next_temp_id++;
+                        ir_emit_mul(c, prod, stride_temp, d_temp);
+                        stride_temp = prod;
+                    }
+                    it = it->base;
+                }
+                ir_emit_store(c, stride_temp, BE(c)->fp_reg, -(sym->stack_offset - 16));
                 size_temp = c->next_temp_id++;
-                ir_emit_mul(c, size_temp, count_temp, sz_imm);
+                ir_emit_mul(c, size_temp, count_temp, stride_temp);
+            } else {
+                size_t elem_size = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
+                if (elem_size == 1) {
+                    size_temp = count_temp;
+                } else {
+                    int sz_imm = c->next_temp_id++;
+                    ir_emit_mov_imm(c, sz_imm, (int32_t)elem_size);
+                    size_temp = c->next_temp_id++;
+                    ir_emit_mul(c, size_temp, count_temp, sz_imm);
+                }
             }
 
             /* 3. Align size to 16 bytes: (size + 15) & ~15 */
@@ -275,9 +133,11 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             int aligned_size = c->next_temp_id++;
             ir_emit_and(c, aligned_size, size_p15, mask16);
 
-            /* 4. Allocate dynamically on stack via sub rsp, reg */
+            /* 4. Allocate dynamically on stack via sub rsp, reg (with saved-SP watermark) */
             int vla_ptr = c->next_temp_id++;
-            ir_emit_vla_alloc(c, vla_ptr, aligned_size);
+            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = (uint16_t)vla_ptr,
+                               .temp_src1 = (uint16_t)aligned_size, .temp_src2 = TEMP_NONE,
+                               .imm = -(sym->stack_offset - 8), .label_idx = 0});
 
             /* 5. Store the buffer pointer in the local variable's stack slot */
             ir_emit_store(c, vla_ptr, BE(c)->fp_reg, -sym->stack_offset);
@@ -755,11 +615,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (c->lowering.inlining.active_depth > 0) {
         if (node && node->left != AST_NULL) {
             int res = lower_expr(c, arena, node->left);
-            if (!c->last_expr_is_float && c->lowering.inlining.return_type.size > 0) {
-                zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
-            }
-            if (c->lowering.inlining.return_target_temp >= 0 && res != c->lowering.inlining.return_target_temp) {
-                ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
+            if (c->lowering.inlining.return_type.tag != TYPE_VOID) {
+                if (!c->last_expr_is_float && c->lowering.inlining.return_type.size > 0) {
+                    zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
+                }
+                if (c->lowering.inlining.return_target_temp >= 0 && res >= 0 && res != c->lowering.inlining.return_target_temp) {
+                    ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
+                }
             }
         }
         if (c->lowering.inlining.return_target_label != 0) {
@@ -772,6 +634,12 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         ZeroCCSym *sym = (ret_expr && ret_expr->tag == NODE_IDENT) ? zero_cc_find_local(c, ret_expr->s.str) : NULL;
         ZeroCCFunction *cur_fn2 = zero_cc_get_current_fn(c);
+        if (cur_fn2 && cur_fn2->return_type.tag == TYPE_VOID) {
+            (void)lower_expr(c, arena, node->left);
+            c->last_expr_is_float = 0;
+            ir_emit_jmp(c, c->lowering.epilogue_label);
+            return;
+        }
         bool ret_cx_type = (cur_fn2 && zero_cc_type_is_complex(&cur_fn2->return_type));
         if (ret_cx_type) {
             bool ret_cx_is_fp = (cur_fn2->return_type.base &&
@@ -1318,6 +1186,7 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
 
 void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
+    int saved_temp_id = c->next_temp_id;
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
@@ -1329,6 +1198,9 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
         lower_node(c, arena, node->aux.alt);
     }
     ir_emit_label(c, end_label);
+    if (saved_temp_id > 1024 && c->lowering.vla.loop_depth == 0) {
+        c->next_temp_id = saved_temp_id;
+    }
 }
 
 void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -1422,14 +1294,20 @@ static void collect_switch_cases(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRe
             uint16_t case_label = (uint16_t)sn->aux.alt;
             if (sn->aux.step != 0) {
                 /* Range case: low in sn->left, high in sn->aux.step */
+                ZeroCCASTNode *low_n = zero_cc_ast_get(arena, sn->left);
+                ZeroCCASTNode *high_n = zero_cc_ast_get(arena, (ASTRef)sn->aux.step);
+                bool range_unsigned = zero_cc_binop_is_unsigned(c, arena, sn->left, (ASTRef)sn->aux.step) ||
+                                      (low_n && high_n && low_n->tag == NODE_INT &&
+                                       high_n->tag == NODE_INT &&
+                                       low_n->int_val >= 0 && high_n->int_val < 0);
                 int low_temp = lower_expr(c, arena, sn->left);
                 int high_temp = lower_expr(c, arena, (ASTRef)sn->aux.step);
                 int flag_low = c->next_temp_id++;
                 ir_emit_cmp(c, cond_temp, low_temp);
-                ir_emit_cond_set(c, flag_low, CC_GE);
+                ir_emit_cond_set(c, flag_low, range_unsigned ? CC_FLT_GE : CC_GE);
                 int flag_high = c->next_temp_id++;
                 ir_emit_cmp(c, cond_temp, high_temp);
-                ir_emit_cond_set(c, flag_high, CC_LE);
+                ir_emit_cond_set(c, flag_high, range_unsigned ? CC_FLT_LE : CC_LE);
                 int in_range = c->next_temp_id++;
                 ir_emit_and(c, in_range, flag_low, flag_high);
                 ir_emit_jne(c, (uint16_t)in_range, case_label);

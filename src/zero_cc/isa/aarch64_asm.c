@@ -582,16 +582,17 @@ static void aarch64_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int
     static const char *linux_syscall_reg_names[7] = {"x8", "x0", "x1", "x2", "x3", "x4", "x5"};
     static const int clobbered_live_regs[] = {1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15};
     static const int n_save = 13;
+    static const int save_bytes = ((13 * 8) + 15) & ~15;
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
     int n = (arg_count < 7) ? arg_count : 7;
 
-    /* Save the live values the kernel would clobber. */
-    fprintf(out, "\tsub\tsp, sp, #%d\n", n_save * 8);
+    /* Save the live values the kernel would clobber (16-byte aligned). */
+    fprintf(out, "\tsub\tsp, sp, #%d\n", save_bytes);
     for (int r = 0; r < n_save; r++) {
         fprintf(out, "\tstr\t%s, [sp, #%d]\n",
                 BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * 8);
     }
-    int32_t extra_sp = n_save * 8;
+    int32_t extra_sp = save_bytes;
 
     /* Parallel move of the syscall arguments (same idiom as call_asm). */
     if (n > 0) {
@@ -623,7 +624,7 @@ static void aarch64_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int
         fprintf(out, "\tldr\t%s, [sp, #%d]\n",
                 BE(c)->get_hw_reg_name(clobbered_live_regs[r]), r * 8);
     }
-    fprintf(out, "\tadd\tsp, sp, #%d\n", n_save * 8);
+    fprintf(out, "\tadd\tsp, sp, #%d\n", save_bytes);
 }
 
 /* LABEL: label: */
@@ -763,6 +764,22 @@ static void aarch64_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FIL
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *size_name = BE(c)->get_hw_reg_name(size);
     fprintf(out, "\tsub\t%s, sp, %s\n", dst_name, size_name);
+}
+
+/* VARIADIC_SPILL: spill incoming x0..x7 and d0..d7 into the 16-slot save area */
+static void aarch64_emit_variadic_spill_asm(ZeroCCCompiler *c, int count, int32_t offset, FILE *out) {
+    (void)count;
+    int base = zero_cc_frame_base_reg(c);
+    int gp_regs = BE(c)->conv->int_arg_reg_count;
+    int fp_regs = BE(c)->conv->fp_arg_reg_count;
+    for (int i = 0; i < gp_regs; i++) {
+        int r = BE(c)->conv->int_arg_regs[i];
+        aarch64_emit_store_asm(c, r, base, zero_cc_frame_disp(c, -(offset + (int32_t)i * 8)), out);
+    }
+    for (int i = 0; i < fp_regs; i++) {
+        int r = BE(c)->conv->fp_arg_regs[i];
+        aarch64_emit_store_fp_asm(c, r, base, zero_cc_frame_disp(c, -(offset + (int32_t)(gp_regs + i) * 8)), out);
+    }
 }
 
 /* =========================================================================
@@ -1104,6 +1121,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vla_alloc_asm = aarch64_emit_vla_alloc_asm;
     be->emit_param_save_int_asm = aarch64_emit_param_save_int_asm;
     be->emit_param_save_fp_asm = aarch64_emit_param_save_fp_asm;
+    be->emit_variadic_spill_asm = aarch64_emit_variadic_spill_asm;
 
     /* Vector instruction emission (NEON) */
     be->emit_vload_asm = aarch64_emit_vload_asm;

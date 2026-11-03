@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T03:51:22Z",
+ "generated": "2026-11-03T12:28:10Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -371,12 +371,12 @@
    "note": ""
   },
   "compile/20000923-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001018-1.c": {
    "class": "PASS",
@@ -459,12 +459,12 @@
    "note": ""
   },
   "compile/20001221-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: VLA must be at function scope, not in nested blocks (hybrid VLA rule) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20001222-1.c": {
    "class": "PASS",
@@ -475,12 +475,12 @@
    "note": ""
   },
   "compile/20001226-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: function 'foo' uses 188421 temporaries; max is 65534 per function (16-bit temp ids). Split the function into smaller helper functions (each has its own temp-id space). [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/200031109-1.c": {
    "class": "PASS",
@@ -1029,12 +1029,12 @@
    "note": ""
   },
   "compile/20020109-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020109-2.c": {
    "class": "PASS",
@@ -1109,12 +1109,12 @@
    "note": ""
   },
   "compile/20020304-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020304-2.c": {
    "class": "PASS",
@@ -2635,12 +2635,12 @@
    "note": ""
   },
   "compile/20060202-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: member reference type is not a pointer; Compile error: member reference type is not a pointer | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20060208-1.c": {
    "class": "PASS",
@@ -2651,12 +2651,12 @@
    "note": ""
   },
   "compile/20060215-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20060217-1.c": {
    "class": "PASS",
@@ -3399,12 +3399,12 @@
    "note": ""
   },
   "compile/20120913-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20120917-1.c": {
    "class": "PASS",
@@ -3599,12 +3599,12 @@
    "note": ""
   },
   "compile/20190827-1.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": "                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/20191015-1.c": {
    "class": "PASS",
@@ -3820,12 +3820,12 @@
    "note": ""
   },
   "compile/920428-6.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-7.c": {
    "class": "SKIP-C89",
@@ -5337,12 +5337,12 @@
    "note": ""
   },
   "compile/980408-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/980504-1.c": {
    "class": "PASS",
@@ -7327,20 +7327,20 @@
    "note": ""
   },
   "compile/limits-caselabels.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/limits-declparen.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/limits-enumconst.c": {
    "class": "PASS",
@@ -7375,20 +7375,20 @@
    "note": "                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/limits-fnargs.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/limits-fndefn.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                                                                                                                                                         [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/limits-idexternal.c": {
    "class": "PASS",
@@ -8346,12 +8346,12 @@
    "note": ""
   },
   "compile/pr110386-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/pr110386-2.c:4: fatal error: immintrin.h: No such file or directory [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr110444-1.c": {
    "class": "PASS",
@@ -9381,12 +9381,12 @@
    "note": ""
   },
   "compile/pr25311.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr25483.c": {
    "class": "PASS",
@@ -9847,12 +9847,12 @@
    "note": ""
   },
   "compile/pr32571.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr32584.c": {
    "class": "PASS",
@@ -10497,12 +10497,12 @@
    "note": ""
   },
   "compile/pr37669.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: '__builtin_va_arg_pack' is not supported by ZeroCC (GNU variadic argument forwarding); this program cannot be compiled [clean -std=c11] | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr37713.c": {
    "class": "PASS",
@@ -10630,12 +10630,12 @@
    "note": ""
   },
   "compile/pr38564.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr38590-1.c": {
    "class": "PASS",
@@ -11576,7 +11576,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: use of undeclared identifier 'nf_hook_thresh' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr44063.c": {
    "class": "SKIP-C89",
@@ -12185,12 +12185,12 @@
    "note": ""
   },
   "compile/pr51069.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                          ^; Compile error: void function should not return a value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr51077.c": {
    "class": "PASS",
@@ -13575,7 +13575,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: argument count mismatch in call to 'fn4': prototype declares 5 parameter(s), 2 argument(s) given | cfgs: O0-aot,O2-aot"
   },
   "compile/pr77901.c": {
    "class": "PASS",
@@ -13610,12 +13610,12 @@
    "note": ""
   },
   "compile/pr78439.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr78527.c": {
    "class": "PASS",
@@ -15142,7 +15142,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                     ^; Compile error: use of undeclared identifier '__FUNCTION__' | cfgs: O0-aot,O2-aot"
   },
   "compile/split-path-4.c": {
    "class": "PASS",
@@ -15270,12 +15270,12 @@
    "note": ""
   },
   "compile/strcpy-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/string-large-1.c": {
    "class": "PASS",
@@ -16035,18 +16035,18 @@
    "note": ""
   },
   "execute/20000314-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: void function should not return a value | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000402-1.c": {
    "class": "PASS",
@@ -16665,18 +16665,18 @@
    "note": ""
   },
   "execute/20000815-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000818-1.c": {
    "class": "PASS",
@@ -16740,18 +16740,18 @@
    "note": ""
   },
   "execute/20000914-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "REJECT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "REJECT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -19956,18 +19956,18 @@
    "note": ""
   },
   "execute/20040811-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: goto 'lab' crosses a VLA declaration: stack rebalancing on jumps is not supported (VLA must be in a scope without crossing gotos) [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040820-1.c": {
    "class": "PASS",
@@ -20236,18 +20236,18 @@
    "note": ""
   },
   "execute/20050106-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20050107-1.c": {
    "class": "PASS",
@@ -21529,32 +21529,32 @@
    "note": ""
   },
   "execute/20090113-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20090113-3.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20090207-1.c": {
    "class": "PASS",
@@ -22346,18 +22346,18 @@
    "note": ""
   },
   "execute/20221006-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                  ^; Compile error: multi-dim VLA with runtime inner dimensions is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20230509-1.c": {
    "class": "PASS",
@@ -24409,7 +24409,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950221-1.c": {
    "class": "PASS",
@@ -25938,18 +25938,18 @@
    "note": ""
   },
   "execute/990413-2.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: GNU asm statement with a non-empty template is not supported [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/990513-1.c": {
    "class": "PASS",
@@ -26932,18 +26932,18 @@
    "note": ""
   },
   "execute/builtin-bitops-1.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/builtin-constant.c": {
    "class": "PASS",
@@ -30060,9 +30060,18 @@
    "note": ""
   },
   "execute/memclr.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "TIMEOUT",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "OK",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "OK",
+    "O3-jit": "TIMEOUT"
+   },
+   "note": " | cfgs: O1-jit,O2-jit,O3-jit"
   },
   "execute/memcpy-1.c": {
    "class": "PASS",
@@ -32936,18 +32945,18 @@
    "note": ""
   },
   "execute/pr33870.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
-    "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
-    "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
-    "O3-jit": "TIMEOUT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr33992.c": {
    "class": "PASS",
@@ -33034,18 +33043,18 @@
    "note": ""
   },
   "execute/pr34154.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr34176.c": {
    "class": "PASS",
@@ -33384,18 +33393,18 @@
    "note": ""
   },
   "execute/pr37573.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "      ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr37780.c": {
    "class": "PASS",
@@ -34131,18 +34140,18 @@
    "note": ""
   },
   "execute/pr43220.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "    ^; Compile error: VLA must be at function scope, not in nested blocks (hybrid VLA rule) [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr43236.c": {
    "class": "PASS",
@@ -40695,18 +40704,18 @@
    "note": ""
   },
   "execute/va-arg-pack-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "<stdin>: error: expected '}' to end block; Compile error: '__builtin_va_arg_pack' is not supported by ZeroCC (GNU variadic argument forwarding); this program cannot be compiled [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/va-arg-trap-1.c": {
    "class": "PASS",
@@ -40751,18 +40760,18 @@
    "note": " [reference gcc -O1 binary crashes rc=-6; test encodes behavior fixed after the reference GCC version]"
   },
   "execute/vla-dealloc-1.c": {
-   "class": "REJECT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: goto 'lab' crosses a VLA declaration: stack rebalancing on jumps is not supported (VLA must be in a scope without crossing gotos) [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/vprintf-1.c": {
    "class": "PASS",
@@ -41005,12 +41014,11 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 189,
-  "PASS": 3196,
+  "NO-REF": 188,
+  "PASS": 3234,
   "REF-BUG": 3,
-  "REJECT": 13,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 425,
+  "SKIP-C89": 416,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
@@ -41021,6 +41029,6 @@
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1,
-  "TIMEOUT": 16
+  "TIMEOUT": 1
  }
 }

@@ -1648,7 +1648,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                              * of several attributes). */
                             const char *ex = NULL;
                             size_t el = 0;
-                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias */
+                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias, 4 = mode */
                             int depth = 0;
                             for (const char *q = it; q < it + il; q++) {
                                 if (*q == '(') {
@@ -1667,7 +1667,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                                      (namelen == 11 && strncmp(nam, "__aligned__", 11) == 0);
                                         bool is_as = (namelen == 5 && strncmp(nam, "alias", 5) == 0) ||
                                                      (namelen == 9 && strncmp(nam, "__alias__", 9) == 0);
-                                        if (is_vs || is_al || is_as) {
+                                        bool is_md = (namelen == 4 && strncmp(nam, "mode", 4) == 0) ||
+                                                     (namelen == 8 && strncmp(nam, "__mode__", 8) == 0);
+                                        if (is_vs || is_al || is_as || is_md) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1678,7 +1680,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : 3);
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : 4));
                                             }
                                             break;
                                         }
@@ -1724,7 +1726,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : "__zc_alias__");
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : "__zc_mode__"));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
                             snprintf(marker, sizeof(marker), "%s(%.*s)", mk, (int)el2, et2);
                             zero_cc_buf_free(&expr_buf);

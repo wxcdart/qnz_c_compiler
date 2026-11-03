@@ -28,6 +28,12 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type == TK_TYPEDEF) {
         is_typedef = true;
         c->token_pos++; /* consume TK_TYPEDEF */
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_CONST ||
+                c->tokens[c->token_pos].type == TK_VOLATILE ||
+                c->tokens[c->token_pos].type == TK_RESTRICT)) {
+            c->token_pos++;
+        }
     }
     bool is_union = (c->tokens[c->token_pos].type == TK_UNION);
     if (c->tokens[c->token_pos].type == TK_STRUCT || is_union) {
@@ -495,10 +501,22 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                 snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
                 zero_cc_register_struct(c, st_name, st);
             }
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                c->token_pos++;
+            }
             int ptr_depth = 0;
             while (c->tokens[c->token_pos].type == TK_STAR) {
                 ptr_depth++;
                 c->token_pos++;
+                while (c->token_pos < c->token_count &&
+                       (c->tokens[c->token_pos].type == TK_CONST ||
+                        c->tokens[c->token_pos].type == TK_VOLATILE ||
+                        c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                    c->token_pos++;
+                }
             }
             /* Function pointer typedef over an opaque struct:
              * `typedef struct JSObjectMap *(*Op)(struct JSObject *);`
@@ -631,35 +649,47 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     }
 
     /* GNU vector attribute leading the typedef base:
-     * `typedef __attribute__((__vector_size__(16))) short V;` */
+     * `typedef __attribute__((__vector_size__(16))) short V;`
+     * Same for mode(X): `typedef __attribute__((mode(QI))) unsigned int V;` */
     size_t vec_attr_size = 0;
     size_t align_attr_val = 0;
+    size_t lead_mode_bytes = 0;
     {
         size_t save = c->token_pos;
         size_t probe = 0;
-        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+        bool consumed = false;
+        /* Markers may chain in any order: consume them all, then require a
+         * base-type keyword (rewind otherwise). */
+        for (int mk = 0; mk < 4; mk++) {
+            bool got = false;
+            if (vec_attr_size == 0 &&
+                zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+                vec_attr_size = probe;
+                got = true;
+            }
+            if (align_attr_val == 0 &&
+                zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                align_attr_val = probe;
+                got = true;
+            }
+            if (zero_cc_parse_mode_attr(c, &c->token_pos, &probe)) {
+                lead_mode_bytes = probe;
+                got = true;
+            }
+            if (!got) break;
+            consumed = true;
+        }
+        if (consumed) {
             ZeroCCTokType nt = c->token_pos < c->token_count ? c->tokens[c->token_pos].type : TK_EOF;
             if (nt == TK_INT || nt == TK_CHAR || nt == TK_SHORT || nt == TK_LONG ||
                 nt == TK_SIGNED || nt == TK_UNSIGNED || nt == TK_FLOAT_KW ||
                 nt == TK_DOUBLE_KW || nt == TK_BOOL_KW || nt == TK_VOID) {
-                vec_attr_size = probe;
                 t = nt;
             } else {
                 c->token_pos = save;
-            }
-        }
-        if (vec_attr_size == 0) {
-            size_t save2 = c->token_pos;
-            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
-                ZeroCCTokType nt = c->token_pos < c->token_count ? c->tokens[c->token_pos].type : TK_EOF;
-                if (nt == TK_INT || nt == TK_CHAR || nt == TK_SHORT || nt == TK_LONG ||
-                    nt == TK_SIGNED || nt == TK_UNSIGNED || nt == TK_FLOAT_KW ||
-                    nt == TK_DOUBLE_KW || nt == TK_BOOL_KW || nt == TK_VOID) {
-                    align_attr_val = probe;
-                    t = nt;
-                } else {
-                    c->token_pos = save2;
-                }
+                vec_attr_size = 0;
+                align_attr_val = 0;
+                lead_mode_bytes = 0;
             }
         }
     }
@@ -720,17 +750,33 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     }
     (void)is_signed;
     if (is_atomic) ttype.is_atomic = true;
+    if (lead_mode_bytes > 0) {
+        ttype = zero_cc_type_apply_mode(ttype, lead_mode_bytes);
+    }
     /* GNU vector attribute trailing the base: `typedef signed char V
      * __attribute__((__vector_size__(16)));` - wraps the element type in a
      * vector ZeroCCType (TYPE_USER_0) with the given total width. */
-    {
+    for (int mk = 0; mk < 4; mk++) {
         size_t probe = 0;
+        bool got = false;
         if (vec_attr_size == 0 && zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
             vec_attr_size = probe;
+            got = true;
         }
         if (align_attr_val == 0 && zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
             align_attr_val = probe;
+            got = true;
         }
+        /* GNU mode(X) trailing the base: `typedef unsigned int
+         * __attribute__((mode(QI))) u8;` (c-torture execute/memclr) -
+         * resize the integer base before the alias name is read. The loop
+         * also handles chained attributes in any order (pr23135: mode +
+         * vector_size). */
+        if (zero_cc_parse_mode_attr(c, &c->token_pos, &probe)) {
+            ttype = zero_cc_type_apply_mode(ttype, probe);
+            got = true;
+        }
+        if (!got) break;
     }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ttype)) {
         ttype = zero_cc_type_vector(&ttype, vec_attr_size);
@@ -812,12 +858,16 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
             /* GNU vector attribute trailing the typedef name (a declarator
              * attribute): `typedef signed char V __attribute__((__vector_size__(16)));`
              * Must be consumed before the function-typedef check below so the
-             * marker's `(` is not read as a parameter list. */
+             * marker's `(` is not read as a parameter list. Same for mode(X)
+             * in position 2 (`typedef unsigned u32 __attribute__((mode(SI)));` -
+             * c-torture cbrt): the marker is skipped, the width stays.
+             * (Position-1 mode, i.e. before the base type, is applied above.) */
             {
                 size_t probe = 0;
                 if (vec_attr_size == 0 && zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
                     vec_attr_size = probe;
                 }
+                zero_cc_skip_mode_attr(c);
             }
             /* C99 6.7.8: array typedef `typedef T name[N];` / `typedef char A28[28];`
              * Non-constant dimensions are VLA typedefs (C99 6.7.8p5):

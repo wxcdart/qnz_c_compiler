@@ -1487,8 +1487,24 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             }
             if (elem_size == 0) elem_size = 4;
 
+            ZeroCCSym *vla_2d_sym = NULL;
+            {
+                ZeroCCASTNode *ln = zero_cc_ast_get(arena, left_node->left);
+                if (ln && ln->tag == NODE_IDENT) {
+                    ZeroCCSym *ls = zero_cc_find_local(c, ln->s.str);
+                    if (ls && ls->is_vla && ls->type.base && ls->type.base->tag == TYPE_ARRAY && ls->type.base->is_vla) {
+                        vla_2d_sym = ls;
+                    }
+                }
+            }
+
             int scaled_index;
-            if (elem_size == 1) {
+            if (vla_2d_sym) {
+                int stride_temp = c->next_temp_id++;
+                ir_emit_load(c, stride_temp, BE(c)->fp_reg, -(vla_2d_sym->stack_offset - 16));
+                scaled_index = c->next_temp_id++;
+                ir_emit_mul(c, scaled_index, index_temp, stride_temp);
+            } else if (elem_size == 1) {
                 scaled_index = index_temp;
             } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
                 int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : 3);

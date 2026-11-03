@@ -134,6 +134,11 @@ typedef struct RegAllocator {
     /* Cost-based allocation flag */
     bool use_cost_based;  /* If true, use spill cost priority instead of start position */
     bool spill_across_calls; /* True for has_setjmp functions: force spans_call intervals onto stack */
+
+    /* O(1) lookup table from 16-bit temp_id to interval index (-1 if none) */
+    int32_t temp_to_interval[65536];
+    size_t fixed_interval_indices[256];
+    size_t fixed_interval_count;
 } RegAllocator;
 
 /* Destroy and free register allocator allocations */
@@ -200,6 +205,8 @@ static void regalloc_init(RegAllocator *ra) {
     ra->used_callee_saved_gpr_mask = 0;
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     ra->spill_across_calls = false;
+    memset(ra->temp_to_interval, -1, sizeof(ra->temp_to_interval));
+    ra->fixed_interval_count = 0;
     regalloc_set_isa(ra, ISA_X86_64);  /* Default to x86-64, caller can call regalloc_set_isa */
     for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
     for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
@@ -230,7 +237,17 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->spans_call = false;
     interval->spill_cost = 1;  /* Default spill cost */
 
-    return (int)(ra->interval_count - 1);
+    size_t idx = ra->interval_count - 1;
+    if (temp_id >= 0 && temp_id < 65536) {
+        if (ra->temp_to_interval[temp_id] < 0) {
+            ra->temp_to_interval[temp_id] = (int32_t)idx;
+        }
+    }
+    if ((temp_id == VREG_0 || temp_id == VREG_2) && ra->fixed_interval_count < 256) {
+        ra->fixed_interval_indices[ra->fixed_interval_count++] = idx;
+    }
+
+    return (int)idx;
 }
 
 /* Mark an interval as spanning a function call */
@@ -340,6 +357,17 @@ static inline bool regalloc_reg_conflicts_fixed(const RegAllocator *ra, int phys
         return false;
     }
     int fixed_temp = (phys_reg == ret_reg0) ? VREG_0 : VREG_2;
+    if (ra->fixed_interval_count < 256) {
+        for (size_t k = 0; k < ra->fixed_interval_count; k++) {
+            const LiveInterval *other = &ra->intervals[ra->fixed_interval_indices[k]];
+            if (other->temp_id == fixed_temp && other->reg_class == REG_CLASS_GPR) {
+                if (!(interval->end < other->start || interval->start > other->end)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     for (size_t i = 0; i < ra->interval_count; i++) {
         const LiveInterval *other = &ra->intervals[i];
         if (other->temp_id == fixed_temp && other->reg_class == REG_CLASS_GPR) {
@@ -885,20 +913,15 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
         return 2;  /* Physical rdx encoding on x86-64 */
     }
 
-    for (size_t i = 0; i < ra->interval_count; i++) {
-        if (ra->intervals[i].temp_id == temp_id) {
-            if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
+    if (temp_id >= 0 && temp_id < 65536) {
+        int32_t idx = ra->temp_to_interval[temp_id];
+        if (idx >= 0 && (size_t)idx < ra->interval_count) {
+            if (ra->intervals[idx].is_spilled || ra->intervals[idx].assigned_reg < 0) {
                 return def_ret_reg;  /* Spilled - use default */
             }
-            /* Return physical register based on class */
-            if (ra->intervals[i].reg_class == REG_CLASS_XMM || ra->intervals[i].reg_class == REG_CLASS_VEC) {
-                /* XMM / Vector registers: allocator index 0-31 maps directly to XMM/V registers */
-                return ra->intervals[i].assigned_reg;
-            } else {
-                /* GPR registers: allocator already returns physical register numbers */
-                return ra->intervals[i].assigned_reg;
-            }
+            return ra->intervals[idx].assigned_reg;
         }
+        return def_ret_reg;
     }
     return def_ret_reg;  /* Not found - use default */
 }
@@ -907,10 +930,11 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
     if (!ra || temp_id == TEMP_NONE || temp_id == VREG_0 || temp_id == VREG_2) return -1;
-    for (size_t i = 0; i < ra->interval_count; i++) {
-        if (ra->intervals[i].temp_id == temp_id) {
-            if (ra->intervals[i].is_spilled || ra->intervals[i].assigned_reg < 0) {
-                return ra->intervals[i].spill_slot;
+    if (temp_id >= 0 && temp_id < 65536) {
+        int32_t idx = ra->temp_to_interval[temp_id];
+        if (idx >= 0 && (size_t)idx < ra->interval_count) {
+            if (ra->intervals[idx].is_spilled || ra->intervals[idx].assigned_reg < 0) {
+                return ra->intervals[idx].spill_slot;
             }
             return -1;
         }
@@ -922,9 +946,10 @@ static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) {
     if (!ra || temp_id == TEMP_NONE) return REG_CLASS_GPR;
-    for (size_t i = 0; i < ra->interval_count; i++) {
-        if (ra->intervals[i].temp_id == temp_id) {
-            return ra->intervals[i].reg_class;
+    if (temp_id >= 0 && temp_id < 65536) {
+        int32_t idx = ra->temp_to_interval[temp_id];
+        if (idx >= 0 && (size_t)idx < ra->interval_count) {
+            return ra->intervals[idx].reg_class;
         }
     }
     return REG_CLASS_GPR;

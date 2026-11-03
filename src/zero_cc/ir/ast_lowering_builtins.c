@@ -8,6 +8,256 @@
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
+static int zc_bitop_width(ZeroCCCompiler *c, const char *name) {
+    size_t len = strlen(name);
+    if (len >= 2 && strcmp(name + len - 2, "ll") == 0) return 64;
+    if (len >= 1 && name[len - 1] == 'l') return (c && c->isa == ISA_RISCV32) ? 32 : 64;
+    return 32;
+}
+
+static bool zc_is_bitop_builtin_name(const char *name) {
+    if (!name) return false;
+    return strcmp(name, "__builtin_ffs") == 0 ||
+           strcmp(name, "__builtin_ffsl") == 0 ||
+           strcmp(name, "__builtin_ffsll") == 0 ||
+           strcmp(name, "__builtin_ctz") == 0 ||
+           strcmp(name, "__builtin_ctzl") == 0 ||
+           strcmp(name, "__builtin_ctzll") == 0 ||
+           strcmp(name, "__builtin_clz") == 0 ||
+           strcmp(name, "__builtin_clzl") == 0 ||
+           strcmp(name, "__builtin_clzll") == 0 ||
+           strcmp(name, "__builtin_clrsb") == 0 ||
+           strcmp(name, "__builtin_clrsbl") == 0 ||
+           strcmp(name, "__builtin_clrsbll") == 0 ||
+           strcmp(name, "__builtin_popcount") == 0 ||
+           strcmp(name, "__builtin_popcountl") == 0 ||
+           strcmp(name, "__builtin_popcountll") == 0 ||
+           strcmp(name, "__builtin_parity") == 0 ||
+           strcmp(name, "__builtin_parityl") == 0 ||
+           strcmp(name, "__builtin_parityll") == 0;
+}
+
+static int zc_eval_bitop_const(const char *name, uint64_t uval, int nbits) {
+    if (nbits == 32) uval &= 0xFFFFFFFFULL;
+    if (strncmp(name, "__builtin_ffs", 13) == 0) {
+        return uval == 0 ? 0 : (__builtin_ctzll(uval) + 1);
+    }
+    if (strncmp(name, "__builtin_ctz", 13) == 0) {
+        return uval == 0 ? nbits : __builtin_ctzll(uval);
+    }
+    if (strncmp(name, "__builtin_clz", 13) == 0) {
+        return uval == 0 ? nbits : (__builtin_clzll(uval) - (64 - nbits));
+    }
+    if (strncmp(name, "__builtin_clrsb", 15) == 0) {
+        int leading = (int)((uval >> (nbits - 1)) & 1ULL);
+        int cnt = 0;
+        for (int i = 1; i < nbits; i++) {
+            if ((int)((uval >> (nbits - i - 1)) & 1ULL) != leading) break;
+            cnt++;
+        }
+        return cnt;
+    }
+    if (strncmp(name, "__builtin_popcount", 18) == 0) {
+        return __builtin_popcountll(uval);
+    }
+    if (strncmp(name, "__builtin_parity", 16) == 0) {
+        return __builtin_popcountll(uval) & 1;
+    }
+    return 0;
+}
+
+static int zc_emit_ctz_nbits(ZeroCCCompiler *c, int t_in, int nbits) {
+    int t_x = c->next_temp_id++;
+    ir_emit_mov_reg(c, t_x, t_in);
+    if (nbits == 32) ir_emit_zext(c, t_x, 4);
+    int t_zero = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_zero, 0);
+    int t_res = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_res, 0);
+    int k_max = (nbits == 64) ? 5 : 4;
+    for (int k = k_max; k >= 0; k--) {
+        int step = 1 << k;
+        int t_low = c->next_temp_id++;
+        if (step == 32) {
+            ir_emit_mov_reg(c, t_low, t_x);
+            ir_emit_zext(c, t_low, 4);
+        } else {
+            int t_mask = c->next_temp_id++;
+            ir_emit_mov_imm(c, t_mask, (1 << step) - 1);
+            ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_low,
+                               .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_mask});
+        }
+        int t_isz = c->next_temp_id++;
+        ir_emit_cmp(c, t_low, t_zero);
+        ir_emit(c, (Instr){.op = OP_COND_SET, .temp_dest = (uint16_t)t_isz,
+                           .temp_src1 = (uint16_t)t_low, .temp_src2 = (uint16_t)t_zero,
+                           .cond = CC_EQ});
+        int t_sh = t_isz;
+        if (k > 0) {
+            int t_k = c->next_temp_id++;
+            ir_emit_mov_imm(c, t_k, k);
+            t_sh = c->next_temp_id++;
+            ir_emit(c, (Instr){.op = OP_SHL, .temp_dest = (uint16_t)t_sh,
+                               .temp_src1 = (uint16_t)t_isz, .temp_src2 = (uint16_t)t_k});
+        }
+        ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_res,
+                           .temp_src1 = (uint16_t)t_res, .temp_src2 = (uint16_t)t_sh});
+        if (k > 0) {
+            ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_x,
+                               .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_sh});
+        }
+    }
+    return t_res;
+}
+
+static int zc_emit_clz_nbits(ZeroCCCompiler *c, int t_in, int nbits) {
+    int t_x = c->next_temp_id++;
+    ir_emit_mov_reg(c, t_x, t_in);
+    if (nbits == 32) ir_emit_zext(c, t_x, 4);
+    int t_zero = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_zero, 0);
+    int t_res = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_res, 0);
+    int k_max = (nbits == 64) ? 5 : 4;
+    for (int k = k_max; k >= 0; k--) {
+        int step = 1 << k;
+        int t_step = c->next_temp_id++;
+        ir_emit_mov_imm(c, t_step, step);
+        int t_hi = c->next_temp_id++;
+        ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_hi,
+                           .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_step});
+        int t_isz = c->next_temp_id++;
+        ir_emit_cmp(c, t_hi, t_zero);
+        ir_emit(c, (Instr){.op = OP_COND_SET, .temp_dest = (uint16_t)t_isz,
+                           .temp_src1 = (uint16_t)t_hi, .temp_src2 = (uint16_t)t_zero,
+                           .cond = CC_EQ});
+        int t_add = t_isz;
+        if (k > 0) {
+            int t_k = c->next_temp_id++;
+            ir_emit_mov_imm(c, t_k, k);
+            t_add = c->next_temp_id++;
+            ir_emit(c, (Instr){.op = OP_SHL, .temp_dest = (uint16_t)t_add,
+                               .temp_src1 = (uint16_t)t_isz, .temp_src2 = (uint16_t)t_k});
+        }
+        ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_res,
+                           .temp_src1 = (uint16_t)t_res, .temp_src2 = (uint16_t)t_add});
+        if (k > 0) {
+            int t_isnz = c->next_temp_id++;
+            ir_emit_cmp(c, t_hi, t_zero);
+            ir_emit(c, (Instr){.op = OP_COND_SET, .temp_dest = (uint16_t)t_isnz,
+                               .temp_src1 = (uint16_t)t_hi, .temp_src2 = (uint16_t)t_zero,
+                               .cond = CC_NE});
+            int t_k2 = c->next_temp_id++;
+            ir_emit_mov_imm(c, t_k2, k);
+            int t_sh = c->next_temp_id++;
+            ir_emit(c, (Instr){.op = OP_SHL, .temp_dest = (uint16_t)t_sh,
+                               .temp_src1 = (uint16_t)t_isnz, .temp_src2 = (uint16_t)t_k2});
+            ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_x,
+                               .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_sh});
+        }
+    }
+    return t_res;
+}
+
+static int zc_emit_clrsb_nbits(ZeroCCCompiler *c, int t_in, int nbits) {
+    int t_x = c->next_temp_id++;
+    ir_emit_mov_reg(c, t_x, t_in);
+    if (nbits == 32) ir_emit_zext(c, t_x, 4);
+    int t_nm1 = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_nm1, nbits - 1);
+    int t_msb = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_msb,
+                       .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_nm1});
+    int t_one = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_one, 1);
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_msb,
+                       .temp_src1 = (uint16_t)t_msb, .temp_src2 = (uint16_t)t_one});
+    int t_zero = c->next_temp_id++;
+    ir_emit_mov_imm(c, t_zero, 0);
+    int t_mask = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SUB, .temp_dest = (uint16_t)t_mask,
+                       .temp_src1 = (uint16_t)t_zero, .temp_src2 = (uint16_t)t_msb});
+    int t_u = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_XOR, .temp_dest = (uint16_t)t_u,
+                       .temp_src1 = (uint16_t)t_x, .temp_src2 = (uint16_t)t_mask});
+    int t_w = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHL, .temp_dest = (uint16_t)t_w,
+                       .temp_src1 = (uint16_t)t_u, .temp_src2 = (uint16_t)t_one});
+    ir_emit(c, (Instr){.op = OP_OR, .temp_dest = (uint16_t)t_w,
+                       .temp_src1 = (uint16_t)t_w, .temp_src2 = (uint16_t)t_one});
+    if (nbits == 32) ir_emit_zext(c, t_w, 4);
+    return zc_emit_clz_nbits(c, t_w, nbits);
+}
+
+static int zc_emit_popcount32(ZeroCCCompiler *c, int t_in) {
+    int t_v = c->next_temp_id++;
+    ir_emit_mov_reg(c, t_v, t_in);
+    ir_emit_zext(c, t_v, 4);
+    int t_1 = c->next_temp_id++; ir_emit_mov_imm(c, t_1, 1);
+    int t_s1 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_s1,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_1});
+    int t_m55 = c->next_temp_id++; ir_emit_mov_imm(c, t_m55, 0x55555555);
+    int t_a1 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_a1,
+                       .temp_src1 = (uint16_t)t_s1, .temp_src2 = (uint16_t)t_m55});
+    ir_emit(c, (Instr){.op = OP_SUB, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_a1});
+    int t_2 = c->next_temp_id++; ir_emit_mov_imm(c, t_2, 2);
+    int t_s2 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_s2,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_2});
+    int t_m33 = c->next_temp_id++; ir_emit_mov_imm(c, t_m33, 0x33333333);
+    int t_a2 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_a2,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_m33});
+    int t_b2 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_b2,
+                       .temp_src1 = (uint16_t)t_s2, .temp_src2 = (uint16_t)t_m33});
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_a2, .temp_src2 = (uint16_t)t_b2});
+    int t_4 = c->next_temp_id++; ir_emit_mov_imm(c, t_4, 4);
+    int t_s4 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_s4,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_4});
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_s4});
+    int t_m0f = c->next_temp_id++; ir_emit_mov_imm(c, t_m0f, 0x0F0F0F0F);
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_m0f});
+    int t_8 = c->next_temp_id++; ir_emit_mov_imm(c, t_8, 8);
+    int t_s8 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_s8,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_8});
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_s8});
+    int t_16 = c->next_temp_id++; ir_emit_mov_imm(c, t_16, 16);
+    int t_s16 = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_s16,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_16});
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_v,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_s16});
+    int t_m3f = c->next_temp_id++; ir_emit_mov_imm(c, t_m3f, 0x3F);
+    int t_res = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_res,
+                       .temp_src1 = (uint16_t)t_v, .temp_src2 = (uint16_t)t_m3f});
+    return t_res;
+}
+
+static int zc_emit_popcount_nbits(ZeroCCCompiler *c, int t_in, int nbits) {
+    int t_lo = zc_emit_popcount32(c, t_in);
+    if (nbits <= 32) return t_lo;
+    int t_32 = c->next_temp_id++; ir_emit_mov_imm(c, t_32, 32);
+    int t_hi_in = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_SHR, .temp_dest = (uint16_t)t_hi_in,
+                       .temp_src1 = (uint16_t)t_in, .temp_src2 = (uint16_t)t_32});
+    int t_hi = zc_emit_popcount32(c, t_hi_in);
+    int t_res = c->next_temp_id++;
+    ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_res,
+                       .temp_src1 = (uint16_t)t_lo, .temp_src2 = (uint16_t)t_hi});
+    return t_res;
+}
+
 static bool zc_node_is_const_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     (void)c;
     if (ref == AST_NULL) return false;
@@ -138,6 +388,13 @@ static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 int64_t cond;
                 if (!zc_ast_const_eval(c, arena, r1, &cond)) return false;
                 return zc_ast_const_eval(c, arena, cond ? r2 : r3, out);
+            }
+            if (zc_is_bitop_builtin_name(cal->s.str)) {
+                int64_t arg_v = 0;
+                if (!zc_ast_const_eval(c, arena, n->right, &arg_v)) return false;
+                int nbits = zc_bitop_width(c, cal->s.str);
+                *out = (int64_t)zc_eval_bitop_const(cal->s.str, (uint64_t)arg_v, nbits);
+                return true;
             }
             return false;
         }
@@ -1076,121 +1333,75 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* __builtin_ctz(x) - index of the least significant set bit
-         * (0..31). Bit-scan, same shape as __builtin_ffs: result = b
-         * when bit b is the first set bit scanning upward. 32-bit
-         * scan for all width variants (conservative for _l/_ll). */
+        /* __builtin_{ffs,ctz,clz,clrsb,popcount,parity}{,l,ll}(x) -
+         * 32-bit and 64-bit integer bit manipulation builtins.
+         * Constant arguments fold at compile time; runtime arguments
+         * use branchless binary-search / SWAR sequences (~20-40 IR ops). */
         if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_ctz") == 0 ||
-             strcmp(callee->s.str, "__builtin_ctzl") == 0 ||
-             strcmp(callee->s.str, "__builtin_ctzll") == 0)) {
-            ASTRef ct_arg = node->right;
-            int t_x = lower_expr(c, arena, ct_arg);
-            int t_zero = c->next_temp_id++; ir_emit_mov_imm(c, t_zero, 0);
-            int t_result = c->next_temp_id++; ir_emit_mov_imm(c, t_result, 0);
-            for (int b = 0; b < 32; b++) {
-                int t_bit = c->next_temp_id++;
-                ir_emit_mov_imm(c, t_bit, 1);
-                int t_bimm = c->next_temp_id++; ir_emit_mov_imm(c, t_bimm, b);
-                ir_emit(c, (Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
-                    .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
-                int t_masked = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
-                    .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
-                int t_nonzero = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
-                    .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_NE});
-                int t_res_zero = c->next_temp_id++;
-                ir_emit_cmp(c, t_result, t_zero);
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_EQ});
-                int t_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
-                    .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
-                int t_val = c->next_temp_id++; ir_emit_mov_imm(c, t_val, b);
-                int t_val_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
-                    .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
-                ir_emit(c, (Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
+            zc_is_bitop_builtin_name(callee->s.str)) {
+            ASTRef b_arg = node->right;
+            const char *bname = callee->s.str;
+            int nbits = zc_bitop_width(c, bname);
+            int64_t cval = 0;
+            if (zc_ast_const_eval(c, arena, b_arg, &cval)) {
+                int folded = zc_eval_bitop_const(bname, (uint64_t)cval, nbits);
+                int t_res = c->next_temp_id++;
+                ir_emit_mov_imm(c, t_res, folded);
+                c->last_expr_is_float = 0;
+                *out_temp = t_res;
+                return true;
+            }
+            int t_x = lower_expr(c, arena, b_arg);
+            int t_result = 0;
+            if (strncmp(bname, "__builtin_ctz", 13) == 0) {
+                t_result = zc_emit_ctz_nbits(c, t_x, nbits);
+            } else if (strncmp(bname, "__builtin_clz", 13) == 0) {
+                t_result = zc_emit_clz_nbits(c, t_x, nbits);
+            } else if (strncmp(bname, "__builtin_clrsb", 15) == 0) {
+                t_result = zc_emit_clrsb_nbits(c, t_x, nbits);
+            } else if (strncmp(bname, "__builtin_popcount", 18) == 0) {
+                t_result = zc_emit_popcount_nbits(c, t_x, nbits);
+            } else if (strncmp(bname, "__builtin_parity", 16) == 0) {
+                int t_pc = zc_emit_popcount_nbits(c, t_x, nbits);
+                int t_one = c->next_temp_id++;
+                ir_emit_mov_imm(c, t_one, 1);
+                t_result = c->next_temp_id++;
+                ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint16_t)t_result,
+                                   .temp_src1 = (uint16_t)t_pc, .temp_src2 = (uint16_t)t_one});
+            } else {
+                /* __builtin_ffs / ffsl / ffsll */
+                int t_in = c->next_temp_id++;
+                ir_emit_mov_reg(c, t_in, t_x);
+                if (nbits == 32) ir_emit_zext(c, t_in, 4);
+                int t_ctz = zc_emit_ctz_nbits(c, t_in, nbits);
+                int t_one = c->next_temp_id++;
+                ir_emit_mov_imm(c, t_one, 1);
+                int t_zero = c->next_temp_id++;
+                ir_emit_mov_imm(c, t_zero, 0);
+                int t_plus1 = c->next_temp_id++;
+                ir_emit(c, (Instr){.op = OP_ADD, .temp_dest = (uint16_t)t_plus1,
+                                   .temp_src1 = (uint16_t)t_ctz, .temp_src2 = (uint16_t)t_one});
+                int t_nz = c->next_temp_id++;
+                ir_emit_cmp(c, t_in, t_zero);
+                ir_emit(c, (Instr){.op = OP_COND_SET, .temp_dest = (uint16_t)t_nz,
+                                   .temp_src1 = (uint16_t)t_in, .temp_src2 = (uint16_t)t_zero,
+                                   .cond = CC_NE});
+                t_result = c->next_temp_id++;
+                ir_emit(c, (Instr){.op = OP_MUL, .temp_dest = (uint16_t)t_result,
+                                   .temp_src1 = (uint16_t)t_plus1, .temp_src2 = (uint16_t)t_nz});
             }
             c->last_expr_is_float = 0;
             *out_temp = t_result;
             return true;
         }
 
-        /* __builtin_clz(x) - index of the most significant set bit
-         * distance from the top (31..0). Scans downward: result = 31-b
-         * for the first set bit from bit 31. 32-bit scan for all
-         * width variants (conservative for _l/_ll). */
         if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_clz") == 0 ||
-             strcmp(callee->s.str, "__builtin_clzl") == 0 ||
-             strcmp(callee->s.str, "__builtin_clzll") == 0)) {
-            ASTRef cl_arg = node->right;
-            int t_x = lower_expr(c, arena, cl_arg);
-            int t_zero = c->next_temp_id++; ir_emit_mov_imm(c, t_zero, 0);
-            int t_result = c->next_temp_id++; ir_emit_mov_imm(c, t_result, 0);
-            for (int b = 31; b >= 0; b--) {
-                int t_bit = c->next_temp_id++;
-                ir_emit_mov_imm(c, t_bit, 1);
-                int t_bimm = c->next_temp_id++; ir_emit_mov_imm(c, t_bimm, b);
-                ir_emit(c, (Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
-                    .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
-                int t_masked = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
-                    .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
-                int t_nonzero = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
-                    .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_NE});
-                int t_res_zero = c->next_temp_id++;
-                ir_emit_cmp(c, t_result, t_zero);
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_EQ});
-                int t_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
-                    .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
-                int t_val = c->next_temp_id++; ir_emit_mov_imm(c, t_val, 31 - b);
-                int t_val_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
-                    .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
-                ir_emit(c, (Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
-            }
+            (strcmp(callee->s.str, "__builtin_va_arg_pack") == 0 ||
+             strcmp(callee->s.str, "__builtin_va_arg_pack_len") == 0)) {
+            int temp = c->next_temp_id++;
+            ir_emit_mov_imm(c, temp, 0);
             c->last_expr_is_float = 0;
-            *out_temp = t_result;
-            return true;
-        }
-
-        /* __builtin_popcount(x) - number of set bits (0..32). Bit-scan
-         * accumulation: result += (x >> b) & 1 for b in 0..31. 32-bit
-         * scan for all width variants (conservative for _l/_ll). */
-        if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_popcount") == 0 ||
-             strcmp(callee->s.str, "__builtin_popcountl") == 0 ||
-             strcmp(callee->s.str, "__builtin_popcountll") == 0)) {
-            ASTRef pc_arg = node->right;
-            int t_x = lower_expr(c, arena, pc_arg);
-            int t_one = c->next_temp_id++; ir_emit_mov_imm(c, t_one, 1);
-            int t_result = c->next_temp_id++; ir_emit_mov_imm(c, t_result, 0);
-            for (int b = 0; b < 32; b++) {
-                int t_bit = c->next_temp_id++;
-                ir_emit_mov_imm(c, t_bit, 1);
-                int t_bimm = c->next_temp_id++; ir_emit_mov_imm(c, t_bimm, b);
-                ir_emit(c, (Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
-                    .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
-                int t_masked = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
-                    .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
-                ir_emit(c, (Instr){.op=OP_ADD,.temp_dest=(uint16_t)t_result,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_masked});
-            }
-            c->last_expr_is_float = 0;
-            *out_temp = t_result;
+            *out_temp = temp;
             return true;
         }
 
@@ -1465,66 +1676,6 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
             c->last_expr_is_float = 0;
             *out_temp = s_r;
-            return true;
-        }
-
-        /* __builtin_ffs(x) - return 1 + index of least significant set
-         * bit (1-indexed), or 0 if x == 0.  Branchless bit scan:
-         * result = 0; for i in 0..31: if ((x>>i)&1) && result==0:
-         * result = i+1 */
-        if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_ffs") == 0 ||
-             strcmp(callee->s.str, "__builtin_ffsl") == 0 ||
-             strcmp(callee->s.str, "__builtin_ffsll") == 0)) {
-            ASTRef f_arg = node->right;
-            int t_x = lower_expr(c, arena, f_arg);
-            /* t_one = 1 */
-            int t_one = c->next_temp_id++; ir_emit_mov_imm(c, t_one, 1);
-            /* t_zero = 0 */
-            int t_zero = c->next_temp_id++; ir_emit_mov_imm(c, t_zero, 0);
-            /* result = 0 */
-            int t_result = c->next_temp_id++; ir_emit_mov_imm(c, t_result, 0);
-            for (int b = 0; b < 32; b++) {
-                /* t_bit = 1 << b */
-                int t_bit = c->next_temp_id++;
-                ir_emit_mov_imm(c, t_bit, 1);
-                int t_bimm = c->next_temp_id++; ir_emit_mov_imm(c, t_bimm, b);
-                ir_emit(c, (Instr){.op=OP_SHL,.temp_dest=(uint16_t)t_bit,
-                    .temp_src1=(uint16_t)t_bit,.temp_src2=(uint16_t)t_bimm});
-                /* t_masked = x & (1<<b) */
-                int t_masked = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_masked,
-                    .temp_src1=(uint16_t)t_x,.temp_src2=(uint16_t)t_bit});
-                /* t_nonzero = (masked != 0) */
-                int t_nonzero = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_nonzero,
-                    .temp_src1=(uint16_t)t_masked,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_NE});
-                /* t_res_zero = (result == 0) */
-                int t_res_zero = c->next_temp_id++;
-                ir_emit_cmp(c, t_result, t_zero);
-                ir_emit(c, (Instr){.op=OP_COND_SET,.temp_dest=(uint16_t)t_res_zero,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_zero,
-                    .cond=CC_EQ});
-                /* t_set = nonzero && res_zero */
-                int t_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_AND,.temp_dest=(uint16_t)t_set,
-                    .temp_src1=(uint16_t)t_nonzero,.temp_src2=(uint16_t)t_res_zero});
-                /* t_val = b + 1 */
-                int t_val = c->next_temp_id++; ir_emit_mov_imm(c, t_val, b + 1);
-                /* t_val_set = val * set  (val if set, 0 otherwise) */
-                int t_val_set = c->next_temp_id++;
-                ir_emit(c, (Instr){.op=OP_MUL,.temp_dest=(uint16_t)t_val_set,
-                    .temp_src1=(uint16_t)t_val,.temp_src2=(uint16_t)t_set});
-                /* result = result | val_set */
-                ir_emit(c, (Instr){.op=OP_OR,.temp_dest=(uint16_t)t_result,
-                    .temp_src1=(uint16_t)t_result,.temp_src2=(uint16_t)t_val_set});
-            }
-            /* If x == 0, result should be 0 (all bits clear, loop sets nothing,
-             * but result stays 0 anyway).  For x != 0, result = first set bit + 1.
-             * The loop above already gives 0 when x == 0 since no t_set is 1. */
-            c->last_expr_is_float = 0;
-            *out_temp = t_result;
             return true;
         }
 

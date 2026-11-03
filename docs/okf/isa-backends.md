@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-03T04:17:40Z
+timestamp: 2026-11-03T05:52:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -257,8 +257,17 @@ To systematically eliminate raw-emitter and cross-target crashes, three dedicate
    - Catches fatal GNU ld rejections like `SECTION_SYMBOL_ADDEND` (when a PC-relative load references a section symbol such as `.rodata` with a non-zero addend) and section symbol `shndx` mismatches.
 3. **`tools/vtable_check.py` (T3: VTable Conformance & Caller Auditor)**:
    - Audits `ZeroCCISABackend` definitions against `isa_backend.h` and scans all `BE(c)->` / `backend->` call sites across `src/`.
-   - Out of 207 backend slots, 192 are actively invoked by the compiler pipeline.
-   - Identified the root cause of the `riscv32 zerocc segfault`: `riscv32_backend` only initializes 71 slots (missing 113 slots present in `riscv64_backend`), leaving 130 actively called slots NULL (e.g. `get_hw_reg_name`, `emit_mov_reg`, `emit_extend`, `emit_cmp_zero`, `emit_load_32`).
+   - **Full VTable Parity (Sprint 89)**: All **221/221** backend slots in `ZeroCCISABackend` are now initialized across all 4 targets (`x86_64`, `aarch64`, `riscv64`, `riscv32`), with **0 missing slots** between `riscv64_backend` and `riscv32_backend` (`python3 tools/vtable_check.py --diff riscv64 riscv32`).
+   - `riscv32_backend` is wired to `riscv64_init_asm_emission(&riscv32_backend)` in `zero_cc_init_backends_once()`, with word-sized `sw`/`lw` awareness (`BE(c)->isa == ISA_RISCV32`) in `riscv_asm.c`, `riscv.c`, and `asm_emitter.c`.
+
+## Cross-ISA `OP_SYSCALL` (`__zerocc_syscall`, Sprint 89)
+
+`__zerocc_syscall(nr, a1, a2, a3, a4, a5, a6)` lowers to `OP_SYSCALL` (`ir_emit_syscall`) and is implemented in both the raw machine-code emitters and GAS `.s` assembly emitters across all 4 target ISAs:
+
+- **x86-64 (`x86_emit_syscall`, `x86_emit_syscall_asm`)**: Linux System V AMD64 ABI (`rax = nr`, `rdi, rsi, rdx, r10, r8, r9 = a1..a6`, `syscall`, result in `rax` / `VREG_0`). Preserves caller-saved GPRs (`rcx`, `r11`) clobbered by `syscall`.
+- **AArch64 (`aarch64_emit_syscall`, `aarch64_emit_syscall_asm`)**: Linux AArch64 ABI (`x8 = nr`, `x0..x5 = a1..a6`, `svc #0`, result in `x0` / `VREG_0`). Saves/restores 13 allocatable GPRs on a 16-byte aligned frame (`112` bytes) and loads spilled temporaries via the pre-decrement `sp` frame.
+- **RISC-V 64 & 32 (`riscv64_emit_syscall`, `riscv_emit_syscall_asm`)**: Linux RISC-V ABI (`a7 = nr`, `a0..a5 = a1..a6`, `ecall`, result in `a0` / `VREG_0`). Uses word-sized `sw`/`lw` (`4`-byte slots) on `ISA_RISCV32` and `sd`/`ld` (`8`-byte slots) on `ISA_RISCV64`.
+- **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 4 ISAs under `make test-isa-qemu` (**52/52 passing**: 13/13 per ISA in both raw and `-S` assembly modes).
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

@@ -423,6 +423,10 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
     ZeroCCType typeof_pt;
     bool is_typeof_param = false;
     bool p_is_complex = false;
+    /* GNU mode(X) marker: consumed (not applied) in parameter position -
+     * mode-on-parameter was unsupported before marker emission, so
+     * skipping preserves the old behavior. */
+    zero_cc_skip_mode_attr(c);
     /* C99 6.7.2.3 prefix complex parameter: `_Complex double x` / `__complex__ float x`. */
     if (c->tokens[c->token_pos].type == TK_IDENT &&
         zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
@@ -612,11 +616,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 fp_name = c->tokens[c->token_pos].str_val;
                 c->token_pos++; /* name */
             }
-            if (*param_count >= ZERO_CC_MAX_PARAMS) {
-                diag_report_error_at_token(c,
-                    "function '%s' has too many parameters (max %d)",
-                    fn_name, ZERO_CC_MAX_PARAMS);
-            } else {
+            {
                 zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
                 (*param_names)[*param_count] = zero_cc_intern_string(c, fp_name);
                 /* ABI: an 8-byte pointer in a register.  The pointee
@@ -628,7 +628,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 ZeroCCType fpt = zero_cc_type_ptr(&pt);
                 fpt.is_func_ptr = true;
                 (*param_types)[*param_count] = fpt;
-                if (fp_name[0] != '\0') {
+                if (fp_name[0] != '\0' && *param_count < ZERO_CC_MAX_PARAMS) {
                     zero_cc_add_local(c, (*param_names)[*param_count], fpt);
                 }
                 (*param_count)++;
@@ -668,7 +668,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 }
                 c->token_pos++;
             }
-            if (*param_count < ZERO_CC_MAX_PARAMS) {
+            {
                 zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
                 (*param_names)[*param_count] = "";
                 ZeroCCType ptt2 = zero_cc_type_int64();
@@ -678,15 +678,13 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 (*param_count)++;
             }
         } else if (!fn_ptr_param_done && !is_void_param && c->tokens[c->token_pos].type == TK_IDENT) {
-            if (*param_count >= ZERO_CC_MAX_PARAMS) {
-                diag_report_error_at_token(c,
-                    "function '%s' has too many parameters (max %d)",
-                    fn_name, ZERO_CC_MAX_PARAMS);
-            } else {
+            {
                 zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
                 (*param_names)[*param_count] = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);
                 (*param_types)[*param_count] = pt;
-                zero_cc_add_local(c, (*param_names)[*param_count], pt);
+                if (*param_count < ZERO_CC_MAX_PARAMS) {
+                    zero_cc_add_local(c, (*param_names)[*param_count], pt);
+                }
                 (*param_count)++;
             }
             c->token_pos++;
@@ -724,7 +722,8 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                                c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
                         size_t dim_end = c->token_pos; /* the ']' */
                         d = 0;
-                        if (dim_start < dim_end && dim_exprs[*param_count - 1] == AST_NULL) {
+                        if (dim_start < dim_end && (*param_count - 1) < ZERO_CC_MAX_PARAMS &&
+                            dim_exprs[*param_count - 1] == AST_NULL) {
                             if (!*dim_arena_out) {
                                 *dim_arena_out = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
                                 if (*dim_arena_out) zero_cc_ast_arena_init(*dim_arena_out, 64);
@@ -750,7 +749,9 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                     t = zero_cc_type_array(&t, dims[i]);
                 }
                 (*param_types)[*param_count - 1] = zero_cc_type_ptr(&t);
-                if (c->local_count > 0) c->locals[c->local_count - 1].type = (*param_types)[*param_count - 1];
+                if (c->local_count > 0 && (*param_count - 1) < ZERO_CC_MAX_PARAMS) {
+                    c->locals[c->local_count - 1].type = (*param_types)[*param_count - 1];
+                }
             } else if (*param_count > 0 && (*param_types)[*param_count - 1].tag == TYPE_ARRAY) {
                 /* C99 6.7.6.3p7: parameter declared via an array typedef
                  * (e.g. `jmp_buf env`) adjusts its outermost array dimension
@@ -761,9 +762,11 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 adj.is_const = at.is_const;
                 adj.is_volatile = at.is_volatile;
                 (*param_types)[*param_count - 1] = adj;
-                if (c->local_count > 0) c->locals[c->local_count - 1].type = adj;
+                if (c->local_count > 0 && (*param_count - 1) < ZERO_CC_MAX_PARAMS) {
+                    c->locals[c->local_count - 1].type = adj;
+                }
             }
-        } else if (!fn_ptr_param_done && !is_void_param && *param_count < ZERO_CC_MAX_PARAMS &&
+        } else if (!fn_ptr_param_done && !is_void_param &&
                    c->token_pos < c->token_count &&
                    (c->tokens[c->token_pos].type == TK_LBRACKET ||
                     c->tokens[c->token_pos].type == TK_COMMA ||
@@ -821,13 +824,6 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             }
             (*param_types)[*param_count] = pt;
             (*param_count)++;
-        } else if (!is_void_param && *param_count >= ZERO_CC_MAX_PARAMS &&
-                   c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_COMMA ||
-                    c->tokens[c->token_pos].type == TK_RPAREN)) {
-            diag_report_error_at_token(c,
-                "function '%s' has too many parameters (max %d)",
-                fn_name, ZERO_CC_MAX_PARAMS);
         }
     }
 }
@@ -1103,8 +1099,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 ZeroCCASTNode *pn = zero_cc_ast_get(&darena, pl);
                 if (!pn) break;
                 if (pi >= ZERO_CC_MAX_PARAMS) {
-                    diag_report_error_at_token(c, "function '%s' has too many parameters (max %d)", fn_name, ZERO_CC_MAX_PARAMS);
-                    break;
+                    pl = pn->next;
+                    continue;
                 }
                 zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, pi + 1);
                 param_types[pi] = zero_cc_type_int();
@@ -1268,12 +1264,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     size_t fn_align = 0;
     {
         size_t probe = 0;
+        const char *alias_tgt = NULL;
         while (c->token_pos < c->token_count &&
                c->tokens[c->token_pos].type == TK_IDENT &&
-               c->tokens[c->token_pos].str_val &&
-               strcmp(c->tokens[c->token_pos].str_val, "__zc_aligned__") == 0) {
-            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe) && probe > fn_align) {
-                fn_align = probe;
+               c->tokens[c->token_pos].str_val[0] != '\0') {
+            if (strcmp(c->tokens[c->token_pos].str_val, "__zc_aligned__") == 0) {
+                if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe) && probe > fn_align) {
+                    fn_align = probe;
+                }
+            } else if (strcmp(c->tokens[c->token_pos].str_val, "__zc_alias__") == 0) {
+                if (!zero_cc_parse_alias_attr(c, &c->token_pos, &alias_tgt)) break;
+            } else {
+                break;
             }
         }
         if (fn_align == 0) {
@@ -1345,9 +1347,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
             fn->param_dim_arena = dim_arena;
             if (dim_arena) {
+                size_t dim_cap = param_count < ZERO_CC_MAX_PARAMS ? param_count : ZERO_CC_MAX_PARAMS;
                 fn->param_dim_exprs = (ASTRef *)arena_alloc(farena, param_count * sizeof(ASTRef));
                 for (size_t i = 0; i < param_count; i++) {
-                    fn->param_dim_exprs[i] = dim_exprs[i];
+                    fn->param_dim_exprs[i] = (i < dim_cap) ? dim_exprs[i] : AST_NULL;
                 }
             }
         }
@@ -1382,7 +1385,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
         c->kr_aux_count = 0;
 
-        for (size_t p = 0; p < param_count; p++) {
+        for (size_t p = 0; p < param_count && p < ZERO_CC_MAX_PARAMS; p++) {
             ZeroCCSym *sym = zero_cc_add_local(c, param_names[p], param_types[p]);
             sym->is_param = true;
             sym->param_reg_idx = (int)p;
@@ -1413,6 +1416,12 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         }
         for (size_t i = 0; i < c->function_count; i++) {
             ZeroCCFunction *f = &c->functions[i];
+            /* Skip duplicates already in scope: scope_put_symbol would
+             * return NULL anyway, but we avoid the type conversion work
+             * up front (this loop runs once per function, making it
+             * O(n²) over the TU otherwise — significant for files with
+             * hundreds of static functions such as c-torture memclr.c). */
+            if (scope_lookup_current(global_scope_root, f->name) != NULL) continue;
             /* Phantoms registered during lowering (extern calls whose symbol
              * the ELF writer needs, e.g. __builtin_memcpy -> memcpy and
              * __sync_* / __atomic_* names) are codegen-level symbol entries,
@@ -1454,6 +1463,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             scope_put_symbol(global_scope_root, f->name, SYMBOL_FUNC, fn_t);
         }
         for (size_t i = 0; i < c->global_var_count; i++) {
+            if (scope_lookup_current(global_scope_root, c->global_vars[i].name) != NULL) continue;
             TypeInfo *gv_ti = zero_cc_type_to_typeinfo(perm, c->global_vars[i].type);
 
             scope_put_symbol(global_scope_root, c->global_vars[i].name, SYMBOL_VAR, gv_ti);
@@ -1517,7 +1527,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
              *  - no &param (value params bind to virtual registers with no address).
              *  Real calls from the inlined body, struct params/returns <=8B, multiple
              *    returns, and nested inlining (depth < 2) are verified safe. */
-            if (c->tu_ast_arena && (fn_inline || fn_static) && !fn->is_variadic &&
+            bool uses_va_arg_pack = fn->is_variadic && fn_inline &&
+                (zero_cc_ast_has_call(&arena, body, "__builtin_va_arg_pack") ||
+                 zero_cc_ast_has_call(&arena, body, "__builtin_va_arg_pack_len"));
+            if (c->tu_ast_arena && (fn_inline || fn_static) &&
+                (!fn->is_variadic || uses_va_arg_pack) &&
                 !fn->returns_struct && fn->ret_struct_sz <= 8) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 size_t node_count = zero_cc_ast_node_count(&arena, body);

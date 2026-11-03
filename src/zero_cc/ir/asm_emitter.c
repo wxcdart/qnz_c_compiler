@@ -147,7 +147,9 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
-            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+            } else if (c->isa == ISA_RISCV32) {
+                fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
+            } else if (c->isa == ISA_RISCV64) {
                 fprintf(out, "\tsd\t%s, 0(%s)\n", val_name, addr_name);
             } else {
                 fprintf(out, "\tmovq\t%%%s,(%%%s)\n", val_name, addr_name);
@@ -731,6 +733,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         /* VLA */
         case OP_VLA_ALLOC:
+            c->lowering.vla.cur_sp_slot_disp = instr->imm;
             if (BE(c)->emit_vla_alloc_asm) {
                 BE(c)->emit_vla_alloc_asm(c, phys_dst, phys_src1, out);
             }

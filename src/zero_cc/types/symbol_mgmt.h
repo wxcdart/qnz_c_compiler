@@ -121,6 +121,7 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
         if ((size_t)decl_align_spec > alignment) alignment = (size_t)decl_align_spec;
     }
     size_t alloc_sz = type.size ? type.size : alignment;
+    if (type.is_vla) alloc_sz = 24; /* [0..7]=data ptr, [8..15]=saved SP, [16..23]=inner runtime stride */
     c->current_stack_frame += (int32_t)alloc_sz;
     c->current_stack_frame = (c->current_stack_frame + (int32_t)alignment - 1) & ~((int32_t)alignment - 1);
     sym->stack_offset = c->current_stack_frame;

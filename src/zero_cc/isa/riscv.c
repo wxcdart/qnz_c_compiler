@@ -478,6 +478,8 @@ static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
             r->text_patch_offset = pos;
             snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
             r->is_call = true;
+        } else if (func_name) {
+            zero_cc_reloc_overflow_note(c);
         }
     }
 }
@@ -717,6 +719,44 @@ static void riscv64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
     riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 1, 0x20, 7));
 }
 
+static void riscv64_emit_fp_cvtsi2ss(ZeroCCCompiler *c, int fp_dst, int int_src) {
+    /* fcvt.s.w fd, rs (rm=7) */
+    riscv_emit_u32(c, rv64_FP(RV_REG(fp_dst), RV_REG(int_src), 0, 0x68, 7));
+}
+
+static void riscv64_emit_vload(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    riscv64_emit_load_fp(c, dst, base, offset);
+}
+
+static void riscv64_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    riscv64_emit_store_fp(c, src, base, offset);
+}
+
+static void riscv64_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x00, 7));
+}
+
+static void riscv64_emit_vsubps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x04, 7));
+}
+
+static void riscv64_emit_vmulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x08, 7));
+}
+
+static void riscv64_emit_vdivps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0x0C, 7));
+}
+
+static void riscv64_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), RV_REG(src), 0x10, 0));
+}
+
+static void riscv_resolve_labels(ZeroCCCompiler *c) {
+    (void)c;
+}
+
 static void riscv64_emit_const(ZeroCCCompiler *c, int64_t value) {
     riscv64_emit_mov_imm(c, 10, value);  /* a0 */
 }
@@ -860,10 +900,10 @@ static void riscv64_emit_load_byte(ZeroCCCompiler *c, int dst, int base) {
     riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(base), 0, 0, 0x03));
 }
 
-/* store_64 src, [base] - 64-bit store to the address in base (offset 0). */
+/* store_64 src, [base] - 64-bit store on RV64, 32-bit word store on RV32 (offset 0). */
 static void riscv64_emit_store_64(ZeroCCCompiler *c, int src, int base) {
-    /* sd src, 0(base) (f3=3) */
-    riscv_emit_u32(c, rv64_S(RV_REG(base), RV_REG(src), 3, 0, 0x23));
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
+    riscv_emit_u32(c, rv64_S(RV_REG(base), RV_REG(src), f3, 0, 0x23));
 }
 
 /* store_32 src, [base] - 32-bit store to the address in base (offset 0). */
@@ -1170,6 +1210,27 @@ static void riscv64_emit_atomic_xchg(ZeroCCCompiler *c, int dst, int addr, int v
     riscv_emit_u32(c, 0x1000202F | (addr << 15) | (val << 20));  /* sc.w val, (addr) */
 }
 
+static void riscv64_emit_atomic_or(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    riscv_emit_u32(c, 0x4600202F | ((RV_REG(val) & 0x1F) << 20) | ((RV_REG(addr) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));
+}
+
+static void riscv64_emit_atomic_and(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    riscv_emit_u32(c, 0x6600202F | ((RV_REG(val) & 0x1F) << 20) | ((RV_REG(addr) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));
+}
+
+static void riscv64_emit_atomic_xor(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    riscv_emit_u32(c, 0x2600202F | ((RV_REG(val) & 0x1F) << 20) | ((RV_REG(addr) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));
+}
+
+static void riscv64_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
+    riscv64_emit_atomic_cmpxchg(c, dst, addr, expected, desired, width);
+    riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(dst), RV_REG(expected), 0, 0x20));
+    riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(dst), 3, 1, 0x13));
+}
+
 /* mfence - memory fence */
 static void riscv64_emit_mfence(ZeroCCCompiler *c) {
     /* fence iorw, iorw */
@@ -1241,14 +1302,31 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
-    .resolve_labels = NULL,
+    .resolve_labels = riscv_resolve_labels,
 
     .emit_load = riscv64_emit_load,
     .emit_store = riscv64_emit_store,
+    .emit_vload = riscv64_emit_vload,
+    .emit_vstore = riscv64_emit_vstore,
     .emit_vloadss = riscv64_emit_vloadss,
     .emit_vloadsd = riscv64_emit_load_fp,
     .emit_vstoress = riscv64_emit_vstoress,
     .emit_vstoredsd = riscv64_emit_store_fp,
+    .emit_vaddps = riscv64_emit_vaddps,
+    .emit_vsubps = riscv64_emit_vsubps,
+    .emit_vmulps = riscv64_emit_vmulps,
+    .emit_vdivps = riscv64_emit_vdivps,
+    .emit_vaddpd = riscv64_emit_fp_add,
+    .emit_vsubpd = riscv64_emit_fp_sub,
+    .emit_vmulpd = riscv64_emit_fp_mul,
+    .emit_vdivpd = riscv64_emit_fp_div,
+    .emit_vpaddd = riscv64_emit_add,
+    .emit_vpsubd = riscv64_emit_sub,
+    .emit_vpmulld = riscv64_emit_mul,
+    .emit_vmovaps = riscv64_emit_vmovaps,
+    .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
+    .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,
+    .emit_cvtsd2ss = riscv64_emit_fp_cvtsd2ss,
     .emit_deref = riscv64_emit_deref,
     .emit_load_32 = riscv64_emit_load_32,
     .emit_load_16 = riscv64_emit_load_16,
@@ -1289,7 +1367,11 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
 
     .emit_vla_alloc = riscv64_emit_vla_alloc,
     .emit_atomic_cmpxchg = riscv64_emit_atomic_cmpxchg,
+    .emit_atomic_cmpxchg_bool = riscv64_emit_atomic_cmpxchg_bool,
     .emit_atomic_xadd = riscv64_emit_atomic_xadd,
+    .emit_atomic_or = riscv64_emit_atomic_or,
+    .emit_atomic_and = riscv64_emit_atomic_and,
+    .emit_atomic_xor = riscv64_emit_atomic_xor,
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
     .emit_trap = riscv64_emit_trap,
@@ -1467,7 +1549,7 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
     .patch_jmp = riscv64_patch_jmp,
-    .resolve_labels = NULL,  /* No label resolution needed for now */
+    .resolve_labels = riscv_resolve_labels,
 
     /* VREG mapping */
     .get_int_reg = riscv_get_int_reg,
@@ -1475,10 +1557,27 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
 
     .emit_load = riscv32_emit_load,
     .emit_store = riscv32_emit_store,
+    .emit_vload = riscv64_emit_vload,
+    .emit_vstore = riscv64_emit_vstore,
     .emit_vloadss = riscv64_emit_vloadss,
     .emit_vloadsd = riscv64_emit_load_fp,
     .emit_vstoress = riscv64_emit_vstoress,
     .emit_vstoredsd = riscv64_emit_store_fp,
+    .emit_vaddps = riscv64_emit_vaddps,
+    .emit_vsubps = riscv64_emit_vsubps,
+    .emit_vmulps = riscv64_emit_vmulps,
+    .emit_vdivps = riscv64_emit_vdivps,
+    .emit_vaddpd = riscv64_emit_fp_add,
+    .emit_vsubpd = riscv64_emit_fp_sub,
+    .emit_vmulpd = riscv64_emit_fp_mul,
+    .emit_vdivpd = riscv64_emit_fp_div,
+    .emit_vpaddd = riscv64_emit_add,
+    .emit_vpsubd = riscv64_emit_sub,
+    .emit_vpmulld = riscv64_emit_mul,
+    .emit_vmovaps = riscv64_emit_vmovaps,
+    .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
+    .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,
+    .emit_cvtsd2ss = riscv64_emit_fp_cvtsd2ss,
 
     .emit_jmp = riscv64_emit_jmp,
     .emit_jeq = riscv64_emit_jeq,
@@ -1539,9 +1638,14 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_store_byte = riscv64_emit_store_byte,
     .emit_store_16 = riscv64_emit_store_16,
     .emit_store_32 = riscv64_emit_store_32,
+    .emit_store_64 = riscv64_emit_store_64,
     .emit_vla_alloc = riscv64_emit_vla_alloc,
     .emit_atomic_cmpxchg = riscv64_emit_atomic_cmpxchg,
+    .emit_atomic_cmpxchg_bool = riscv64_emit_atomic_cmpxchg_bool,
     .emit_atomic_xadd = riscv64_emit_atomic_xadd,
+    .emit_atomic_or = riscv64_emit_atomic_or,
+    .emit_atomic_and = riscv64_emit_atomic_and,
+    .emit_atomic_xor = riscv64_emit_atomic_xor,
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
     .emit_trap = riscv64_emit_trap,
@@ -1600,43 +1704,4 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vla_alloc_asm = riscv_emit_vla_alloc_asm,
     .emit_param_save_int_asm = riscv_emit_param_save_int_asm,
     .emit_param_save_fp_asm = riscv_emit_param_save_fp_asm,
-
-    /* Vector instruction emission (RISC-V doesn't have vector yet) */
-    .emit_vload_asm = NULL,
-    .emit_vstore_asm = NULL,
-    .emit_vaddss_asm = NULL,
-    .emit_vsubss_asm = NULL,
-    .emit_vmulss_asm = NULL,
-    .emit_vdivss_asm = NULL,
-    .emit_vaddps_asm = NULL,
-    .emit_vsubps_asm = NULL,
-    .emit_vmulps_asm = NULL,
-    .emit_vdivps_asm = NULL,
-    .emit_vaddsd_asm = NULL,
-    .emit_vsubsd_asm = NULL,
-    .emit_vmulsd_asm = NULL,
-    .emit_vdivsd_asm = NULL,
-    .emit_vaddpd_asm = NULL,
-    .emit_vsubpd_asm = NULL,
-    .emit_vmulpd_asm = NULL,
-    .emit_vdivpd_asm = NULL,
-    .emit_vpaddd_asm = NULL,
-    .emit_vpsubd_asm = NULL,
-    .emit_vpmulld_asm = NULL,
-    .emit_vmovss_asm = NULL,
-    .emit_vmovsd_asm = NULL,
-    .emit_vmovaps_asm = NULL,
-    .emit_vmovapd_asm = NULL,
-    .emit_vandps_asm = NULL,
-    .emit_vorps_asm = NULL,
-    .emit_vxorps_asm = NULL,
-    .emit_vshufps_asm = NULL,
-    .emit_vcvt_si2ss_asm = NULL,
-    .emit_vcvt_ss2si_asm = NULL,
-    .emit_cvtss2sd_asm = NULL,
-    .emit_cvtsd2ss_asm = NULL,
-    .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
-    .emit_cvtsd2ss = riscv64_emit_fp_cvtsd2ss,
-    .emit_vcmpss_asm = NULL,
-    .emit_vcmpsd_asm = NULL,
 };

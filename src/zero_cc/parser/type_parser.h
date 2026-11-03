@@ -16,6 +16,26 @@ static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
 static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
 static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align);
 static inline int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_size);
+static inline int zero_cc_parse_mode_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_bytes);
+
+/* Apply a GNU `mode(X)` integer-width attribute (marker byte count) to a
+ * base integer type, preserving signedness (c-torture execute/memclr:
+ * `typedef unsigned int __attribute__((mode(QI))) int08_t;`). Non-integer
+ * bases and unsupported widths (TI) are returned unchanged. */
+static inline ZeroCCType zero_cc_type_apply_mode(ZeroCCType ty, size_t mode_bytes) {
+    bool uns = (ty.tag == TYPE_UINT8 || ty.tag == TYPE_UINT16 ||
+                ty.tag == TYPE_UINT32 || ty.tag == TYPE_UINT64);
+    bool is_int = uns || ty.tag == TYPE_INT8 || ty.tag == TYPE_INT16 ||
+                  ty.tag == TYPE_INT32 || ty.tag == TYPE_INT64;
+    if (!is_int) return ty;
+    switch (mode_bytes) {
+        case 1:  return uns ? zero_cc_type_uint8()  : zero_cc_type_char();
+        case 2:  return uns ? zero_cc_type_uint16() : zero_cc_type_int16();
+        case 4:  return uns ? zero_cc_type_uint32() : zero_cc_type_int();
+        case 8:  return uns ? zero_cc_type_uint64() : zero_cc_type_int64();
+        default: return ty; /* TI and unknown: leave as-is */
+    }
+}
 static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos);
 
 static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos);
@@ -561,11 +581,26 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     }
     /* GNU vector attribute marker (`__attribute__((__vector_size__(N)))`,
      * preprocessed into `__zc_vector_size__(N)`) may lead the type name:
-     * `sizeof(__attribute__((__vector_size__(16))) short)`. */
+     * `sizeof(__attribute__((__vector_size__(16))) short)`. Same for the
+     * `mode(X)` integer-width marker (`__zc_mode__(QI)`). */
     size_t vec_attr_size = 0;
+    size_t mode_attr_bytes = 0;
     {
         size_t probe = 0;
-        if (zero_cc_parse_vector_attr(c, pos, &probe)) vec_attr_size = probe;
+        for (int mk = 0; mk < 4; mk++) {
+            bool got = false;
+            if (vec_attr_size == 0 &&
+                zero_cc_parse_vector_attr(c, pos, &probe)) {
+                vec_attr_size = probe;
+                got = true;
+            }
+            if (mode_attr_bytes == 0 &&
+                zero_cc_parse_mode_attr(c, pos, &probe)) {
+                mode_attr_bytes = probe;
+                got = true;
+            }
+            if (!got) break;
+        }
     }
     ZeroCCTokType t = c->tokens[*pos].type;
     if (t == TK_STRUCT || t == TK_UNION) {
@@ -709,10 +744,26 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     /* Vector attribute trailing the base specifier:
      * `short __attribute__((__vector_size__(16)))` / `V __zc_vector_size__(16)`.
      * Wraps the base type in a 128-bit vector before any pointer/array
-     * declarator suffixes are applied. */
-    if (vec_attr_size == 0) {
+     * declarator suffixes are applied. Same for `mode(X)`:
+     * `unsigned int __attribute__((mode(QI)))` resizes the integer base.
+     * The loop handles chained attributes in any order. */
+    for (int mk = 0; mk < 4; mk++) {
         size_t probe = 0;
-        if (zero_cc_parse_vector_attr(c, pos, &probe)) vec_attr_size = probe;
+        bool got = false;
+        if (vec_attr_size == 0 &&
+            zero_cc_parse_vector_attr(c, pos, &probe)) {
+            vec_attr_size = probe;
+            got = true;
+        }
+        if (mode_attr_bytes == 0 &&
+            zero_cc_parse_mode_attr(c, pos, &probe)) {
+            mode_attr_bytes = probe;
+            got = true;
+        }
+        if (!got) break;
+    }
+    if (mode_attr_bytes > 0) {
+        ty = zero_cc_type_apply_mode(ty, mode_attr_bytes);
     }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
         ty = zero_cc_type_vector(&ty, vec_attr_size);
@@ -839,25 +890,40 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
      * specifier (`short __attribute__(...) g;`). */
     size_t vec_attr_size = 0;
     size_t align_attr_val = 0;
+    size_t mode_attr_bytes = 0;
     {
         size_t save = c->token_pos;
         size_t probe = 0;
-        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
-            if (c->token_pos < c->token_count && zero_cc_tok_is_type_start(c, c->token_pos)) {
+        bool consumed = false;
+        /* Markers may chain in any order: consume them all, then require a
+         * type start (rewind otherwise). */
+        for (int mk = 0; mk < 4; mk++) {
+            bool got = false;
+            if (vec_attr_size == 0 &&
+                zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
                 vec_attr_size = probe;
-            } else {
-                c->token_pos = save;
+                got = true;
             }
+            if (align_attr_val == 0 &&
+                zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                align_attr_val = probe;
+                got = true;
+            }
+            if (mode_attr_bytes == 0 &&
+                zero_cc_parse_mode_attr(c, &c->token_pos, &probe)) {
+                mode_attr_bytes = probe;
+                got = true;
+            }
+            if (!got) break;
+            consumed = true;
         }
-        if (vec_attr_size == 0) {
-            size_t save2 = c->token_pos;
-            if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
-                if (c->token_pos < c->token_count && zero_cc_tok_is_type_start(c, c->token_pos)) {
-                    align_attr_val = probe;
-                } else {
-                    c->token_pos = save2;
-                }
-            }
+        if (consumed &&
+            (c->token_pos >= c->token_count ||
+             !zero_cc_tok_is_type_start(c, c->token_pos))) {
+            c->token_pos = save;
+            vec_attr_size = 0;
+            align_attr_val = 0;
+            mode_attr_bytes = 0;
         }
     }
     ZeroCCType ty;
@@ -991,14 +1057,31 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     /* Vector attribute trailing the base specifier: consume it (otherwise
      * the marker identifier would be read as the variable name) and wrap
      * the base type in a vector. Same for aligned(N): raise the type's
-     * alignment (and pad struct sizes) to the given value. */
-    if (vec_attr_size == 0) {
+     * alignment (and pad struct sizes) to the given value. Same for
+     * mode(X): resize an integer base type (c-torture execute/memclr).
+     * The loop handles chained attributes in any order. */
+    for (int mk = 0; mk < 4; mk++) {
         size_t probe = 0;
-        if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) vec_attr_size = probe;
+        bool got = false;
+        if (vec_attr_size == 0 &&
+            zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
+            vec_attr_size = probe;
+            got = true;
+        }
+        if (align_attr_val == 0 &&
+            zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+            align_attr_val = probe;
+            got = true;
+        }
+        if (mode_attr_bytes == 0 &&
+            zero_cc_parse_mode_attr(c, &c->token_pos, &probe)) {
+            mode_attr_bytes = probe;
+            got = true;
+        }
+        if (!got) break;
     }
-    if (align_attr_val == 0) {
-        size_t probe = 0;
-        if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) align_attr_val = probe;
+    if (mode_attr_bytes > 0) {
+        ty = zero_cc_type_apply_mode(ty, mode_attr_bytes);
     }
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
         ty = zero_cc_type_vector(&ty, vec_attr_size);
@@ -1037,9 +1120,10 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
      * declarator parser instead of swallowing the name. */
     {
         size_t probe = c->token_pos + 2;
-        while (probe < c->token_count && c->tokens[probe].type == TK_STAR) probe++;
         while (probe < c->token_count &&
-               (c->tokens[probe].type == TK_CONST ||
+               (c->tokens[probe].type == TK_LPAREN ||
+                c->tokens[probe].type == TK_STAR ||
+                c->tokens[probe].type == TK_CONST ||
                 c->tokens[probe].type == TK_VOLATILE ||
                 c->tokens[probe].type == TK_RESTRICT)) probe++;
         bool named_declarator = (probe < c->token_count && c->tokens[probe].type == TK_IDENT);

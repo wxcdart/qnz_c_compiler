@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T04:17:40Z
+timestamp: 2026-11-03T05:52:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -743,3 +743,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-03 — Updated `ir-and-regalloc.md`
 - Replace x86-64-only jmp_runtime.c with multi-ISA inline OP_SETJMP/OP_LONGJMP IR & backend emission, returns_twice LRA/optimizer semantics, and C99 6.7.6.3p7 array-typedef parameter decay
+
+## 2026-11-03 — Updated `c-torture-gate.md`
+- Sprint 89: 0 REJECT / 0 MISCOMPILE in c-torture (3,234 PASS, 1 TIMEOUT: memclr JIT at the 5 s budget edge); ratchet invariants corrected to match the harness (bad count + per-test PASS→MISCOMPILE/REJECT)
+
+## 2026-11-03 — Updated `isa-backends.md`
+- Sprint 89: 221/221 4-ISA vtable parity and cross-ISA OP_SYSCALL verified under QEMU (52/52)

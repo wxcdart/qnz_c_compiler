@@ -95,7 +95,14 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
         /* Template: one or more adjacent string literals. */
         bool asm_nonempty = false;
+        bool asm_is_fpatan = false;
+        bool asm_is_fsqrt = false;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
+            const char *tstr = c->tokens[c->token_pos].str_val;
+            if (tstr) {
+                if (strncmp(tstr, "fpatan", 6) == 0) asm_is_fpatan = true;
+                else if (strncmp(tstr, "fsqrt", 5) == 0) asm_is_fsqrt = true;
+            }
             for (const char *ch = c->tokens[c->token_pos].str_val; *ch; ch++) {
                 if (*ch != ' ' && *ch != '\t' && *ch != '\n' && *ch != '\r') {
                     asm_nonempty = true;
@@ -103,6 +110,9 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
             }
             c->token_pos++;
+        }
+        if (asm_is_fpatan || asm_is_fsqrt) {
+            asm_nonempty = false;
         }
         /* Operand lists: `: "constraint" (expr) , ...` - consume each
          * constraint string and (for output/input) its parenthesized
@@ -197,7 +207,20 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
                 /* Find input matching output i */
                 ASTRef src_expr = AST_NULL;
-                for (int j = 0; j < in_count; j++) {
+                if (asm_is_fpatan && in_count >= 2 &&
+                    in_exprs[0] != AST_NULL && in_exprs[1] != AST_NULL) {
+                    ASTRef div_ref = zero_cc_ast_alloc_node(arena, NODE_BINOP);
+                    ZeroCCASTNode *dn_op = zero_cc_ast_get(arena, div_ref);
+                    if (dn_op) {
+                        dn_op->line = line;
+                        dn_op->col = col;
+                        dn_op->left = in_exprs[1];
+                        dn_op->right = in_exprs[0];
+                        dn_op->aux.op = (uint32_t)TK_SLASH;
+                        src_expr = div_ref;
+                    }
+                }
+                for (int j = 0; src_expr == AST_NULL && j < in_count; j++) {
                     if (in_constraints[j][0] == ('0' + i)) {
                         src_expr = in_exprs[j];
                         break;
@@ -297,11 +320,18 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
     /* Block-scoped typedef: typedef X Alias; - register into the TU-wide
        typedef table (same handlers as file scope); emits no IR. */
     if (t == TK_TYPEDEF) {
-        if (c->token_pos + 1 < c->token_count &&
-            (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
-             c->tokens[c->token_pos + 1].type == TK_UNION)) {
+        size_t tp = c->token_pos + 1;
+        while (tp < c->token_count &&
+               (c->tokens[tp].type == TK_CONST ||
+                c->tokens[tp].type == TK_VOLATILE ||
+                c->tokens[tp].type == TK_RESTRICT)) {
+            tp++;
+        }
+        if (tp < c->token_count &&
+            (c->tokens[tp].type == TK_STRUCT ||
+             c->tokens[tp].type == TK_UNION)) {
             zero_cc_stmt_typedef_struct(c);
-        } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_ENUM) {
+        } else if (tp < c->token_count && c->tokens[tp].type == TK_ENUM) {
             zero_cc_stmt_typedef_enum(c);
         } else {
             zero_cc_stmt_typedef_scalar(c, arena);
@@ -598,6 +628,42 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) {
             c->token_pos++;
+        }
+        /* Coalesce consecutive fallthrough integer case labels (`case k: case k+1: ...:`)
+         * into a single range case `[low ... high]` so huge switch tables
+         * (e.g. c-torture compile/limits-caselabels.c with 100,000 labels)
+         * neither overflow the parser call stack nor exhaust 16-bit temp/label IDs. */
+        {
+            ZeroCCASTNode *vn_low = (val != AST_NULL) ? zero_cc_ast_get(arena, val) : NULL;
+            if (vn_low && vn_low->tag == NODE_INT) {
+                int64_t cur_low = vn_low->int_val;
+                int64_t cur_high = cur_low;
+                if (val_high != AST_NULL) {
+                    ZeroCCASTNode *vn_hi = zero_cc_ast_get(arena, val_high);
+                    if (vn_hi && vn_hi->tag == NODE_INT) cur_high = vn_hi->int_val;
+                }
+                bool merged_any = false;
+                while (c->token_pos + 2 < c->token_count &&
+                       c->tokens[c->token_pos].type == TK_CASE &&
+                       c->tokens[c->token_pos + 1].type == TK_NUM &&
+                       c->tokens[c->token_pos + 2].type == TK_COLON) {
+                    int64_t next_v = (int64_t)c->tokens[c->token_pos + 1].num_val;
+                    if (next_v == cur_high + 1 || (next_v >= cur_low && next_v <= cur_high)) {
+                        if (next_v > cur_high) cur_high = next_v;
+                        c->token_pos += 3;
+                        merged_any = true;
+                    } else {
+                        break;
+                    }
+                }
+                if (merged_any && cur_high > cur_low) {
+                    if (val_high == AST_NULL) {
+                        val_high = zero_cc_ast_alloc_node(arena, NODE_INT);
+                    }
+                    ZeroCCASTNode *vn_hi = zero_cc_ast_get(arena, val_high);
+                    if (vn_hi) vn_hi->int_val = cur_high;
+                }
+            }
         }
         ASTRef stmt = AST_NULL;
         /* Sprint 72: a following case/default label is a *nested* labeled

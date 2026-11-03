@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "zero_cc/core/compiler_state.h"
 #include "zero_cc/core/buffers.h"
 #include "zero_cc/types/token.h"
@@ -98,6 +99,12 @@ typedef struct ZeroCCCompiler {
 
     ZeroCCReloc relocs[ZERO_CC_MAX_RELOCS];
     size_t reloc_count;
+
+    /* Latch: the text reloc table overflowed and the error was reported once.
+     * Emitters keep their silent-drop guard (compilation continues so the
+     * user sees one clear error, not a cascade), but must call
+     * zero_cc_reloc_overflow_note() on the drop path. */
+    int reloc_overflow_reported;
 
     ZeroCCStringReloc str_relocs[ZERO_CC_MAX_STR_RELOCS];
     size_t str_reloc_count;
@@ -231,6 +238,21 @@ typedef struct ZeroCCCompiler {
      * growth (which moves the ZeroCCToken.str_val buffers they copied from). */
     struct ZeroCCStrChunk *str_chunks;
 } ZeroCCCompiler;
+
+/* Report (at most once per compilation) that the TU's text-relocation
+ * table is full and a further reloc was dropped. A dropped reloc leaves an
+ * unpatched immediate in the code image (silent miscompile / segfault), so
+ * the drop must surface as a clean compile error instead of vanishing.
+ * Callers keep their silent-drop guard so the rest of the TU still emits
+ * and the user gets exactly one clear diagnostic. */
+static inline void zero_cc_reloc_overflow_note(ZeroCCCompiler *c) {
+    if (c->reloc_overflow_reported) return;
+    c->reloc_overflow_reported = 1;
+    c->had_error = 1;
+    snprintf(c->error_msg, sizeof(c->error_msg),
+             "too many relocations in this translation unit (limit %d); "
+             "split the file into smaller units", (int)ZERO_CC_MAX_RELOCS);
+}
 
 /* Forward declaration for self-referential struct */
 typedef struct ZeroCCStrChunk ZeroCCStrChunk;

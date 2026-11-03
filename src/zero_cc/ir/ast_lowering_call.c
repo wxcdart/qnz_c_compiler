@@ -8,6 +8,103 @@
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
+/* Splice caller's trailing variadic argument AST list in place of
+ * __builtin_va_arg_pack() and replace __builtin_va_arg_pack_len() with
+ * va_pack_len inside an inlined variadic function body. */
+static void zc_ast_splice_va_arg_pack(ZeroCCASTArena *arena, ASTRef ref,
+                                      ASTRef va_pack_head, int va_pack_len, int depth) {
+    if (!arena || ref == AST_NULL || depth > 128) return;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return;
+
+    if (n->tag == NODE_CALL && n->left != AST_NULL) {
+        ZeroCCASTNode *cal = zero_cc_ast_get(arena, n->left);
+        if (cal && cal->tag == NODE_IDENT && cal->s.str &&
+            strcmp(cal->s.str, "__builtin_va_arg_pack_len") == 0) {
+            n->tag = NODE_INT;
+            n->int_val = va_pack_len;
+            n->left = AST_NULL;
+            n->right = AST_NULL;
+            if (n->next != AST_NULL) {
+                zc_ast_splice_va_arg_pack(arena, n->next, va_pack_head, va_pack_len, depth + 1);
+            }
+            return;
+        }
+        /* Check argument list of this call for __builtin_va_arg_pack() */
+        ASTRef prev_arg = AST_NULL;
+        ASTRef cur_arg = n->right;
+        while (cur_arg != AST_NULL) {
+            ZeroCCASTNode *an = zero_cc_ast_get(arena, cur_arg);
+            if (!an) break;
+            ASTRef next_arg = an->next;
+            bool is_pack = false;
+            if (an->tag == NODE_CALL && an->left != AST_NULL) {
+                ZeroCCASTNode *acal = zero_cc_ast_get(arena, an->left);
+                if (acal && acal->tag == NODE_IDENT && acal->s.str &&
+                    strcmp(acal->s.str, "__builtin_va_arg_pack") == 0) {
+                    is_pack = true;
+                }
+            }
+            if (is_pack) {
+                ASTRef pack_copy = (va_pack_head != AST_NULL) ?
+                    zero_cc_ast_clone(arena, va_pack_head, arena) : AST_NULL;
+                n = zero_cc_ast_get(arena, ref);
+                if (pack_copy != AST_NULL) {
+                    ASTRef tail = pack_copy;
+                    while (tail != AST_NULL) {
+                        ZeroCCASTNode *tn = zero_cc_ast_get(arena, tail);
+                        if (!tn || tn->next == AST_NULL) {
+                            if (tn) tn->next = next_arg;
+                            break;
+                        }
+                        tail = tn->next;
+                    }
+                    if (prev_arg == AST_NULL) {
+                        if (n) n->right = pack_copy;
+                    } else {
+                        ZeroCCASTNode *pn = zero_cc_ast_get(arena, prev_arg);
+                        if (pn) pn->next = pack_copy;
+                    }
+                    prev_arg = tail;
+                } else {
+                    if (prev_arg == AST_NULL) {
+                        if (n) n->right = next_arg;
+                    } else {
+                        ZeroCCASTNode *pn = zero_cc_ast_get(arena, prev_arg);
+                        if (pn) pn->next = next_arg;
+                    }
+                }
+                cur_arg = next_arg;
+                continue;
+            }
+            zc_ast_splice_va_arg_pack(arena, cur_arg, va_pack_head, va_pack_len, depth + 1);
+            prev_arg = cur_arg;
+            cur_arg = next_arg;
+        }
+        n = zero_cc_ast_get(arena, ref);
+        if (n && n->next != AST_NULL) {
+            zc_ast_splice_va_arg_pack(arena, n->next, va_pack_head, va_pack_len, depth + 1);
+        }
+        return;
+    }
+
+    ASTRef l = n->left;
+    ASTRef r = n->right;
+    ASTRef nx = n->next;
+    uint32_t tag = n->tag;
+    ASTRef alt = n->aux.alt;
+    ASTRef step = n->aux.step;
+    if (l != AST_NULL) zc_ast_splice_va_arg_pack(arena, l, va_pack_head, va_pack_len, depth + 1);
+    if (r != AST_NULL) zc_ast_splice_va_arg_pack(arena, r, va_pack_head, va_pack_len, depth + 1);
+    if ((tag == NODE_IF || tag == NODE_TERNARY || tag == NODE_FOR) && alt != AST_NULL) {
+        zc_ast_splice_va_arg_pack(arena, alt, va_pack_head, va_pack_len, depth + 1);
+    }
+    if (tag == NODE_FOR && step != AST_NULL) {
+        zc_ast_splice_va_arg_pack(arena, step, va_pack_head, va_pack_len, depth + 1);
+    }
+    if (nx != AST_NULL) zc_ast_splice_va_arg_pack(arena, nx, va_pack_head, va_pack_len, depth + 1);
+}
+
 int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
         /* Function call - handle float args directly in machine code, int args via IR.
          * The callee may be an identifier (direct call, or indirect through a
@@ -34,7 +131,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 strcmp(base_fn, "strncmp") == 0 || strcmp(base_fn, "strcpy") == 0 ||
                 strcmp(base_fn, "strncpy") == 0 || strcmp(base_fn, "strcat") == 0 ||
                 strcmp(base_fn, "strchr") == 0 || strcmp(base_fn, "strrchr") == 0 ||
-                strcmp(base_fn, "strstr") == 0 || strcmp(base_fn, "abort") == 0 ||
+                strcmp(base_fn, "strstr") == 0 || strcmp(base_fn, "strdup") == 0 ||
+                strcmp(base_fn, "strndup") == 0 || strcmp(base_fn, "abort") == 0 ||
                 strcmp(base_fn, "exit") == 0 || strcmp(base_fn, "malloc") == 0 ||
                 strcmp(base_fn, "calloc") == 0 || strcmp(base_fn, "realloc") == 0 ||
                 strcmp(base_fn, "free") == 0 || strcmp(base_fn, "printf") == 0 ||
@@ -70,6 +168,26 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 strcmp(base_fn, "atan2") == 0 || strcmp(base_fn, "atan2f") == 0 ||
                 strcmp(base_fn, "atan2l") == 0) {
                 name = base_fn;
+            } else if (strcmp(base_fn, "__snprintf_chk") == 0) {
+                /* __builtin___snprintf_chk(s, n, flag, bos, fmt, ...):
+                 * evaluate flag & bos for side effects, splice them out, and
+                 * lower as snprintf(s, n, fmt, ...). */
+                name = "snprintf";
+                ASTRef a0 = node->right;
+                ZeroCCASTNode *n0 = (a0 != AST_NULL) ? zero_cc_ast_get(arena, a0) : NULL;
+                ASTRef a1 = n0 ? n0->next : AST_NULL;
+                ZeroCCASTNode *n1 = (a1 != AST_NULL) ? zero_cc_ast_get(arena, a1) : NULL;
+                ASTRef a2 = n1 ? n1->next : AST_NULL;
+                ZeroCCASTNode *n2 = (a2 != AST_NULL) ? zero_cc_ast_get(arena, a2) : NULL;
+                ASTRef a3 = n2 ? n2->next : AST_NULL;
+                ZeroCCASTNode *n3 = (a3 != AST_NULL) ? zero_cc_ast_get(arena, a3) : NULL;
+                if (n1 && n2 && n3) {
+                    (void)lower_expr(c, arena, a2);
+                    (void)lower_expr(c, arena, a3);
+                    n1 = zero_cc_ast_get(arena, a1);
+                    n3 = zero_cc_ast_get(arena, a3);
+                    if (n1 && n3) n1->next = n3->next;
+                }
             }
         }
 
@@ -167,7 +285,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             /* Small Function Inlining: Expand candidate body directly at call site */
             if (callee_fn && callee_fn->can_inline && callee_fn->inline_body != AST_NULL &&
                 c->lowering.inlining.active_depth < 2 &&
-                (c->opt_level >= OPT_LEVEL_O2)) {
+                (c->opt_level >= OPT_LEVEL_O2 || callee_fn->is_variadic)) {
                 ZeroCCASTArena *callee_arena = (ZeroCCASTArena *)callee_fn->ast_arena;
                 if (callee_arena) {
                     /* 1. Evaluate arguments */
@@ -184,9 +302,21 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         ZeroCCASTNode *an = zero_cc_ast_get(arena, a_ref);
                         a_ref = an ? an->next : AST_NULL;
                     }
+                    int va_pack_len = 0;
+                    if (callee_fn->is_variadic) {
+                        ASTRef vp = a_ref;
+                        while (vp != AST_NULL) {
+                            va_pack_len++;
+                            ZeroCCASTNode *vpn = zero_cc_ast_get(arena, vp);
+                            vp = vpn ? vpn->next : AST_NULL;
+                        }
+                    }
 
                     /* 2. Clone callee body AST into caller's current arena */
                     ASTRef cloned_body = zero_cc_ast_clone(callee_arena, (ASTRef)callee_fn->inline_body, arena);
+                    if (cloned_body != AST_NULL && callee_fn->is_variadic) {
+                        zc_ast_splice_va_arg_pack(arena, cloned_body, a_ref, va_pack_len, 0);
+                    }
                     if (cloned_body != AST_NULL) {
                         int inline_res_temp = c->next_temp_id++;
                         uint16_t inline_exit_label = c->ir_next_label++;
@@ -304,6 +434,14 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 
             while (arg != AST_NULL) {
                 ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
+                if (int_arg_idx + fp_arg_idx >= IR_CALL_MAX_ARGS &&
+                    arg_node &&
+                    (arg_node->tag == NODE_INT || arg_node->tag == NODE_FLOAT ||
+                     arg_node->tag == NODE_IDENT || arg_node->tag == NODE_STRING)) {
+                    param_idx++;
+                    arg = arg_node->next;
+                    continue;
+                }
                 int temp = lower_expr(c, arena, arg);
                 if (callee_fn && param_idx < (int)callee_fn->param_count) {
                     const ZeroCCType *pt = &callee_fn->param_types[param_idx];

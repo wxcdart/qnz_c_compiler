@@ -120,14 +120,21 @@ static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
 
     ZeroCCTokType t = c->tokens[c->token_pos].type;
 
-    /* Typedef: check next token for struct/union/enum vs scalar */
+    /* Typedef: check next token (past leading type qualifiers) for struct/union/enum vs scalar */
     if (t == TK_TYPEDEF) {
-        if (c->token_pos + 1 < c->token_count &&
-            (c->tokens[c->token_pos + 1].type == TK_STRUCT ||
-             c->tokens[c->token_pos + 1].type == TK_UNION)) {
+        size_t tp = c->token_pos + 1;
+        while (tp < c->token_count &&
+               (c->tokens[tp].type == TK_CONST ||
+                c->tokens[tp].type == TK_VOLATILE ||
+                c->tokens[tp].type == TK_RESTRICT)) {
+            tp++;
+        }
+        if (tp < c->token_count &&
+            (c->tokens[tp].type == TK_STRUCT ||
+             c->tokens[tp].type == TK_UNION)) {
             zero_cc_stmt_typedef_struct(c);
             return true;
-        } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_ENUM) {
+        } else if (tp < c->token_count && c->tokens[tp].type == TK_ENUM) {
             zero_cc_stmt_typedef_enum(c);
             return true;
         } else {
@@ -389,6 +396,11 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * precede any file-scope declaration (e.g. `[[nodiscard]] int f(void);`).
          * Known and unknown attributes alike are accepted and ignored. */
         skip_c23_attributes(c);
+        if (c->tokens[c->token_pos].type == TK_SEMI &&
+            c->token_pos > 0 && c->tokens[c->token_pos - 1].type == TK_RBRACE) {
+            c->token_pos++;
+            continue;
+        }
         if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
             (c->tokens[c->token_pos].type == TK_ENUM &&
              (c->token_pos + 1 < c->token_count &&
@@ -622,6 +634,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->tokens[probe + 1].type == TK_LPAREN &&
                 strcmp(c->tokens[probe].str_val, "__zc_vector_size__") != 0 &&
                 strcmp(c->tokens[probe].str_val, "__zc_aligned__") != 0 &&
+                strcmp(c->tokens[probe].str_val, "__zc_mode__") != 0 &&
                 !zero_cc_find_typedef(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_struct(c, c->tokens[probe].str_val) &&
                 !zero_cc_find_enum(c, c->tokens[probe].str_val));
@@ -775,6 +788,44 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
             for (int pd = 0; pd < ptr_depth; pd++) {
                 gtype = zero_cc_type_ptr(&gtype);
+            }
+            /* Unwrap pure parenthesized pointer/identifier declarators with no
+             * function or array suffixes inside the parentheses, e.g.
+             * `int (* (* ... (* q4_var ) ... )) = 0;` (c-torture
+             * compile/limits-declparen.c with 1,000 nested `(* ... )` levels). */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                size_t p = c->token_pos;
+                int paren_d = 0;
+                int extra_stars = 0;
+                while (p < c->token_count) {
+                    ZeroCCTokType pt = c->tokens[p].type;
+                    if (pt == TK_LPAREN) { paren_d++; p++; }
+                    else if (pt == TK_STAR) { extra_stars++; p++; }
+                    else if (pt == TK_CONST || pt == TK_VOLATILE || pt == TK_RESTRICT) { p++; }
+                    else break;
+                }
+                if (paren_d > 0 && p < c->token_count && c->tokens[p].type == TK_IDENT) {
+                    size_t id_pos = p;
+                    p++;
+                    int close_d = 0;
+                    while (p < c->token_count && c->tokens[p].type == TK_RPAREN && close_d < paren_d) {
+                        close_d++;
+                        p++;
+                    }
+                    if (close_d == paren_d && p < c->token_count &&
+                        (c->tokens[p].type == TK_ASSIGN ||
+                         c->tokens[p].type == TK_COMMA ||
+                         c->tokens[p].type == TK_SEMI ||
+                         c->tokens[p].type == TK_LBRACKET)) {
+                        int wrap_stars = extra_stars > 16 ? 16 : extra_stars;
+                        for (int s = 0; s < wrap_stars; s++) {
+                            gtype = zero_cc_type_ptr(&gtype);
+                        }
+                        ptr_depth += wrap_stars;
+                        c->tokens[p - 1] = c->tokens[id_pos];
+                        c->token_pos = p - 1;
+                    }
+                }
             }
             /* Parenthesized pointer declarator: `int (*fp)(void);` — a global
              * function-pointer (or pointer) variable — or a function with a

@@ -296,6 +296,59 @@ static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, siz
     return 1;
 }
 
+/* Parse a `__zc_mode__(QI|HI|SI|DI|TI)` marker - emitted by the
+ * preprocessor in place of `__attribute__((mode(X)))` / `__mode__(X)`
+ * (GNU integer-mode attribute, c-torture execute/memclr).  Same shape as
+ * zero_cc_parse_aligned_attr: on success consumes the marker and returns 1
+ * with *out_bytes = 1/2/4/8 (QI/HI/SI/DI); TI (16 bytes) has no target type
+ * yet and is left unparsed (returns 0). Returns 0 (leaving *pos untouched)
+ * when the current token is not the marker. */
+static inline int zero_cc_parse_mode_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_bytes) {
+    if (!c || !out_bytes || !pos || *pos >= c->token_count) return 0;
+    ZeroCCToken *t = &c->tokens[*pos];
+    const char *id = t->type == TK_IDENT ? (t->allocated_str ? t->allocated_str : t->str_val) : NULL;
+    if (!id || strcmp(id, "__zc_mode__") != 0) return 0;
+    if (*pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_LPAREN) return 0;
+    /* Consume the whole `__zc_mode__(...)` group. Recognized mode names map
+     * to a byte count; anything else (byte, word, ...) still consumes the
+     * marker (it must never leak into the token stream) but reports 0, so
+     * callers leave the type unchanged. */
+    size_t close = *pos + 2;
+    while (close < c->token_count && c->tokens[close].type != TK_RPAREN) close++;
+    if (close >= c->token_count) return 0;
+    size_t bytes = 0;
+    if (close == *pos + 3) { /* single-token argument at *pos + 2 */
+        ZeroCCToken *a = &c->tokens[close - 1];
+        const char *mk = a->type == TK_IDENT ? (a->allocated_str ? a->allocated_str : a->str_val) : NULL;
+        size_t ml = mk ? strlen(mk) : 0;
+        /* Mode names appear as `QI`, `__QI__` or `QImode` (GCC accepts all
+         * three); the width is the element count in bytes. */
+#define ZC_MODE_NAME(mk, ml, N) \
+    (((ml) == 2 && strncmp((mk), N, 2) == 0) || \
+     ((ml) == 6 && strncmp((mk), "__" N "__", 6) == 0) || \
+     ((ml) == 5 && strncmp((mk), N "mode", 5) == 0))
+        if (mk && ZC_MODE_NAME(mk, ml, "QI")) bytes = 1;
+        else if (mk && ZC_MODE_NAME(mk, ml, "HI")) bytes = 2;
+        else if (mk && ZC_MODE_NAME(mk, ml, "SI")) bytes = 4;
+        else if (mk && ZC_MODE_NAME(mk, ml, "DI")) bytes = 8;
+#undef ZC_MODE_NAME
+    }
+    *out_bytes = bytes;
+    *pos = close + 1;
+    return 1;
+}
+
+/* Silently consume any trailing `__zc_mode__(...)` markers in contexts
+ * where the mode attribute is not applied (struct members, after a
+ * typedef alias name, function parameters). Before mode() support the
+ * attribute was stripped by the preprocessor entirely, so skipping
+ * preserves that behavior instead of leaking the marker into the
+ * declarator (parse error). */
+static inline void zero_cc_skip_mode_attr(ZeroCCCompiler *c) {
+    size_t probe = 0;
+    while (zero_cc_parse_mode_attr(c, &c->token_pos, &probe)) { /* drain */ }
+}
+
 /* Parse a `__zc_alias__( "target" )` marker - emitted by the preprocessor
  * in place of `__attribute__((alias("target")))` (GNU symbol aliasing).
  * On success consumes the marker and returns 1 with *out_target pointing

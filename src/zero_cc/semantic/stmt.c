@@ -231,7 +231,11 @@ bool stmt_handle_return(SemContext *ctx, ZeroCCASTNode *node) {
         TypeInfo *ret_t = sem_analyze_ref(ctx, node->left);
         if (ctx->current_fn_ret_type) {
             if (type_is_void(ctx->current_fn_ret_type)) {
-                sem_node_error(ctx, node, "void function should not return a value");
+                /* GNU C allows `return void_expr;` inside a void function;
+                 * non-void return expressions remain an error. */
+                if (!ret_t || !type_is_void(ret_t)) {
+                    sem_node_error(ctx, node, "void function should not return a value");
+                }
             } else if (ret_t) {
                 if (!type_compatible_assign(ctx->current_fn_ret_type, ret_t)) {
                     sem_node_error(ctx, node, "incompatible return type in return statement");

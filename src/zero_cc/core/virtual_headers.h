@@ -704,6 +704,25 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif /* _ZERO_CC_THREADS_H */\n"
         );
     }
+    if (strcmp(name, "immintrin.h") == 0 || strcmp(name, "emmintrin.h") == 0 ||
+        strcmp(name, "xmmintrin.h") == 0 || strcmp(name, "tmmintrin.h") == 0 ||
+        strcmp(name, "smmintrin.h") == 0) {
+        return strdup(
+            "#ifndef _ZERO_CC_IMMINTRIN_H\n#define _ZERO_CC_IMMINTRIN_H\n"
+            "typedef int __m128i __attribute__((__vector_size__(16)));\n"
+            "typedef float __m128 __attribute__((__vector_size__(16)));\n"
+            "typedef double __m128d __attribute__((__vector_size__(16)));\n"
+            "static inline __m128i _mm_abs_epi32(__m128i __a) {\n"
+            "    __m128i __r;\n"
+            "    for (int __i = 0; __i < 4; __i++) __r[__i] = __a[__i] < 0 ? -__a[__i] : __a[__i];\n"
+            "    return __r;\n"
+            "}\n"
+            "static inline __m128i _mm_mullo_epi32(__m128i __a, __m128i __b) {\n"
+            "    return __a * __b;\n"
+            "}\n"
+            "#endif\n"
+        );
+    }
     return NULL;
 }
 

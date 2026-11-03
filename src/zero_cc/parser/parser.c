@@ -119,39 +119,52 @@ size_t zero_cc_ast_node_count(ZeroCCASTArena *arena, ASTRef root) {
 }
 
 static inline ASTRef zero_cc_ast_clone_impl(ZeroCCASTArena *src_arena, ASTRef src_ref, ZeroCCASTArena *dst_arena, int depth) {
-    if (!src_arena || src_ref == AST_NULL || !dst_arena || depth > 64) return AST_NULL;
+    if (!src_arena || src_ref == AST_NULL || !dst_arena || depth > 256) return AST_NULL;
     ZeroCCASTNode *src_n = zero_cc_ast_get(src_arena, src_ref);
     if (!src_n) return AST_NULL;
+    ZeroCCASTNode src_copy = *src_n;
 
-    ASTRef dst_ref = zero_cc_ast_alloc_node(dst_arena, (ZeroCCASTTag)src_n->tag);
+    ASTRef dst_ref = zero_cc_ast_alloc_node(dst_arena, (ZeroCCASTTag)src_copy.tag);
     if (dst_ref == AST_NULL) return AST_NULL;
     ZeroCCASTNode *dst_n = zero_cc_ast_get(dst_arena, dst_ref);
     if (!dst_n) return AST_NULL;
 
     /* Copy entire node structure */
-    *dst_n = *src_n;
+    *dst_n = src_copy;
 
-    /* Recursively clone children */
-    if (src_n->left != AST_NULL) {
-        dst_n->left = zero_cc_ast_clone_impl(src_arena, src_n->left, dst_arena, depth + 1);
+    /* Recursively clone children (re-fetching dst_n in case dst_arena reallocs) */
+    if (src_copy.left != AST_NULL) {
+        ASTRef cl = zero_cc_ast_clone_impl(src_arena, src_copy.left, dst_arena, depth + 1);
+        dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+        if (dst_n) dst_n->left = cl;
     }
-    if (src_n->right != AST_NULL) {
-        dst_n->right = zero_cc_ast_clone_impl(src_arena, src_n->right, dst_arena, depth + 1);
+    if (src_copy.right != AST_NULL) {
+        ASTRef cr = zero_cc_ast_clone_impl(src_arena, src_copy.right, dst_arena, depth + 1);
+        dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+        if (dst_n) dst_n->right = cr;
     }
-    if (src_n->tag == NODE_IF || src_n->tag == NODE_TERNARY) {
-        if (src_n->aux.alt != AST_NULL) {
-            dst_n->aux.alt = zero_cc_ast_clone_impl(src_arena, src_n->aux.alt, dst_arena, depth + 1);
+    if (src_copy.tag == NODE_IF || src_copy.tag == NODE_TERNARY) {
+        if (src_copy.aux.alt != AST_NULL) {
+            ASTRef ca = zero_cc_ast_clone_impl(src_arena, src_copy.aux.alt, dst_arena, depth + 1);
+            dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+            if (dst_n) dst_n->aux.alt = ca;
         }
-    } else if (src_n->tag == NODE_FOR) {
-        if (src_n->aux.step != AST_NULL) {
-            dst_n->aux.step = zero_cc_ast_clone_impl(src_arena, src_n->aux.step, dst_arena, depth + 1);
+    } else if (src_copy.tag == NODE_FOR) {
+        if (src_copy.aux.step != AST_NULL) {
+            ASTRef cs = zero_cc_ast_clone_impl(src_arena, src_copy.aux.step, dst_arena, depth + 1);
+            dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+            if (dst_n) dst_n->aux.step = cs;
         }
-        if (src_n->aux.alt != AST_NULL) {
-            dst_n->aux.alt = zero_cc_ast_clone_impl(src_arena, src_n->aux.alt, dst_arena, depth + 1);
+        if (src_copy.aux.alt != AST_NULL) {
+            ASTRef ca = zero_cc_ast_clone_impl(src_arena, src_copy.aux.alt, dst_arena, depth + 1);
+            dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+            if (dst_n) dst_n->aux.alt = ca;
         }
     }
-    if (src_n->next != AST_NULL) {
-        dst_n->next = zero_cc_ast_clone_impl(src_arena, src_n->next, dst_arena, depth + 1);
+    if (src_copy.next != AST_NULL) {
+        ASTRef cn = zero_cc_ast_clone_impl(src_arena, src_copy.next, dst_arena, depth + 1);
+        dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+        if (dst_n) dst_n->next = cn;
     }
 
     return dst_ref;

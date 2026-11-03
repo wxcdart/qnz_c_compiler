@@ -135,13 +135,15 @@ def main():
     backends["x86_64"].update(parse_lazy_asm_init(ISA_DIR / "x86_64_asm.c", "x86_init_asm_emission"))
     backends["aarch64"].update(parse_lazy_asm_init(ISA_DIR / "aarch64_asm.c", "aarch64_init_asm_emission"))
     backends["riscv64"].update(parse_lazy_asm_init(ISA_DIR / "riscv_asm.c", "riscv64_init_asm_emission"))
+    backends["riscv32"].update(parse_lazy_asm_init(ISA_DIR / "riscv_asm.c", "riscv64_init_asm_emission"))
 
     print(f"ZeroCC VTable Slot Auditor: {len(all_fields)} total struct slots, "
           f"{len(active_calls)} actively called via BE(c)->/backend->\n")
 
     if args.diff:
         b1, b2 = args.diff
-        s1, s2 = backends.get(b1, {}), backends.get(b2, {})
+        s1 = {k: v for k, v in backends.get(b1, {}).items() if v and v != "NULL"}
+        s2 = {k: v for k, v in backends.get(b2, {}).items() if v and v != "NULL"}
         only1 = set(s1.keys()) - set(s2.keys())
         only2 = set(s2.keys()) - set(s1.keys())
         print(f"=== Direct Diff: {b1} ({len(s1)} slots) vs {b2} ({len(s2)} slots) ===")

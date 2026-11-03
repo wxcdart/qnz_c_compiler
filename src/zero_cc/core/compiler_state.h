@@ -16,7 +16,12 @@
 #define ZERO_CC_MAX_STRUCTS        8192
 #define ZERO_CC_MAX_ENUMS          16384
 #define ZERO_CC_MAX_ENUM_DEFS      8192
-#define ZERO_CC_MAX_RELOCS         32768
+/* Text-relocation cap. Generous on purpose: the array lives in the
+ * heap-allocated compiler state, and a tight cap was hit by c-torture
+ * execute/memclr.c (2048 statics x 22 mirror relocations ~ 45k) -
+ * overflow used to be a SILENT drop (unpatched imm64 -> segfault).
+ * Dropped relocs now also report via zero_cc_reloc_overflow_note(). */
+#define ZERO_CC_MAX_RELOCS         65536
 #define ZERO_CC_MAX_STR_RELOCS     16384
 #define ZERO_CC_MAX_DATA_RELOCS    16384
 #define ONCE_FILES_MAX 64

@@ -16,12 +16,28 @@
 /* Parse and Compile a Top-Level Function */
 
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
-    /* Recursion guard: a self-referential struct (`struct S { ...; struct S
-     * *next; }`) yields a cycle through member bases (the completed pointee
-     * copy's member table points back at itself).  Past the depth limit a
-     * struct/union maps to a tag-only record (no fields), breaking the
-     * cycle; legitimate types nest far shallower than this. */
+    /* Recursion & cycle/DAG memoization guard: a self-referential struct
+     * (`struct S { struct S *next, *prev; }`) or shared struct graph
+     * otherwise expands exponentially (B^(depth/2)).  We memoize converted
+     * struct/union TypeInfo* records within each top-level call (and tie
+     * recursive cycles directly to the in-progress TypeInfo* before
+     * expanding members), turning O(B^d) into O(V + E). */
+    typedef struct {
+        Arena      *perm;
+        const void *members;
+        char        struct_name[128];
+        size_t      size;
+        size_t      member_count;
+        uint8_t     tag;
+        uint32_t    modifiers;
+        TypeInfo   *ti;
+    } ZCT2TIMemo;
     static int zc_t2ti_depth = 0;
+    static ZCT2TIMemo zc_t2ti_memo[256];
+    static int zc_t2ti_memo_cnt = 0;
+    if (zc_t2ti_depth == 0) {
+        zc_t2ti_memo_cnt = 0;
+    }
     bool zc_t2ti_break = (zc_t2ti_depth >= 48);
     zc_t2ti_depth++;
     // Guard against uninitialized/corrupted types while allowing valid large arrays and structs.
@@ -35,8 +51,14 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     bool is_legit_large = ((t.tag == TYPE_STRUCT || t.tag == TYPE_UNION) && t.member_count <= 64) ||
                           (t.tag == TYPE_ARRAY && t.base != NULL);
     if (!is_legit_large && t.size > (1ULL * 1024 * 1024 * 1024)) {
+        zc_t2ti_depth--;
         return type_int(perm);
     }
+    uint32_t t_mods = 0;
+    if (t.is_const) t_mods |= TYPE_MOD_CONST;
+    if (t.is_volatile) t_mods |= TYPE_MOD_VOLATILE;
+    if (t.is_restrict) t_mods |= TYPE_MOD_RESTRICT;
+    if (t.is_atomic) t_mods |= TYPE_MOD_ATOMIC;
     TypeInfo *ti = NULL;
     /* C99 6.2.5: _Complex T -> a 2-element complex type; details.array
      * carries the element type (real part first, then imaginary). */
@@ -94,6 +116,21 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         }
         case TYPE_STRUCT:
         case TYPE_UNION: {
+            if (t.members != NULL || t.struct_name[0] != '\0') {
+                for (int m = 0; m < zc_t2ti_memo_cnt; m++) {
+                    if (zc_t2ti_memo[m].perm == perm &&
+                        zc_t2ti_memo[m].tag == (uint8_t)t.tag &&
+                        zc_t2ti_memo[m].modifiers == t_mods &&
+                        zc_t2ti_memo[m].size == t.size &&
+                        zc_t2ti_memo[m].member_count == t.member_count &&
+                        ((t.members != NULL && zc_t2ti_memo[m].members == t.members) ||
+                         (t.struct_name[0] != '\0' &&
+                          strncmp(zc_t2ti_memo[m].struct_name, t.struct_name, sizeof(zc_t2ti_memo[m].struct_name) - 1) == 0))) {
+                        zc_t2ti_depth--;
+                        return zc_t2ti_memo[m].ti;
+                    }
+                }
+            }
             ti = type_new(perm);
             ti->kind = (t.tag == TYPE_UNION) ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
             if (t.struct_name[0] != '\0') {
@@ -110,6 +147,18 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             }
             ti->details.record.size = t.size;
             ti->details.record.align = t.align;
+            ti->modifiers |= t_mods;
+            if ((t.members != NULL || t.struct_name[0] != '\0') && zc_t2ti_memo_cnt < 256) {
+                ZCT2TIMemo *me = &zc_t2ti_memo[zc_t2ti_memo_cnt++];
+                me->perm = perm;
+                me->members = t.members;
+                snprintf(me->struct_name, sizeof(me->struct_name), "%s", t.struct_name);
+                me->size = t.size;
+                me->member_count = t.member_count;
+                me->tag = (uint8_t)t.tag;
+                me->modifiers = t_mods;
+                me->ti = ti;
+            }
             if (zc_t2ti_break) break; /* cycle guard: no member expansion */
             for (size_t i = 0; i < t.member_count; i++) {
                 size_t nlen = strlen(t.members[i].name);
@@ -177,12 +226,10 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                         mt = zero_cc_type_complex(&el);
                     }
                 }
+                if (t.members[i].is_const) mt.is_const = true;
+                if (t.members[i].is_volatile) mt.is_volatile = true;
+                if (t.members[i].is_atomic) mt.is_atomic = true;
                 TypeInfo *mti = zero_cc_type_to_typeinfo(perm, mt);
-                if (mti) {
-                    if (t.members[i].is_const) mti->modifiers |= TYPE_MOD_CONST;
-                    if (t.members[i].is_volatile) mti->modifiers |= TYPE_MOD_VOLATILE;
-                    if (t.members[i].is_atomic) mti->modifiers |= TYPE_MOD_ATOMIC;
-                }
                 const char *fname = name_copy ? name_copy : t.members[i].name;
                 if (t.members[i].is_bitfield) {
                     type_add_field_ext(perm, ti, fname, t.members[i].offset, mti,

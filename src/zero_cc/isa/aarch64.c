@@ -542,6 +542,33 @@ static void aarch64_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_re
     (void)width;
 }
 
+static void aarch64_emit_atomic_or(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    arm64_emit_u32(c, 0x885F7C00 | ((addr & 0x1F) << 5) | (dst & 0x1F));
+    arm64_emit_u32(c, 0xAA000000 | ((val & 0x1F) << 16) | ((dst & 0x1F) << 5) | 16);
+    arm64_emit_u32(c, 0x881F7C00 | ((addr & 0x1F) << 5) | 16);
+}
+
+static void aarch64_emit_atomic_and(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    arm64_emit_u32(c, 0x885F7C00 | ((addr & 0x1F) << 5) | (dst & 0x1F));
+    arm64_emit_u32(c, 0x8A000000 | ((val & 0x1F) << 16) | ((dst & 0x1F) << 5) | 16);
+    arm64_emit_u32(c, 0x881F7C00 | ((addr & 0x1F) << 5) | 16);
+}
+
+static void aarch64_emit_atomic_xor(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
+    (void)width;
+    arm64_emit_u32(c, 0x885F7C00 | ((addr & 0x1F) << 5) | (dst & 0x1F));
+    arm64_emit_u32(c, 0xCA000000 | ((val & 0x1F) << 16) | ((dst & 0x1F) << 5) | 16);
+    arm64_emit_u32(c, 0x881F7C00 | ((addr & 0x1F) << 5) | 16);
+}
+
+static void aarch64_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
+    aarch64_emit_atomic_cmpxchg(c, dst, addr, expected, desired, width);
+    /* cset dst, eq */
+    arm64_emit_u32(c, 0x9A9F17E0 | (dst & 0x1F));
+}
+
 /* mfence - memory fence */
 static void aarch64_emit_mfence(ZeroCCCompiler *c) {
     /* dmb ish (data memory barrier) */
@@ -666,6 +693,8 @@ static void aarch64_emit_call(ZeroCCCompiler *c, const char *func_name) {
         r->text_patch_offset = patch_pos;
         snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
         r->is_call = true;
+    } else {
+        zero_cc_reloc_overflow_note(c);
     }
 }
 
@@ -923,6 +952,80 @@ static void aarch64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
 static void aarch64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
     /* fcvt s<dst>, d<src> - narrow double to single (GNU vector per-lane) */
     arm64_emit_u32(c, 0x1E624000 | ((dst & 0x1F) << 5) | (src & 0x1F));
+}
+
+static void aarch64_emit_fp_cvtsi2ss(ZeroCCCompiler *c, int fp_dst, int int_src) {
+    /* scvtf s<dst>, w<src> */
+    arm64_emit_u32(c, 0x1E220000 | ((int_src & 0x1F) << 5) | (fp_dst & 0x1F));
+}
+
+static void aarch64_emit_vload(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    aarch64_emit_load_fp(c, dst, base, offset);
+}
+
+static void aarch64_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    aarch64_emit_store_fp(c, src, base, offset);
+}
+
+static void aarch64_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fadd v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x4E20D400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vsubps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fsub v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x4EA0D400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vmulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fmul v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x6E20DC00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vdivps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fdiv v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x6E20FC00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vaddpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fadd v<dst>.2d, v<src1>.2d, v<src2>.2d */
+    arm64_emit_u32(c, 0x4E60D400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vsubpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fsub v<dst>.2d, v<src1>.2d, v<src2>.2d */
+    arm64_emit_u32(c, 0x4EE0D400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vmulpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fmul v<dst>.2d, v<src1>.2d, v<src2>.2d */
+    arm64_emit_u32(c, 0x6E60DC00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* fdiv v<dst>.2d, v<src1>.2d, v<src2>.2d */
+    arm64_emit_u32(c, 0x6E60FC00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpaddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* add v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x4EA08400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpsubd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* sub v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x6EA08400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpmulld(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* mul v<dst>.4s, v<src1>.4s, v<src2>.4s */
+    arm64_emit_u32(c, 0x4EA09C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    /* orr v<dst>.16b, v<src>.16b, v<src>.16b */
+    arm64_emit_u32(c, 0x4EA01C00 | ((src & 0x1F) << 16) | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -1189,10 +1292,24 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
 
     .emit_load_fp = aarch64_emit_load_fp,
     .emit_store_fp = aarch64_emit_store_fp,
+    .emit_vload = aarch64_emit_vload,
+    .emit_vstore = aarch64_emit_vstore,
     .emit_vloadsd = aarch64_emit_load_fp,
     .emit_vstoredsd = aarch64_emit_store_fp,
     .emit_vloadss = aarch64_emit_load_single_fp,
     .emit_vstoress = aarch64_emit_store_single_fp,
+    .emit_vaddps = aarch64_emit_vaddps,
+    .emit_vsubps = aarch64_emit_vsubps,
+    .emit_vmulps = aarch64_emit_vmulps,
+    .emit_vdivps = aarch64_emit_vdivps,
+    .emit_vaddpd = aarch64_emit_vaddpd,
+    .emit_vsubpd = aarch64_emit_vsubpd,
+    .emit_vmulpd = aarch64_emit_vmulpd,
+    .emit_vdivpd = aarch64_emit_vdivpd,
+    .emit_vpaddd = aarch64_emit_vpaddd,
+    .emit_vpsubd = aarch64_emit_vpsubd,
+    .emit_vpmulld = aarch64_emit_vpmulld,
+    .emit_vmovaps = aarch64_emit_vmovaps,
     .emit_load_fp_rodata = aarch64_emit_load_fp_rodata,
     .emit_fp_add = aarch64_emit_fp_add,
     .emit_fp_sub = aarch64_emit_fp_sub,
@@ -1200,6 +1317,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_fp_div = aarch64_emit_fp_div,
     .emit_fp_neg = aarch64_emit_fp_neg,
     .emit_cvtss2sd = aarch64_emit_fp_cvtss2sd,
+    .emit_cvtsi2ss = aarch64_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = aarch64_emit_fp_cvtsd2ss,
     .emit_fp_cmp = aarch64_emit_fp_cmp,
     .emit_fp_cvtsi = aarch64_emit_fp_cvtsi,
@@ -1225,7 +1343,11 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_variadic_al_setup = aarch64_emit_variadic_al_setup,
     .emit_vla_alloc = aarch64_emit_vla_alloc,
     .emit_atomic_cmpxchg = aarch64_emit_atomic_cmpxchg,
+    .emit_atomic_cmpxchg_bool = aarch64_emit_atomic_cmpxchg_bool,
     .emit_atomic_xadd = aarch64_emit_atomic_xadd,
+    .emit_atomic_or = aarch64_emit_atomic_or,
+    .emit_atomic_and = aarch64_emit_atomic_and,
+    .emit_atomic_xor = aarch64_emit_atomic_xor,
     .emit_atomic_xchg = aarch64_emit_atomic_xchg,
     .emit_mfence = aarch64_emit_mfence,
     .emit_trap = aarch64_emit_trap,

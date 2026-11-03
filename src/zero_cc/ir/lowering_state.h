@@ -41,6 +41,7 @@ typedef struct {
     int vla_count;                     /* Number of runtime VLA in function */
     int block_depth;                   /* Current block nesting depth */
     int loop_depth;                    /* Current loop nesting depth */
+    int32_t cur_sp_slot_disp;          /* Frame disp of saved-SP slot for current OP_VLA_ALLOC */
 } VLAState;
 
 /* Lowering State - Encapsulated per-compiler-instance state for Task 61/62 */
@@ -64,6 +65,12 @@ typedef struct {
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */
+    int static_local_rt2_off;          /* Second slot: protects VREG_2 across the
+                                          same mirror-out - 9-16B integer struct
+                                          returns live in VREG_0/VREG_2 (rax/rdx),
+                                          and an allocator temp mapped onto VREG_2
+                                          during the mirror-out clobbers the second
+                                          return word (c-torture execute/pr92618) */
 
     /* CMP operand tracking for RISC-V backend (flags materialization):
      * RISC-V has no flags register, so the last OP_CMP/OP_CMP_ZERO's

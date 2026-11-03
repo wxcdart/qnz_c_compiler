@@ -175,7 +175,8 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     }
     if (strcmp(base, "strcpy") == 0 || strcmp(base, "strncpy") == 0 ||
         strcmp(base, "strcat") == 0 || strcmp(base, "strchr") == 0 ||
-        strcmp(base, "strrchr") == 0 || strcmp(base, "strstr") == 0) {
+        strcmp(base, "strrchr") == 0 || strcmp(base, "strstr") == 0 ||
+        strcmp(base, "strdup") == 0 || strcmp(base, "strndup") == 0) {
         return type_pointer_to(perm, type_char(perm));
     }
     if (strcmp(base, "abort") == 0 || strcmp(base, "exit") == 0 ||

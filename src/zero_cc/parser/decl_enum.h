@@ -54,6 +54,12 @@ static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c) {
 /* Typedef Enum Definition */
 static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
     c->token_pos++; /* consume TK_TYPEDEF */
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_CONST ||
+            c->tokens[c->token_pos].type == TK_VOLATILE ||
+            c->tokens[c->token_pos].type == TK_RESTRICT)) {
+        c->token_pos++;
+    }
     if (c->tokens[c->token_pos].type == TK_ENUM) {
         c->token_pos++;
         char en_name[128] = "";
@@ -72,6 +78,10 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
             if (en_name[0] != '\0') {
                 zero_cc_register_enum(c, en_name, et);
             }
+            /* GNU mode(X) after the enum body: consume the marker (the width
+             * is not applied to enums; before marker emission the attribute
+             * was stripped, so skipping preserves the old behavior). */
+            zero_cc_skip_mode_attr(c);
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);
@@ -83,6 +93,7 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
         } else if (en_name[0] != '\0') {
             ZeroCCType *existing = zero_cc_find_enum(c, en_name);
             ZeroCCType et = existing ? *existing : zero_cc_type_enum(en_name);
+            zero_cc_skip_mode_attr(c);
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
                 snprintf(alias, sizeof(alias), "%s", c->tokens[c->token_pos].str_val);

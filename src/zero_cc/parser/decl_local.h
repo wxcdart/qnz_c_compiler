@@ -666,6 +666,21 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                 }
             }
         }
+        if (vec_attr_size == 0 && align_attr_val == 0) {
+            size_t save3 = c->token_pos;
+            size_t probe2 = 0;
+            if (zero_cc_parse_mode_attr(c, &c->token_pos, &probe2)) {
+                /* Gate-only: consume the marker so the declaration gate
+                 * below sees the real base type. The width is not applied
+                 * in this path (mode-on-local-decl was unsupported before
+                 * marker emission, so ignoring it preserves parity). */
+                if (c->token_pos < c->token_count && is_type_specifier(c, c->tokens[c->token_pos].type)) {
+                    t = c->tokens[c->token_pos].type;
+                } else {
+                    c->token_pos = save3;
+                }
+            }
+        }
     }
 
     /* Block-scoped enum definition / declaration */

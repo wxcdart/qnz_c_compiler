@@ -137,6 +137,10 @@ static inline void zero_cc_parse_param_list(
                 }
             }
         }
+        /* GNU mode(X) marker: consumed (not applied) in parameter position -
+         * mode-on-parameter was unsupported before marker emission, so
+         * skipping preserves the old behavior. */
+        zero_cc_skip_mode_attr(c);
         size_t ptype_pos = c->token_pos;
         ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
         if (!is_type_specifier(c, param_type_tok)) {
@@ -675,17 +679,9 @@ static inline ASTRef zero_cc_declarator_vla_dim_expr(const ZeroCCDeclarator *d) 
 /* Validate declarator against standard C constraints */
 static inline bool zero_cc_declarator_validate(ZeroCCCompiler *c, const ZeroCCDeclarator *d) {
     if (!d) return false;
-    bool seen_outer_vla = false;
     for (int i = 0; i < d->top; i++) {
         const ZeroCCDeclaratorChunk *chunk = &d->stack[i];
         if (chunk->kind == ZERO_CC_DECL_CHUNK_ARRAY) {
-            if (chunk->is_vla) {
-                if (seen_outer_vla) {
-                    diag_report_error_at_token(c, "multi-dim VLA with runtime inner dimensions is not supported");
-                    return false;
-                }
-                seen_outer_vla = true;
-            }
             /* C99 6.7.5.2: array of functions is invalid */
             if (i + 1 < d->top && d->stack[i + 1].kind == ZERO_CC_DECL_CHUNK_FUNCTION) {
                 diag_report_error_at_token(c, "declaration of array of functions is not allowed");
@@ -727,6 +723,7 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
         if (chunk->is_vla) {
             arr = zero_cc_type_array(&target, 0);
             arr.is_vla = true;
+            arr.vla_dim = (size_t)chunk->dim_expr;
             arr.size = 8;
             arr.align = 8;
         } else {
