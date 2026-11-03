@@ -26,6 +26,30 @@ python3 tools/torture_run.py --timeout 30 --parallel 4        # override per-tes
 Baseline: `test/torture/baseline.json` (`tests` map + `totals`). Commit the
 baseline **together with** the source/harness change that caused the movement.
 
+## Sibling Gates (same ratchet discipline)
+
+Three other differential baselines ratchet the same way — **re-record only
+when green and idle, commit the baseline with its cause**:
+
+```bash
+python3 tools/diag_battery.py                 # compiler-diagnostics gate (test/diag/baseline.json)
+python3 tools/diag_battery.py --update-baseline
+python3 tools/sret_verifier.py --verify-all   # sret ABI verifier (no baseline file)
+make test-isa-qemu                            # raw-emitter differential vs static-musl ref under QEMU
+python3 tools/isa_qemu_diff.py --isa riscv64  # one ISA
+```
+
+- **diag_battery** differentially classifies zerocc's diagnostics for
+  deliberately-broken programs (`test/diag/*.c`) against gcc; a run regresses
+  if it loses a category, drops an error count, or makes a rejected file
+  compile silently. Run after any parser/semantic/diagnostic change.
+- **test-isa-qemu** needs `qemu-user-static` + per-ISA static-musl reference
+  wrappers (`musl-gcc-<arch>`, built by `tools/setup_musl_cross.sh`); the
+  harness preflights and prints the setup command if missing. The raw path is
+  `ZC_RAW_AOT=1`.
+- The phantom-baseline diagnosis (per-test diff, idle re-run) applies to the
+  diag battery the same way it applies to c-torture.
+
 ## Class Taxonomy (what is a "bad" result)
 
 | Class | Meaning | Bad? |
