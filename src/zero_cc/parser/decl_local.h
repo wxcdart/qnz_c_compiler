@@ -956,28 +956,76 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
                 /* Function definition or prototype */
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
-                    /* C99 6.9p15: function definitions may only appear at
-                     * file scope. A definition inside a block is the GNU
-                     * nested-function (trampoline) extension: ZeroCC does
-                     * not implement closure capture, AOT would emit a call
-                     * to a symbol that is never defined (link error) while
-                     * JIT silently aliases the register file. Reject it
-                     * cleanly and skip the body (brace-depth counted) so
-                     * the enclosing function keeps parsing. Local function
-                     * *prototypes* (the else branch below) remain legal C.
-                     * `gcc -pedantic-errors` rejects nested definitions
-                     * too, so the c-torture gate triages these as SKIP-C89
-                     * (execute/nestfunc-7.c, execute/pr103405.c). */
-                    diag_report_error_at_token(c,
-                        "nested function definition of '%s' is not supported (GNU extension)", vname);
-                    c->token_pos++; /* consume '{' */
-                    int bdepth = 1;
-                    while (c->token_pos < c->token_count && bdepth > 0) {
-                        if (c->tokens[c->token_pos].type == TK_LBRACE) bdepth++;
-                        else if (c->tokens[c->token_pos].type == TK_RBRACE) bdepth--;
-                        c->token_pos++;
+                    if (zero_cc_declarator_is_function(&decl) && c->token_pos > 0 &&
+                        /* Inside a block = GNU nested function (trampoline).
+                         * Phase 1: JIT-only, x86-64, no closure capture.
+                         * Register the signature, save the body token range,
+                         * skip past the body, and return a decl node so the
+                         * name is visible in scope.  The body is compiled
+                         * after the enclosing function is lowered (see
+                         * zero_cc_compile_function in compile.h). */
+                        true) {
+                        /* Save body start (points at '{') */
+                        size_t body_start = c->token_pos;
+
+                        /* Register the nested function in c->functions */
+                        if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                            ZeroCCFunction *nf = &c->functions[c->function_count++];
+                            memset(nf, 0, sizeof(*nf));
+                            snprintf(nf->name, sizeof(nf->name), "%s", vname);
+                            nf->text_offset = 0;       /* set when compiled */
+                            nf->return_type = ret_type;
+                            nf->returns_struct = (ret_type.tag == TYPE_STRUCT || ret_type.tag == TYPE_UNION ||
+                                                  (ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ret_type)));
+                            nf->ret_struct_sz = ret_type.size;
+                            nf->is_prototype = false;
+                            nf->has_prototype = fc->has_prototype;
+                            nf->is_nested = true;
+                            nf->nested_body_start = body_start;
+                            nf->param_count = fc->param_count;
+                            if (fc->param_count > 0) {
+                                Arena *farena = zero_cc_get_fn_arena(c);
+                                nf->param_names = (const char **)arena_alloc(farena, fc->param_count * sizeof(const char *));
+                                nf->param_types = (ZeroCCType *)arena_alloc(farena, fc->param_count * sizeof(ZeroCCType));
+                                /* Walk the param list AST to extract names;
+                                 * param types come from fc->param_tis (TypeInfo). */
+                                ASTRef pl = param_list;
+                                for (size_t pi = 0; pi < fc->param_count && pl != AST_NULL; pi++) {
+                                    ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
+                                    nf->param_names[pi] = (pn && pn->s.str && pn->s.str[0])
+                                        ? zero_cc_intern_string(c, pn->s.str) : "";
+                                    nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[pi]);
+                                    pl = pn ? pn->next : AST_NULL;
+                                }
+                            }
+                        }
+
+                        /* Skip past the body (brace-depth counted) */
+                        c->token_pos++; /* consume '{' */
+                        int bdepth = 1;
+                        while (c->token_pos < c->token_count && bdepth > 0) {
+                            if (c->tokens[c->token_pos].type == TK_LBRACE) bdepth++;
+                            else if (c->tokens[c->token_pos].type == TK_RBRACE) bdepth--;
+                            c->token_pos++;
+                        }
+                        /* Store body end (points past '}') */
+                        if (c->function_count > 0) {
+                            c->functions[c->function_count - 1].nested_body_end = c->token_pos;
+                        }
+
+                        /* Return a declaration AST node so the name is visible */
+                        ASTRef func_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                        ZeroCCASTNode *func_node = zero_cc_ast_get(arena, func_ref);
+                        func_node->line = line;
+                        func_node->col = col;
+                        func_node->s.str = zero_cc_intern_string(c, vname);
+                        func_node->s_len = strlen(func_node->s.str);
+                        func_node->flags |= NODE_FLAG_FUNC_PROTO;
+                        func_node->left = param_list;
+                        func_node->right = AST_NULL;
+                        decl_node_set_type(ctx, func_node, fn_ti);
+                        *out_ref = func_ref; return true;
                     }
-                    *out_ref = AST_NULL; return true;
                 } else {
                     /* Function prototype */
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {

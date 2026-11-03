@@ -206,6 +206,7 @@ typedef struct {
                                            * a function. */
     bool is_inline;                       /* True for inline declarations (C99) */
     bool is_static;                       /* True for static functions (internal linkage) */
+    bool is_nested;                       /* True for GNU nested functions defined inside a block (Phase 1 trampolines) */
     size_t align;                         /* __attribute__((aligned(N))) on prototype/definition (0 = default) */
     bool can_inline;                      /* Eligible for small function inlining */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
@@ -214,6 +215,11 @@ typedef struct {
                                      one slot per param (0 = none); evaluated in param
                                      order at function entry. */
     void *param_dim_arena;        /* ZeroCCASTArena* owning the param_dim_exprs nodes */
+    /* Nested function body token range (Phase 1): the body tokens are saved
+     * at parse time so the body can be re-parsed and compiled after the
+     * enclosing function is lowered. */
+    size_t nested_body_start;
+    size_t nested_body_end;
 } ZeroCCFunction;
 
 /* Relocation Record */

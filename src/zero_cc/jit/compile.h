@@ -1357,6 +1357,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
 
         c->local_count = 0;
         c->local_lookup_bound = -1;
+        c->nested_fn_base = c->function_count;
         if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
             for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
         }
@@ -1574,6 +1575,73 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         fn->ast_arena = tu_arena;
                     }
                 }
+            }
+
+            /* Phase 1: Compile GNU nested functions registered during this
+             * enclosing function's compilation.  Each nested function's body
+             * was skipped at parse time (token range saved in
+             * nested_body_start/nested_body_end).  Re-parse, lower, and emit
+             * each one as a separate function in the same text section.
+             * No closure capture in Phase 1 - nested functions that reference
+             * enclosing locals will miscompile (acceptable limitation). */
+            for (size_t ni = c->nested_fn_base; ni < c->function_count; ni++) {
+                ZeroCCFunction *nf = &c->functions[ni];
+                if (!nf->is_nested || nf->text_offset != 0) continue;
+
+                nf->text_offset = c->text_section.length;
+
+                /* Save compiler state */
+                size_t save_token_pos = c->token_pos;
+                size_t save_function_count = c->function_count;
+                size_t save_local_count = c->local_count;
+                int32_t save_lookup_bound = c->local_lookup_bound;
+
+                /* Temporarily truncate function_count so zero_cc_lower_ast
+                 * picks this nested function as the current function. */
+                c->function_count = ni + 1;
+
+                /* Re-parse the nested function body from saved tokens */
+                c->token_pos = nf->nested_body_start;
+                ZeroCCASTArena n_arena;
+                zero_cc_ast_arena_init(&n_arena, 1024);
+                ASTRef n_body = zero_cc_parse_stmt_ast(c, &n_arena, ctx);
+                if (n_body == AST_NULL) {
+                    c->token_pos = save_token_pos;
+                    c->function_count = save_function_count;
+                    c->local_count = save_local_count;
+                    c->local_lookup_bound = save_lookup_bound;
+                    ctx->ast_arena = &arena;
+                    zero_cc_ast_arena_free(&n_arena);
+                    continue;
+                }
+
+                /* Set up locals for the nested function's parameters */
+                c->local_count = 0;
+                c->local_lookup_bound = -1;
+                if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
+                    for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
+                }
+                for (size_t p = 0; p < nf->param_count && p < ZERO_CC_MAX_PARAMS; p++) {
+                    ZeroCCSym *sym = zero_cc_add_local(c, nf->param_names[p], nf->param_types[p]);
+                    sym->is_param = true;
+                    sym->param_reg_idx = (int)p;
+                }
+                c->current_stack_frame = BE(c)->callee_save_frame_reserve;
+
+                /* Set up semantic context for this nested function */
+                ctx->ast_arena = &n_arena;
+
+                /* Lower and emit */
+                zero_cc_lower_ast(c, &n_arena, n_body);
+
+                /* Restore compiler state */
+                c->token_pos = save_token_pos;
+                c->function_count = save_function_count;
+                c->local_count = save_local_count;
+                c->local_lookup_bound = save_lookup_bound;
+                ctx->ast_arena = &arena;
+
+                zero_cc_ast_arena_free(&n_arena);
             }
         } else {
             c->had_error = 1;

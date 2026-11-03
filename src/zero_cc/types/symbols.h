@@ -97,6 +97,8 @@ typedef struct ZeroCCCompiler {
     size_t fn_hash_cap;                   /* power of two */
     size_t fn_hash_upto;                  /* entries covered by the hash */
 
+    size_t nested_fn_base;
+
     ZeroCCReloc relocs[ZERO_CC_MAX_RELOCS];
     size_t reloc_count;
 
