@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T00:27:46Z",
+ "generated": "2026-11-03T00:48:17Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -853,7 +853,7 @@
    "note": "         ^; Compile error: nested function definition of 'baz' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
   },
   "compile/20011029-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -2544,8 +2544,11 @@
    "note": ""
   },
   "compile/20050510-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20050516-1.c": {
@@ -3766,9 +3769,12 @@
    "note": ""
   },
   "compile/920415-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "            ^; Compile error: cannot declare variable 'x' with function type | cfgs: O0-aot,O2-aot"
   },
   "compile/920428-1.c": {
    "class": "PASS",
@@ -3787,8 +3793,11 @@
    "note": ""
   },
   "compile/920428-3.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920428-4.c": {
@@ -3992,9 +4001,12 @@
    "note": ""
   },
   "compile/920502-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "                                 ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O2-aot"
   },
   "compile/920502-2.c": {
    "class": "SKIP-C89",
@@ -4239,8 +4251,11 @@
    "note": ""
   },
   "compile/920826-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920828-1.c": {
@@ -4260,9 +4275,12 @@
    "note": ""
   },
   "compile/920831-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "                       ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/920902-1.c": {
    "class": "PASS",
@@ -5028,8 +5046,11 @@
    "note": "                ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/950613-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/950618-1.c": {
@@ -5654,8 +5675,11 @@
    "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/991213-3.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/991214-1.c": {
@@ -6624,7 +6648,7 @@
    "note": ""
   },
   "compile/complex-6.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -7257,8 +7281,11 @@
    "note": ""
   },
   "compile/labels-3.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/layout.c": {
@@ -8967,8 +8994,11 @@
    "note": ""
   },
   "compile/pr17913.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr18291.c": {
@@ -9108,8 +9138,11 @@
    "note": ""
   },
   "compile/pr21356.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr21380.c": {
@@ -9145,9 +9178,12 @@
    "note": ""
   },
   "compile/pr21728.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "       ^; Compile error: nested function definition of 'q' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
   },
   "compile/pr21761.c": {
    "class": "PASS",
@@ -9323,8 +9359,11 @@
    "note": ""
   },
   "compile/pr25224.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr25310.c": {
@@ -9520,8 +9559,11 @@
    "note": ""
   },
   "compile/pr27863.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr27889.c": {
@@ -9538,8 +9580,11 @@
    "note": ""
   },
   "compile/pr28489.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr28675.c": {
@@ -9580,8 +9625,11 @@
    "note": ""
   },
   "compile/pr29128.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr29201.c": {
@@ -9665,8 +9713,11 @@
    "note": ""
   },
   "compile/pr30984.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr31034.c": {
@@ -9830,8 +9881,11 @@
    "note": ""
   },
   "compile/pr32919.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr32920.c": {
@@ -11743,8 +11797,11 @@
    "note": ""
   },
   "compile/pr46107.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr46248.c": {
@@ -12162,8 +12219,11 @@
    "note": ""
   },
   "compile/pr51495.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr51694.c": {
@@ -12718,8 +12778,11 @@
    "note": ""
   },
   "compile/pr58164.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr58332.c": {
@@ -13304,13 +13367,19 @@
    "note": ""
   },
   "compile/pr70190.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr70199.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr70240.c": {
@@ -13939,8 +14008,11 @@
    "note": ""
   },
   "compile/pr84136.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr84178-1.c": {
@@ -16669,11 +16741,11 @@
     "O1-aot": "REJECT",
     "O1-jit": "TIMEOUT",
     "O2-aot": "REJECT",
-    "O2-jit": "TIMEOUT",
+    "O2-jit": "REJECT",
     "O3-aot": "REJECT",
-    "O3-jit": "TIMEOUT"
+    "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -20102,8 +20174,17 @@
    "note": ""
   },
   "execute/20041214-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20041218-1.c": {
@@ -21078,8 +21159,17 @@
    "note": ""
   },
   "execute/20071210-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20071211-1.c": {
@@ -21139,8 +21229,17 @@
    "note": ""
   },
   "execute/20071220-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20071220-2.c": {
@@ -22227,7 +22326,7 @@
    "note": ""
   },
   "execute/20210505-1.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -26804,7 +26903,7 @@
    "note": ""
   },
   "execute/built-in-setjmp.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -34853,7 +34952,7 @@
    "note": ""
   },
   "execute/pr51447.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:nonlocal_goto",
    "configs": {},
    "note": ""
   },
@@ -35292,7 +35391,7 @@
    "note": ""
   },
   "execute/pr56982.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -35955,7 +36054,7 @@
    "note": ""
   },
   "execute/pr60003.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -36254,7 +36353,7 @@
    "note": ""
   },
   "execute/pr64242.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -37141,8 +37240,17 @@
    "note": ""
   },
   "execute/pr70460.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr70566.c": {
@@ -38056,7 +38164,7 @@
    "note": ""
   },
   "execute/pr84521.c": {
-   "class": "SKIP-TARGET:indirect_jumps",
+   "class": "SKIP-TARGET:setjmp",
    "configs": {},
    "note": ""
   },
@@ -40838,18 +40946,18 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 189,
-  "PASS": 3164,
+  "PASS": 3188,
   "REF-BUG": 3,
   "REJECT": 13,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 421,
+  "SKIP-C89": 425,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
-  "SKIP-TARGET:indirect_jumps": 37,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
-  "SKIP-TARGET:nonlocal_goto": 2,
+  "SKIP-TARGET:nonlocal_goto": 3,
+  "SKIP-TARGET:setjmp": 8,
   "SKIP-TARGET:trampolines": 19,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,

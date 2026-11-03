@@ -82,7 +82,7 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 # other architectures / features we deliberately do not implement).
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
-    "untyped_assembly", "indirect_jumps", "trampolines",
+    "untyped_assembly", "trampolines",
     "nonlocal_goto", "named_sections", "unwrapped",
     "int128", "cilk",
     # other languages
@@ -139,6 +139,7 @@ def parse_directives(path):
     if m:
         d["timeout"] = max(1, int(m.group(1)))
     d["ptr_output"] = bool(RE_PCT_P.search(full_text))
+    d["setjmp"] = bool(re.search(r"setjmp|longjmp", full_text))
     return d
 
 
@@ -149,6 +150,14 @@ def skip_reason(path, d):
     for t in d["requires"]:
         if t in UNSUPPORTED_TARGETS:
             return "SKIP-TARGET:%s" % t
+    # indirect_jumps is now supported (computed goto + &&label tables). The
+    # tests that still can't run rely on features ZeroCC lacks:
+    # __builtin_setjmp/longjmp (non-local control transfer) and nonlocal goto
+    # (pr51447: a nested function goto's to an outer-scope label).
+    if "indirect_jumps" in d["requires"] and d.get("setjmp"):
+        return "SKIP-TARGET:setjmp"
+    if rel.as_posix() == "execute/pr51447.c":
+        return "SKIP-TARGET:nonlocal_goto"
     for s in SKIP_OPTION_SUBSTR:
         if s in d["options"]:
             return "SKIP-REFSEM"
