@@ -369,6 +369,7 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
         return et ? *et : zero_cc_type_enum(type_name);
     }
     if (type_name) {
+        if (strcmp(type_name, "__builtin_va_list") == 0) return zero_cc_type_va_list();
         ZeroCCType *tdef = zero_cc_find_typedef(c, type_name);
         if (!tdef) tdef = zero_cc_find_struct(c, type_name);
         if (!tdef) tdef = zero_cc_find_enum(c, type_name);

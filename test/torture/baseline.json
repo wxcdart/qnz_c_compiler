@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-02T19:57:59Z",
+ "generated": "2026-11-03T00:27:46Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -475,9 +475,12 @@
    "note": ""
   },
   "compile/20001226-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "REJECT",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "    ^; Compile error: function 'foo' uses 188421 temporaries; max is 65534 per function (16-bit temp ids). Split the function into smaller helper functions (each has its own temp-id space). [clean -std=c11] | cfgs: O0-aot,O2-aot"
   },
   "compile/200031109-1.c": {
    "class": "PASS",
@@ -3776,12 +3779,12 @@
    "note": ""
   },
   "compile/920428-2.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "TIMEOUT",
-    "O2-aot": "TIMEOUT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": " | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-3.c": {
    "class": "SKIP-TARGET:indirect_jumps",
@@ -7395,9 +7398,12 @@
    "note": ""
   },
   "compile/limits-structnest.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc rc=TIMEOUT"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/ll1.c": {
    "class": "PASS",
@@ -16656,18 +16662,18 @@
    "note": ""
   },
   "execute/20000914-1.c": {
-   "class": "TIMEOUT",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "TIMEOUT",
+    "O0-aot": "REJECT",
     "O0-jit": "TIMEOUT",
-    "O1-aot": "TIMEOUT",
+    "O1-aot": "REJECT",
     "O1-jit": "TIMEOUT",
-    "O2-aot": "TIMEOUT",
+    "O2-aot": "REJECT",
     "O2-jit": "TIMEOUT",
-    "O3-aot": "TIMEOUT",
+    "O3-aot": "REJECT",
     "O3-jit": "TIMEOUT"
    },
-   "note": " | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -40831,12 +40837,12 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 191,
-  "PASS": 3162,
+  "NO-REF": 189,
+  "PASS": 3164,
   "REF-BUG": 3,
-  "REJECT": 12,
+  "REJECT": 13,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 420,
+  "SKIP-C89": 421,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
@@ -40848,6 +40854,6 @@
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1,
-  "TIMEOUT": 18
+  "TIMEOUT": 16
  }
 }

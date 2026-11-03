@@ -696,15 +696,24 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     }
     else if (t == TK_IDENT) {
         const char *tname = c->tokens[c->token_pos].str_val;
-        ZeroCCType *found = zero_cc_find_typedef(c, tname);
-        if (found) {
-            ttype = *found;
-            c->token_pos++;
-        } else if (!is_unsigned && !is_signed) {
-            ttype = zero_cc_type_int();
+        if (tname && strcmp(tname, "__builtin_va_list") == 0) {
+            /* C99/GNU __builtin_va_list: the 40-byte va_list object (see
+             * zero_cc_type_va_list). Recognize it directly so
+             * `typedef __builtin_va_list va_list;` yields the correct size
+             * instead of falling through to an integer type. */
+            ttype = zero_cc_type_va_list();
             c->token_pos++;
         } else {
-            ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+            ZeroCCType *found = zero_cc_find_typedef(c, tname);
+            if (found) {
+                ttype = *found;
+                c->token_pos++;
+            } else if (!is_unsigned && !is_signed) {
+                ttype = zero_cc_type_int();
+                c->token_pos++;
+            } else {
+                ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+            }
         }
     } else {
         ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();

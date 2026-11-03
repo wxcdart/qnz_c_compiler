@@ -62,6 +62,19 @@ static inline ZeroCCType zero_cc_type_double(void) {
     t.tag = TYPE_DOUBLE; t.size = 8; t.align = 8;
     return t;
 }
+/* C99/GNU __builtin_va_list: the 40-byte va_list object (5 x 8-byte
+ * pointers: +0 gp, +8 gp_end, +16 fp, +24 fp_end, +32 ovf). va_start /
+ * va_arg access it by fixed offset (see lower_expr_va_start in
+ * ast_lowering_builtins.c), so the type only needs the correct size/align
+ * to allocate the object; its members are never accessed from C. This makes
+ * `typedef __builtin_va_list va_list;` (c-torture 20041214-1) resolve to the
+ * 40-byte object instead of a small integer. */
+static inline ZeroCCType zero_cc_type_va_list(void) {
+    ZeroCCType t; memset(&t, 0, sizeof(t));
+    t.tag = TYPE_STRUCT; t.size = 40; t.align = 8;
+    snprintf(t.struct_name, sizeof(t.struct_name), "%s", "__builtin_va_list");
+    return t;
+}
 /* C99 long double: the x86-64 SysV object is 16 bytes (80-bit extended
  * precision, 16-byte alignment); the compiler's value model lowers it
  * through the 64-bit double path. */
