@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T05:52:02Z
+timestamp: 2026-11-03T13:16:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -749,3 +749,8 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-03 — Updated `isa-backends.md`
 - Sprint 89: 221/221 4-ISA vtable parity and cross-ISA OP_SYSCALL verified under QEMU (52/52)
+
+## 2026-11-03 — Updated `architecture-pipeline.md`
+- Fixed O(n²) scope registration in `zero_cc_compile_function` (`src/zero_cc/jit/compile.h`): the per-function registration loop re-scanned ALL previously compiled functions and ALL global variables, performing `zero_cc_type_to_typeinfo` + `type_function` conversion before duplicate checking. Added `scope_lookup_current()` early-exit before type conversion in both the function and global-variable registration loops. c-torture `execute/memclr.c` (2048 static functions) JIT -O1+: 6.7s → 2.0s; -O2/-O3: 7.7s → 2.3s (all under 5s budget). Verified by `make test-torture` (0 regressions) and `make test-opt` (120/120 OK).
+
+

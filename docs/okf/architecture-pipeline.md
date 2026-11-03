@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-11-02T15:42:05Z
+timestamp: 2026-11-03T13:16:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -31,6 +31,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
      - **6.8p10** a compound block's closing `}` — truncated source now reports `expected '}' to end block` instead of compiling.
    - **"Did you mean" suggestions** (clang/gcc-style) on undeclared identifiers (candidates = every visible symbol in the scope chain via `scope_chain_names`) and unknown struct/union members (candidates = the field table). `diag_levenshtein` (early-exit at 3) + `diag_best_match` in `semantic/diagnostics.c`: a candidate qualifies at distance ≤ 2 **and** ≤ `max(1, name_len/2)` (tight leash on short names), and must be the **unique** best — tied or distant names are not suggested. Regression: `test/semantic/did_you_mean_test.c` (incl. tie-rejection and no-bogus-suggestion cases).
    - AST walkers must follow child edges **tag-aware**: `aux.step`/`aux.alt` only exist on `NODE_FOR` (step/body) and `NODE_IF`/`NODE_TERNARY` (else); on every other tag they alias `s.str`/`int_val` in the payload union (a goto's target *name length* ends up in `aux.step`). See `zero_cc_ast_addr_of_param_impl` and `sem_collect_labels_impl` for the idiom.
+   - **Scope Registration Efficiency** — `zero_cc_compile_function` registers all previously compiled functions and all global variables in the global scope before analyzing each new function body. Previously this performed `zero_cc_type_to_typeinfo` + `type_function` conversion *before* checking if the symbol already existed in scope, producing O(n²) type-conversion work on translation units with hundreds of static functions. `scope_lookup_current()` is now called **before** type conversion in both the function and global-variable registration loops (`src/zero_cc/jit/compile.h`), so duplicate symbols are skipped with O(1) hash lookup instead. c-torture `execute/memclr.c` (2048 static functions) went from >5s to ~2s JIT at -O1+; all other modes improved proportionally. Verified by `make test-torture` (0 regressions) and `make test-opt` (120/120 OK).
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
 4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**
    - Lowers each function's AST into a linear buffer of 51-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
