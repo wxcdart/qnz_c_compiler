@@ -1502,6 +1502,8 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             ir_reset(c);
 
             /* Pass 1: Lower AST to IR (instruction selection) */
+            c->has_pending_lowering_fn = true;
+            c->pending_lowering_fn_idx = (size_t)(fn - c->functions);
             zero_cc_lower_ast(c, &arena, body);
 
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
@@ -1600,6 +1602,49 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                  * picks this nested function as the current function. */
                 c->function_count = ni + 1;
 
+                /* Set up the nested function's local table BEFORE re-parsing
+                 * the body. Two reasons:
+                 *  (1) zero_cc_add_local assigns stack_offset from
+                 *      c->current_stack_frame at call time, so the frame
+                 *      must be reset before params are added (adding them
+                 *      against the enclosing function's leftover frame left
+                 *      the slots pointing outside the nested frame).
+                 *  (2) declaration nodes bake c->local_count into
+                 *      node->aux.step at parse time; lowering resolves the
+                 *      symbol as c->locals[aux.step - 1]. Re-parsing while
+                 *      the enclosing table was still active made body locals
+                 *      carry indices valid for the ENCLOSING table, so e.g.
+                 *      the first body local resolved to the nested table's
+                 *      second entry (a promoted param with stack_offset 0)
+                 *      and was stored at [fp+0], clobbering the caller's
+                 *      saved RBP. Parsing with the nested table active gives
+                 *      every body declaration its own index after the
+                 *      params.
+                 * The first nested_captured_count params are captured values
+                 * (passed in registers by the caller); the rest are user
+                 * params. */
+                c->local_count = 0;
+                c->local_lookup_bound = -1;
+                if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
+                    for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
+                }
+                c->current_stack_frame = BE(c)->callee_save_frame_reserve;
+                /* System V AMD64 ABI: >16 byte struct returns use the hidden
+                 * pointer in RDI; reserve its slot before the params (same
+                 * as the top-level function path). */
+                if (nf->ret_struct_sz > 16) {
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    nf->sret_stack_offset = c->current_stack_frame;
+                } else {
+                    nf->sret_stack_offset = 0;
+                }
+                for (size_t p = 0; p < nf->param_count && p < ZERO_CC_MAX_PARAMS; p++) {
+                    ZeroCCSym *sym = zero_cc_add_local(c, nf->param_names[p], nf->param_types[p]);
+                    sym->is_param = true;
+                    sym->param_reg_idx = (int)p;
+                }
+
                 /* Re-parse the nested function body from saved tokens */
                 c->token_pos = nf->nested_body_start;
                 ZeroCCASTArena n_arena;
@@ -1615,24 +1660,33 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     continue;
                 }
 
-                /* Set up locals for the nested function's parameters */
-                c->local_count = 0;
-                c->local_lookup_bound = -1;
-                if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
-                    for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
-                }
-                for (size_t p = 0; p < nf->param_count && p < ZERO_CC_MAX_PARAMS; p++) {
-                    ZeroCCSym *sym = zero_cc_add_local(c, nf->param_names[p], nf->param_types[p]);
-                    sym->is_param = true;
-                    sym->param_reg_idx = (int)p;
-                }
-                c->current_stack_frame = BE(c)->callee_save_frame_reserve;
-
-                /* Set up semantic context for this nested function */
+                /* Set up semantic context for this nested function.
+                 * The re-parsed body is fresh AST: it carries NO semantic
+                 * annotations (member offsets in aux.alt, TypeInfo,
+                 * member_name) until sem_analyze_ref runs - the top-level
+                 * path does exactly this before lowering, and the nested
+                 * path must too, or member accesses lower with garbage
+                 * offsets.  Enter a fresh scope holding the nested
+                 * function's params (captured + user) so identifiers
+                 * validate, mirroring the top-level param scope. */
                 ctx->ast_arena = &n_arena;
+                TypeInfo *save_fn_ret_ti = ctx->current_fn_ret_type;
+                Scope *n_param_scope = scope_enter(&ctx->current_scope, perm);
+                for (size_t p = 0; p < nf->param_count && p < ZERO_CC_MAX_PARAMS; p++) {
+                    TypeInfo *pti = zero_cc_type_to_typeinfo(perm, nf->param_types[p]);
+                    scope_put_symbol(n_param_scope, nf->param_names[p], SYMBOL_VAR, pti);
+                }
+                ctx->current_fn_ret_type = zero_cc_type_to_typeinfo(perm, nf->return_type);
+                sem_collect_labels(ctx, n_body);
+                (void)sem_analyze_ref(ctx, n_body);
 
                 /* Lower and emit */
+                c->has_pending_lowering_fn = true;
+                c->pending_lowering_fn_idx = ni;
                 zero_cc_lower_ast(c, &n_arena, n_body);
+
+                scope_leave(&ctx->current_scope);
+                ctx->current_fn_ret_type = save_fn_ret_ti;
 
                 /* Restore compiler state */
                 c->token_pos = save_token_pos;

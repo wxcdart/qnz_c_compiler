@@ -1036,6 +1036,38 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 
             /* Then reload user integer arguments */
             uint8_t all_arg_stack_pos[IR_CALL_MAX_ARGS];
+
+            /* Phase 2: When calling a nested function, pass captured
+             * variables as leading arguments. The nested function's
+             * signature expects captured values first, then user args.
+             * Load the current values of captured variables from the
+             * enclosing function's frame. */
+            if (!is_indirect_call && callee_fn && callee_fn->is_nested &&
+                callee_fn->nested_captured_count > 0 &&
+                callee_fn->enclosing_local_snapshot) {
+                for (size_t ci = 0; ci < callee_fn->nested_captured_count &&
+                     all_arg_count < IR_CALL_MAX_ARGS; ci++) {
+                    ZeroCCSym *cap_sym = &callee_fn->enclosing_local_snapshot[ci];
+                    /* Load the current value of the captured variable
+                     * from the enclosing function's frame. */
+                    int val_temp = c->next_temp_id++;
+                    if (cap_sym->type.tag == TYPE_FLOAT) {
+                        int a = zc_sym_addr(c, cap_sym, 0);
+                        ir_emit_vloadss(c, (uint16_t)val_temp, (uint16_t)a);
+                    } else if (cap_sym->type.tag == TYPE_DOUBLE) {
+                        int a = zc_sym_addr(c, cap_sym, 0);
+                        ir_emit_vloadsd(c, (uint16_t)val_temp, (uint16_t)a);
+                    } else {
+                        zc_sym_load(c, cap_sym, 0, val_temp);
+                    }
+                    all_arg_temps[all_arg_count] = val_temp;
+                    all_arg_is_fp[all_arg_count] = (cap_sym->type.tag == TYPE_FLOAT ||
+                                                   cap_sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
+                    all_arg_stack_pos[all_arg_count] = 255;
+                    all_arg_count++;
+                }
+            }
+
             for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
                 int reload_temp = c->next_temp_id++;
                 ir_emit_load(c, reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);

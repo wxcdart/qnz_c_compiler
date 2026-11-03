@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T12:28:10Z",
+ "generated": "2026-11-03T17:56:43Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -730,7 +730,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                      ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/20010605-2.c": {
    "class": "PASS",
@@ -826,7 +826,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/20010911-1.c": {
    "class": "PASS",
@@ -845,12 +845,12 @@
    "note": ""
   },
   "compile/20011023-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: nested function definition of 'baz' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20011029-1.c": {
    "class": "PASS",
@@ -1125,12 +1125,12 @@
    "note": ""
   },
   "compile/20020309-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: nested function definition of 'sub2' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020309-2.c": {
    "class": "PASS",
@@ -1434,12 +1434,12 @@
    "note": ""
   },
   "compile/20021204-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: nested function definition of 'q' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20021205-1.c": {
    "class": "PASS",
@@ -1631,12 +1631,12 @@
    "note": ""
   },
   "compile/20030418-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: nested function definition of 'bar' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030503-1.c": {
    "class": "PASS",
@@ -1735,12 +1735,12 @@
    "note": ""
   },
   "compile/20030716-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                    ^; Compile error: nested function definition of 'bar' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030725-1.c": {
    "class": "PASS",
@@ -1847,12 +1847,12 @@
    "note": ""
   },
   "compile/20031011-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: nested function definition of 'y' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20031011-2.c": {
    "class": "PASS",
@@ -2155,7 +2155,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                 ^; Compile error: nested function definition of 'RequestData' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/20040317-1.c": {
    "class": "PASS",
@@ -2179,15 +2179,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                 ^; Compile error: nested function definition of 'RequestData' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": "           ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/20040323-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: nested function definition of 'elf_machine_rel' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20040401-1.c": {
    "class": "PASS",
@@ -2451,7 +2451,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: nested function definition of 'wchar' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": "                 ^; Compile error: argument count mismatch in call to 'wchar': prototype declares 4 parameter(s), 1 argument(s) given | cfgs: O0-aot,O2-aot"
   },
   "compile/20050122-1.c": {
    "class": "PASS",
@@ -5153,12 +5153,12 @@
    "note": "       ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/951116-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                    ^; Compile error: nested function definition of 'inner' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/951128-1.c": {
    "class": "PASS",
@@ -7784,20 +7784,20 @@
    "note": ""
   },
   "compile/nested-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: nested function definition of 'validate' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/nested-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: nested function definition of 'g' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/o.c": {
    "class": "PASS",
@@ -9189,7 +9189,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "       ^; Compile error: nested function definition of 'q' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: label 'l1' used but not defined | cfgs: O0-aot,O2-aot"
   },
   "compile/pr21761.c": {
    "class": "PASS",
@@ -10127,12 +10127,12 @@
    "note": ""
   },
   "compile/pr35006.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "      ^; Compile error: nested function definition of 'cl_print' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr35043.c": {
    "class": "PASS",
@@ -13878,7 +13878,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": "                                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
   },
   "compile/pr82816.c": {
    "class": "PASS",
@@ -17198,18 +17198,18 @@
    "note": ""
   },
   "execute/20010209-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: nested function definition of 'bar' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20010221-1.c": {
    "class": "PASS",
@@ -17391,7 +17391,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                 ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20010605-2.c": {
    "class": "SKIP-C89",
@@ -19032,18 +19032,18 @@
    "note": ""
   },
   "execute/20030501-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                        ^; Compile error: nested function definition of 'retframe_block' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20030606-1.c": {
    "class": "PASS",
@@ -19774,18 +19774,18 @@
    "note": "                  ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040520-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                    ^; Compile error: nested function definition of 'bar' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040625-1.c": {
    "class": "PASS",
@@ -20888,15 +20888,15 @@
    "class": "SKIP-C89",
    "configs": {
     "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
+    "O0-jit": "OK",
     "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
+    "O1-jit": "OK",
     "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
+    "O2-jit": "OK",
     "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: nested function definition of 'nested' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Error: Linking failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
   },
   "execute/20070201-1.c": {
    "class": "PASS",
@@ -21571,18 +21571,18 @@
    "note": ""
   },
   "execute/20090219-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: nested function definition of 'bar' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20090527-1.c": {
    "class": "PASS",
@@ -30060,18 +30060,18 @@
    "note": ""
   },
   "execute/memclr.c": {
-   "class": "TIMEOUT",
+   "class": "PASS",
    "configs": {
     "O0-aot": "OK",
     "O0-jit": "OK",
     "O1-aot": "OK",
-    "O1-jit": "TIMEOUT",
+    "O1-jit": "OK",
     "O2-aot": "OK",
-    "O2-jit": "TIMEOUT",
+    "O2-jit": "OK",
     "O3-aot": "OK",
-    "O3-jit": "TIMEOUT"
+    "O3-jit": "OK"
    },
-   "note": " | cfgs: O1-jit,O2-jit,O3-jit"
+   "note": ""
   },
   "execute/memcpy-1.c": {
    "class": "PASS",
@@ -30286,18 +30286,18 @@
    "note": "gcc: error: unrecognized command-line option \u2018-mno-eabi\u2019; did you mean \u2018-Wno-abi\u2019?"
   },
   "execute/nest-stdar-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: nested function definition of 'f' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/nestfunc-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -30339,18 +30339,18 @@
    "note": ""
   },
   "execute/nestfunc-7.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                      ^; Compile error: nested function definition of 'Foo' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/p18298.c": {
    "class": "PASS",
@@ -30549,18 +30549,18 @@
    "note": ""
   },
   "execute/pr103405.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: nested function definition of 'check' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr103417.c": {
    "class": "PASS",
@@ -32109,32 +32109,14 @@
    "note": ""
   },
   "execute/pr22061-3.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "             ^; Compile error: nested function definition of 'foo' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-TARGET:nested_capture_writeback",
+   "configs": {},
+   "note": ""
   },
   "execute/pr22061-4.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "         ^; Compile error: nested function definition of 'foo' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-TARGET:nested_capture_writeback",
+   "configs": {},
+   "note": ""
   },
   "execute/pr22098-1.c": {
    "class": "PASS",
@@ -37398,18 +37380,9 @@
    "note": ""
   },
   "execute/pr71494.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "          ^; Compile error: nested function definition of 'test' is not supported (GNU extension) | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-TARGET:nested_capture_writeback",
+   "configs": {},
+   "note": ""
   },
   "execute/pr71550.c": {
    "class": "PASS",
@@ -41015,20 +40988,20 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 188,
-  "PASS": 3234,
+  "PASS": 3253,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 416,
+  "SKIP-C89": 395,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
+  "SKIP-TARGET:nested_capture_writeback": 3,
   "SKIP-TARGET:nonlocal_goto": 3,
   "SKIP-TARGET:trampolines": 19,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
-  "SKIP-UB": 1,
-  "TIMEOUT": 1
+  "SKIP-UB": 1
  }
 }

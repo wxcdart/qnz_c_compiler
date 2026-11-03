@@ -99,6 +99,19 @@ typedef struct ZeroCCCompiler {
 
     size_t nested_fn_base;
 
+    /* Explicit identity for the next zero_cc_lower_ast call: the index in
+     * c->functions of the function whose body is about to be lowered.
+     * When unset, the heuristic (most recently registered non-prototype)
+     * is used. Needed because nested functions registered while PARSING
+     * the enclosing body sit on top of the enclosing function in
+     * c->functions, so the heuristic would capture the nested one (losing
+     * main's implicit-`return 0` init and mis-attributing diagnostics). */
+    bool has_pending_lowering_fn;
+    size_t pending_lowering_fn_idx;
+
+    /* Phase 2: nested function trampoline tracking */
+    size_t nested_trampoline_count;        /* Number of trampolines allocated */
+
     ZeroCCReloc relocs[ZERO_CC_MAX_RELOCS];
     size_t reloc_count;
 

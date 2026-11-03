@@ -241,14 +241,23 @@ static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
 
 void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* The function being lowered is the most recently registered one at
-     * entry.  Body lowering can append entries to c->functions afterwards
+     * entry (unless the caller pinned it explicitly via
+     * pending_lowering_fn_idx - nested functions registered while parsing
+     * the enclosing body would otherwise shadow it in c->functions).
+     * Body lowering can append entries to c->functions afterwards
      * (builtins mapped to libc symbols register their extern during
      * lowering), so capture the identity now for the implicit-`return 0`
      * check, diagnostics, and the -dump-ir label below. */
-    size_t current_fn_idx = (c->function_count > 0) ? (c->function_count - 1) : 0;
-    while (current_fn_idx > 0 && c->functions[current_fn_idx].is_prototype) {
-        current_fn_idx--;
+    size_t current_fn_idx;
+    if (c->has_pending_lowering_fn && c->pending_lowering_fn_idx < c->function_count) {
+        current_fn_idx = c->pending_lowering_fn_idx;
+    } else {
+        current_fn_idx = (c->function_count > 0) ? (c->function_count - 1) : 0;
+        while (current_fn_idx > 0 && c->functions[current_fn_idx].is_prototype) {
+            current_fn_idx--;
+        }
     }
+    c->has_pending_lowering_fn = false;
     ZeroCCFunction *lowering_fn = (c->function_count > 0)
         ? &c->functions[current_fn_idx] : NULL;
 

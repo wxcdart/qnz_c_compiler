@@ -220,6 +220,16 @@ typedef struct {
      * enclosing function is lowered. */
     size_t nested_body_start;
     size_t nested_body_end;
+
+    /* Phase 2: closure capture via hidden value parameters.
+     * Captured variables are passed as additional leading parameters to the
+     * nested function, avoiding stack-slot issues with register-allocated
+     * enclosing variables. */
+    size_t nested_enclosing_fn_idx;         /* Index of enclosing function in c->functions, or (size_t)-1 */
+    size_t nested_captured_count;           /* Number of captured variables (leading hidden params) */
+    size_t *nested_captured_indices;        /* Arena-allocated array: indices into enclosing_local_snapshot */
+    ZeroCCSym *enclosing_local_snapshot;    /* Copy of enclosing function's locals for type lookup */
+    size_t enclosing_local_count;           /* Number of locals in the snapshot */
 } ZeroCCFunction;
 
 /* Relocation Record */

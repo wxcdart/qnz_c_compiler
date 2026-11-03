@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T13:16:33Z
+timestamp: 2026-11-03T18:03:53Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -754,4 +754,8 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 - Fixed O(n²) scope registration in `zero_cc_compile_function` (`src/zero_cc/jit/compile.h`): the per-function registration loop re-scanned ALL previously compiled functions and ALL global variables, performing `zero_cc_type_to_typeinfo` + `type_function` conversion before duplicate checking. Added `scope_lookup_current()` early-exit before type conversion in both the function and global-variable registration loops. c-torture `execute/memclr.c` (2048 static functions) JIT -O1+: 6.7s → 2.0s; -O2/-O3: 7.7s → 2.3s (all under 5s budget). Verified by `make test-torture` (0 regressions) and `make test-opt` (120/120 OK).
 - **Phase 1: GNU Nested Functions / Trampolines (JIT-only, x86-64, no closure capture)**: GNU C nested function definitions inside a block (C99 6.9p15 extension) are now accepted instead of rejected. The parser registers the nested function signature, saves the body token range, and skips past the body; after the enclosing function is lowered, each nested function's body is re-parsed, lowered, and emitted as a separate function in the same text section. Non-capturing nested functions (e.g. c-torture `nestfunc-1.c`) compile and run correctly at all optimization levels in both JIT and AOT. Tests requiring capture semantics remain `SKIP-TARGET:trampolines` until Phase 2 implements trampoline/context-pointer support. Files changed: `src/zero_cc/jit/compile.h`, `src/zero_cc/parser/decl_local.h`, `src/zero_cc/types/symbols.h`, `src/zero_cc/types/type_system.h`. Verified by `make test-torture` (8 expected regressions in capture-dependent tests; 0 regressions in non-capture tests) and `make test-opt` (120/120 OK).
 
+## 2026-11-03 — Updated `architecture-pipeline.md`
+- Sprint 90: nested-functions Phase 2 — closure capture (by-value hidden leading params) for direct calls; five nested-path codegen fixes (parse-after-table-reset, frame-reset-before-params, sem pass on re-parsed body, explicit lowering fn identity, is_variadic); 21 tests flipped, pr71494/pr22061-3/4 -> SKIP-TARGET:nested_capture_writeback (Phase 3 by-reference writeback)
 
+## 2026-11-03 — Updated `c-torture-gate.md`
+- Sprint 90 baseline: PASS 3,253, 0 REJECT / 0 MISCOMPILE / 0 TIMEOUT; new SKIP-TARGET:nested_capture_writeback (3); memclr.c TIMEOUT passed on idle re-record

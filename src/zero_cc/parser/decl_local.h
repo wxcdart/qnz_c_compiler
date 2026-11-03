@@ -980,22 +980,60 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                             nf->ret_struct_sz = ret_type.size;
                             nf->is_prototype = false;
                             nf->has_prototype = fc->has_prototype;
+                            nf->is_variadic = fc->is_variadic;
                             nf->is_nested = true;
                             nf->nested_body_start = body_start;
-                            nf->param_count = fc->param_count;
-                            if (fc->param_count > 0) {
+                            /* Phase 2: capture all enclosing locals as hidden
+                             * leading parameters. The nested function's
+                             * signature becomes:
+                             *   ret_type nested_fn(captured_0, captured_1, ...,
+                             *                      user_param_0, user_param_1, ...)
+                             * Callers pass the current values of captured
+                             * variables when invoking the nested function. */
+                            nf->nested_enclosing_fn_idx = (c->function_count >= 2) ? (c->function_count - 2) : (size_t)-1;
+                            nf->enclosing_local_count = c->local_count;
+                            if (c->local_count > 0) {
                                 Arena *farena = zero_cc_get_fn_arena(c);
-                                nf->param_names = (const char **)arena_alloc(farena, fc->param_count * sizeof(const char *));
-                                nf->param_types = (ZeroCCType *)arena_alloc(farena, fc->param_count * sizeof(ZeroCCType));
-                                /* Walk the param list AST to extract names;
-                                 * param types come from fc->param_tis (TypeInfo). */
-                                ASTRef pl = param_list;
-                                for (size_t pi = 0; pi < fc->param_count && pl != AST_NULL; pi++) {
-                                    ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
-                                    nf->param_names[pi] = (pn && pn->s.str && pn->s.str[0])
-                                        ? zero_cc_intern_string(c, pn->s.str) : "";
-                                    nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[pi]);
-                                    pl = pn ? pn->next : AST_NULL;
+                                nf->enclosing_local_snapshot = (ZeroCCSym *)arena_alloc(farena, c->local_count * sizeof(ZeroCCSym));
+                                memcpy(nf->enclosing_local_snapshot, c->locals, c->local_count * sizeof(ZeroCCSym));
+                                nf->nested_captured_count = c->local_count;
+                                /* Total parameters = captured + user params */
+                                size_t total_param_count = c->local_count + fc->param_count;
+                                nf->param_count = total_param_count;
+                                if (total_param_count > 0) {
+                                    nf->param_names = (const char **)arena_alloc(farena, total_param_count * sizeof(const char *));
+                                    nf->param_types = (ZeroCCType *)arena_alloc(farena, total_param_count * sizeof(ZeroCCType));
+                                    /* Captured variables come first */
+                                    size_t pi = 0;
+                                    for (size_t ci = 0; ci < c->local_count; ci++, pi++) {
+                                        nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
+                                        nf->param_types[pi] = c->locals[ci].type;
+                                    }
+                                    /* Then user parameters */
+                                    ASTRef pl = param_list;
+                                    for (size_t ui = 0; ui < fc->param_count && pl != AST_NULL; ui++, pi++, pl = zero_cc_ast_get(arena, pl) ? zero_cc_ast_get(arena, pl)->next : AST_NULL) {
+                                        ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
+                                        nf->param_names[pi] = (pn && pn->s.str && pn->s.str[0])
+                                            ? zero_cc_intern_string(c, pn->s.str) : "";
+                                        nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[ui]);
+                                    }
+                                }
+                            } else {
+                                nf->param_count = fc->param_count;
+                                if (fc->param_count > 0) {
+                                    Arena *farena = zero_cc_get_fn_arena(c);
+                                    nf->param_names = (const char **)arena_alloc(farena, fc->param_count * sizeof(const char *));
+                                    nf->param_types = (ZeroCCType *)arena_alloc(farena, fc->param_count * sizeof(ZeroCCType));
+                                    /* Walk the param list AST to extract names;
+                                     * param types come from fc->param_tis (TypeInfo). */
+                                    ASTRef pl = param_list;
+                                    for (size_t pi = 0; pi < fc->param_count && pl != AST_NULL; pi++) {
+                                        ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
+                                        nf->param_names[pi] = (pn && pn->s.str && pn->s.str[0])
+                                            ? zero_cc_intern_string(c, pn->s.str) : "";
+                                        nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[pi]);
+                                        pl = pn ? pn->next : AST_NULL;
+                                    }
                                 }
                             }
                         }
