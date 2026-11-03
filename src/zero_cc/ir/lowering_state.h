@@ -65,7 +65,13 @@ typedef struct {
     int32_t frame_delta;               /* Displacement delta added to FP-relative offsets when
                                           addressing frame slots from SP (0 when the frame
                                           pointer is present). Equals the ISA prologue's
-                                          (FP - final_SP) distance. */
+                                          (FP - final_SP) distance. In _Alignas realign mode
+                                          (frame_align > 16) it equals the N-rounded frame
+                                          size: the frame is anchored to the realigned SP'. */
+    int32_t frame_align;               /* C11 _Alignas(N>16) local: prologue realigns SP to N
+                                          (`and $-N, %rsp`) and the N-rounded frame is anchored
+                                          to it; 0/16 = ordinary 16-rounded frame. x86-64 only
+                                          (other ISAs cap locals at 16). */
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */

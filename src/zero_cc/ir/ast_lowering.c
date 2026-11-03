@@ -881,14 +881,54 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Both JIT and assembly need 16-byte alignment for proper call alignment */
     /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
-    /* C11 6.7.5 local alignment above 16 cannot be guaranteed by frame
-     * rounding alone: rbp (E-8) is 16-aligned but its mod-32/64 residue
-     * varies per call site, so an A-aligned slot in an A-rounded frame is
-     * only A-aligned half the time (probes vs GCC). GCC guarantees it with
-     * a runtime `and $-A, %rsp` realign + SP-relative slots - a backend
-     * feature not yet present. Local alignments are therefore capped at
-     * 16 (declared, not over-claimed) and the frame stays 16-rounded. */
+    /* C11 6.7.5: local alignment N > 16 needs the GCC-style runtime SP
+     * realign. rbp (E-8) is only 16-aligned and its mod-N residue varies
+     * per call site, so an N-aligned slot in an N-rounded frame is not
+     * actually N-aligned (probes vs GCC). When the max local alignment is
+     * N > 16, the prologue realigns SP to N (`and $-N, %rsp`) and the
+     * N-rounded frame is anchored to the realigned base (SP'): every slot
+     * stays delta-based with frame_delta = frame, so slot k lands at
+     * [SP + frame - k] = [SP' - k], and `leave` restores entry state
+     * exactly (rbp = E-8 is kept as the anchor). Eligible: x86-64, N a
+     * power of two <= 4096, no VLA / variadic / frame-address (they
+     * assume the plain frame geometry); otherwise the local is capped at
+     * 16 with a warning (never over-claimed). */
+    size_t max_local_align = 0;
+    for (size_t i = 0; i < c->local_count; i++) {
+        if ((size_t)c->locals[i].type.align > max_local_align)
+            max_local_align = (size_t)c->locals[i].type.align;
+    }
+    bool align_realign = false;
+    if (max_local_align > 16) {
+        if (c->isa == ISA_X86_64 &&
+            (max_local_align & (max_local_align - 1)) == 0 &&
+            max_local_align <= 4096) {
+            bool vla_local = false;
+            for (size_t i = 0; i < c->local_count; i++) {
+                if (c->locals[i].is_vla) { vla_local = true; break; }
+            }
+            bool va_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
+            if (!vla_local && !va_fn && !c->lowering.has_frame_address) {
+                align_realign = true;
+            } else {
+                diag_report_warning_at_token(c,
+                    "local _Alignas(%zu) cannot be guaranteed in this function "
+                    "(VLA/variadic/frame-address); using alignment 16",
+                    (unsigned long)max_local_align);
+            }
+        } else {
+            diag_report_warning_at_token(c,
+                "local _Alignas(%zu) above 16 is not supported on this target; "
+                "using alignment 16",
+                (unsigned long)max_local_align);
+        }
+    }
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
+    if (align_realign) {
+        size_t N = max_local_align;
+        total_frame_size = (c->current_stack_frame + N - 1) & ~(N - 1);
+        c->lowering.frame_align = (int32_t)N;
+    }
 
     /* Determine if function is a leaf (no calls, no VLAs) */
     bool is_leaf = true;
@@ -913,7 +953,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
      * without adjusting %rsp. */
     size_t alloc_frame_size = total_frame_size;
-    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address) {
+    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
+        !align_realign) {
         alloc_frame_size = 0;
     }
 
@@ -945,7 +986,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         /* Disable frame pointer omission for variadic functions:
          * va_start offset computation assumes a stable frame pointer. */
         bool is_variadic_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
-        if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn && !c->lowering.has_frame_address) {
+        if (align_realign) {
+            /* C11 _Alignas(N>16) realign mode: the frame is anchored to the
+             * realigned SP', so slots are SP-relative with delta = frame
+             * (slot k at [SP' - k]). rbp is still set up by the prologue
+             * (push rbp / mov rbp, rsp) - `leave` restores entry state -
+             * so this is FP-omission geometry with a realign prefix. */
+            c->lowering.omit_frame_pointer = true;
+            c->lowering.frame_delta = (int32_t)total_frame_size;
+        } else if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn && !c->lowering.has_frame_address) {
             bool has_vla = false;
             for (size_t i = 0; i < ir_count; i++) {
                 if (ir_buf[i].op == OP_VLA_ALLOC) { has_vla = true; break; }

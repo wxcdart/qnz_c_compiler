@@ -1,5 +1,15 @@
 # ZeroCC Changelog
 
+## [Sprint 95] - 2026-11-03 - C11 `_Alignas(N>16)` Locals via Runtime SP Realign (GCC-matching, 3,266 PASS held)
+
+Follow-up to Sprint 94's "local `_Alignas(N>16)` capped at 16 + warning": implemented the GCC mechanism itself so local automatic objects get their full declared alignment on x86-64 (no c-torture class changes; PASS 3,266 held, 0 bad):
+
+- **Runtime SP realign prologue** (GCC-style): when the max local alignment N > 16 (power of two, <= 4096) the function's frame is rounded to N and the x86-64 prologue becomes `push rbp; mov rbp, rsp; and $-N, %rsp; sub $frame, %rsp` - the frame is anchored to the realigned base SP' and every slot stays delta-based (`frame_delta = frame`, slot k at `[SP + frame - k]` = `[SP' - k]`); the epilogue is a plain `leave` (rbp = entry-SP-8 was kept, so it restores entry state exactly regardless of the realign amount). Works at -O0..-O3, JIT and AOT (MC and `-S` paths), frames > 4KB keep the guard-page probe.
+- **Why not just round the frame**: rbp (entry-SP-8) is only 16-aligned and its mod-N residue varies per call site, so an N-aligned slot in an N-rounded frame is not actually N-aligned (Sprint 94 verified this against GCC). The realign makes the base itself N-aligned.
+- **Everything needed to be delta-based already**: frame-slot IR (`OP_MOV`/`OP_MOV_MEM`/`OP_LEA`) resolves base + displacement via `zero_cc_frame_base_reg`/`zero_cc_frame_disp` at emission, so param saves, CSR stores, spills, static-local mirrors and sret slots all follow the realigned anchor with no changes. The only new state is `LoweringState.frame_align`.
+- **Eligibility & honesty**: realign mode is disabled (with a warning, guaranteeing 16) when the function has a VLA, is variadic, or forces a frame pointer (frame-address/setjmp builtins) - those assume the plain frame geometry; non-x86-64 targets keep the 16 cap (documented). `_Alignof(x)` reports the declared N (the type keeps it; matches GCC) and the slot is actually N-aligned wherever realign mode applies.
+- **Verification**: pointer-arithmetic probes vs GCC at -O0..-O3 (32/64-aligned ints, `_Alignas(64)` struct-member local instances with calls + params, static locals, setjmp, nested fns, sret); the 7 c-torture align tests re-checked (byte-identical outcomes); `make test` 159/159, `make test-opt` 120/120, `make test-driver` 37/37, `make test-isa-qemu` 52/52, `diag_battery` OK, `style_check` 0 errors, `vtable_check` PASS, c-torture gate OK vs baseline (PASS 3,266, 0 bad).
+
 ## [Sprint 94] - 2026-11-03 - C11 `_Alignas`/`_Alignof` Correctness & Stale `__STDC_NO_COMPLEX__` Removal (conformance cleanup, 3,266 PASS held)
 
 Two conformance fixes found while auditing C89/C99/C11/C23 support status (no c-torture class changes; PASS 3,266 held, 0 bad):

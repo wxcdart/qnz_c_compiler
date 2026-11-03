@@ -120,8 +120,23 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
          * X is the SP adjustment below). X = frame_delta + 8, i.e.
          *   - red-zone leaf:            X = 0   (no SP adjustment at all)
          *   - alloc == 0, non-leaf:     X = 8   (keep 16-byte call alignment)
-         *   - normal:                   X = alloc + 8 */
-        size_t X = (size_t)c->lowering.frame_delta + 8;
+         *   - normal:                   X = alloc + 8
+         * _Alignas(N) realign mode (frame_align > 16): the prologue first
+         * does `push rbp; mov rbp, rsp; and $-N, %rsp`, then subtracts the
+         * N-rounded frame (X = frame_delta, NOT frame_delta + 8): the frame
+         * is anchored to the realigned SP' and slots are [SP' - k]. */
+        if (c->lowering.frame_align > 16) {
+            /* push rbp */
+            me_emit_u8(c, 0x55);
+            /* mov rbp, rsp */
+            me_emit_u8(c, 0x48); me_emit_u8(c, 0x89); me_emit_u8(c, 0xE5);
+            /* and $-N, rsp (imm32 two's complement) */
+            me_emit_u8(c, 0x48); me_emit_u8(c, 0x81); me_emit_u8(c, 0xE4);
+            me_emit_u32(c, (uint32_t)(-(int32_t)c->lowering.frame_align));
+        }
+        size_t X = (c->lowering.frame_align > 16)
+            ? (size_t)c->lowering.frame_delta
+            : (size_t)c->lowering.frame_delta + 8;
         (void)stack_size;
         (void)callee_save_mask;  /* CSR stores are emitted by emit_prologue_mc() */
         if (X > 4096) {
@@ -197,8 +212,14 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
 }
 
 /* Option 4: restore SP by the prologue's adjustment X = frame_delta + 8
- * (X == 0 for the red-zone leaf case: SP was never lowered). */
+ * (X == 0 for the red-zone leaf case: SP was never lowered).
+ * _Alignas(N) realign mode: `leave` (mov rsp, rbp; pop rbp) restores the
+ * exact entry state regardless of the runtime realign amount. */
 static void x86_emit_frame_teardown(ZeroCCCompiler *c) {
+    if (c->lowering.frame_align > 16) {
+        me_emit_u8(c, 0xC9);  /* leave */
+        return;
+    }
     size_t X = (size_t)c->lowering.frame_delta + 8;
     if (X == 0) return;
     if (X <= 127) {

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-03T21:55:25Z
+timestamp: 2026-11-03T22:40:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -216,7 +216,7 @@ ZeroCC supports C11 core language features and standard concurrency primitives v
 - **Alignment (`_Alignas`, `_Alignof`)** (Sprint 94):
   - `_Alignof(type)` evaluates compile-time natural alignment in `src/zero_cc/parser/ast_expr.h`.
   - `_Alignas(N)` / `_Alignas(type)` apply explicit alignment overrides to struct fields (`src/zero_cc/parser/definitions.h`), **file-scope objects** (`src/zero_cc/jit/compile_unit.c` + `src/main.c`: the `.data`/`.bss` section `sh_addralign` is the max object alignment, so the linker places `_Alignas(N)` globals at N-aligned addresses for any N; the C11 keyword form aligns without padding the scalar's `sizeof`, the GNU `aligned(N)` attribute still pads), and **local** stack variables (`src/zero_cc/parser/decl_local.h`): the frame slot is aligned via `decl_align_spec` and the symbol type's `align` is raised (size unchanged - C11 6.7.5) so `_Alignof(x)` reports the override.
-  - **Local alignment is capped at 16**: rbp (entry SP-8) is only 16-aligned, and its mod-32/64 residue varies per call site, so a 32/64-aligned local slot in a rounded frame is not actually aligned - GCC guarantees it with a runtime `and $-N, %rsp` realign + SP-relative frame, a backend feature ZeroCC does not have yet. `_Alignas(N>16)` on an automatic therefore warns and reports/guarantees 16 (never over-claims).
+  - **Local N > 16 is delivered via the GCC-style runtime SP realign** (Sprint 95, x86-64): when the max local alignment N > 16 (power of two, <= 4096), the frame is rounded to N and the prologue realigns SP to N (`push rbp; mov rbp, rsp; and $-N, %rsp; sub $frame, %rsp`); the frame anchors to the realigned base SP' and slots stay delta-based (`frame_delta = frame`), with `leave` restoring entry state exactly. This is needed because rbp (entry-SP-8) is only 16-aligned and its mod-N residue varies per call site - frame rounding alone cannot align the base. Ineligible functions (VLA, variadic, frame-pointer-forcing builtins) and non-x86-64 targets fall back to a guaranteed 16 with a warning; `_Alignof(x)` always reports the declared N (the type keeps it, matching GCC).
 - **Anonymous Structs & Unions**:
   - Unnamed nested `struct { ... };` and `union { ... };` members inside enclosing structs/unions flatten their inner fields into the parent's member table with accumulated byte offsets (`src/zero_cc/parser/definitions.h`).
 - **Generic Selection (`_Generic`) & Static Assertions (`_Static_assert`)**:

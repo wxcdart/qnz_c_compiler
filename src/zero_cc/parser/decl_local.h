@@ -618,17 +618,11 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                 if (align_val > 0) {
                     decl_align_spec = align_val;
                     if ((size_t)align_val > c11_align_spec) c11_align_spec = (size_t)align_val;
-                    if (align_val > 16) {
-                        /* Local objects above 16 cannot actually be
-                         * guaranteed (rbp's residue varies per call site;
-                         * GCC uses a runtime `and`-realign + SP-relative
-                         * frame - see the frame-size note in
-                         * zero_cc_lower_ast). Report the guaranteed
-                         * alignment (16) instead of lying about N. */
-                        diag_report_warning_at_token(c,
-                            "_Alignas(%ld) on an automatic object: alignments above 16 are not guaranteed; using 16",
-                            (long)align_val);
-                    }
+                    /* Alignments above 16 are guaranteed at lowering time by
+                     * the runtime SP realign prologue (x86-64) - see the
+                     * frame-size note in zero_cc_lower_ast, which also warns
+                     * when the function is ineligible (VLA/variadic/other
+                     * ISA) and falls back to 16. */
                 }
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
                     c->token_pos++;
@@ -1395,9 +1389,11 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                  * object's alignment without changing its size (the frame
                  * slot is already aligned via decl_align_spec inside
                  * zero_cc_add_local; the GNU aligned(N) attribute path
-                 * (align_attr_val) instead pads the type size). */
+                 * (align_attr_val) instead pads the type size). N > 16 is
+                 * guaranteed by the runtime SP realign prologue at lowering
+                 * (zero_cc_lower_ast); the type records the full N. */
                 if (c11_align_spec > 0 && c11_align_spec > sym->type.align) {
-                    sym->type.align = (c11_align_spec > 16) ? 16 : c11_align_spec;
+                    sym->type.align = (int)c11_align_spec;
                 }
                 if (is_extern) {
                     sym->is_extern = true;
@@ -1622,7 +1618,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                         *out_ref = AST_NULL; return true;
                     }
                     if (c11_align_spec > 0 && c11_align_spec > next_sym->type.align) {
-                        next_sym->type.align = (c11_align_spec > 16) ? 16 : c11_align_spec; /* C11 _Alignas (align only) */
+                        next_sym->type.align = (int)c11_align_spec; /* C11 _Alignas (align only) */
                     }
                     if (is_static_local && !nhas_any_vla) {
                         /* Sprint 37: each comma declarator of a static

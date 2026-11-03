@@ -43,8 +43,17 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 
     if (c->lowering.omit_frame_pointer) {
         /* Option 4: no frame pointer. X = frame_delta + 8 (see the MC
-         * prologue for the per-case X values). */
-        size_t X = (size_t)c->lowering.frame_delta + 8;
+         * prologue for the per-case X values); _Alignas(N) realign mode
+         * prefixes `push rbp; mov rbp, rsp; and $-N, %rsp` and uses
+         * X = frame_delta (the N-rounded frame). */
+        if (c->lowering.frame_align > 16) {
+            fprintf(out, "\tpushq\t%%rbp\n");
+            fprintf(out, "\tmovq\t%%rsp, %%rbp\n");
+            fprintf(out, "\tandq\t$0x%x, %%rsp\n", (unsigned)(-(int32_t)c->lowering.frame_align));
+        }
+        size_t X = (c->lowering.frame_align > 16)
+            ? (size_t)c->lowering.frame_delta
+            : (size_t)c->lowering.frame_delta + 8;
         (void)stack_size;
         /* Stack probing for frames > 4KB (Linux guard page). RAX is scratch. */
         if (X > 4096) {
@@ -129,9 +138,14 @@ static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     }
 
     if (c->lowering.omit_frame_pointer) {
-        size_t X = (size_t)c->lowering.frame_delta + 8;
-        if (X > 0) {
-            fprintf(out, "\taddq\t$%zu, %%rsp\n", X);
+        if (c->lowering.frame_align > 16) {
+            /* _Alignas realign: leave restores entry state exactly. */
+            fprintf(out, "\tleave\n");
+        } else {
+            size_t X = (size_t)c->lowering.frame_delta + 8;
+            if (X > 0) {
+                fprintf(out, "\taddq\t$%zu, %%rsp\n", X);
+            }
         }
         fprintf(out, "\tret\n");
     } else {
