@@ -660,6 +660,24 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->lowering.has_capture_mirror = true;
     }
 
+    /* C99 6.7.6.2: reserve a runtime size slot for each VLA parameter
+     * (the dim value evaluated at entry below) - runtime `sizeof` on a
+     * VLA param type (e.g. `sizeof(a[0])` for `char a[2][N]`) loads it
+     * via NODE_VLA_SLOT. Must run before the body lowers so the frame
+     * still grows. */
+    if (lowering_fn && lowering_fn->param_count > 0) {
+        for (size_t p = 0; p < lowering_fn->param_count && p < c->local_count; p++) {
+            if (!c->locals[p].is_param || c->locals[p].vla_slot_off) continue;
+            ZeroCCType t = c->locals[p].type;
+            while (t.tag == TYPE_PTR && t.base) t = *t.base;
+            if (zc_type_chain_has_vla(t)) {
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                c->locals[p].vla_slot_off = (int32_t)c->current_stack_frame;
+            }
+        }
+    }
+
     /* C99 6.7.6.2: evaluate VLA parameter dimension expressions in
      * parameter order; all params are already in their frame slots and
      * a dimension may reference earlier params (the array storage lives
@@ -667,8 +685,20 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     if (lowering_fn && lowering_fn->param_dim_arena && lowering_fn->param_dim_exprs) {
         ZeroCCASTArena *dim_arena = (ZeroCCASTArena *)lowering_fn->param_dim_arena;
         for (size_t p = 0; p < lowering_fn->param_count; p++) {
+            /* A param can have several VLA dims (chained via next,
+             * outermost-to-innermost): evaluate them all (side effects),
+             * and save the INNERMOST value - it determines the pointed-to
+             * array size that runtime sizeof reads. */
             ASTRef dim = lowering_fn->param_dim_exprs[p];
-            if (dim != AST_NULL) (void)lower_expr(c, dim_arena, dim);
+            int last_val = -1;
+            while (dim != AST_NULL) {
+                ZeroCCASTNode *dn = zero_cc_ast_get(dim_arena, dim);
+                last_val = lower_expr(c, dim_arena, dim);
+                dim = dn ? dn->next : AST_NULL;
+            }
+            if (last_val >= 0 && p < c->local_count && c->locals[p].vla_slot_off > 0) {
+                ir_emit_store(c, last_val, BE(c)->fp_reg, -c->locals[p].vla_slot_off);
+            }
         }
     }
 

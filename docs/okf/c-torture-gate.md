@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-03T18:57:28Z
+timestamp: 2026-11-03T19:51:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,7 +24,7 @@ The vendored corpus contains **3,940** active test files across two trees (exclu
 
 ### Pre-Skip Directives (`parse_directives`)
 Because `gcc.c-torture` mixes standard C89/C99/C11 tests with GCC-internal target extensions, `tools/torture_run.py` scans DejaGnu (`dg-*`) directives in the first 60 lines of each file and pre-skips:
-- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `trampolines`, `int128`, `named_sections`, `nonlocal_goto`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`), plus content-based targeted skips for unfinished sub-features (e.g. `nested_capture_writeback`: `pr71494`, `pr22061-3/4` — nested functions that modify a captured variable; Phase 2 capture is by-value). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), and `indirect_jumps` was unskipped in Sprint 88. **`trampolines`** (19 tests): still gated on `dg-require-effective-target trampolines`; Phase 2 implements closure capture for *direct* calls (by-value hidden leading parameters — reads correct, writebacks need Phase 3's by-reference design), so non-trampoline-gated nested-function tests now run and mostly pass (18 flipped to PASS).
+- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `trampolines`, `int128`, `named_sections`, `nonlocal_goto`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, and `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof` landed). **`trampolines`** (19 tests): still gated on `dg-require-effective-target trampolines`; Phases 2–3a implement closure capture for *direct* calls (by-reference hidden leading parameters with mirror in/out — reads and writebacks correct); only indirect calls through function pointers (`f = inner; f(x)`) need the real 2-word trampoline/context design.
 - **`SKIP-BOGUS`**: negative diagnostic tests (`dg-bogus`).
 - **`SKIP-REFSEM`**: tests requiring reference-changing floating-point semantics (`-mfpmath=`, `-ffast-math`, `-frounding-math`, `-fsignaling-nans`, `-fexcess-precision=`).
 - **`SKIP-PTR`**: tests printing raw `%p` pointer addresses (ASLR-nondeterministic across runs).
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (nested-functions Phase 2)
+## 2. Classification Buckets & Baseline (nested-functions Phase 3a-2)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,255** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+2 vs Sprint 90: `pr71494` via by-reference capture, `20061220-1` newly enabled by the nested unskips) |
+| **`PASS`** | **3,257** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+2 vs Sprint 91: `pr22061-3/4` via runtime VLA param dimensions + runtime VLA `sizeof`) |
 | **`REJECT`** | **0** | **Zero REJECTs in the entire corpus** (`[clean -std=c11]`) |
 | **`SKIP-C89`** | **394** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
 | **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **77** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `trampolines`: 19, `int128`: 7, `named_sections`: 3, `nested_capture_writeback`: 2, `nonlocal_goto`: 3, `unwrapped`: 2, `arm`: 1). `nested_capture_writeback` (`pr22061-3/4`): nested functions with VLA parameter dimensions whose dimension expressions reference captured variables (`int foo(char a[2][++N])`) — needs runtime VLA param dims (saved at registration, evaluated at entry) + runtime `sizeof(a[0])`; `pr71494` (plain writeback) passed with Phase 3a by-reference capture |
+| **`SKIP-TARGET:*`** | **75** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `trampolines`: 19, `int128`: 7, `named_sections`: 3, `nonlocal_goto`: 3, `unwrapped`: 2, `arm`: 1). `trampolines` (19) is the only remaining nested-functions gap: indirect calls through function pointers need the real 2-word trampoline/context design |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |

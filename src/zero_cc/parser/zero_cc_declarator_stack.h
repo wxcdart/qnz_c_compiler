@@ -238,6 +238,7 @@ static inline void zero_cc_parse_param_list(
         }
 
         int param_ptr_depth = 0;
+        ZeroCCType ptype = param_base;  /* param type builder (dims/pointers apply on top) */
         ASTRef param_dim_expr = AST_NULL; /* VLA parameter dimension expr (C99 6.7.6.2) */
         bool param_ptr_is_const = false;
         bool param_ptr_is_volatile = false;
@@ -292,7 +293,9 @@ static inline void zero_cc_parse_param_list(
                  * Multiple suffixes (`int m[][4]`, `int[][fn3()]` pr77754):
                  * the OUTERMOST dimension decays to a pointer; the inner
                  * ones form the pointed-to array type. */
-                int n_suffs = 0;
+                                int n_suffs = 0;
+                ssize_t p_dims[8] = {0};   /* constant dims; 0 = VLA expr */
+                ASTRef p_dim_exprs[8] = {AST_NULL};
                 while (c->token_pos < c->token_count &&
                        c->tokens[c->token_pos].type == TK_LBRACKET &&
                        n_suffs < 8) {
@@ -305,14 +308,51 @@ static inline void zero_cc_parse_param_list(
                         c->token_pos++;
                     }
                     size_t dim_end = c->token_pos; /* just past ']' */
-                    if (n_suffs == 0 && dim_start + 1 < dim_end) {
+                    /* Keep every dimension (C99 6.7.6.2/6.7.6.3p7):
+                     * `char a[2][++N]` decays to `char (*)[N]` - the
+                     * OUTERMOST dim becomes the pointer, the INNER dims
+                     * (incl. VLA exprs like `++N`) form the pointed-to
+                     * array type and are evaluated at entry. */
+                    if (dim_start + 1 == dim_end &&
+                        c->tokens[dim_start].type == TK_NUM) {
+                        p_dims[n_suffs] = (ssize_t)c->tokens[dim_start].num_val;
+                    } else {
+                        /* VLA (or const-expr) dimension (C99 6.7.6.2):
+                         * keep the expression for entry evaluation. */
                         c->token_pos = dim_start;
-                        param_dim_expr = parse_expr_ast_internal(c, arena);
+                        ASTRef de = parse_expr_ast_internal(c, arena);
                         c->token_pos = dim_end;
+                        p_dims[n_suffs] = 0;
+                        p_dim_exprs[n_suffs] = de;
                     }
                     n_suffs++;
                 }
-                param_ptr_depth++;
+                /* Build the pointed-to type from the INNER dimensions
+                 * (innermost-first), then wrap with the decay pointer. */
+                for (int i = n_suffs - 1; i >= 1; i--) {
+                    if (p_dim_exprs[i] != AST_NULL) {
+                        ptype = zero_cc_type_array(&ptype, 0);
+                        ptype.is_vla = true;
+                        ptype.vla_dim = (size_t)p_dim_exprs[i];
+                        ptype.size = ptype.base->size > 0 ? ptype.base->size : 1;
+                        ptype.align = 8;
+                    } else {
+                        ptype = zero_cc_type_array(&ptype, p_dims[i]);
+                    }
+                }
+                if (n_suffs > 0) ptype = zero_cc_type_ptr(&ptype);
+                /* Chain the VLA dim expressions (outermost-to-innermost)
+                 * for entry evaluation + the registration save. */
+                for (int i = 0; i < n_suffs; i++) {
+                    if (p_dim_exprs[i] == AST_NULL) continue;
+                    if (param_dim_expr == AST_NULL) {
+                        param_dim_expr = p_dim_exprs[i];
+                    } else {
+                        ZeroCCASTNode *t2 = zero_cc_ast_get(arena, param_dim_expr);
+                        while (t2 && t2->next != AST_NULL) t2 = zero_cc_ast_get(arena, t2->next);
+                        if (t2) t2->next = p_dim_exprs[i];
+                    }
+                }
             }
         }
         /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
@@ -323,7 +363,6 @@ static inline void zero_cc_parse_param_list(
         }
         if (pname == NULL) pname = "";
 
-        ZeroCCType ptype = param_base;
         for (int pd = 0; pd < param_ptr_depth; pd++) {
             ptype = zero_cc_type_ptr(&ptype);
             if (pd == param_ptr_depth - 1) {
@@ -676,6 +715,32 @@ static inline ASTRef zero_cc_declarator_vla_dim_expr(const ZeroCCDeclarator *d) 
     return AST_NULL;
 }
 
+/* Return the OUTERMOST array dimension of the declarator: a VLA dim as its
+ * expression, or a constant dim as a fresh NODE_INT (in arena). The VLA
+ * declaration lowering uses this as the allocation "count" (the inner dims
+ * are walked from the type chain). */
+static inline bool zero_cc_declarator_outer_dim(const ZeroCCDeclarator *d,
+                                                ZeroCCASTArena *arena,
+                                                int64_t *const_val, ASTRef *expr) {
+    *const_val = 0;
+    *expr = AST_NULL;
+    if (!d || d->top == 0) return false;
+    const ZeroCCDeclaratorChunk *c0 = &d->stack[0];
+    if (c0->kind != ZERO_CC_DECL_CHUNK_ARRAY) return false;
+    if (c0->is_vla) {
+        *expr = c0->dim_expr;
+    } else {
+        *const_val = (int64_t)c0->array_len;
+        if (arena) {
+            ASTRef r = zero_cc_ast_alloc_node(arena, NODE_INT);
+            ZeroCCASTNode *rn = zero_cc_ast_get(arena, r);
+            if (rn) rn->int_val = (int64_t)c0->array_len;
+            *expr = r;
+        }
+    }
+    return true;
+}
+
 /* Validate declarator against standard C constraints */
 static inline bool zero_cc_declarator_validate(ZeroCCCompiler *c, const ZeroCCDeclarator *d) {
     if (!d) return false;
@@ -724,7 +789,13 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
             arr = zero_cc_type_array(&target, 0);
             arr.is_vla = true;
             arr.vla_dim = (size_t)chunk->dim_expr;
-            arr.size = 8;
+            /* VLA array "size" = the static factor so far (the element
+             * size): runtime `sizeof` walks the array chain and divides
+             * constant dims out of it (the VLA dim is carried in the
+             * runtime slot, not the type). Historically 8 (pointer size),
+             * which broke the static-factor division for non-8-byte
+             * elements. */
+            arr.size = target.size > 0 ? target.size : 1;
             arr.align = 8;
         } else {
             arr = zero_cc_type_array(&target, (ssize_t)chunk->array_len);

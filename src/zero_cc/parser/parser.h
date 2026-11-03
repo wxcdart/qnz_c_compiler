@@ -75,6 +75,8 @@ typedef enum {
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
     NODE_STATIC_ASSERT/* left = cond */,
     NODE_COMMA,       /* left = lhs, right = rhs (comma operator) */
+    NODE_VLA_SLOT,    /* runtime VLA size: int_val = c->locals index of the
+                       * VLA param/local; lowers to LOAD [fp - vla_slot_off] */
 } ZeroCCASTTag;
 
 /* Cache-friendly, 32-bit thin-pointer AST node (32 bytes total) */

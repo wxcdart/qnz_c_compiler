@@ -123,6 +123,14 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 }
             }
 
+            /* 2b. C99 6.5.3.4: remember the exact object size in a frame
+             * slot so `sizeof` of this VLA local is a runtime value (the
+             * value at the declaration, per C99 6.7.6.2). */
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            sym->vla_slot_off = (int32_t)c->current_stack_frame;
+            ir_emit_store(c, size_temp, BE(c)->fp_reg, -sym->vla_slot_off);
+
             /* 3. Align size to 16 bytes: (size + 15) & ~15 */
             int add15 = c->next_temp_id++;
             ir_emit_mov_imm(c, add15, 15);

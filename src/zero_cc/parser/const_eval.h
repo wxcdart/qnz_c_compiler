@@ -390,8 +390,14 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
  * resolve against local symbols first, then the global variable table.
  * An optional [index] suffix selects the array element size.
  * Returns 0 when the operand's type cannot be determined at parse time.
- * On success the operand (incl. any [..] suffix) is consumed from *pos. */
-static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
+ * On success the operand (incl. any [..] suffix) is consumed from *pos.
+ * Runtime VLA operand: returns SIZE_MAX and reports the VLA param/local's
+ * c->locals index in *out_vla_local plus the product of the CONSTANT
+ * dimensions stripped by [..] suffixes in *out_vla_strip (the remaining
+ * VLA size lives in the runtime slot, loaded via NODE_VLA_SLOT). Pass
+ * NULL/NULL for *out* in constant-expression contexts. */
+static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos,
+                                               int *out_vla_local, unsigned *out_vla_strip) {
     if (c->tokens[*pos].type != TK_IDENT) return 0;
     const char *name = c->tokens[*pos].str_val;
     ZeroCCType ty;
@@ -446,7 +452,10 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
     (*pos)++; /* consume the identifier */
     /* Chained subscripts (a[i], a[i][j], p[i]): each `[...]` reduces the
      * type to its element/pointee, so `sizeof a[i][j]` yields the innermost
-     * element size (c-torture split-path-6 uses a single subscript). */
+     * element size (c-torture split-path-6 uses a single subscript).
+     * When the peeled array still contains a VLA dim deeper down, the
+     * peeled dim is a CONSTANT factor dividing the runtime slot size. */
+    unsigned strip = 1;
     while (c->tokens[*pos].type == TK_LBRACKET) {
         /* a[expr] -> element size */
         size_t q = *pos;
@@ -458,9 +467,20 @@ static inline size_t zero_cc_sizeof_ident_size(ZeroCCCompiler *c, size_t *pos) {
             q++;
         }
         *pos = q; /* past ] */
-        if ((ty.tag == TYPE_ARRAY || ty.tag == TYPE_PTR) && ty.base) {
+        if (ty.tag == TYPE_ARRAY && ty.base) {
+            if (zc_type_chain_has_vla(*ty.base) &&
+                ty.base->size > 0 && ty.size > 0 && (ty.size % ty.base->size) == 0) {
+                strip *= (unsigned)(ty.size / ty.base->size);
+            }
+            ty = *ty.base;
+        } else if (ty.tag == TYPE_PTR && ty.base) {
             ty = *ty.base;
         }
+    }
+    if (out_vla_local && ls && zc_type_chain_has_vla(ty)) {
+        *out_vla_local = (int)(ls - c->locals);
+        if (out_vla_strip) *out_vla_strip = strip;
+        return SIZE_MAX;
     }
     return ty.size;
 }
@@ -538,7 +558,13 @@ static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos)
     if (zero_cc_tok_is_type_start(c, *pos)) {
         ty = zero_cc_parse_type_name_at_pos(c, pos);
     } else {
-        size_t id_sz = zero_cc_sizeof_ident_size(c, pos);
+        size_t id_sz = zero_cc_sizeof_ident_size(c, pos, NULL, NULL);
+        if (id_sz == SIZE_MAX) {
+            /* Runtime VLA size in a constant-expression context: invalid C
+             * (the dimension is not a constant); report 0 and move on. */
+            if (has_paren && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            return 0;
+        }
         if (id_sz > 0) {
             if (has_paren && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return (int64_t)id_sz;

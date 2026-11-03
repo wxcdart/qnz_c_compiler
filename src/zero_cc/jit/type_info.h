@@ -321,7 +321,9 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
             t = zero_cc_type_array(&base_t, (ssize_t)ti->details.array.count);
             if (ti->details.array.is_vla) {
                 t.is_vla = true;
-                t.size = 8;
+                /* Element size as the static factor (runtime sizeof walks
+                 * the chain), matching zero_cc_chunk_apply. */
+                t.size = base_t.size > 0 ? base_t.size : 1;
                 t.align = 8;
             }
             break;

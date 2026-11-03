@@ -747,6 +747,15 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                  * pointed-to array type innermost-first. */
                 for (int i = ndims - 1; i >= 1; i--) {
                     t = zero_cc_type_array(&t, dims[i]);
+                    /* VLA dimension (dims[i] == 0): mark the array as VLA
+                     * (carrying the dim expression) and use the element
+                     * size as the static factor (runtime sizeof walks this
+                     * chain), mirroring zero_cc_chunk_apply. */
+                    if (dims[i] == 0) {
+                        t.is_vla = true;
+                        t.vla_dim = (size_t)dim_exprs[*param_count - 1];
+                        t.size = t.base->size > 0 ? t.base->size : 1;
+                    }
                 }
                 (*param_types)[*param_count - 1] = zero_cc_type_ptr(&t);
                 if (c->local_count > 0 && (*param_count - 1) < ZERO_CC_MAX_PARAMS) {

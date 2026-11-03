@@ -200,6 +200,17 @@ static inline ZeroCCType zero_cc_type_complex(const ZeroCCType *elem) {
     return t;
 }
 
+/* True when the type is, or contains (through array/pointer chains), a
+ * VLA array. Runtime `sizeof` on such types loads the per-declaration
+ * runtime size slot (NODE_VLA_SLOT) instead of using the static size. */
+static inline int zc_type_chain_has_vla(ZeroCCType ty) {
+    while (ty.tag == TYPE_ARRAY && ty.base) {
+        if (ty.is_vla) return 1;
+        ty = *ty.base;
+    }
+    return 0;
+}
+
 static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
     ZeroCCType t;
     memset(&t, 0, sizeof(t));

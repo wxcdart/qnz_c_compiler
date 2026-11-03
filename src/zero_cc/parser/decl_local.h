@@ -1095,6 +1095,56 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                     }
                                 }
                             }
+
+                            /* C99 6.7.6.2: save VLA parameter dimension
+                             * expressions (the declarator stack keeps each
+                             * in p_node->right). The nested function
+                             * evaluates them at entry, after the capture
+                             * mirror-in, so `char a[2][++N]` sees the
+                             * current captured value. The AST nodes live in
+                             * this function's body arena (freed at
+                             * lowering), so clone them into a dedicated
+                             * dim arena - same pattern as
+                             * zero_cc_parse_fn_param_block. */
+                            {
+                                ASTRef pl2 = param_list;
+                                for (size_t ui = 0; ui < fc->param_count && pl2 != AST_NULL; ui++) {
+                                    ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl2);
+                                    pl2 = pn ? pn->next : AST_NULL;
+                                    if (!pn || pn->right == AST_NULL) continue;
+                                    if (!nf->param_dim_arena) {
+                                        ZeroCCASTArena *da = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                                        if (!da) break;
+                                        zero_cc_ast_arena_init(da, 64);
+                                        nf->param_dim_arena = da;
+                                        Arena *fa = zero_cc_get_fn_arena(c);
+                                        nf->param_dim_exprs = (ASTRef *)arena_alloc(fa, nf->param_count * sizeof(ASTRef));
+                                        /* Capture-param slots are never
+                                         * written; zero the whole array or
+                                         * the entry-eval loop reads garbage. */
+                                        memset(nf->param_dim_exprs, 0, nf->param_count * sizeof(ASTRef));
+                                    }
+                                    /* Clone the whole dim list (a param can
+                                     * have several VLA dims, chained via
+                                     * next, outermost-to-innermost). */
+                                    ZeroCCASTArena *da = (ZeroCCASTArena *)nf->param_dim_arena;
+                                    ASTRef head = AST_NULL;
+                                    ZeroCCASTNode *prev_node = NULL;
+                                    for (ASTRef orig = pn->right; orig != AST_NULL; ) {
+                                        ZeroCCASTNode *on = zero_cc_ast_get(arena, orig);
+                                        if (!on) break;
+                                        ASTRef cl = zero_cc_ast_clone(arena, orig, da);
+                                        if (cl == AST_NULL) break;
+                                        if (head == AST_NULL) head = cl;
+                                        else if (prev_node) prev_node->next = cl;
+                                        prev_node = zero_cc_ast_get(da, cl);
+                                        orig = on->next;
+                                    }
+                                    if (head != AST_NULL) {
+                                        nf->param_dim_exprs[nf->param_count - fc->param_count + ui] = head;
+                                    }
+                                }
+                            }
                         }
 
                         /* Skip past the body (brace-depth counted) */
@@ -1160,7 +1210,19 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
                 bool is_array = zero_cc_declarator_has_array(&decl);
                 bool has_any_vla = zero_cc_declarator_has_vla(&decl);
-                ASTRef vla_dim_expr = zero_cc_declarator_vla_dim_expr(&decl);
+                /* The allocation "count" is the OUTERMOST dimension (VLA
+                 * expr, or the constant dim as a NODE_INT): for `int a[2][N]`
+                 * the count is 2 and the inner `N` is handled by the type
+                 * chain in the lowering. */
+                ASTRef vla_dim_expr = AST_NULL;
+                int64_t outer_cv = 0;
+                if (has_any_vla) {
+                    if (!zero_cc_declarator_outer_dim(&decl, arena, &outer_cv, &vla_dim_expr)) {
+                        vla_dim_expr = zero_cc_declarator_vla_dim_expr(&decl);
+                    }
+                } else {
+                    vla_dim_expr = zero_cc_declarator_vla_dim_expr(&decl);
+                }
 
                 ZeroCCType base_decl = has_anon_struct ? anon_struct_type :
                     (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
@@ -1450,7 +1512,15 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
                     ZeroCCType next_type = zero_cc_declarator_apply(&next_decl, next_base);
                     bool nhas_any_vla = zero_cc_declarator_has_vla(&next_decl);
-                    ASTRef nvla_dim_expr = zero_cc_declarator_vla_dim_expr(&next_decl);
+                    ASTRef nvla_dim_expr = AST_NULL;
+                    int64_t nouter_cv = 0;
+                    if (nhas_any_vla) {
+                        if (!zero_cc_declarator_outer_dim(&next_decl, arena, &nouter_cv, &nvla_dim_expr)) {
+                            nvla_dim_expr = zero_cc_declarator_vla_dim_expr(&next_decl);
+                        }
+                    } else {
+                        nvla_dim_expr = zero_cc_declarator_vla_dim_expr(&next_decl);
+                    }
 
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
                     int32_t prev_next_frame = c->current_stack_frame;

@@ -507,6 +507,7 @@ static int ast_expr_is_fp(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) 
         case NODE_STRING:
         case NODE_BOOL:
         case NODE_NULLPTR:
+        case NODE_VLA_SLOT:
             return 0;
         case NODE_CAST: {
             TypeInfo *ti = ast_node_get_typeinfo(c, n);
@@ -593,6 +594,22 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_INT: {
             int temp = c->next_temp_id++;
             ir_emit_mov_imm(c, temp, node->int_val);
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+
+        case NODE_VLA_SLOT: {
+            /* Runtime VLA object size (C99 6.5.3.4): load the per-
+             * declaration frame slot (VLA param: dim value evaluated at
+             * entry; VLA local: allocation size written at the
+             * declaration). int_val = c->locals index. */
+            int li = (int)node->int_val;
+            int temp = c->next_temp_id++;
+            if (li >= 0 && (size_t)li < c->local_count && c->locals[li].vla_slot_off > 0) {
+                ir_emit_load(c, temp, BE(c)->fp_reg, -c->locals[li].vla_slot_off);
+            } else {
+                ir_emit_mov_imm(c, temp, 0);  /* defensive: no slot reserved */
+            }
             c->last_expr_is_float = 0;
             return temp;
         }

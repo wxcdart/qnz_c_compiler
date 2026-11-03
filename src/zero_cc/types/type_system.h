@@ -138,6 +138,12 @@ typedef struct {
     char name[128];
     ZeroCCType type;
     int32_t stack_offset;                 /* Offset from RBP */
+    /* Runtime VLA dimension/object-size slot (C99 6.7.6.2): 8-byte frame
+     * slot holding the VLA's runtime size, reserved for VLA params
+     * (dim value evaluated at entry) and VLA locals (allocation size
+     * written at declaration). NODE_VLA_SLOT loads it for runtime
+     * `sizeof` on VLA types. 0 = no slot. */
+    int32_t vla_slot_off;
     bool is_param;
     int param_reg_idx;
     bool is_vla;

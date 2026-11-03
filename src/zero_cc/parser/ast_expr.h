@@ -924,7 +924,33 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             if (zero_cc_tok_is_type_start(c, pos)) {
                 ty = zero_cc_parse_type_name_at_pos(c, &pos);
             } else {
-                size_t id_sz = zero_cc_sizeof_ident_size(c, &pos);
+                int vla_local = -1;
+                unsigned vla_strip = 1;
+                size_t id_sz = zero_cc_sizeof_ident_size(c, &pos, &vla_local, &vla_strip);
+                if (id_sz == SIZE_MAX) {
+                    /* Runtime VLA size (C99 6.5.3.4): the object's size is
+                     * in a per-declaration frame slot (VLA param: dim value
+                     * evaluated at entry; VLA local: allocation size written
+                     * at the declaration). Emit slot / stripped-const-dims
+                     * as a runtime expression. */
+                    if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
+                    c->token_pos = pos;
+                    ASTRef slot_ref = zero_cc_ast_alloc_node(arena, NODE_VLA_SLOT);
+                    ZeroCCASTNode *slotn = zero_cc_ast_get(arena, slot_ref);
+                    slotn->int_val = (int64_t)vla_local;
+                    if (vla_strip > 1) {
+                        ASTRef d_ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+                        ZeroCCASTNode *dn = zero_cc_ast_get(arena, d_ref);
+                        dn->int_val = (int64_t)vla_strip;
+                        ASTRef div_ref = zero_cc_ast_alloc_node(arena, NODE_BINOP);
+                        ZeroCCASTNode *divn = zero_cc_ast_get(arena, div_ref);
+                        divn->left = slot_ref;
+                        divn->right = d_ref;
+                        divn->aux.op = (uint32_t)TK_SLASH;
+                        return div_ref;
+                    }
+                    return slot_ref;
+                }
                 if (id_sz > 0) {
                     if (has_paren && pos < c->token_count && c->tokens[pos].type == TK_RPAREN) pos++;
                     c->token_pos = pos;

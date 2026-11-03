@@ -121,6 +121,17 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
         if ((size_t)decl_align_spec > alignment) alignment = (size_t)decl_align_spec;
     }
     size_t alloc_sz = type.size ? type.size : alignment;
+    /* VLA local (any dimension of the array chain is VLA - e.g.
+     * `int a[2][N]` has the flag on the inner chunk only): reserve
+     * 24 bytes so the saved-SP slot (offset-8) and stride slot
+     * (offset-16) never collide with the previous local. */
+    {
+        int vla_chain = 0;
+        for (const ZeroCCType *tt = &type; tt && !vla_chain; tt = tt->base) {
+            if (tt->tag == TYPE_ARRAY && tt->is_vla) vla_chain = 1;
+        }
+        type.is_vla = vla_chain; /* normalize: flag the outer type too */
+    }
     if (type.is_vla) alloc_sz = 24; /* [0..7]=data ptr, [8..15]=saved SP, [16..23]=inner runtime stride */
     c->current_stack_frame += (int32_t)alloc_sz;
     c->current_stack_frame = (c->current_stack_frame + (int32_t)alignment - 1) & ~((int32_t)alignment - 1);
