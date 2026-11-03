@@ -982,6 +982,15 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                             nf->has_prototype = fc->has_prototype;
                             nf->is_variadic = fc->is_variadic;
                             nf->is_nested = true;
+                            /* Nested functions are block-scoped and may share
+                             * source names in different enclosing functions
+                             * (e.g. three `nested` fns in c-torture
+                             * execute/20061220-1.c). Emit each under a unique
+                             * symbol name; call sites resolve the right one
+                             * via the enclosing chain (see
+                             * zero_cc_resolve_callee in ast_lowering_call.c). */
+                            snprintf(nf->nested_sym_name, sizeof(nf->nested_sym_name),
+                                     "__zf%u_%s", (unsigned)(c->function_count - 1), nf->name);
                             nf->nested_body_start = body_start;
                             /* Phase 2: capture all enclosing locals as hidden
                              * leading parameters. The nested function's
@@ -1003,11 +1012,61 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                 if (total_param_count > 0) {
                                     nf->param_names = (const char **)arena_alloc(farena, total_param_count * sizeof(const char *));
                                     nf->param_types = (ZeroCCType *)arena_alloc(farena, total_param_count * sizeof(ZeroCCType));
+                                    /* Phase 3a: per-capture by-ref flags +
+                                     * original (pointee) types for the mirror
+                                     * locals added in the nested setup. */
+                                    nf->nested_capture_byref = (bool *)arena_alloc(farena, c->local_count * sizeof(bool));
+                                    nf->nested_capture_types = (ZeroCCType *)arena_alloc(farena, c->local_count * sizeof(ZeroCCType));
                                     /* Captured variables come first */
                                     size_t pi = 0;
                                     for (size_t ci = 0; ci < c->local_count; ci++, pi++) {
-                                        nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
-                                        nf->param_types[pi] = c->locals[ci].type;
+                                        ZeroCCType lt = c->locals[ci].type;
+                                        bool scalar_small = (lt.tag != TYPE_STRUCT && lt.tag != TYPE_UNION &&
+                                                              lt.tag != TYPE_ARRAY && !lt.is_vla &&
+                                                              !lt.is_complex && !lt.is_func &&
+                                                              lt.size > 0 && lt.size <= 8);
+                                        /* Phase 3a: scalar captures (int,
+                                         * pointer, float, double, ...) of
+                                         * size <= 8 are passed BY REFERENCE:
+                                         * the hidden param is a pointer to
+                                         * the enclosing slot; the nested
+                                         * function mirrors the pointee into
+                                         * a same-named local so writes are
+                                         * visible to the enclosing function.
+                                         * Aggregate captures stay by-value. */
+                                        nf->nested_capture_types[ci] = lt;
+                                        nf->nested_capture_byref[ci] = scalar_small;
+                                        if (scalar_small) {
+                                            ZeroCCType *base_copy = (ZeroCCType *)arena_alloc(farena, sizeof(ZeroCCType));
+                                            *base_copy = lt;
+                                            ZeroCCType pt;
+                                            memset(&pt, 0, sizeof(pt));
+                                            pt.tag = TYPE_PTR;
+                                            pt.size = 8;
+                                            pt.align = 8;
+                                            pt.base = base_copy;
+                                            nf->param_types[pi] = pt;
+                                        } else {
+                                            nf->param_types[pi] = lt;
+                                        }
+                                        /* Multi-level nesting: if the captured
+                                         * entity is the ENCLOSING function's
+                                         * by-ref capture POINTER param, the
+                                         * same name also belongs to the
+                                         * mirror local that shadows it. Keep
+                                         * the param under a hidden name so
+                                         * the body (and the semantic scope)
+                                         * resolves the capture name to the
+                                         * mirror, not the pointer. */
+                                        if (c->enc_byref_captures && ci < c->enc_capture_count &&
+                                            c->enc_byref_captures[ci]) {
+                                            char capbuf[32];
+                                            snprintf(capbuf, sizeof(capbuf), "__zc_cap%d_%d",
+                                                     (int)(c->function_count - 1), (int)ci);
+                                            nf->param_names[pi] = zero_cc_intern_string(c, capbuf);
+                                        } else {
+                                            nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
+                                        }
                                     }
                                     /* Then user parameters */
                                     ASTRef pl = param_list;

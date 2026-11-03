@@ -109,6 +109,15 @@ typedef struct ZeroCCCompiler {
     bool has_pending_lowering_fn;
     size_t pending_lowering_fn_idx;
 
+    /* Set while re-parsing a nested function's body: the by-reference
+     * capture flags of the ENCLOSING function. A nested function capturing
+     * another nested function's by-ref capture POINTER PARAM (same name as
+     * the mirror local that shadows it) must rename that param to a hidden
+     * name, or the duplicate name resolves to the pointer and `x += 4`
+     * lowers as pointer arithmetic (c-torture execute/20061220-1.c). */
+    const bool *enc_byref_captures;
+    size_t enc_capture_count;
+
     /* Phase 2: nested function trampoline tracking */
     size_t nested_trampoline_count;        /* Number of trampolines allocated */
 

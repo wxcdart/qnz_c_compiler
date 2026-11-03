@@ -999,7 +999,7 @@ static void x86_emit_ret(ZeroCCCompiler *c) {
 
 /* Function call - direct call with relative offset */
 static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
-    ZeroCCFunction *fn = zero_cc_find_function(c, fn_name);
+    ZeroCCFunction *fn = zero_cc_find_function_by_symbol(c, fn_name);
     bool is_external = (!fn || fn->is_prototype);
 
     /* In JIT mode there is no linker/PLT, and the code image is mmap'd far

@@ -257,6 +257,29 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
     return proto;
 }
 
+/* Resolve a CALL target name that may be either a source name or a
+ * nested function's mangled emission symbol. Nested functions are block-
+ * scoped and may share source names in different enclosing functions, so
+ * they are emitted under a unique fn->nested_sym_name; call sites lower
+ * the mangled name into the IR (see zero_cc_resolve_callee in
+ * ast_lowering_call.c) and the emitters must map it back to the function
+ * to classify the call as internal (direct offset) rather than external
+ * (dlsym/PLT). */
+static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c, const char *name) {
+    ZeroCCFunction *fn = zero_cc_find_function(c, name);
+    if (fn || !name) return fn;
+    if (strncmp(name, "__zf", 4) == 0) {
+        for (size_t i = 0; i < c->function_count; i++) {
+            const ZeroCCFunction *f = &c->functions[i];
+            if (f->is_nested && f->nested_sym_name[0] &&
+                strcmp(f->nested_sym_name, name) == 0) {
+                return (ZeroCCFunction *)f;
+            }
+        }
+    }
+    return NULL;
+}
+
 /* Dynamic Symbol Lookup for JIT Mode */
 static inline void* zero_cc_resolve_symbol(const char *name) {
 #ifdef __linux__

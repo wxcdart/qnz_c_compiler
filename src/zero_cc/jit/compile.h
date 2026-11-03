@@ -1644,12 +1644,32 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     sym->is_param = true;
                     sym->param_reg_idx = (int)p;
                 }
+                /* Phase 3a: by-reference captures. Each scalar capture's
+                 * hidden param is a POINTER to the enclosing slot; add a
+                 * same-named mirror local (original type) AFTER all params
+                 * (index param_count + ci) so the body reads/writes the
+                 * mirror like a normal local while mirror-in/out (in
+                 * zero_cc_lower_ast) keeps it coherent with the enclosing
+                 * storage. add_local inserts at the hash-bucket head, so
+                 * zero_cc_find_local resolves the captured name to the
+                 * mirror, not the pointer param. */
+                for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {
+                    if (!nf->nested_capture_byref || !nf->nested_capture_byref[ci]) continue;
+                    (void)zero_cc_add_local(c, nf->param_names[ci], nf->nested_capture_types[ci]);
+                }
 
-                /* Re-parse the nested function body from saved tokens */
+                /* Re-parse the nested function body from saved tokens.
+                 * Publish this function's by-ref capture flags so a nested
+                 * function REGISTERED during this re-parse can rename
+                 * pointer-param captures (see enc_byref_captures). */
+                c->enc_byref_captures = nf->nested_capture_byref;
+                c->enc_capture_count = nf->nested_captured_count;
                 c->token_pos = nf->nested_body_start;
                 ZeroCCASTArena n_arena;
                 zero_cc_ast_arena_init(&n_arena, 1024);
                 ASTRef n_body = zero_cc_parse_stmt_ast(c, &n_arena, ctx);
+                c->enc_byref_captures = NULL;
+                c->enc_capture_count = 0;
                 if (n_body == AST_NULL) {
                     c->token_pos = save_token_pos;
                     c->function_count = save_function_count;
@@ -1673,7 +1693,16 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 TypeInfo *save_fn_ret_ti = ctx->current_fn_ret_type;
                 Scope *n_param_scope = scope_enter(&ctx->current_scope, perm);
                 for (size_t p = 0; p < nf->param_count && p < ZERO_CC_MAX_PARAMS; p++) {
-                    TypeInfo *pti = zero_cc_type_to_typeinfo(perm, nf->param_types[p]);
+                    /* Phase 3a: a by-reference capture's hidden param is a
+                     * POINTER, but the body must see the ORIGINAL type
+                     * (the mirror local's type) - otherwise `i++` on a
+                     * captured int would lower as pointer arithmetic. */
+                    ZeroCCType st = nf->param_types[p];
+                    if (p < nf->nested_captured_count && nf->nested_capture_byref &&
+                        nf->nested_capture_byref[p]) {
+                        st = nf->nested_capture_types[p];
+                    }
+                    TypeInfo *pti = zero_cc_type_to_typeinfo(perm, st);
                     scope_put_symbol(n_param_scope, nf->param_names[p], SYMBOL_VAR, pti);
                 }
                 ctx->current_fn_ret_type = zero_cc_type_to_typeinfo(perm, nf->return_type);
@@ -1688,9 +1717,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 scope_leave(&ctx->current_scope);
                 ctx->current_fn_ret_type = save_fn_ret_ti;
 
-                /* Restore compiler state */
+                /* Restore compiler state. Keep any functions registered DURING
+                 * this re-parse (multi-level nesting: a nested function
+                 * defined inside another nested function): restoring the
+                 * old count would discard them and the enclosing function's
+                 * call to it would lower as a direct call to a
+                 * non-existent function (segfault - c-torture
+                 * execute/20061220-1.c baz/nested/nested2). */
                 c->token_pos = save_token_pos;
-                c->function_count = save_function_count;
+                if (c->function_count < save_function_count) c->function_count = save_function_count;
                 c->local_count = save_local_count;
                 c->local_lookup_bound = save_lookup_bound;
                 ctx->ast_arena = &arena;

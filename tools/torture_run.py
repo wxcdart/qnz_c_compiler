@@ -157,12 +157,12 @@ def skip_reason(path, d):
     # goto's to an outer-scope label).
     if rel.as_posix() == "execute/pr51447.c":
         return "SKIP-TARGET:nonlocal_goto"
-    # Nested functions that MODIFY a captured enclosing variable (i++ in
-    # pr71494, N += 4 / ++N in pr22061-3/4): GNU semantics share the
-    # enclosing stack object by reference, but Phase 2 passes captured
-    # values as hidden by-value leading parameters. Reads are correct;
-    # writes go to the copy. Needs the Phase 3 by-reference capture design.
-    if rel.as_posix() in ("execute/pr71494.c", "execute/pr22061-3.c",
+    # Nested functions that MODIFY a captured enclosing variable (N += 4 /
+    # ++N in pr22061-3/4): Phase 3a implements by-reference capture (mirror
+    # in/out), but these two additionally need VLA parameter dimension
+    # expressions (`int a[2][N++]`) evaluated at entry in the nested
+    # function - param_dim_exprs are not yet saved for nested registration.
+    if rel.as_posix() in ("execute/pr22061-3.c",
                           "execute/pr22061-4.c"):
         return "SKIP-TARGET:nested_capture_writeback"
     for s in SKIP_OPTION_SUBSTR:

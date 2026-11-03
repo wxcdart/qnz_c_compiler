@@ -683,6 +683,11 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
+        /* Nested functions may share source names across enclosing
+         * functions; they are emitted (and referenced by call relocs) under
+         * their unique mangled name. */
+        const char *fn_sym = (fn->is_nested && fn->nested_sym_name[0])
+                                 ? fn->nested_sym_name : fn->name;
         if (fn->name[0]) {
             if (fn->is_prototype) {
                 /* Skip forward prototype if a real definition exists in this TU */
@@ -703,7 +708,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                  * the riscv32 musl cross shim) and break the link. */
                 bool prot_ref = false;
                 for (size_t r = 0; r < comp->reloc_count; r++) {
-                    if (strcmp(comp->relocs[r].target_symbol, fn->name) == 0) {
+                    if (strcmp(comp->relocs[r].target_symbol, fn_sym) == 0) {
                         prot_ref = true;
                         break;
                     }
@@ -713,7 +718,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             if (fn->is_external) {
                 bool referenced = false;
                 for (size_t r = 0; r < comp->reloc_count; r++) {
-                    if (strcmp(comp->relocs[r].target_symbol, fn->name) == 0) {
+                    if (strcmp(comp->relocs[r].target_symbol, fn_sym) == 0) {
                         referenced = true;
                         break;
                     }
@@ -729,7 +734,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             }
             int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
             int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
-            elf_writer_add_symbol(&elf_ctx, fn->name,
+            elf_writer_add_symbol(&elf_ctx, fn_sym,
                                   binding, sym_type,
                                   section_idx,
                                   fn->text_offset,

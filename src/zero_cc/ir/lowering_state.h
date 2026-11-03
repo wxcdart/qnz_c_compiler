@@ -58,6 +58,10 @@ typedef struct {
     bool has_setjmp;                   /* True when function uses __builtin_setjmp/longjmp;
                                           forces a frame pointer AND disables mem2reg so the
                                           automatics stay in stack slots (restored by longjmp) */
+    bool has_capture_mirror;           /* Phase 3a: nested function with by-reference
+                                          captures; the mirror locals must stay in stack
+                                          slots (mirror-in/out access the slots directly),
+                                          so mem2reg is skipped for the whole function */
     int32_t frame_delta;               /* Displacement delta added to FP-relative offsets when
                                           addressing frame slots from SP (0 when the frame
                                           pointer is present). Equals the ISA prologue's

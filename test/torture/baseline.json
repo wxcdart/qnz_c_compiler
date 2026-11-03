@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T17:56:43Z",
+ "generated": "2026-11-03T18:56:50Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -20885,18 +20885,18 @@
    "note": ""
   },
   "execute/20061220-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
+    "O0-aot": "OK",
     "O0-jit": "OK",
-    "O1-aot": "REJECT",
+    "O1-aot": "OK",
     "O1-jit": "OK",
-    "O2-aot": "REJECT",
+    "O2-aot": "OK",
     "O2-jit": "OK",
-    "O3-aot": "REJECT",
+    "O3-aot": "OK",
     "O3-jit": "OK"
    },
-   "note": "Error: Linking failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot"
+   "note": ""
   },
   "execute/20070201-1.c": {
    "class": "PASS",
@@ -37380,8 +37380,17 @@
    "note": ""
   },
   "execute/pr71494.c": {
-   "class": "SKIP-TARGET:nested_capture_writeback",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr71550.c": {
@@ -40988,16 +40997,16 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 188,
-  "PASS": 3253,
+  "PASS": 3255,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 395,
+  "SKIP-C89": 394,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
-  "SKIP-TARGET:nested_capture_writeback": 3,
+  "SKIP-TARGET:nested_capture_writeback": 2,
   "SKIP-TARGET:nonlocal_goto": 3,
   "SKIP-TARGET:trampolines": 19,
   "SKIP-TARGET:untyped_assembly": 40,

@@ -190,7 +190,8 @@ typedef struct {
     ZeroCCType *param_types;              /* Arena-allocated array of param types */
     bool returns_struct;
     size_t ret_struct_sz;
-    int32_t sret_stack_offset;            /* Stack offset (positive, below rbp) for hidden sret ptr */
+    int32_t sret_stack_offset;              /* Stack offset (positive, below rbp) for hidden sret ptr */
+    char nested_sym_name[128];              /* Unique AOT symbol name for nested fns (they can share source names in different enclosing fns) */
     bool is_variadic;
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */
@@ -230,6 +231,15 @@ typedef struct {
     size_t *nested_captured_indices;        /* Arena-allocated array: indices into enclosing_local_snapshot */
     ZeroCCSym *enclosing_local_snapshot;    /* Copy of enclosing function's locals for type lookup */
     size_t enclosing_local_count;           /* Number of locals in the snapshot */
+    /* Phase 3a: by-reference capture. A capture is by-reference when its
+     * pointee is a scalar of size <= 8 (int/pointer/float/double/...): the
+     * hidden param is then a POINTER to the enclosing slot and the nested
+     * function mirrors the pointee into a same-named local (mirror-in at
+     * entry, mirror-out at exit), so writes are visible to the enclosing
+     * function (GNU semantics share the stack object). Larger/aggregate
+     * captures stay Phase 2 by-value (reads work, writes don't). */
+    bool *nested_capture_byref;             /* Per capture: true = pointer param + mirror */
+    ZeroCCType *nested_capture_types;       /* Per capture: the original (pointee) type */
 } ZeroCCFunction;
 
 /* Relocation Record */

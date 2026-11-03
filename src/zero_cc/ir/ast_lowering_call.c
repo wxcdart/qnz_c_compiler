@@ -8,6 +8,31 @@
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
+/* GNU nested functions are block-scoped: several enclosing functions in
+ * the same TU may each define a nested function with the same source
+ * name (e.g. three `nested` fns in c-torture execute/20061220-1.c).
+ * Resolve a call name by walking the ENCLOSING CHAIN from the function
+ * currently being lowered: at each level, a nested function defined in
+ * that function with the given name is the callee (innermost level wins,
+ * per C block scoping). Falls back to the global function table for
+ * top-level names. */
+static ZeroCCFunction *zero_cc_resolve_callee(ZeroCCCompiler *c, const char *name) {
+    if (c->lowering.current_func_idx < c->function_count) {
+        size_t lvl = c->lowering.current_func_idx;
+        while (lvl < c->function_count) {
+            const ZeroCCFunction *lf = &c->functions[lvl];
+            for (size_t f = 0; f < c->function_count; f++) {
+                const ZeroCCFunction *nf = &c->functions[f];
+                if (!nf->is_nested || nf->nested_enclosing_fn_idx != lvl) continue;
+                if (strcmp(nf->name, name) == 0) return (ZeroCCFunction *)nf;
+            }
+            if (!lf->is_nested || lf->nested_enclosing_fn_idx == (size_t)-1) break;
+            lvl = lf->nested_enclosing_fn_idx;
+        }
+    }
+    return zero_cc_find_function(c, name);
+}
+
 /* Splice caller's trailing variadic argument AST list in place of
  * __builtin_va_arg_pack() and replace __builtin_va_arg_pack_len() with
  * va_pack_len inside an inlined variadic function body. */
@@ -204,7 +229,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int fp_arg_idx = 0;
             int param_idx = 0;  /* declaration-order index into callee param_types */
 
-            ZeroCCFunction *callee_fn = callee_is_ident ? zero_cc_find_function(c, name) : NULL;
+            ZeroCCFunction *callee_fn = callee_is_ident ? zero_cc_resolve_callee(c, name) : NULL;
             ZeroCCSym *callee_sym = (callee_is_ident && !callee_fn) ? zero_cc_find_local(c, name) : NULL;
             /* Indirect call cases: (a) the callee is a local/global
              * function-pointer variable, so the callee is the pointer
@@ -1037,32 +1062,47 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             /* Then reload user integer arguments */
             uint8_t all_arg_stack_pos[IR_CALL_MAX_ARGS];
 
-            /* Phase 2: When calling a nested function, pass captured
+            /* Phase 2/3a: When calling a nested function, pass captured
              * variables as leading arguments. The nested function's
              * signature expects captured values first, then user args.
-             * Load the current values of captured variables from the
-             * enclosing function's frame. */
+             * Phase 3a: scalar captures (size <= 8) are BY REFERENCE -
+             * pass the ADDRESS of the enclosing storage (the nested
+             * function mirrors the pointee and flushes writes back);
+             * aggregate captures stay by-value. */
             if (!is_indirect_call && callee_fn && callee_fn->is_nested &&
                 callee_fn->nested_captured_count > 0 &&
                 callee_fn->enclosing_local_snapshot) {
                 for (size_t ci = 0; ci < callee_fn->nested_captured_count &&
                      all_arg_count < IR_CALL_MAX_ARGS; ci++) {
                     ZeroCCSym *cap_sym = &callee_fn->enclosing_local_snapshot[ci];
-                    /* Load the current value of the captured variable
-                     * from the enclosing function's frame. */
-                    int val_temp = c->next_temp_id++;
-                    if (cap_sym->type.tag == TYPE_FLOAT) {
-                        int a = zc_sym_addr(c, cap_sym, 0);
-                        ir_emit_vloadss(c, (uint16_t)val_temp, (uint16_t)a);
-                    } else if (cap_sym->type.tag == TYPE_DOUBLE) {
-                        int a = zc_sym_addr(c, cap_sym, 0);
-                        ir_emit_vloadsd(c, (uint16_t)val_temp, (uint16_t)a);
+                    bool byref = (callee_fn->nested_capture_byref &&
+                                  callee_fn->nested_capture_byref[ci]);
+                    int val_temp;
+                    if (byref) {
+                        /* Address of the captured variable's storage
+                         * (frame slot, or data object for address-taken
+                         * statics). The nested function treats its
+                         * matching param as a pointer and mirrors the
+                         * pointee into a same-named local. */
+                        val_temp = zc_sym_addr(c, cap_sym, 0);
                     } else {
-                        zc_sym_load(c, cap_sym, 0, val_temp);
+                        /* Load the current value of the captured variable
+                         * from the enclosing function's frame. */
+                        val_temp = c->next_temp_id++;
+                        if (cap_sym->type.tag == TYPE_FLOAT) {
+                            int a = zc_sym_addr(c, cap_sym, 0);
+                            ir_emit_vloadss(c, (uint16_t)val_temp, (uint16_t)a);
+                        } else if (cap_sym->type.tag == TYPE_DOUBLE) {
+                            int a = zc_sym_addr(c, cap_sym, 0);
+                            ir_emit_vloadsd(c, (uint16_t)val_temp, (uint16_t)a);
+                        } else {
+                            zc_sym_load(c, cap_sym, 0, val_temp);
+                        }
                     }
                     all_arg_temps[all_arg_count] = val_temp;
-                    all_arg_is_fp[all_arg_count] = (cap_sym->type.tag == TYPE_FLOAT ||
-                                                   cap_sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
+                    all_arg_is_fp[all_arg_count] = byref ? 0 :
+                        ((cap_sym->type.tag == TYPE_FLOAT ||
+                          cap_sym->type.tag == TYPE_DOUBLE) ? 1 : 0);
                     all_arg_stack_pos[all_arg_count] = 255;
                     all_arg_count++;
                 }
@@ -1106,7 +1146,13 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
 
             /* Emit IR call (NULL name for indirect calls) */
-            ir_emit_call(c, is_indirect_call ? NULL : name);
+            /* Nested callees are emitted under their unique mangled symbol
+             * (see zero_cc_resolve_callee); the call must target the same
+             * name or the AOT relocation resolves to the wrong function. */
+            const char *emit_name = (callee_fn && callee_fn->is_nested &&
+                                     callee_fn->nested_sym_name[0])
+                                        ? callee_fn->nested_sym_name : name;
+            ir_emit_call(c, is_indirect_call ? NULL : emit_name);
 
             /* Pack argument info into the instruction.
              * C2b: args 0/1 go in the widened temp_src1/src2 fields;

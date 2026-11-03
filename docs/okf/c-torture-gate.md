@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-03T18:03:53Z
+timestamp: 2026-11-03T18:57:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,14 +46,14 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,253** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+19 vs Sprint 89: 18 nested-function tests + `memclr.c`'s former TIMEOUT) |
+| **`PASS`** | **3,255** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+2 vs Sprint 90: `pr71494` via by-reference capture, `20061220-1` newly enabled by the nested unskips) |
 | **`REJECT`** | **0** | **Zero REJECTs in the entire corpus** (`[clean -std=c11]`) |
-| **`SKIP-C89`** | **395** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`SKIP-C89`** | **394** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
 | **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **78** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `trampolines`: 19, `int128`: 7, `named_sections`: 3, `nested_capture_writeback`: 3, `nonlocal_goto`: 3, `unwrapped`: 2, `arm`: 1). `nested_capture_writeback` (`pr71494`, `pr22061-3/4`): nested functions that *modify* a captured enclosing variable — Phase 2 capture is by-value; GNU semantics share the enclosing stack object by reference (Phase 3) |
+| **`SKIP-TARGET:*`** | **77** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `trampolines`: 19, `int128`: 7, `named_sections`: 3, `nested_capture_writeback`: 2, `nonlocal_goto`: 3, `unwrapped`: 2, `arm`: 1). `nested_capture_writeback` (`pr22061-3/4`): nested functions with VLA parameter dimensions whose dimension expressions reference captured variables (`int foo(char a[2][++N])`) — needs runtime VLA param dims (saved at registration, evaluated at entry) + runtime `sizeof(a[0])`; `pr71494` (plain writeback) passed with Phase 3a by-reference capture |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |

@@ -443,8 +443,12 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
     /* setjmp/longjmp functions must keep their automatics in stack slots:
      * OP_LONGJMP restores SP/FP and the automatics must be intact for the
      * second return from OP_SETJMP. mem2reg would promote them to registers,
-     * breaking the longjmp resume. Skip the whole pass for such functions. */
-    if (c->lowering.has_setjmp) return;
+     * breaking the longjmp resume. Skip the whole pass for such functions.
+     * Phase 3a: nested functions with by-reference captures are the same
+     * story - the capture mirror locals are read/written by explicit
+     * slot-addressed mirror-in/out IR, so they (and, conservatively, all
+     * automatics) must stay in stack slots. */
+    if (c->lowering.has_setjmp || c->lowering.has_capture_mirror) return;
 
     /* First promote loop-carried variables across loop boundaries */
     opt_promote_loop_carried(c);

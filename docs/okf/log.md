@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T18:03:53Z
+timestamp: 2026-11-03T18:57:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -759,3 +759,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-03 — Updated `c-torture-gate.md`
 - Sprint 90 baseline: PASS 3,253, 0 REJECT / 0 MISCOMPILE / 0 TIMEOUT; new SKIP-TARGET:nested_capture_writeback (3); memclr.c TIMEOUT passed on idle re-record
+
+## 2026-11-03 — Updated `architecture-pipeline.md`
+- Phase 3a by-reference nested capture: mirror in/out, mangled nested symbols, enclosing-chain callee resolution, multi-level nesting + pointer-param rename fixes
+
+## 2026-11-03 — Updated `c-torture-gate.md`
+- Baseline 3,255 PASS after Phase 3a (pr71494 + 20061220-1 unskipped, 0 bad)

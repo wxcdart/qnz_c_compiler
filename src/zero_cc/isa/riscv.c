@@ -463,7 +463,7 @@ static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     /* jal ra, offset.
      * For internal (defined) functions: patch the jal directly at codegen time.
      * For external/prototype functions: emit R_RISCV_CALL_PLT relocation for linker. */
-    ZeroCCFunction *fn = func_name ? zero_cc_find_function(c, func_name) : NULL;
+    ZeroCCFunction *fn = func_name ? zero_cc_find_function_by_symbol(c, func_name) : NULL;
     size_t pos = me_get_offset(c);
 
     if (fn && !fn->is_prototype) {

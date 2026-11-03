@@ -59,7 +59,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             /* Absolute call (JIT external call to a far target, e.g. a function
              * in the main executable or a shared library >2GB from the mmap'd
              * image): patch the 8-byte imm64 with the resolved target address. */
-            ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
+            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, c->relocs[i].target_symbol);
             if (target_fn && !target_fn->is_prototype) {
                 void *addr = (void *)((uintptr_t)mem + target_fn->text_offset);
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &addr, 8);
@@ -70,7 +70,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 }
             }
         } else if (c->relocs[i].is_call) {
-            ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
+            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, c->relocs[i].target_symbol);
             if (target_fn && !target_fn->is_prototype) {
                 int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
@@ -105,7 +105,7 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                     (gv->is_bss ? bss_offset : data_offset) + gv->data_offset);
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &gv_addr, 8);
             } else {
-                ZeroCCFunction *target_fn = zero_cc_find_function(c, c->relocs[i].target_symbol);
+                ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, c->relocs[i].target_symbol);
                 if (target_fn && !target_fn->is_prototype) {
                     uintptr_t fn_addr = (uintptr_t)mem + target_fn->text_offset;
                     memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &fn_addr, 8);
