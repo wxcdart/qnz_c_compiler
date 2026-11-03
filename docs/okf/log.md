@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T19:51:12Z
+timestamp: 2026-11-03T21:09:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -771,3 +771,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-03 — Updated `c-torture-gate.md`
 - Sprint 92: baseline 3257 PASS, nested_capture_writeback category eliminated
+
+## 2026-11-03 — Updated `architecture-pipeline.md`
+- Sprint 93 (Phase 3b): real trampoline stubs + pointer-routed by-reference capture; unskipped 8 trampolines tests (PASS 3,266)
+
+## 2026-11-03 — Updated `c-torture-gate.md`
+- Sprint 93: trampolines no longer blanket-skipped (11 targeted), PASS 3,266

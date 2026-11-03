@@ -8,6 +8,7 @@
 /* Forward declarations */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 typedef struct ZeroCCType ZeroCCType;
+typedef struct ZeroCCFunction ZeroCCFunction;
 
 typedef enum {
     ISA_X86_64,
@@ -373,6 +374,11 @@ static inline int backend_get_fp_arg_reg(const ZeroCCISABackend *be, int idx) {
 
 /* ASM emission initialization functions */
 void x86_init_asm_emission(ZeroCCISABackend *be);
+
+/* Phase 3b: emit the raw trampoline stub for a capturing nested function
+ * (x86-64 only; called from the nested-compile loop in compile.h right
+ * after the nested fn's body is emitted). */
+void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void aarch64_init_asm_emission(ZeroCCISABackend *be);
 void riscv64_init_asm_emission(ZeroCCISABackend *be);
 

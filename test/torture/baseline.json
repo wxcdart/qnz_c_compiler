@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T19:46:57Z",
+ "generated": "2026-11-03T21:06:13Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -587,8 +587,11 @@
    "note": ""
   },
   "compile/20010226-1.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20010227-1.c": {
@@ -2446,12 +2449,12 @@
    "note": ""
   },
   "compile/20050119-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: argument count mismatch in call to 'wchar': prototype declares 4 parameter(s), 1 argument(s) given | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20050122-1.c": {
    "class": "PASS",
@@ -9573,8 +9576,11 @@
    "note": ""
   },
   "compile/pr27889.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr27907.c": {
@@ -16707,8 +16713,17 @@
    "note": ""
   },
   "execute/20000822-1.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20000910-1.c": {
@@ -22781,8 +22796,17 @@
    "note": ""
   },
   "execute/920612-2.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920618-1.c": {
@@ -23898,8 +23922,17 @@
    "note": ""
   },
   "execute/931002-1.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/931004-1.c": {
@@ -30300,18 +30333,45 @@
    "note": ""
   },
   "execute/nestfunc-1.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/nestfunc-2.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/nestfunc-3.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/nestfunc-4.c": {
@@ -41015,17 +41075,17 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 188,
-  "PASS": 3257,
+  "PASS": 3266,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 394,
+  "SKIP-C89": 393,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
   "SKIP-TARGET:nonlocal_goto": 3,
-  "SKIP-TARGET:trampolines": 19,
+  "SKIP-TARGET:trampolines": 11,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1

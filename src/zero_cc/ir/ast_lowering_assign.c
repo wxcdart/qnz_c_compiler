@@ -1700,7 +1700,11 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 /* For compound assignment, load current value, operate, then store */
                 if (is_compound) {
                     int lhs_temp = c->next_temp_id++;
-                    if (sym->type.tag == TYPE_FLOAT) {
+                    if (sym->is_capture_mirror) {
+                        /* By-reference capture: the slot holds the storage
+                         * address; load the value through the pointer. */
+                        zc_sym_load(c, sym, 0, lhs_temp);
+                    } else if (sym->type.tag == TYPE_FLOAT) {
                         int addr = c->next_temp_id++;
                         ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
                         ir_emit_vloadss(c, (uint16_t)lhs_temp, (uint16_t)addr);
@@ -1715,7 +1719,11 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         case TK_DIV_ASSIGN: ir_emit_fdiv(c, (uint16_t)op_res, (uint16_t)lhs_temp, (uint16_t)float_temp); break;
                         default: op_res = float_temp; break;
                     }
-                    if (sym->type.tag == TYPE_FLOAT) {
+                    if (sym->is_capture_mirror) {
+                        /* By-reference capture: store through the pointer
+                         * (zc_sym_store is width-aware). */
+                        zc_sym_store(c, sym, 0, op_res);
+                    } else if (sym->type.tag == TYPE_FLOAT) {
                         int addr = c->next_temp_id++;
                         ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
                         ir_emit_vstoress(c, (uint16_t)addr, (uint16_t)op_res);
@@ -1735,6 +1743,12 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     return op_res;
                 } else {
                     /* Simple assignment: just store */
+                    if (sym->is_capture_mirror) {
+                        /* By-reference capture: store through the pointer. */
+                        zc_sym_store(c, sym, 0, float_temp);
+                        c->last_expr_is_float = 1;
+                        return float_temp;
+                    }
                     if (sym->type.tag == TYPE_FLOAT) {
                         int addr = c->next_temp_id++;
                         ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
@@ -1772,7 +1786,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                             case TK_SHR_ASSIGN: ir_emit_shr(c, int_temp, left_temp, int_temp); break;
                         }
                     }
-                    ir_emit_store(c, (uint16_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    if (sym->is_capture_mirror) { zc_sym_store(c, sym, 0, int_temp); }
+                    else { ir_emit_store(c, (uint16_t)int_temp, BE(c)->fp_reg, -sym->stack_offset); }
                     c->last_expr_is_float = 0;
                     return int_temp;
                 } else {
@@ -1806,9 +1821,16 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         /* Load current value and perform operation.
                          * The result goes into a fresh temp: right_temp may
                          * hold a loop-invariant constant that must survive
-                         * repeated uses, so it must not be used as dest. */
+                         * repeated uses, so it must not be used as dest.
+                         * By-reference capture: route through the pointer
+                         * (the slot holds the storage address, not the
+                         * value - raw frame load would do pointer math). */
                         int left_temp = c->next_temp_id++;
-                        ir_emit_load(c, left_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        if (sym->is_capture_mirror) {
+                            zc_sym_load(c, sym, 0, left_temp);
+                        } else {
+                            ir_emit_load(c, left_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        }
                         int op_res = c->next_temp_id++;
                         switch (node->aux.op) {
                             case TK_ADD_ASSIGN: ir_emit_add(c, op_res, left_temp, right_temp); break;

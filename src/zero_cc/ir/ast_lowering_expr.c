@@ -166,9 +166,9 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         }
         ZeroCCFunction *fn = zero_cc_find_function(c, operand->s.str);
         if (fn) {
-            int addr_temp = c->next_temp_id++;
-            ir_emit_mov_global(c, addr_temp, fn->name);
-            return addr_temp;
+            int addr_temp = zc_lower_fn_value(c, fn);
+            if (addr_temp >= 0) return addr_temp;
+            return -1;
         }
     } else if (operand->tag == NODE_COMPOUND_LIT) {
         (void)lower_expr(c, arena, ref);
@@ -868,8 +868,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ZeroCCFunction *fn = zero_cc_find_function(c, name);
                 if (fn) {
 
-                    int temp = c->next_temp_id++;
-                    ir_emit_mov_global(c, temp, fn->name);
+                    int temp = zc_lower_fn_value(c, fn);
+                    if (temp < 0) return -1;
                     if (fn->is_external) {
                         /* Extern object: load its value through the patched
                          * address. FP types must stay in the FP pipeline -

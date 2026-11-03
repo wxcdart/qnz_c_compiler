@@ -1938,6 +1938,259 @@ static size_t x86_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t targe
 static int x86_get_int_reg(int vreg) { return vreg; }
 static int x86_get_fp_reg(int vreg) { return vreg; }
 
+/* =====================================================================
+ * Phase 3b: trampoline stub for a capturing nested function.
+ *
+ * `fp = f2; fp(x)` cannot call the mangled nested function directly: its
+ * ABI has the hidden capture parameters. The stub (emitted right after
+ * the nested fn in the same text image) takes the USER arguments, loads
+ * the captures from the static ctx object, re-places everything in the
+ * nested fn's argument slots and `call`s the real function. The real
+ * fn's `ret` lands on `leave; ret` below, returning to the ORIGINAL
+ * caller (the stub's frame is what the target sees as its caller).
+ *
+ * Argument model (mirrors the CALL lowering): an 8-byte unit stream per
+ * class - integer units take consecutive GPR slots (a 9-16B struct is
+ * 2 units, 17-32B is 4; >32B is a hidden pointer = 1 unit), FP units
+ * take XMM slots (complex = 2 units, else 1). Units past the 6th GPR /
+ * 8th XMM slot go on the call stack (8 bytes each). Stack layout
+ * matches zerocc's CALL emitter: the first stack unit is pushed LAST
+ * (lowest address) and, at the `call`, sits at [rsp_call+8] so the
+ * callee reads it from [rsp+8] (frameless) / [rbp+16] (framed).
+ * A >16B struct return adds the sret pointer as the FIRST integer unit
+ * (it arrives in RDI and passes straight through to final slot 0).
+ *
+ * Frame layout (rbp-relative):
+ *   [rbp-8..-48]    entry GPR arg regs (rdi,rsi,rdx,rcx,r8,r9)
+ *   [rbp-64-16x]    entry XMM arg regs xmm0..7 (16-aligned)
+ *   [rbp-192-8m]    entry stack units (8B each)
+ * ===================================================================== */
+
+#define TRAMP_MAX_UNITS 24
+
+typedef struct {
+    bool is_fp;       /* FP unit (XMM stream) vs integer unit (GPR stream) */
+    int  fin_slot;    /* final register slot (0..5 GPR / 0..7 XMM), -1 = stack */
+    int  fin_stack;   /* final stack unit index, -1 = register */
+    int  src;         /* value source: 0=ctx, 1=frame8, 2=xmmframe16, 3=stacksave8 */
+    int  src_off;     /* rbp-relative frame offset (src 1/2/3) or ctx offset (src 0) */
+} ZeroCCTrampUnit;
+
+static int tramp_unit_gpr_slots(const ZeroCCType *t) {
+    if (t->size > 32) return 1; /* hidden pointer convention */
+    size_t s = t->size ? t->size : 8;
+    return (int)((s + 7) / 8);
+}
+static bool tramp_unit_is_fp(const ZeroCCType *t) {
+    return (t->tag == TYPE_FLOAT || t->tag == TYPE_DOUBLE);
+}
+static int tramp_unit_slots(const ZeroCCType *t) {
+    if (tramp_unit_is_fp(t)) return t->is_complex ? 2 : 1;
+    return tramp_unit_gpr_slots(t);
+}
+
+/* mov xmm, [rbp|rm + disp] with F2 (movdqa/movdqu), 16B or 8B source */
+static void tramp_mov_xmm_mem(ZeroCCCompiler *c, int xmm, int base, int32_t off, bool wide16) {
+    x86_rex(c, 1, (xmm >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0xF2);
+    me_emit_u8(c, wide16 ? 0x6E : 0x6F);
+    if (off >= -128 && off <= 127 && off != 0 || (off == 0 && (base & 7) == X86_RBP)) {
+        x86_modrm(c, 1, xmm & 7, base & 7);
+        me_emit_u8(c, (uint8_t)(int8_t)off);
+    } else {
+        x86_modrm(c, 2, xmm & 7, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        me_emit_u32(c, (uint32_t)off);
+    }
+}
+
+/* push [rbp|rm + disp] (REX.W FF /6) */
+static void tramp_push_mem(ZeroCCCompiler *c, int base, int32_t off) {
+    x86_rex(c, 1, 0, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0xFF);
+    if (off >= -128 && off <= 127) {
+        x86_modrm(c, 1, 6, base & 7);
+        me_emit_u8(c, (uint8_t)(int8_t)off);
+    } else {
+        x86_modrm(c, 2, 6, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        me_emit_u32(c, (uint32_t)off);
+    }
+}
+
+void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
+    size_t C = nf->nested_captured_count;
+    size_t U = nf->param_count - C;
+    bool has_sret = (nf->ret_struct_sz > 16);
+
+    /* ---- build the final unit list: [sret?] + captures + user params ----
+     * Final slots are assigned in stream order per class; overflows become
+     * final stack units in combined declaration order (captures first). */
+    ZeroCCTrampUnit u[TRAMP_MAX_UNITS];
+    int n = 0, gpr_run = 0, xmm_run = 0, decl_stack_run = 0;
+
+    int gpr_entry = has_sret ? 1 : 0, xmm_entry = 0, entry_stack_n = 0;
+
+    /* sret pointer: entry RDI -> final GPR slot 0 (passes through) */
+    if (has_sret) {
+        u[n].is_fp = false;
+        u[n].fin_slot = gpr_run < 6 ? gpr_run++ : -1;
+        u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+        u[n].src = 1; u[n].src_off = -8;      /* the saved RDI */
+        n++;
+    }
+    /* captures: values come from ctx (32 bytes per capture, word j at
+     * 32*ci + 8j). */
+    for (size_t ci = 0; ci < C; ci++) {
+        int slots;
+        bool isfp;
+        if (nf->nested_capture_byref[ci]) {
+            slots = 1; isfp = false;
+        } else {
+            const ZeroCCType *t = &nf->nested_capture_types[ci];
+            slots = tramp_unit_slots(t);
+            isfp = tramp_unit_is_fp(t);
+        }
+        for (int w = 0; w < slots; w++) {
+            if (n >= TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            if (isfp)      u[n].fin_slot = xmm_run < 8 ? xmm_run++ : -1;
+            else           u[n].fin_slot = gpr_run < 6 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * ci) + 8 * w;
+            n++;
+        }
+    }
+    /* user params: values come from the entry layout (register saves or
+     * entry stack saves). Entry slots: gpr unit k -> k + sret_shift;
+     * xmm unit k -> k; past the cap -> entry stack units in declaration
+     * order. */
+    int ugpr = 0, uxmm = 0;
+    for (size_t ui = 0; ui < U; ui++) {
+        const ZeroCCType *t = &nf->param_types[C + ui];
+        int slots = tramp_unit_slots(t);
+        bool isfp = tramp_unit_is_fp(t);
+        for (int w = 0; w < slots; w++) {
+            if (n >= TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            int entry_slot, entry_stack = -1;
+            if (isfp) {
+                entry_slot = uxmm++;
+                if (entry_slot >= 8) { entry_slot = -1; entry_stack = entry_stack_n++; }
+            } else {
+                entry_slot = ugpr++ + (has_sret ? 1 : 0);
+                if (entry_slot >= 6) { entry_slot = -1; entry_stack = entry_stack_n++; }
+            }
+            if (isfp)      u[n].fin_slot = xmm_run < 8 ? xmm_run++ : -1;
+            else           u[n].fin_slot = gpr_run < 6 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            if (isfp) {
+                if (entry_slot >= 0) { u[n].src = 2; u[n].src_off = -64 - 16 * entry_slot; }
+                else                 { u[n].src = 3; u[n].src_off = -192 - 8 * entry_stack; }
+            } else {
+                if (entry_slot >= 0) { u[n].src = 1; u[n].src_off = -8 * (entry_slot + 1); }
+                else                 { u[n].src = 3; u[n].src_off = -192 - 8 * entry_stack; }
+            }
+            n++;
+        }
+    }
+    int fin_stack_n = decl_stack_run;
+
+    int frame = 192 + 8 * entry_stack_n;
+    if (frame & 15) frame += 16 - (frame & 15);
+
+    /* ---- prologue ---- */
+    me_emit_u8(c, 0x55);                 /* push rbp */
+    me_emit_u8(c, 0x48); me_emit_u8(c, 0x89); me_emit_u8(c, 0xE5); /* mov rbp, rsp */
+    if (frame >= 128) {
+        me_emit_u8(c, 0x48); me_emit_u8(c, 0x81); me_emit_u8(c, 0xEC);
+        me_emit_u32(c, (uint32_t)frame);
+    } else {
+        me_emit_u8(c, 0x48); me_emit_u8(c, 0x83); me_emit_u8(c, 0xEC);
+        me_emit_u8(c, (uint8_t)frame);
+    }
+
+    /* save entry GPR arg regs -> [rbp-8..-48] */
+    static const int gpr_arg_reg[6] = {7, 6, 2, 1, 8, 9};
+    for (int s = 0; s < 6; s++) x86_rm(c, 0x89, gpr_arg_reg[s], X86_RBP, -8 * (s + 1));
+    /* save entry XMM arg regs -> [rbp-64-16x] (movaps m128, xmm) */
+    for (int x = 0; x < 8; x++) {
+        x86_rex(c, 1, x >> 3, 0, 0);
+        me_emit_u8(c, 0x0F);             /* movaps m128, xmm = 0F 28 /r */
+        me_emit_u8(c, 0x28);
+        x86_modrm(c, 1, x & 7, X86_RBP);
+        me_emit_u8(c, (uint8_t)(int8_t)(-64 - 16 * x));
+    }
+    /* save entry stack units: [rbp+16+8m] -> [rbp-192-8m] (via r11).
+     * rbp = entry_rsp - 8 (push rbp ran first), so the return address is
+     * at [rbp+8] and the caller's first stack arg - zerocc's CALL
+     * lowering puts it at [rsp_call+8] - at [rbp+16]. */
+    for (int m = 0; m < entry_stack_n; m++) {
+        x86_rm(c, 0x8B, X86_R11, X86_RBP, 16 + 8 * m);
+        x86_rm(c, 0x89, X86_R11, X86_RBP, -192 - 8 * m);
+    }
+
+    /* ctx base: movabs r10, 0 + 8-byte absolute data reloc.
+     * r10 = BA (B8+2) with the register extended by REX.B (not REX.R). */
+    x86_rex(c, 1, 0, 0, 1);
+    me_emit_u8(c, 0xBA);                 /* movabs r10, imm64 */
+    size_t ctx_patch = me_get_offset(c);
+    me_emit_u64(c, 0);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = ctx_patch;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", nf->tramp_ctx_name);
+        r->is_call = false;
+    } else {
+        zero_cc_reloc_overflow_note(c);
+    }
+
+    /* ---- place final REGISTER units ---- */
+    /* ABI GPR slot -> x86-64 register (0=rdi,1=rsi,2=rdx,3=rcx,4=r8,5=r9). */
+    static const int gpr_slot_to_reg[6] = {7, 6, 2, 1, 8, 9};
+    for (int i = 0; i < n; i++) {
+        ZeroCCTrampUnit *a = &u[i];
+        if (a->fin_slot < 0) continue;
+        if (a->is_fp) {
+            /* wide16: 16B-aligned 16B source (ctx word 0 / xmm save);
+             * otherwise an 8B source (movdqu). */
+            bool wide16 = (a->src == 2) || (a->src == 0 && a->src_off % 16 == 0);
+            tramp_mov_xmm_mem(c, a->fin_slot, a->src == 0 ? 10 : X86_RBP,
+                              a->src_off, wide16);
+        } else {
+            x86_rm(c, 0x8B, gpr_slot_to_reg[a->fin_slot], a->src == 0 ? 10 : X86_RBP, a->src_off);
+        }
+    }
+
+    /* ---- final STACK units: push in DESCENDING index order so unit 0
+     * ends up at the lowest address (= [rsp] just before the call, which
+     * is [rsp_call+8] after the call - the callee's first stack arg) ---- */
+    for (int idx = fin_stack_n - 1; idx >= 0; idx--) {
+        for (int i = 0; i < n; i++) {
+            if (u[i].fin_stack != idx) continue;
+            if (u[i].src == 0) tramp_push_mem(c, 10, u[i].src_off);
+            else               tramp_push_mem(c, X86_RBP, u[i].src_off);
+        }
+    }
+    /* 16-byte stack alignment at the call: rsp must be 8 mod 16. The
+     * pushes took rsp from 0-mod-16 (prologue) by 8*fin_stack_n, and the
+     * call itself adds 8 - so pad when fin_stack_n is EVEN (and > 0). */
+    if ((fin_stack_n & 1) == 0 && fin_stack_n > 0) {
+        me_emit_u8(c, 0x48); me_emit_u8(c, 0x83); me_emit_u8(c, 0xEC);
+        me_emit_u8(c, 8);
+    }
+
+    /* call the real nested function (same image: exact rel32, no reloc) */
+    me_emit_u8(c, 0xE8);
+    size_t call_pos = me_get_offset(c);
+    int32_t rel = (int32_t)(nf->text_offset - (call_pos + 4));
+    me_emit_u32(c, (uint32_t)rel);
+
+    /* the target's `ret` lands here: return to the original caller */
+    me_emit_u8(c, 0xC9);                 /* leave */
+    me_emit_u8(c, 0xC3);                 /* ret */
+}
 ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,

@@ -1074,16 +1074,28 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 callee_fn->enclosing_local_snapshot) {
                 for (size_t ci = 0; ci < callee_fn->nested_captured_count &&
                      all_arg_count < IR_CALL_MAX_ARGS; ci++) {
-                    ZeroCCSym *cap_sym = &callee_fn->enclosing_local_snapshot[ci];
+                    /* Prefer the LIVE enclosing local (it carries
+                     * is_capture_mirror, set when the enclosing function
+                     * is compiled - after this nested function was
+                     * registered, so the registration-time snapshot copy
+                     * never has the flag; a stale flag would make a
+                     * multi-level call pass &slot instead of the pointer
+                     * value - c-torture execute/20061220-1).
+                     * Fallback to the snapshot if the lookup fails. */
+                    ZeroCCSym *cap_sym = zero_cc_find_local(c,
+                                                            callee_fn->enclosing_local_snapshot[ci].name);
+                    if (!cap_sym)
+                        cap_sym = &callee_fn->enclosing_local_snapshot[ci];
                     bool byref = (callee_fn->nested_capture_byref &&
                                   callee_fn->nested_capture_byref[ci]);
                     int val_temp;
                     if (byref) {
-                        /* Address of the captured variable's storage
-                         * (frame slot, or data object for address-taken
-                         * statics). The nested function treats its
-                         * matching param as a pointer and mirrors the
-                         * pointee into a same-named local. */
+                        /* zc_sym_addr returns, for an is_capture_mirror
+                         * symbol (multi-level nesting), the POINTER
+                         * VALUE - the enclosing storage address - and
+                         * for a plain local the address of its storage.
+                         * That is exactly what the nested function's
+                         * pointer-routed body expects either way. */
                         val_temp = zc_sym_addr(c, cap_sym, 0);
                     } else {
                         /* Load the current value of the captured variable

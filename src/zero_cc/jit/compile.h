@@ -1452,11 +1452,25 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 scope_put_symbol(global_scope_root, f->name, SYMBOL_VAR, ret_t);
                 continue;
             }
+            size_t gparam_count = f->param_count;
+            const ZeroCCType *gparam_types = f->param_types;
+            if (f->is_nested && f->nested_captured_count > 0) {
+                /* GNU nested functions are BLOCK-SCOPED and their
+                 * source-level signature excludes the hidden capture
+                 * params (nf->param_count includes them). Register the
+                 * user-parameter prototype: a sibling nested function
+                 * calling it (body re-parsed against the global scope)
+                 * must not get "argument count mismatch: prototype
+                 * declares 4 parameter(s), 2 argument(s) given"
+                 * (c-torture execute/nestfunc-3.c). */
+                gparam_count = f->param_count - f->nested_captured_count;
+                gparam_types = f->param_types + f->nested_captured_count;
+            }
             TypeInfo **params = NULL;
-            if (f->param_count > 0) {
-                params = (TypeInfo **)arena_alloc(perm, f->param_count * sizeof(TypeInfo *));
-                for (size_t j = 0; j < f->param_count; j++) {
-                    params[j] = zero_cc_type_to_typeinfo(perm, f->param_types[j]);
+            if (gparam_count > 0) {
+                params = (TypeInfo **)arena_alloc(perm, gparam_count * sizeof(TypeInfo *));
+                for (size_t j = 0; j < gparam_count; j++) {
+                    params[j] = zero_cc_type_to_typeinfo(perm, gparam_types[j]);
                 }
             }
             /* Extern entries (incl. __builtin_* routines registered during
@@ -1465,7 +1479,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
              * callable type (registering the return type as SYMBOL_VAR made
              * `__builtin_popcount` an "int variable" and broke its second
              * use - c-torture compile/fold-popcount-1.c). */
-            TypeInfo *fn_t = type_function(perm, ret_t, params, f->param_count, f->is_variadic);
+            TypeInfo *fn_t = type_function(perm, ret_t, params, gparam_count, f->is_variadic);
             /* No-prototype declaration: a phantom extern registered during
              * lowering has no parameter list, so it must not constrain call
              * argument counts (C99 6.7.5.3). */
@@ -1597,7 +1611,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
              * enclosing locals will miscompile (acceptable limitation). */
             for (size_t ni = c->nested_fn_base; ni < c->function_count; ni++) {
                 ZeroCCFunction *nf = &c->functions[ni];
-                if (!nf->is_nested || nf->text_offset != 0) continue;
+                if (!nf->is_nested || nf->text_offset != 0 || nf->is_tramp_stub) continue;
 
                 nf->text_offset = c->text_section.length;
 
@@ -1607,9 +1621,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 size_t save_local_count = c->local_count;
                 int32_t save_lookup_bound = c->local_lookup_bound;
 
-                /* Temporarily truncate function_count so zero_cc_lower_ast
-                 * picks this nested function as the current function. */
-                c->function_count = ni + 1;
+                /* Do NOT truncate function_count to ni+1: zero_cc_lower_ast
+                 * is pinned to this function via has_pending_lowering_fn /
+                 * pending_lowering_fn_idx, and a truncation would discard
+                 * the trampoline-stub record registered right after this
+                 * nested function (at parse time) - a re-parsed inner
+                 * nested function would then be appended onto the stub's
+                 * slot, overwriting it (c-torture execute/20061220-1:
+                 * baz/nested/nested2 emitted the stub under the inner
+                 * function's name and never emitted the real body). */
 
                 /* Set up the nested function's local table BEFORE re-parsing
                  * the body. Two reasons:
@@ -1653,18 +1673,19 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                     sym->is_param = true;
                     sym->param_reg_idx = (int)p;
                 }
-                /* Phase 3a: by-reference captures. Each scalar capture's
-                 * hidden param is a POINTER to the enclosing slot; add a
-                 * same-named mirror local (original type) AFTER all params
-                 * (index param_count + ci) so the body reads/writes the
-                 * mirror like a normal local while mirror-in/out (in
-                 * zero_cc_lower_ast) keeps it coherent with the enclosing
-                 * storage. add_local inserts at the hash-bucket head, so
-                 * zero_cc_find_local resolves the captured name to the
-                 * mirror, not the pointer param. */
-                for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {
+                /* Phase 3b: by-reference captures. Each scalar capture's
+                 * hidden param is a POINTER to the enclosing storage.
+                 * Mark it is_capture_mirror and retype the symbol to the
+                 * POINTEE type: body paths key widths, inc-steps and int
+                 * extensions off sym->type (a pointer type would make
+                 * `i++` step by 4 and stores write 8 bytes), while
+                 * zc_sym_load/store/addr route every access through the
+                 * slot's pointer value (a mirror local would break
+                 * aliasing with &capture passed as a user argument). */
+                for (size_t ci = 0; ci < nf->nested_captured_count && ci < nf->param_count; ci++) {
                     if (!nf->nested_capture_byref || !nf->nested_capture_byref[ci]) continue;
-                    (void)zero_cc_add_local(c, nf->param_names[ci], nf->nested_capture_types[ci]);
+                    c->locals[ci].is_capture_mirror = true;
+                    c->locals[ci].type = nf->nested_capture_types[ci];
                 }
 
                 /* Re-parse the nested function body from saved tokens.
@@ -1740,6 +1761,19 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 ctx->ast_arena = &arena;
 
                 zero_cc_ast_arena_free(&n_arena);
+
+                /* Phase 3b: emit the trampoline stub right after the
+                 * nested function. The stub dispatches to the nested fn
+                 * with a relative `call` (both live in this text image, so
+                 * the offset is known at emission time - no relocation
+                 * needed) and reads its captures from the static ctx object
+                 * via a movabs + absolute data reloc (R_X86_64_64 in the
+                 * AOT .o, the JIT link patch otherwise). x86-64 only. */
+                if (nf->tramp_stub_fn_idx >= 0 && c->isa == ISA_X86_64) {
+                    ZeroCCFunction *sf = &c->functions[nf->tramp_stub_fn_idx];
+                    sf->text_offset = c->text_section.length;
+                    zero_cc_x86_emit_tramp_stub(c, nf);
+                }
             }
         } else {
             c->had_error = 1;

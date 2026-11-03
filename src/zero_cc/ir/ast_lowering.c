@@ -259,6 +259,21 @@ static bool zero_cc_param_captured_by_nested(const ZeroCCCompiler *c, const Zero
     return false;
 }
 
+/* Phase 3b: true when this (nested) function's own hidden params include
+ * a by-reference capture pointer. Such params must NOT be promoted: a
+ * promoted param lives in a vreg holding the POINTER value, and body
+ * accesses would use the vreg directly instead of dereferencing it
+ * (c-torture execute/20030501-1: frameless nested fn read the enclosing
+ * local's address as the local's value). */
+static bool zero_cc_fn_has_capture_mirror(const ZeroCCCompiler *c, const ZeroCCFunction *fn) {
+    (void)c;
+    if (!fn->is_nested || !fn->nested_capture_byref) return false;
+    for (size_t ci = 0; ci < fn->nested_captured_count; ci++) {
+        if (fn->nested_capture_byref[ci]) return true;
+    }
+    return false;
+}
+
 /* Phase 3a: true when any nested function in this body captures ANY local
  * of this function by reference. The captured locals must keep stable
  * frame slots in this function: the nested call site materializes their
@@ -337,7 +352,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL) &&
-            !zero_cc_param_captured_by_nested(c, fn)) {
+            !zero_cc_param_captured_by_nested(c, fn) &&
+            !zero_cc_fn_has_capture_mirror(c, fn)) {
             /* Member access on a parameter (p->m / s.m) is rejected: the
              * member base-load paths read the parameter from its frame slot
              * (stack_offset, which is 0 when promoted) instead of the
@@ -605,51 +621,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
-    /* Phase 3a: by-reference capture mirror-in. Each scalar capture's
-     * hidden param holds a POINTER to the enclosing storage; copy the
-     * pointee into the same-named mirror local (a normal frame local) so
-     * the body reads/writes it with ordinary local semantics. Must run
-     * AFTER the param save/promotion (pointer value available) and BEFORE
-     * the VLA dimension evaluation (a dim like `int a[2][N++]` must see
-     * the current captured value in the mirror). */
+    /* Phase 3b: by-reference captures - the hidden pointer params are
+     * routed through directly by zc_sym_load/store/addr (no mirror slot),
+     * but mem2reg must still stay off: the pointer param's frame slot is
+     * a stable address every access reloads. */
     if (lowering_fn && lowering_fn->is_nested && lowering_fn->nested_captured_count > 0 &&
         lowering_fn->nested_capture_byref) {
-        c->lowering.has_capture_mirror = true;
         for (size_t ci = 0; ci < lowering_fn->nested_captured_count; ci++) {
-            if (!lowering_fn->nested_capture_byref[ci]) continue;
-            /* Mirror locals are added for by-ref captures only, in capture
-             * order, right after the params - the mirror for capture ci sits
-             * at param_count + (by-ref captures preceding ci). */
-            size_t ord = 0;
-            for (size_t j = 0; j < ci; j++) {
-                if (lowering_fn->nested_capture_byref[j]) ord++;
-            }
-            ZeroCCSym *psym = &c->locals[ci];                 /* pointer param (capture) */
-            ZeroCCSym *msym = &c->locals[lowering_fn->param_count + ord]; /* mirror local */
-            const ZeroCCType *ct = &lowering_fn->nested_capture_types[ci];
-            size_t w = ct->size > 0 ? ct->size : 8;
-            int ptr = c->next_temp_id++;
-            if (psym->is_promoted) {
-                ir_emit_mov_reg(c, ptr, (uint16_t)psym->promoted_vreg);
-            } else {
-                ir_emit_load(c, ptr, BE(c)->fp_reg, -psym->stack_offset);
-            }
-            int v = c->next_temp_id++;
-            if (w >= 8) {
-                ir_emit_deref(c, v, ptr);
-            } else if (w == 4) {
-                ir_emit_load_32(c, v, ptr);
-                zero_cc_emit_int_extend(c, v, ct);
-            } else if (w == 2) {
-                ir_emit_load_16(c, v, ptr);
-                zero_cc_emit_int_extend(c, v, ct);
-            } else {
-                ir_emit_load_byte(c, v, ptr);
-                zero_cc_emit_int_extend(c, v, ct);
-            }
-            /* 8-byte slot store (slots are >= 8 bytes; padding bytes are
-             * owned by no one). */
-            ir_emit_store(c, v, BE(c)->fp_reg, -msym->stack_offset);
+            if (lowering_fn->nested_capture_byref[ci]) { c->lowering.has_capture_mirror = true; break; }
         }
     }
 
@@ -720,14 +699,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     for (size_t i = 0; i < c->local_count; i++) {
         if (c->locals[i].is_static_local) { need_rt_slot = true; break; }
     }
-    /* Phase 3a: the capture mirror-out also needs the VREG_0/VREG_2
-     * protection slots (its temps may map onto the return registers). */
-    if (!need_rt_slot && lowering_fn && lowering_fn->is_nested &&
-        lowering_fn->nested_captured_count > 0 && lowering_fn->nested_capture_byref) {
-        for (size_t ci = 0; ci < lowering_fn->nested_captured_count; ci++) {
-            if (lowering_fn->nested_capture_byref[ci]) { need_rt_slot = true; break; }
-        }
-    }
     if (need_rt_slot) {
         c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
         c->current_stack_frame += 8;
@@ -778,35 +749,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
              * pointer. */
             if (c->locals[i].is_static_local && !c->locals[i].static_addr_taken)
                 static_local_mirror_out(c, &c->locals[i]);
-        }
-        /* Phase 3a: by-reference capture mirror-out - flush each mirror
-         * local back through its captured pointer (GNU nested functions
-         * share the enclosing stack object; writes must be visible to the
-         * enclosing function after the call). */
-        if (lowering_fn->is_nested && lowering_fn->nested_capture_byref) {
-            for (size_t ci = 0; ci < lowering_fn->nested_captured_count; ci++) {
-                if (!lowering_fn->nested_capture_byref[ci]) continue;
-                size_t ord = 0;
-                for (size_t j = 0; j < ci; j++) {
-                    if (lowering_fn->nested_capture_byref[j]) ord++;
-                }
-                ZeroCCSym *psym = &c->locals[ci];
-                ZeroCCSym *msym = &c->locals[lowering_fn->param_count + ord];
-                const ZeroCCType *ct = &lowering_fn->nested_capture_types[ci];
-                size_t w = ct->size > 0 ? ct->size : 8;
-                int ptr = c->next_temp_id++;
-                if (psym->is_promoted) {
-                    ir_emit_mov_reg(c, ptr, (uint16_t)psym->promoted_vreg);
-                } else {
-                    ir_emit_load(c, ptr, BE(c)->fp_reg, -psym->stack_offset);
-                }
-                int v = c->next_temp_id++;
-                ir_emit_load(c, v, BE(c)->fp_reg, -msym->stack_offset);
-                if (w >= 8)      ir_emit_store_64(c, (uint16_t)v, (uint16_t)ptr);
-                else if (w == 4) ir_emit_store_32(c, (uint16_t)v, (uint16_t)ptr);
-                else if (w == 2) ir_emit_store_16(c, (uint16_t)v, (uint16_t)ptr);
-                else             ir_emit_store_byte(c, (uint16_t)v, (uint16_t)ptr);
-            }
         }
         ir_emit_load(c, VREG_2, BE(c)->fp_reg, -c->lowering.static_local_rt2_off);
         ir_emit_load(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);

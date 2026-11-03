@@ -1049,24 +1049,13 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                         } else {
                                             nf->param_types[pi] = lt;
                                         }
-                                        /* Multi-level nesting: if the captured
-                                         * entity is the ENCLOSING function's
-                                         * by-ref capture POINTER param, the
-                                         * same name also belongs to the
-                                         * mirror local that shadows it. Keep
-                                         * the param under a hidden name so
-                                         * the body (and the semantic scope)
-                                         * resolves the capture name to the
-                                         * mirror, not the pointer. */
-                                        if (c->enc_byref_captures && ci < c->enc_capture_count &&
-                                            c->enc_byref_captures[ci]) {
-                                            char capbuf[32];
-                                            snprintf(capbuf, sizeof(capbuf), "__zc_cap%d_%d",
-                                                     (int)(c->function_count - 1), (int)ci);
-                                            nf->param_names[pi] = zero_cc_intern_string(c, capbuf);
-                                        } else {
-                                            nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
-                                        }
+                                        /* Keep the capture name on the hidden param:
+                                         * there is no mirror local to shadow it, and
+                                         * the body's semantic scope registers the
+                                         * capture name with the pointee type while
+                                         * lowering routes accesses through the param
+                                         * (is_capture_mirror). */
+                                        nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
                                     }
                                     /* Then user parameters */
                                     ASTRef pl = param_list;
@@ -1143,6 +1132,88 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                     if (head != AST_NULL) {
                                         nf->param_dim_exprs[nf->param_count - fc->param_count + ui] = head;
                                     }
+                                }
+                            }
+
+                            /* Phase 3b: a capturing nested function can only
+                             * be used through an indirect call via a
+                             * trampoline (its ABI has the hidden capture
+                             * params). Register the stub function (emitted
+                             * in compile.h right after the nested fn) and
+                             * its static context object (32 bytes per
+                             * capture: by-reference = pointer word, by-value
+                             * = value). x86-64 only: the stub is raw code
+                             * emitted by the x86-64 backend; other ISAs
+                             * reject address-taking of capturing nested fns
+                             * with a diagnostic instead of miscompiling.
+                             * Variadic captures and >32-byte by-value
+                             * captures have no static-stub representation. */
+                            nf->tramp_stub_fn_idx = -1;
+                            if (nf->nested_captured_count > 0 && !nf->is_variadic &&
+                                c->isa == ISA_X86_64 &&
+                                c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                                bool stub_ok = true;
+                                for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {
+                                    if (!nf->nested_capture_byref[ci]) {
+                                        size_t csz = nf->nested_capture_types[ci].size;
+                                        if (csz == 0 || csz > 32) { stub_ok = false; break; }
+                                    }
+                                }
+                                if (stub_ok) {
+                                    size_t nf_idx = c->function_count - 1;
+                                    snprintf(nf->tramp_stub_name, sizeof(nf->tramp_stub_name),
+                                             "__zf%u_%s_tramp", (unsigned)nf_idx, nf->name);
+                                    snprintf(nf->tramp_ctx_name, sizeof(nf->tramp_ctx_name),
+                                             "__zf%u_%s_ctx", (unsigned)nf_idx, nf->name);
+                                    nf->tramp_ctx_size = 32 * nf->nested_captured_count;
+                                    /* ctx: zero-initialized static object;
+                                     * only the compiler reads/writes it. */
+                                    ZeroCCType ctx_t;
+                                    memset(&ctx_t, 0, sizeof(ctx_t));
+                                    ctx_t.tag = TYPE_ARRAY;
+                                    ctx_t.size = nf->tramp_ctx_size;
+                                    ctx_t.align = 16;
+                                    (void)zero_cc_add_global_var(c, nf->tramp_ctx_name, ctx_t,
+                                                                  0, nf->tramp_ctx_size, true, false);
+                                    /* Data layout (mirrors a zero-initialized global: .data
+                                     * bytes or a .bss running offset) - without it the ctx
+                                     * symbol would be undefined in AOT output. */
+                                    {
+                                        size_t coff;
+                                        if (nf->tramp_ctx_size >= 256) {
+                                            coff = c->bss_size;
+                                            c->bss_size += nf->tramp_ctx_size;
+                                        } else {
+                                            coff = c->data_section.length;
+                                            for (size_t i = 0; i < nf->tramp_ctx_size; i++)
+                                                zero_cc_emit_u8(&c->data_section, 0);
+                                        }
+                                        ZeroCCGlobalVar *ctx_gv = find_global_var(c, nf->tramp_ctx_name);
+                                        if (ctx_gv) {
+                                            ctx_gv->data_offset = coff;
+                                            ctx_gv->is_bss = (nf->tramp_ctx_size >= 256);
+                                        }
+                                    }
+                                    ZeroCCFunction *sf = &c->functions[c->function_count++];
+                                    memset(sf, 0, sizeof(*sf));
+                                    snprintf(sf->name, sizeof(sf->name), "%s", nf->tramp_stub_name);
+                                    snprintf(sf->nested_sym_name, sizeof(sf->nested_sym_name),
+                                             "%s", nf->tramp_stub_name);
+                                    sf->is_nested = true;
+                                    sf->is_tramp_stub = true;
+                                    sf->return_type = nf->return_type;
+                                    sf->returns_struct = nf->returns_struct;
+                                    sf->ret_struct_sz = nf->ret_struct_sz;
+                                    size_t uc = nf->param_count - nf->nested_captured_count;
+                                    sf->param_count = uc;
+                                    if (uc > 0 && nf->param_names && nf->param_types) {
+                                        Arena *farena = zero_cc_get_fn_arena(c);
+                                        sf->param_names = (const char **)arena_alloc(farena, uc * sizeof(const char *));
+                                        sf->param_types = (ZeroCCType *)arena_alloc(farena, uc * sizeof(ZeroCCType));
+                                        memcpy(sf->param_names, nf->param_names + nf->nested_captured_count, uc * sizeof(const char *));
+                                        memcpy(sf->param_types, nf->param_types + nf->nested_captured_count, uc * sizeof(ZeroCCType));
+                                    }
+                                    nf->tramp_stub_fn_idx = (int)(c->function_count - 1);
                                 }
                             }
                         }

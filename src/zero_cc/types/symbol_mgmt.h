@@ -276,6 +276,15 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
  * ast_lowering_call.c) and the emitters must map it back to the function
  * to classify the call as internal (direct offset) rather than external
  * (dlsym/PLT). */
+/* The symbol actually emitted for a function: nested functions are
+ * block-scoped and may share source names, so they are emitted under
+ * fn->nested_sym_name; every name-resolution site (calls, address-of,
+ * the .o writer) must use this, or it loads/patches the wrong symbol. */
+static inline const char *zero_cc_fn_emit_symbol(const ZeroCCFunction *fn) {
+    if (fn->is_nested && fn->nested_sym_name[0]) return fn->nested_sym_name;
+    return fn->name;
+}
+
 static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c, const char *name) {
     ZeroCCFunction *fn = zero_cc_find_function(c, name);
     if (fn || !name) return fn;

@@ -178,6 +178,18 @@ typedef struct {
      * would otherwise be selected by outer-scope references before or
      * after the block. zero_cc_find_local skips scope-ended symbols. */
     bool scope_ended;
+    /* Phase 3b: by-reference capture pointer parameter of a nested
+     * function. The symbol's type is the POINTER to the enclosing
+     * storage; the body's semantic scope registers the capture name with
+     * the POINTEE type, and every body access (load/store/address) is
+     * routed through this slot's pointer value (zc_sym_load/store/addr)
+     * instead of treating the slot as the storage itself. A mirror local
+     * would break aliasing: the caller may hand &capture to the nested
+     * function as a user argument, which must alias the body's `i`.
+     * When a deeper nested function captures this parameter itself, the
+     * call site passes the pointer VALUE (the storage pointer), keeping
+     * the indirection depth at one level. */
+    bool is_capture_mirror;
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.
@@ -187,7 +199,7 @@ typedef struct {
 #define ZERO_CC_MAX_PARAMS 256
 
 /* Function Definition Record */
-typedef struct {
+typedef struct ZeroCCFunction {
     char name[128];
     size_t text_offset;                   /* Byte offset in text_section */
     ZeroCCType return_type;
@@ -246,6 +258,19 @@ typedef struct {
      * captures stay Phase 2 by-value (reads work, writes don't). */
     bool *nested_capture_byref;             /* Per capture: true = pointer param + mirror */
     ZeroCCType *nested_capture_types;       /* Per capture: the original (pointee) type */
+    /* Phase 3b: trampoline for INDIRECT calls (taking the address of a
+     * capturing nested function). The mangled function's ABI has the hidden
+     * capture parameters, so `fp = f2` must point at a small stub
+     * (tramp_stub_name, registered as its own ZeroCCFunction and emitted
+     * right after the nested fn) that loads the captures from a static
+     * context object (tramp_ctx_name, 32 bytes per capture - by-reference
+     * = pointer word, by-value = value) and dispatches to the real fn.
+     * Address-taking lowers to: build ctx, then MOV_GLOBAL(stub). */
+    char tramp_stub_name[128];              /* "" when no trampoline (no captures) */
+    char tramp_ctx_name[128];
+    size_t tramp_ctx_size;
+    int tramp_stub_fn_idx;                  /* c->functions index of the stub, -1 = none */
+    bool is_tramp_stub;                      /* this entry IS a trampoline stub (no AST body) */
 } ZeroCCFunction;
 
 /* Relocation Record */

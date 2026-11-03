@@ -78,9 +78,24 @@ static inline int zc_sym_uses_data_section(const ZeroCCSym *sym) {
 /* Materialize the address of a local symbol (base + `extra` bytes) in a
  * fresh temp.  Uses the data-section object for address-taken statics and
  * the frame-relative slot otherwise. `extra` must be a compile-time
- * constant (runtime offsets are handled by the caller). */
+ * constant (runtime offsets are handled by the caller). A by-reference
+ * capture pointer parameter yields the pointer VALUE (the storage
+ * address itself) - `&captured` in the nested body is the enclosing
+ * storage address. */
 static inline int zc_sym_addr(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra) {
     int a = c->next_temp_id++;
+    if (sym->is_capture_mirror) {
+        if (sym->is_promoted) ir_emit_mov_reg(c, a, (uint16_t)sym->promoted_vreg);
+        else ir_emit_load(c, a, BE(c)->fp_reg, -sym->stack_offset);
+        if (extra != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            int na = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)na, (uint16_t)a, (uint16_t)o);
+            a = na;
+        }
+        return a;
+    }
     if (zc_sym_uses_data_section(sym)) {
         ir_emit_mov_global(c, (uint16_t)a, sym->static_global_name);
         if (extra != 0) {
@@ -97,8 +112,23 @@ static inline int zc_sym_addr(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t e
 }
 
 /* Load the 8 bytes at a local symbol's storage (+ `extra`) into `dest`.
- * Data-section object for address-taken statics, frame slot otherwise. */
+ * Data-section object for address-taken statics, frame slot otherwise.
+ * A by-reference capture pointer parameter dereferences the pointer
+ * value first (the 8-byte read may over-read adjacent enclosing-frame
+ * bytes for narrow types; the caller's int-extend fixes the value). */
 static inline void zc_sym_load(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int dest) {
+    if (sym->is_capture_mirror) {
+        int p = zc_sym_addr(c, sym, 0);
+        if (extra != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            int p2 = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)p2, (uint16_t)p, (uint16_t)o);
+            p = p2;
+        }
+        ir_emit_deref(c, dest, p);
+        return;
+    }
     if (zc_sym_uses_data_section(sym)) {
         int a = zc_sym_addr(c, sym, extra);
         ir_emit_deref(c, dest, a);
@@ -107,8 +137,27 @@ static inline void zc_sym_load(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t 
     }
 }
 
-/* Store the 8 bytes in `val` at a local symbol's storage (+ `extra`). */
+/* Store the 8 bytes in `val` at a local symbol's storage (+ `extra`).
+ * A by-reference capture pointer parameter stores through the pointer
+ * with the symbol's own width (never wider - the storage is a narrow
+ * enclosing local and an 8-byte store would clobber its neighbours). */
 static inline void zc_sym_store(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int val) {
+    if (sym->is_capture_mirror) {
+        int p = zc_sym_addr(c, sym, 0);
+        if (extra != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            int p2 = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)p2, (uint16_t)p, (uint16_t)o);
+            p = p2;
+        }
+        size_t w = sym->type.size > 0 ? sym->type.size : 8;
+        if (w >= 8)      ir_emit_store_64(c, (uint16_t)val, (uint16_t)p);
+        else if (w == 4) ir_emit_store_32(c, (uint16_t)val, (uint16_t)p);
+        else if (w == 2) ir_emit_store_16(c, (uint16_t)val, (uint16_t)p);
+        else             ir_emit_store_byte(c, (uint16_t)val, (uint16_t)p);
+        return;
+    }
     if (zc_sym_uses_data_section(sym)) {
         int a = zc_sym_addr(c, sym, extra);
         ir_emit_store_64(c, (uint16_t)val, (uint16_t)a);
@@ -343,6 +392,100 @@ static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const Z
     if (gv->is_tls && !c->jit_mode) ir_emit_tls_lea(c, temp, gv->name);
     else ir_emit_mov_global(c, temp, gv->name);
 }
+
+/* Phase 3b: lower the address of a function as a VALUE (assignment, call
+ * argument, &f). Non-nested and capture-free nested functions are plain
+ * symbols. A capturing nested function's mangled symbol has the hidden
+ * capture params in its ABI, so the value must be its trampoline stub
+ * instead: first build the static ctx object (by-reference capture =
+ * address of the enclosing storage - or the pointer VALUE when the
+ * resolved symbol is itself a capture pointer of the pointee type, as in
+ * multi-level nesting where the name resolves to a mirror of a pointer
+ * capture; by-value = the current value, or the address for >32B
+ * objects, matching the big-struct pointer convention), then load the
+ * stub's address. Returns the temp, or -1 on a diagnostic. */
+static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn) {
+    if (!fn->is_nested || fn->nested_captured_count == 0) {
+        int t = c->next_temp_id++;
+        ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(fn));
+        return t;
+    }
+    if (c->isa != ISA_X86_64 || fn->tramp_stub_fn_idx < 0) {
+        diag_report_error_at_token(c,
+            "cannot take the address of nested function '%s' "
+            "(capturing nested functions need trampoline support on this target)",
+            fn->name);
+        return -1;
+    }
+    ZeroCCGlobalVar *gv = find_global_var(c, fn->tramp_ctx_name);
+    if (!gv) {
+        diag_report_error_at_token(c, "internal: missing trampoline context for '%s'", fn->name);
+        return -1;
+    }
+    int ctx = c->next_temp_id++;
+    ir_emit_global_addr(c, (uint16_t)ctx, gv);
+    for (size_t ci = 0; ci < fn->nested_captured_count; ci++) {
+        const char *cname = fn->param_names[ci];
+        ZeroCCSym *sym = cname ? zero_cc_find_local(c, cname) : NULL;
+        if (!sym) {
+            diag_report_error_at_token(c,
+                "cannot take the address of nested function '%s': captured variable not in scope",
+                fn->name);
+            return -1;
+        }
+        const ZeroCCType *pt = &fn->nested_capture_types[ci];
+        /* ctx destination word: ctx + 32*ci (+8 for a second word) */
+        int dst = ctx;
+        if (ci > 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)(32 * ci));
+            int d2 = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)d2, (uint16_t)ctx, (uint16_t)o);
+            dst = d2;
+        }
+        if (fn->nested_capture_byref[ci]) {
+            int w = c->next_temp_id++;
+            /* Multi-level nesting: the name may resolve to a by-reference
+             * capture pointer param of the enclosing nested function -
+             * then the storage we need is the pointer VALUE itself
+             * (keeps the deeper function's indirection at one level).
+             * VLA params have no frame slot to take the address of. */
+            bool sym_is_capture_ptr = sym->is_capture_mirror;
+            if (sym->is_vla || sym_is_capture_ptr) {
+                zc_sym_load(c, sym, 0, w);      /* the pointer value */
+            } else {
+                w = zc_sym_addr(c, sym, 0);      /* address of the storage */
+            }
+            ir_emit_store_64(c, (uint16_t)w, (uint16_t)dst);
+        } else {
+            size_t sz = pt->size ? pt->size : 8;
+            if (sz > 32) {
+                /* big-struct pointer convention: store the address */
+                int a = zc_sym_addr(c, sym, 0);
+                ir_emit_store_64(c, (uint16_t)a, (uint16_t)dst);
+            } else {
+                for (size_t off = 0; off < sz; off += 8) {
+                    int v = c->next_temp_id++;
+                    zc_sym_load(c, sym, (int32_t)off, v);
+                    if (off > 0) {
+                        int o = c->next_temp_id++;
+                        ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
+                        int d2 = c->next_temp_id++;
+                        ir_emit_add(c, (uint16_t)d2, (uint16_t)dst, (uint16_t)o);
+                        ir_emit_store_64(c, (uint16_t)v, (uint16_t)d2);
+                    } else {
+                        ir_emit_store_64(c, (uint16_t)v, (uint16_t)dst);
+                    }
+                }
+            }
+        }
+    }
+    const ZeroCCFunction *sf = &c->functions[fn->tramp_stub_fn_idx];
+    int t = c->next_temp_id++;
+    ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(sf));
+    return t;
+}
+
 
 static inline void lower_extend_narrow(ZeroCCCompiler *c, int temp, const TypeInfo *ti) {
     (void)c;
