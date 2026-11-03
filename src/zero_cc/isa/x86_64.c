@@ -1000,9 +1000,36 @@ static void x86_emit_ret(ZeroCCCompiler *c) {
 /* Function call - direct call with relative offset */
 static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     ZeroCCFunction *fn = zero_cc_find_function(c, fn_name);
+    bool is_external = (!fn || fn->is_prototype);
 
-    /* Always use direct call (E8 rel32) for both internal and external functions */
-    /* For external functions, the linker will patch this with PLT entry */
+    /* In JIT mode there is no linker/PLT, and the code image is mmap'd far
+     * from external libraries, so a relative `call rel32` cannot reach an
+     * external function >2GB away (the int32 offset overflows). Emit an
+     * absolute call (`mov r11, imm64; call *r11`) for external calls in JIT
+     * mode; the 8-byte imm64 is patched with the resolved address at load
+     * time (is_abs_call reloc). Internal calls stay relative (near the call
+     * site). AOT objects keep the relative call + R_X86_64_PLT32 (the host
+     * linker uses the PLT for far targets). */
+    if (is_external && c->jit_mode) {
+        me_emit_u8(c, 0x49);              /* REX.WR */
+        me_emit_u8(c, 0xBB);              /* mov r11, imm64 */
+        size_t patch_pos = me_get_offset(c);
+        me_emit_u64(c, 0);                /* placeholder target address (8 bytes) */
+        me_emit_u8(c, 0x41);              /* REX.B */
+        me_emit_u8(c, 0xFF);              /* call *r/m64 */
+        me_emit_u8(c, 0xD3);              /* r11 (scratch_reg2) */
+        if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = patch_pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
+            r->is_call = false;
+            r->is_abs_call = true;
+        }
+        return;
+    }
+
+    /* Relative call (E8 rel32): internal calls always; external calls in AOT
+     * mode, where the host linker patches the PLT entry. */
     me_emit_u8(c, 0xE8);
     size_t patch_pos = me_get_offset(c);
 

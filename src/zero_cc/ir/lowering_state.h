@@ -54,6 +54,9 @@ typedef struct {
                                           for functions with a fully static frame (no VLA). */
     bool has_frame_address;            /* True when function uses __builtin_frame_address or
                                           __builtin_return_address; forces a real frame pointer */
+    bool has_setjmp;                   /* True when function uses __builtin_setjmp/longjmp;
+                                          forces a frame pointer AND disables mem2reg so the
+                                          automatics stay in stack slots (restored by longjmp) */
     int32_t frame_delta;               /* Displacement delta added to FP-relative offsets when
                                           addressing frame slots from SP (0 when the frame
                                           pointer is present). Equals the ISA prologue's

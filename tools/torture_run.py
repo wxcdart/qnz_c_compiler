@@ -150,12 +150,11 @@ def skip_reason(path, d):
     for t in d["requires"]:
         if t in UNSUPPORTED_TARGETS:
             return "SKIP-TARGET:%s" % t
-    # indirect_jumps is now supported (computed goto + &&label tables). The
-    # tests that still can't run rely on features ZeroCC lacks:
-    # __builtin_setjmp/longjmp (non-local control transfer) and nonlocal goto
-    # (pr51447: a nested function goto's to an outer-scope label).
-    if "indirect_jumps" in d["requires"] and d.get("setjmp"):
-        return "SKIP-TARGET:setjmp"
+    # indirect_jumps is now supported (computed goto + &&label tables), and
+    # __builtin_setjmp/longjmp work (see src/zero_cc/jit/jmp_runtime.c + the
+    # JIT's absolute-call lowering in x86_emit_call). The only remaining
+    # blocker in the category is nonlocal goto (pr51447: a nested function
+    # goto's to an outer-scope label).
     if rel.as_posix() == "execute/pr51447.c":
         return "SKIP-TARGET:nonlocal_goto"
     for s in SKIP_OPTION_SUBSTR:

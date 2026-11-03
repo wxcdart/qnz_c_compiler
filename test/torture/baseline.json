@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-03T00:48:17Z",
+ "generated": "2026-11-03T03:51:22Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -853,8 +853,11 @@
    "note": "         ^; Compile error: nested function definition of 'baz' is not supported (GNU extension) | cfgs: O0-aot,O2-aot"
   },
   "compile/20011029-1.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20011106-1.c": {
@@ -6648,8 +6651,11 @@
    "note": ""
   },
   "compile/complex-6.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/compound-literal-1.c": {
@@ -16741,11 +16747,11 @@
     "O1-aot": "REJECT",
     "O1-jit": "TIMEOUT",
     "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
+    "O2-jit": "TIMEOUT",
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "Compile error: void function should not return a value; Error: Compilation to object file failed | cfgs: O0-aot,O1-aot,O2-aot,O3-aot,O3-jit"
   },
   "execute/20000917-1.c": {
    "class": "PASS",
@@ -22326,8 +22332,17 @@
    "note": ""
   },
   "execute/20210505-1.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20221006-1.c": {
@@ -26903,8 +26918,17 @@
    "note": ""
   },
   "execute/built-in-setjmp.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/builtin-bitops-1.c": {
@@ -35391,8 +35415,17 @@
    "note": ""
   },
   "execute/pr56982.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr57124.c": {
@@ -36054,8 +36087,17 @@
    "note": ""
   },
   "execute/pr60003.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr60017.c": {
@@ -36353,8 +36395,17 @@
    "note": ""
   },
   "execute/pr64242.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr64255.c": {
@@ -38164,8 +38215,17 @@
    "note": ""
   },
   "execute/pr84521.c": {
-   "class": "SKIP-TARGET:setjmp",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr84524.c": {
@@ -40946,7 +41006,7 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 189,
-  "PASS": 3188,
+  "PASS": 3196,
   "REF-BUG": 3,
   "REJECT": 13,
   "SKIP-BOGUS": 1,
@@ -40957,7 +41017,6 @@
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
   "SKIP-TARGET:nonlocal_goto": 3,
-  "SKIP-TARGET:setjmp": 8,
   "SKIP-TARGET:trampolines": 19,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,

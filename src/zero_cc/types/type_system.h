@@ -221,6 +221,7 @@ typedef struct {
     size_t text_patch_offset;
     char target_symbol[128];
     bool is_call;
+    bool is_abs_call;  /* JIT: external call emitted as `mov r11, imm64; call *r11` (far target, no PLT); patch the 8-byte imm64 with the absolute address */
     bool is_tls;        /* TLS access: AOT emits R_X86_64_TPOFF64 */
     size_t data_offset;  /* For data references (global variables) */
 } ZeroCCReloc;
