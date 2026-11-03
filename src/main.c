@@ -598,22 +598,34 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                8);
     }
 
-    /* Add .data section */
+    /* Add .data section - the section alignment must be at least the
+     * maximum alignment of any object it holds, or the linker places
+     * the section (and its _Alignas(N) objects) too low (C11 6.7.5). */
+    size_t data_align = 8;
+    for (size_t gi = 0; gi < comp->global_var_count; gi++) {
+        ZeroCCGlobalVar *gv = &comp->global_vars[gi];
+        if (gv->is_bss || gv->is_tls) continue;
+        size_t ga = gv->type.align > 0 ? gv->type.align : 8;
+        if (ga > data_align) data_align = ga;
+    }
     if (comp->data_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".data",
                                (uint8_t*)comp->data_section.data,
                                comp->data_section.length,
                                ELF_SHT_PROGBITS,
                                ELF_SHF_ALLOC | ELF_SHF_WRITE,
-                               8);
+                               data_align);
     }
 
     /* Add .bss section (zero-initialized globals above threshold) */
     size_t bss_total = 0;
+    size_t bss_align = 8;
     for (size_t i = 0; i < comp->global_var_count; i++) {
         if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls) {
             size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size;
             if (end > bss_total) bss_total = end;
+            size_t ga = comp->global_vars[i].type.align > 0 ? comp->global_vars[i].type.align : 8;
+            if (ga > bss_align) bss_align = ga;
         }
     }
     if (bss_total > 0) {
@@ -622,7 +634,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                NULL, bss_total,
                                ELF_SHT_NOBITS,
                                ELF_SHF_ALLOC | ELF_SHF_WRITE,
-                               8);
+                               bss_align);
     }
 
     /* Add .tdata (initialized TLS) and .tbss (uninitialized TLS) sections.

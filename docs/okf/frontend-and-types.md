@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-02T18:59:36Z
+timestamp: 2026-11-03T21:55:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -200,7 +200,7 @@ Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`
 - **Empty `{}` Initializers** (C23 6.7.10):
   - Standard zero-initialization syntax (`= {}`) supported across all storage classes: automatic locals (scalars, structs, arrays), static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), and global variables (`compile_unit.h`).
 - **`__STDC_NO_COMPLEX__ 1` Conformance**:
-  - Predefined object macro `__STDC_NO_COMPLEX__ 1` in `src/zero_cc/core/preprocessor.h` formally signaling non-support for complex number types in accordance with ISO C11/C23 standards.
+- **`__STDC_NO_COMPLEX__` is NOT defined**: complex number types are implemented (Sprint 85 C99/GNU `_Complex`, Sprint 94), so the C11/C23 absence macro must be absent; it was stale from before the complex work and was removed.
 
 ## Preprocessor Include-Path Semantics (Sprint 42)
 
@@ -213,9 +213,10 @@ Quoted `#include` resolution follows C99 6.10.2 and failures are no longer silen
 ## C11 Core Keywords, Alignment, Atomics & Threading
 
 ZeroCC supports C11 core language features and standard concurrency primitives verified by `tools/c11/test_c11.py`:
-- **Alignment (`_Alignas`, `_Alignof`)**:
+- **Alignment (`_Alignas`, `_Alignof`)** (Sprint 94):
   - `_Alignof(type)` evaluates compile-time natural alignment in `src/zero_cc/parser/ast_expr.h`.
-  - `_Alignas(N)` and `_Alignas(type)` apply explicit alignment overrides to struct fields (`src/zero_cc/parser/definitions.h`) and local stack variables (`src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/types/symbol_mgmt.h`).
+  - `_Alignas(N)` / `_Alignas(type)` apply explicit alignment overrides to struct fields (`src/zero_cc/parser/definitions.h`), **file-scope objects** (`src/zero_cc/jit/compile_unit.c` + `src/main.c`: the `.data`/`.bss` section `sh_addralign` is the max object alignment, so the linker places `_Alignas(N)` globals at N-aligned addresses for any N; the C11 keyword form aligns without padding the scalar's `sizeof`, the GNU `aligned(N)` attribute still pads), and **local** stack variables (`src/zero_cc/parser/decl_local.h`): the frame slot is aligned via `decl_align_spec` and the symbol type's `align` is raised (size unchanged - C11 6.7.5) so `_Alignof(x)` reports the override.
+  - **Local alignment is capped at 16**: rbp (entry SP-8) is only 16-aligned, and its mod-32/64 residue varies per call site, so a 32/64-aligned local slot in a rounded frame is not actually aligned - GCC guarantees it with a runtime `and $-N, %rsp` realign + SP-relative frame, a backend feature ZeroCC does not have yet. `_Alignas(N>16)` on an automatic therefore warns and reports/guarantees 16 (never over-claims).
 - **Anonymous Structs & Unions**:
   - Unnamed nested `struct { ... };` and `union { ... };` members inside enclosing structs/unions flatten their inner fields into the parent's member table with accumulated byte offsets (`src/zero_cc/parser/definitions.h`).
 - **Generic Selection (`_Generic`) & Static Assertions (`_Static_assert`)**:

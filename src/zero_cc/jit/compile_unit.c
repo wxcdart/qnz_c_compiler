@@ -642,6 +642,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
         /* Global variable declarations */
         if (!bare_fn_ident && (
+            c->tokens[c->token_pos].type == TK_ALIGNAS ||
             c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_INLINE ||
             c->tokens[c->token_pos].type == TK_CONST ||
@@ -683,14 +684,24 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 zero_cc_decl_thread_local(c, &shared_ctx, perm, is_static);
                 continue;
             }
-            /* GNU aligned(N) leading a global: `__attribute__((aligned(8)))
-             * unsigned long long ll;` - consume the marker now (otherwise the
-             * marker identifier is read as the type name) and remember the
-             * value; it is applied to the base type once parsed. */
+            /* C11 `_Alignas(N)` / GNU aligned(N) leading a global:
+             * `__attribute__((aligned(8))) unsigned long long ll;` or
+             * `_Alignas(16) int x;` - consume the marker/keyword now
+             * (otherwise it is read as the type name) and remember the
+             * value; it is applied to the base type once parsed. The
+             * C11 form (a real TK_ALIGNAS token) aligns without padding
+             * the scalar's size (C11 6.7.5); the GNU attribute pads. */
             size_t global_align = 0;
+            bool global_align_c11 = false;
             {
                 size_t probe = 0;
-                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                while (c->token_pos < c->token_count &&
+                       (c->tokens[c->token_pos].type == TK_ALIGNAS ||
+                        (c->tokens[c->token_pos].type == TK_IDENT &&
+                         c->tokens[c->token_pos].str_val &&
+                         strcmp(c->tokens[c->token_pos].str_val, "__zc_aligned__") == 0))) {
+                    if (c->tokens[c->token_pos].type == TK_ALIGNAS) global_align_c11 = true;
+                    if (!zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) break;
                     if (probe > global_align) global_align = probe;
                 }
             }
@@ -743,9 +754,13 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                 } else if (global_align > gtype.align) {
                     gtype.align = global_align;
-                    if (gtype.size < global_align) gtype.size = global_align;
-                    if ((gtype.size % global_align) != 0) {
-                        gtype.size = (gtype.size + global_align - 1) / global_align * global_align;
+                    if (!global_align_c11) {
+                        /* GNU aligned(N) attribute pads the type; C11
+                         * _Alignas does not change sizeof. */
+                        if (gtype.size < global_align) gtype.size = global_align;
+                        if ((gtype.size % global_align) != 0) {
+                            gtype.size = (gtype.size + global_align - 1) / global_align * global_align;
+                        }
                     }
                 }
             }

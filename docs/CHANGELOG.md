@@ -1,5 +1,16 @@
 # ZeroCC Changelog
 
+## [Sprint 94] - 2026-11-03 - C11 `_Alignas`/`_Alignof` Correctness & Stale `__STDC_NO_COMPLEX__` Removal (conformance cleanup, 3,266 PASS held)
+
+Two conformance fixes found while auditing C89/C99/C11/C23 support status (no c-torture class changes; PASS 3,266 held, 0 bad):
+
+- **Stale `__STDC_NO_COMPLEX__` removed** (`src/zero_cc/core/preprocessor.c`): the macro was still defined from before the Sprint 85 `_Complex` work, making `#ifdef __STDC_NO_COMPLEX__` take the wrong branch (verified: a probe that must compile to `return 0` returned 1). Per C11/C23 it is only defined when the feature is *absent*; the stale OKF note in `frontend-and-types.md` was corrected. (Separate pre-existing gap, noted not fixed: no virtual `<complex.h>` - `#include <complex.h>` has no `I`/`creal`/`cimag`; language-level `_Complex` arithmetic is unaffected.)
+- **C11 `_Alignas`/`_Alignof` made truthful** (probes vs GCC):
+  - **File-scope `_Alignas(N) type x;`** now parses (the global-var gate in `compile_unit.c` didn't accept `TK_ALIGNAS`) and actually aligns the object: `.data`/`.bss` section `sh_addralign` in `src/main.c` was hardcoded 8 and now is the max alignment of the objects it holds, so `_Alignas(N)` globals are N-aligned for any N (verified 16/32/64/128 vs GCC at -O0..-O3). The C11 keyword form aligns without changing `sizeof`; the GNU `aligned(N)` attribute path keeps its padding (matches GCC for both, verified).
+  - **Locals**: the `_Alignas(N)` storage-spec branch now records the value so the symbol type's `align` is raised (size unchanged - C11 6.7.5) and `_Alignof(x)` reports the override (previously the natural alignment, e.g. 4 for `_Alignas(16) int x`); comma declarators covered too.
+  - **Local N > 16 is capped at 16 with a warning**: rbp (entry SP-8) is only 16-aligned and its mod-32/64 residue varies per call site, so a 32/64-aligned slot in a frame-rounded frame is not actually aligned - GCC guarantees it with a runtime `and $-N, %rsp` realign + SP-relative frame, which ZeroCC's FP-relative backend does not have. The compiler now reports/guarantees 16 instead of claiming N it cannot deliver (a frame round-up alone was verified insufficient: `_Alignas(64) int` local misaligned at O0/O1/O3 vs GCC). The frame-size note in `zero_cc_lower_ast` records the invariant for the future realign work.
+- **Verification**: `make test` 159/159, `make test-opt` 120/120, `make test-driver` 37/37, `make test-isa-qemu` 52/52, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, `okf lint` PASS, c-torture gate OK vs baseline (PASS 3,266, 0 bad).
+
 ## [Sprint 93] - 2026-11-03 - GNU Nested Functions Phase 3b: Real Trampolines & Pointer-Routed Capture (+9 PASS to 3,266, 0 bad)
 
 Completed Phase 3b of the GNU nested-functions work: **real trampoline stubs** make indirect calls through function pointers (`f = inner; f(x)`) work, and the closure-capture model was redesigned from mirror locals to **pointer-routed by-reference capture**. 8 formerly-skipped `trampolines` tests plus `compile/20050119-1.c` now pass in AOT and JIT at `-O0..-O3` (**3,266 `PASS`**, `REJECT` 0, `MISCOMPILE` 0); the `SKIP-TARGET:trampolines` bucket drops 19 → 11 (the remainder are blocked by unrelated features: nonlocal goto ×4, K&R ×5, VLA-struct-member, gnu89 implicit decl).

@@ -584,6 +584,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
     bool is_atomic = false;
     bool is_static_local = false;   /* Sprint 37: block-scope `static` */
     bool is_extern = false;
+    size_t c11_align_spec = 0;      /* C11 `_Alignas(N)` - align only, no size change */
 
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_ALIGNAS ||
@@ -616,6 +617,18 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                 }
                 if (align_val > 0) {
                     decl_align_spec = align_val;
+                    if ((size_t)align_val > c11_align_spec) c11_align_spec = (size_t)align_val;
+                    if (align_val > 16) {
+                        /* Local objects above 16 cannot actually be
+                         * guaranteed (rbp's residue varies per call site;
+                         * GCC uses a runtime `and`-realign + SP-relative
+                         * frame - see the frame-size note in
+                         * zero_cc_lower_ast). Report the guaranteed
+                         * alignment (16) instead of lying about N. */
+                        diag_report_warning_at_token(c,
+                            "_Alignas(%ld) on an automatic object: alignments above 16 are not guaranteed; using 16",
+                            (long)align_val);
+                    }
                 }
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
                     c->token_pos++;
@@ -1378,6 +1391,14 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     diag_report_error_at_token(c, "out of memory allocating local variable '%s'", vname);
                     *out_ref = AST_NULL; return true;
                 }
+                /* C11 6.7.5: `_Alignas(N)` on a declaration sets the
+                 * object's alignment without changing its size (the frame
+                 * slot is already aligned via decl_align_spec inside
+                 * zero_cc_add_local; the GNU aligned(N) attribute path
+                 * (align_attr_val) instead pads the type size). */
+                if (c11_align_spec > 0 && c11_align_spec > sym->type.align) {
+                    sym->type.align = (c11_align_spec > 16) ? 16 : c11_align_spec;
+                }
                 if (is_extern) {
                     sym->is_extern = true;
                     sym->stack_offset = 0;
@@ -1599,6 +1620,9 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     if (!next_sym) {
                         diag_report_error_at_token(c, "out of memory allocating local variable '%s'", next_vname);
                         *out_ref = AST_NULL; return true;
+                    }
+                    if (c11_align_spec > 0 && c11_align_spec > next_sym->type.align) {
+                        next_sym->type.align = (c11_align_spec > 16) ? 16 : c11_align_spec; /* C11 _Alignas (align only) */
                     }
                     if (is_static_local && !nhas_any_vla) {
                         /* Sprint 37: each comma declarator of a static

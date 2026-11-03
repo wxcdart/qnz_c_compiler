@@ -228,7 +228,10 @@ void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
      * _Static_assert, _Alignas, _Noreturn, _Atomic, _Thread_local, anonymous
      * struct/union members, compound literals, <stdatomic.h>/<threads.h>). */
     zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "201112L");
-    zero_cc_cpp_define_obj(cpp, "__STDC_NO_COMPLEX__", "1");
+    /* __STDC_NO_COMPLEX__ must NOT be defined: _Complex float/double and
+     * GNU integer _Complex are implemented (Sprint 85) - defining it made
+     * `#ifdef __STDC_NO_COMPLEX__` take the wrong branch. Per C11/C23 it
+     * is only defined when the feature is absent. */
     zero_cc_cpp_define_obj(cpp, "__zerocc__", "1");
     zero_cc_cpp_define_obj(cpp, "__ZEROCC__", "1");
     zero_cc_cpp_define_obj(cpp, "__GNUC__", "4");

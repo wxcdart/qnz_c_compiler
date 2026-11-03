@@ -881,6 +881,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Both JIT and assembly need 16-byte alignment for proper call alignment */
     /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
+    /* C11 6.7.5 local alignment above 16 cannot be guaranteed by frame
+     * rounding alone: rbp (E-8) is 16-aligned but its mod-32/64 residue
+     * varies per call site, so an A-aligned slot in an A-rounded frame is
+     * only A-aligned half the time (probes vs GCC). GCC guarantees it with
+     * a runtime `and $-A, %rsp` realign + SP-relative slots - a backend
+     * feature not yet present. Local alignments are therefore capped at
+     * 16 (declared, not over-claimed) and the frame stays 16-rounded. */
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
 
     /* Determine if function is a leaf (no calls, no VLAs) */

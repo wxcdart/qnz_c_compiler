@@ -854,11 +854,20 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
     while (c->tokens[c->token_pos].type == TK_STATIC || c->tokens[c->token_pos].type == TK_INLINE ||
            c->tokens[c->token_pos].type == TK_NORETURN || c->tokens[c->token_pos].type == TK_CONST ||
            c->tokens[c->token_pos].type == TK_VOLATILE ||
+           c->tokens[c->token_pos].type == TK_ALIGNAS ||
            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0) ||
            (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) {
         if (c->tokens[c->token_pos].type == TK_NORETURN) fn_noreturn = true;
         if (c->tokens[c->token_pos].type == TK_INLINE) fn_inline = true;
         if (c->tokens[c->token_pos].type == TK_STATIC) fn_static = true;
+        if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
+            /* C11 `_Alignas(N)` / `_Alignas(T)` leading a function
+             * definition/prototype (e.g. after the file-scope global branch
+             * backs up on a function declarator): consume it here; the
+             * value feeds fn_align below. */
+            size_t pa = 0;
+            if (!zero_cc_parse_aligned_attr(c, &c->token_pos, &pa)) c->token_pos++;
+        }
         if (c->tokens[c->token_pos].type == TK_CONST ||
             (c->tokens[c->token_pos].type == TK_IDENT && strcmp(c->tokens[c->token_pos].str_val, "const") == 0))
             fn_ret_const = true;

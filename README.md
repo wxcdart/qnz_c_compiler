@@ -257,7 +257,7 @@ Diagnostics aim for gcc/clang-style quality:
 |---------|--------|-------|
 | **`_Thread_local`** | ✅ Complete | `tls_backend`; static TLS (`.tdata`/`.tbss`, x86-64 initial-exec + `R_X86_64_TPOFF32`; JIT data-section fallback) — see [`docs/okf/tls-static.md`](docs/okf/tls-static.md) |
 | **`_Atomic`** | ✅ Implemented | Hardware atomic IR ops (`OP_ATOMIC_*`), `__sync_*`/`__atomic_*` builtins, `<stdatomic.h>` virtual header |
-| **`_Alignas` / `_Alignof`** | ✅ Implemented | Compile-time alignment for struct fields and locals |
+| **`_Alignas` / `_Alignof`** | ✅ Implemented | Struct fields, file-scope objects (any N, `.data`/`.bss` section alignment) and locals (≤ 16; local N > 16 warns and is capped - GCC-style runtime SP realignment not implemented) |
 | **`_Noreturn`** | ✅ Implemented | `<stdnoreturn.h>` virtual header |
 | **`_Static_assert`** | ✅ Implemented | Constant-evaluated at compile time |
 | **`_Generic`** | ✅ Simplified | Full C11 matching rules not implemented |
