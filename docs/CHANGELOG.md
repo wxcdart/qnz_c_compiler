@@ -1,3 +1,25 @@
+## [Sprint 108] - 2026-11-05 - `__attribute__((section))` on functions (3,675 PASS, baseline ratcheted)
+
+Function-section routing: `__attribute__((section("name")))` / `__section__("name")` on a **function** now places its code in a named ELF section for AOT `-c` output. The last `SKIP-TARGET:named_sections` test (`compile/section.c`, a function in `.init.text`) now PASSes, **eliminating the `named_sections` bucket entirely**. **c-torture: PASS 3,674 -> 3,675 (+1, 0 bad), SKIP-TARGET:named_sections 1 -> 0, baseline ratcheted.**
+
+### Frontend
+
+- **`ZeroCCFunction`** (`types/type_system.h`): new `section[64]` + `named_text_sec_off` fields. The function registration (`zero_cc_compile_function` in `jit/compile.h`) records the name from `c->pending_section`. The field was renamed from `pending_object_section` to `pending_section` (`types/symbols.h`) since it is now shared by object and function declarations (the file-scope loop strips the `__zc_section__("name")` marker before dispatch, so it does not know which kind is coming).
+- The function's code is **still emitted into `text_section`** — the JIT executor expects all code there, so a buffer-swap (the natural implementation) was rejected because it would break JIT. Section routing is therefore an **AOT `-c` emission** concern only; JIT and AOT-executable execution are unchanged.
+
+### AOT `-c` object emission (`main.c`, `compile_object_single`)
+
+- Each sectioned function's **extent** in `text_section` — `[text_offset, next-function-text_offset)` (or to the end of the section for the last function) — is a contiguous copy that preserves the function's internal relative offsets. It is copied into a dedicated `PROGBITS|EXECINSTR` section and the function's symbol is emitted there at its placed offset (`named_text_sec_off`). If a section's total size is zero it is not emitted and the function falls back to `.text`.
+- Relocations are symbol-based, so calls from other code resolve to the named section. The `.text` copy of the code is left in place (dead, unsymbolicated). A normal (no-section) file emits no named section (verified: 0 stray sections).
+
+### Tests & verification
+
+- **`test/jit/fn_named_section.c`** (new): two functions in one named section (`.zc_fn_sec`), both called from `main`; exercised by `make test-opt` (zerocc JIT + AOT, -O0..-O3, gcc reference) and host gcc (`make test`). Verified the `-c` object places `fn_square`/`fn_add` in `.zc_fn_sec` and `main` in `.text`, and that the object links + runs through the system linker (the named-section functions return correct values).
+- `make test` **170/170** (was 169), `make test-opt` **132 ok** (was 131), `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors / 78 warnings, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,675** (was 3,674: +1 — `compile/section.c`, `elv_register` now in `.init.text`), SKIP-TARGET:named_sections 1 -> 0 (bucket eliminated), 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
+---
+
 ## [Sprint 107] - 2026-11-05 - `__attribute__((section))` on objects (3,674 PASS, baseline ratcheted)
 
 GNU `__attribute__((section("name")))` / `__section__("name")` on global **objects** is now supported for AOT `-c` object output. The two `SKIP-TARGET:named_sections` object tests (`compile/pr23237.c`, `compile/pr61848.c`) now PASS; the remaining one (`compile/section.c`) needs **function**-section routing and stays an honest `SKIP-TARGET:named_sections`. **c-torture: PASS 3,672 -> 3,674 (+2, 0 bad), SKIP-TARGET:named_sections 3 -> 1, baseline ratcheted.**

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T22:19:16Z
+timestamp: 2026-11-04T22:39:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -909,3 +909,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `isa-backends.md`
 - Sprint 107: named object sections in AOT -c ELF emission
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Sprint 108: __attribute__((section)) on functions - SKIP-TARGET:named_sections bucket fully eliminated (PASS 3,674 -> 3,675, named_sections 1 -> 0; compile/section.c function in .init.text)
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 108: function-section routing (ZeroCCFunction.section, AOT -c copy-out to PROGBITS|EXECINSTR); renamed pending_object_section -> pending_section
+
+## 2026-11-04 — Updated `isa-backends.md`
+- Sprint 108: named function sections in AOT -c ELF emission
