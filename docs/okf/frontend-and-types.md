@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-04T20:55:46Z
+timestamp: 2026-11-04T21:23:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -290,7 +290,7 @@ Block-scope `static` locals (C99 6.9.2) are implemented as **data-section object
 ZeroCC comprehensively validates C literal syntax and constant expression semantics against GCC via `tools/literal_verifier.py`:
 
 - **Integer Literals**: Decimal, octal (`077`), hexadecimal (`0x2A`), binary (`0b101010`), digit separators (`1'000'000`, `0xDE'AD'BE'EF`), and integer suffixes (`u/U`, `l/L`, `ll/LL`, `ull/ULL`).
-- **Floating-Point Literals**: Decimal (`1.25`, `.5`, `5.`), scientific notation (`1e3`, `2.5e-2`), hexadecimal float representations (`0x1.8p1`), and float suffixes (`f/F`, `l/L`). Suffix typing is propagated into `ZeroCCASTNode.aux.extra` and semantic `TypeInfo *` (`type_float` vs `type_double`), ensuring `sizeof(1.0f) == 4` and `sizeof(1.0) == 8`.
+- **Floating-Point Literals**: Decimal (`1.25`, `.5`, `5.`), scientific notation (`1e3`, `2.5e-2`), hexadecimal float representations (`0x1.8p1`), and float suffixes (`f/F`, `l/L`). Suffix typing is propagated into `ZeroCCASTNode.aux.extra` and semantic `TypeInfo *` (`type_float` vs `type_double`), ensuring `sizeof(1.0f) == 4` and `sizeof(1.0) == 8`. **Imaginary / complex literals** (`1.0i`, `1.0fI`, `2i`) carry bit3 of `int_suffix`; the value is the **imaginary** part and the float bit selects the half width. The imaginary suffix `i`/`I` may combine with `f`/`F` (or `l`/`L`) in **either order** (Sprint 105 — C99 6.14.2.2 / GCC accept `1.0iF`, `1.0fi`, `1.0Fi`, `1.0li`, ...): `lexer/scan.h` consumes up to two suffix characters checking the current char each iteration, so `1.0fi` (f-then-i) lexes identically to `1.0iF` (a first-cut loop had an index-desync that consumed only the first char and regressed `1.0iF` — caught by the regression suite).
 - **Character Literals**: Single characters, standard escape sequences (`\n`, `\t`, `\r`, `\0`, `\\`, `\'`, `\"`), octal escapes (`\101`, `\077`), hex escapes (`\x41`), and multi-character constants (`'AB'`, `'ABCD'`, `'\n\t'`) accumulated as big-endian `int` values per C99/C11 6.4.4.4. Character constant evaluation in `sizeof('a')` evaluates to `sizeof(int) == 4`.
 - **String Literals**: Standard strings, escape sequences, adjacent concatenation (`"hello " "world"`), and array initialization (`char buf[] = "abc"`).
 - **Compound Literals (C99/C11 6.5.2.5)**:

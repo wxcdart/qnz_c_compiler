@@ -1,3 +1,21 @@
+## [Sprint 105] - 2026-11-05 - Floating-literal suffix order `1.0fi` ≡ `1.0iF` (3,670 PASS, baseline ratcheted)
+
+GCC accepts a floating imaginary literal's suffixes in **either order** — the imaginary `i`/`I` may precede *or* follow the float `f`/`F` (or long-double `l`/`L`): `1.0iF`, `1.0fi`, `1.0Fi`, `1.0li`, ... (C99 6.14.2.2). ZeroCC's float-suffix parser consumed them only in `i`-before-`f` order, so `1.0fi` (f-then-i) left the trailing `i` dangling: the literal mis-lexed (a 16-byte `_Complex` read as a 4-byte complex-int) and parenthesized complex **constant** initializers like `1.0 + 14.0 * (1.0fi)` (complex-5.c) failed to parse. **c-torture: PASS 3,667 -> 3,670 (+3, 0 bad), SKIP-C89 50 -> 47, baseline ratcheted.**
+
+### Lexer
+
+- **Float-suffix order** (`lexer/scan.h`, `zero_cc_scan_number` float branch): consume up to **two** suffix characters in **any** order, checking the current char (`*s`) each iteration and `break`ing on a non-suffix char. Bit3 = imaginary, bit0 = float, bit1 = long double. The literal's value is the **imaginary** part and the float bit selects the 4-byte (float) vs 8-byte (double) half, as before.
+  - The first attempt used a `for (ss < 2 && s[ss] is suffix)` loop that **also** incremented `s` in the body — an index-desync: on the 2nd iteration the condition read `s[1]` (one char past the current), so only the first suffix char was consumed. It silently regressed `1.0iF` (a previously-working `i`-then-`F` form) back to dangling `F`. The `make test`/`make test-opt` sweep caught it; the loop now checks `*s` each iteration.
+- **Unblocked** (all use the `f`-then-`i` suffix `5.0fi`/`1.0fi`): `execute/complex-5.c`, `compile/attr-complex-method.c`, `compile/attr-complex-method-2.c`. Complex `+`/`-`/`*` were already implemented; the suffix fix is what unblocked the `5.0fi` divisor / parenthesized complex constant initializer.
+
+### Tests & verification
+
+- **`test/jit/float_suffix_order.c`** (new): both suffix orders (`1.0fi`/`1.0iF`/`2.0Fi`/`3.0i`), `__real__`/`__imag__` value checks (value = imaginary part), and `1.0 + 14.0 * (1.0fi)`. Runs under host gcc (GCC accepts these suffixes) and zerocc -O0..-O3; expected exit 0. `make test` 166 -> 167, `make test-opt` 128 -> 129.
+- `make test` **167/167**, `make test-opt` **129 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,670** (was 3,667: +3 — `execute/complex-5.c`, `compile/attr-complex-method.c`, `compile/attr-complex-method-2.c`), SKIP-C89 50 -> 47, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
+---
+
 ## [Sprint 104] - 2026-11-05 - Standalone `_Complex` = `_Complex double` (latent-miscompile fix, 3,667 PASS, baseline ratcheted)
 
 A bare `_Complex` (GNU: means `_Complex double`) was a **latent miscompile**: ZeroCC recursed to parse an "inner" type after the prefix, so `_Complex x;` swallowed the declarator as a defaulted-int inner type - complex-of-int (sizeof 4/8, not 16), and `__real__`/`__imag__` rejected it as non-complex. **c-torture: PASS 3,665 -> 3,667 (+2, 0 bad), SKIP-C89 52 -> 50, baseline ratcheted.**
