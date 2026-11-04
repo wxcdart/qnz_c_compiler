@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T21:47:24Z",
+ "generated": "2026-11-04T22:16:36Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -9352,8 +9352,11 @@
    "note": ""
   },
   "compile/pr23237.c": {
-   "class": "SKIP-TARGET:named_sections",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr23435.c": {
@@ -13185,8 +13188,11 @@
    "note": ""
   },
   "compile/pr61848.c": {
-   "class": "SKIP-TARGET:named_sections",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr62312.c": {
@@ -41387,7 +41393,7 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3672,
+  "PASS": 3674,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 47,
@@ -41395,7 +41401,7 @@
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
-  "SKIP-TARGET:named_sections": 3,
+  "SKIP-TARGET:named_sections": 1,
   "SKIP-UB": 1
  }
 }

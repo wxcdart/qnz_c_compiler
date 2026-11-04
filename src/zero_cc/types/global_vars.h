@@ -21,6 +21,8 @@ struct ZeroCCGlobalVar {
     bool is_tls;              /* _Thread_local (static TLS) */
     bool is_bss;              /* Zero-initialized, no explicit initializer -> .bss */
     char alias_target[128];   /* GNU __attribute__((alias("tgt"))): storage lives at tgt */
+    char section[64];         /* __attribute__((section("name"))): named ELF section (AOT -c); empty = default */
+    size_t named_sec_off;    /* offset of this object within its named section (AOT -c emission) */
 };
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
@@ -125,6 +127,10 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
         c->global_vars[existing].is_static = is_static;
         c->global_vars[existing].has_initializer = has_init;
         c->global_vars[existing].is_bss = (!has_init && size >= ZERO_CC_BSS_THRESHOLD);
+        if (c->pending_object_section[0]) {
+            strncpy(c->global_vars[existing].section, c->pending_object_section, sizeof(c->global_vars[existing].section) - 1);
+            c->global_vars[existing].section[sizeof(c->global_vars[existing].section) - 1] = '\0';
+        }
         return (int)existing;
     }
     if (c->global_var_count >= c->global_var_capacity) {
@@ -145,6 +151,11 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
     gv->is_tls = false;
     gv->is_bss = (!has_init && size >= ZERO_CC_BSS_THRESHOLD);
     gv->alias_target[0] = '\0';
+    gv->section[0] = '\0';
+    if (c->pending_object_section[0]) {
+        strncpy(gv->section, c->pending_object_section, sizeof(gv->section) - 1);
+        gv->section[sizeof(gv->section) - 1] = '\0';
+    }
     zero_cc_gname_hash_insert(c, name, c->global_var_count - 1, c->global_var_count);
     return (int)(c->global_var_count - 1);
 }

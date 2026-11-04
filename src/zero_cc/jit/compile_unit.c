@@ -396,6 +396,51 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * precede any file-scope declaration (e.g. `[[nodiscard]] int f(void);`).
          * Known and unknown attributes alike are accepted and ignored. */
         skip_c23_attributes(c);
+        /* GNU __attribute__((section("name"))): the preprocessor rewrites it to
+         * `__zc_section__("name")`.  Consume the marker here (before dispatch) so
+         * the declaration parses normally, and record the section name so
+         * add_global_var places the object in the named section for AOT -c object
+         * output.  Only object placement is supported; function-section routing
+         * (compile/section.c) is not (blocklisted). */
+        c->pending_object_section[0] = '\0';
+        {
+            size_t dstart = c->token_pos;
+            int paren = 0, brace = 0;
+            size_t dend = c->token_count;
+            for (size_t p = dstart; p < c->token_count; p++) {
+                ZeroCCTokType tt = c->tokens[p].type;
+                if (tt == TK_LPAREN) paren++;
+                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
+                else if (tt == TK_LBRACE) brace++;
+                else if (tt == TK_RBRACE) {
+                    if (brace > 0) brace--;
+                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
+                }
+                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
+            }
+            size_t p = dstart;
+            while (p + 3 < dend) {
+                if (c->tokens[p].type == TK_IDENT) {
+                    const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
+                    if (id && strcmp(id, "__zc_section__") == 0 &&
+                        c->tokens[p + 1].type == TK_LPAREN &&
+                        c->tokens[p + 2].type == TK_STRING &&
+                        c->tokens[p + 3].type == TK_RPAREN) {
+                        const char *sv = c->tokens[p + 2].allocated_str ? c->tokens[p + 2].allocated_str : c->tokens[p + 2].str_val;
+                        if (!c->pending_object_section[0]) {
+                            strncpy(c->pending_object_section, sv, sizeof(c->pending_object_section) - 1);
+                            c->pending_object_section[sizeof(c->pending_object_section) - 1] = '\0';
+                        }
+                        size_t after = p + 4;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count -= 4;
+                        dend -= 4;
+                        continue; /* p now holds the token formerly at p+4 */
+                    }
+                }
+                p++;
+            }
+        }
         /* Empty declaration at file scope (`;`) - legal C (C99 6.7) and a
          * common byproduct of attribute macros that carry their own `;`
          * (c-torture execute/20230630-2/4: `__attribute__((...));` after a

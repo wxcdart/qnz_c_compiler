@@ -1687,7 +1687,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                         bool is_md = (namelen == 4 && strncmp(nam, "mode", 4) == 0) ||
                                                      (namelen == 8 && strncmp(nam, "__mode__", 8) == 0);
                                         bool is_sso = (namelen == 20 && strncmp(nam, "scalar_storage_order", 20) == 0);
-                                        if (is_vs || is_al || is_as || is_md || is_sso) {
+                                        bool is_sec = (namelen == 7 && strncmp(nam, "section", 7) == 0) ||
+                                                       (namelen == 11 && strncmp(nam, "__section__", 11) == 0);
+                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1698,7 +1700,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : 5)));
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : 6))));
                                             }
                                             break;
                                         }
@@ -1753,7 +1755,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : "__zc_sso_be__")));
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : "__zc_sso_be__"))));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
                             if (ex_marker == 5) {
                                 /* No argument: bare marker identifier. */

@@ -44,6 +44,11 @@ typedef struct ZeroCCCompiler {
      * to recover the pre-star base type. */
     int last_type_ptr_depth;
 
+    /* GNU __attribute__((section("name"))): set by the file-scope loop when a
+     * `__zc_section__("name")` marker is found on the current declaration; consumed
+     * by add_global_var to place the object in the named section (AOT -c). */
+    char pending_object_section[64];
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;

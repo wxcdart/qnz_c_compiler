@@ -662,6 +662,72 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         }
     }
 
+    /* ---- Named sections: GNU __attribute__((section("name"))) ----
+     * Objects placed in a named ELF section.  Their bytes are copied out of
+     * data_section into a dedicated PROGBITS section (NOBITS for BSS-like),
+     * and each object's symbol is emitted in that named section (below).
+     * Relocations target the symbol, so every reference resolves to the named
+     * section.  The .data copy of the bytes is left in place (dead, and no
+     * symbol points to it).  Function-section routing is not supported. */
+    {
+        size_t gvn = comp->global_var_count;
+        enum { MAX_NS = 16 };
+        char ns_names[MAX_NS][64];
+        size_t ns_size[MAX_NS];
+        size_t ns_align[MAX_NS];
+        bool ns_bss[MAX_NS];
+        int ns_count = 0;
+        for (int k = 0; k < MAX_NS; k++) { ns_size[k] = 0; ns_align[k] = 8; ns_bss[k] = false; }
+
+        for (size_t i = 0; i < gvn; i++) {
+            ZeroCCGlobalVar *gv = &comp->global_vars[i];
+            if (!gv->name[0] || !gv->section[0] || gv->alias_target[0] || gv->is_tls) continue;
+            int si = -1;
+            for (int k = 0; k < ns_count; k++)
+                if (strcmp(ns_names[k], gv->section) == 0) { si = k; break; }
+            if (si < 0) {
+                if (ns_count >= MAX_NS) { gv->section[0] = '\0'; continue; } /* degrade to .data */
+                si = ns_count++;
+                strncpy(ns_names[si], gv->section, 63);
+                ns_names[si][63] = '\0';
+                ns_size[si] = 0; ns_align[si] = 8; ns_bss[si] = false;
+            }
+            size_t al = gv->type.align > 0 ? gv->type.align : 8;
+            if (al > ns_align[si]) ns_align[si] = al;
+            size_t cur = ns_size[si] + ((al - (ns_size[si] % al)) % al);
+            gv->named_sec_off = cur;
+            cur += gv->size;
+            if (cur > ns_size[si]) ns_size[si] = cur;
+            if (gv->is_bss) ns_bss[si] = true;
+        }
+
+        for (int k = 0; k < ns_count; k++) {
+            size_t total = ns_size[k];
+            if (total == 0) continue;
+            if (ns_bss[k]) {
+                elf_writer_add_section(&elf_ctx, ns_names[k], NULL, total,
+                                       ELF_SHT_NOBITS, ELF_SHF_ALLOC | ELF_SHF_WRITE,
+                                       ns_align[k]);
+            } else {
+                uint8_t *buf = (uint8_t *)calloc(total, 1);
+                if (!buf) continue;
+                for (size_t i = 0; i < gvn; i++) {
+                    ZeroCCGlobalVar *gv = &comp->global_vars[i];
+                    if (strcmp(gv->section, ns_names[k]) != 0) continue;
+                    if (!gv->is_bss && gv->size > 0 &&
+                        gv->data_offset + gv->size <= comp->data_section.length) {
+                        memcpy(buf + gv->named_sec_off,
+                               comp->data_section.data + gv->data_offset, gv->size);
+                    }
+                }
+                elf_writer_add_section(&elf_ctx, ns_names[k], buf, total,
+                                       ELF_SHT_PROGBITS, ELF_SHF_ALLOC | ELF_SHF_WRITE,
+                                       ns_align[k]);
+                free(buf); /* copied into the writer */
+            }
+        }
+    }
+
     /* Resolve real section indices: empty sections are not emitted, so the
      * positions of later sections shift (a no-.text object has .data at 1). */
     uint16_t text_idx = elf_writer_section_index(&elf_ctx, ".text");
@@ -782,6 +848,18 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                           gv->size);
                 }
                 continue;
+            }
+            if (gv->section[0]) {
+                /* Named-section object: symbol lives in the named section at
+                 * its placed offset.  If the section was not emitted (zero
+                 * total size), fall through to .data/.bss where the bytes are. */
+                uint16_t nsi = elf_writer_section_index(&elf_ctx, gv->section);
+                if (nsi != 0) {
+                    elf_writer_add_symbol(&elf_ctx, gv->name,
+                                          binding, ELF_STT_OBJECT,
+                                          nsi, gv->named_sec_off, gv->size);
+                    continue;
+                }
             }
             if (gv->is_bss) {
                 elf_writer_add_symbol(&elf_ctx, gv->name,

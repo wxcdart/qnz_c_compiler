@@ -94,7 +94,13 @@ UNSUPPORTED_TARGETS = {
     # truncated to 32 bits (garbage pointer -> segfault).  Declaring it
     # (freopen/feof/ferror/clearerr/ungetc) fixed both tests (printf-2,
     # user-printf) at every -O level in JIT and AOT.
-    "named_sections",
+    # "named_sections" is unskipped: __attribute__((section("name"))) on
+    # OBJECTS is fully supported (Sprint 107) - the preprocessor rewrites it to a
+    # __zc_section__("name") marker, the file-scope loop consumes it and records the
+    # name on the global, and AOT -c object emission copies the object bytes into a
+    # dedicated named PROGBITS/NOBITS section with the symbol there.  The one remaining
+    # test (compile/section.c) needs FUNCTION-section routing, which is not supported;
+    # it stays blocklisted below as SKIP-TARGET:named_sections.
     "int128", "cilk",
     # other languages
     "c++", "cxx", "c2a", "go", "fortran", "ada", "objc", "java", "openmp",
@@ -187,6 +193,13 @@ def skip_reason(path, d):
             return "SKIP-REFSEM"
     if d["ptr_output"]:
         return "SKIP-PTR"
+    if rel.as_posix() == "compile/section.c":
+        # Requires placing a FUNCTION (elv_register) in .init.text via
+        # __attribute__((section(...))).  ZeroCC supports section attributes on
+        # OBJECTS only (Sprint 107); function-section routing is not implemented, so
+        # the function lands in .text.  Honest skip, not a miscompile: the file compiles
+        # to a valid object.
+        return "SKIP-TARGET:named_sections"
     if rel.as_posix() == "execute/941014-2.c":
         # Reads uninitialized malloc memory (foo_p->a) and prints it if non-zero.
         # Fresh AOT process gets zeroed pages from the kernel, but in-process JIT
