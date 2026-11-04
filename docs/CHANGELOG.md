@@ -1,3 +1,27 @@
+## [Sprint 107] - 2026-11-05 - `__attribute__((section))` on objects (3,674 PASS, baseline ratcheted)
+
+GNU `__attribute__((section("name")))` / `__section__("name")` on global **objects** is now supported for AOT `-c` object output. The two `SKIP-TARGET:named_sections` object tests (`compile/pr23237.c`, `compile/pr61848.c`) now PASS; the remaining one (`compile/section.c`) needs **function**-section routing and stays an honest `SKIP-TARGET:named_sections`. **c-torture: PASS 3,672 -> 3,674 (+2, 0 bad), SKIP-TARGET:named_sections 3 -> 1, baseline ratcheted.**
+
+### Frontend
+
+- **Preprocessor** (`core/preprocessor.c`): the `__attribute__((section("name")))` / `__section__("name")` attribute is rewritten to a `__zc_section__("name")` marker (the section name kept as a string-literal argument), alongside the existing `vector_size`/`aligned`/`alias`/`mode`/`scalar_storage_order` rewrites.
+- **File-scope loop** (`jit/compile_unit.c`): before dispatching a top-level declaration, a bounded pre-scan (to the declaration's terminating `;` or matching `}`) finds and strips any `__zc_section__("name")` marker from the token stream so the declaration parses normally, and records the name on `c->pending_object_section`. Because the scan covers the whole top-level declaration (including function bodies), it also transparently strips the marker from **local** declarations — GCC *rejects* a section attribute on a local ("cannot be specified for local variables"), so ZeroCC's behavior (ignore the section, keep correct value semantics) is a benign leniency, verified across comma-declarator / pointer / struct / array shapes.
+- **`ZeroCCGlobalVar`** (`types/global_vars.h`): new `section[64]` + `named_sec_off` fields; `add_global_var` applies `c->pending_object_section` to the new/updated entry. `ZeroCCCompiler.pending_object_section[64]` (`types/symbols.h`) carries the name from the file-scope loop to `add_global_var`.
+
+### AOT `-c` object emission (`main.c`, `compile_object_single`)
+
+- Named-section globals are grouped by section, laid out (aligned per object) in a dedicated section, and the section is emitted as `PROGBITS` (`NOBITS` when all its objects are BSS-like) with the bytes copied out of `.data`. Each object's symbol is emitted **in the named section** at its placed offset; if a section's total size is zero it is not emitted and the object falls back to `.data`/`.bss`.
+- Relocations are **symbol-based**, so every reference (address-take, load/store) resolves to the named section with no relocation changes. The `.data` copy of the bytes is left in place (dead, unsymbolicated). Function-section routing is **not** supported (a function's section attribute is consumed but the function still lands in `.text`).
+
+### Tests & verification
+
+- **`test/jit/named_section.c`** (new): round-trips 2 objects in one named section (`.zc_named_a`, exercising the multi-object per-section layout) + 1 in another (`.zc_named_b`); exercised by `make test-opt` (zerocc JIT + AOT, -O0..-O3, gcc reference) and compiles/runs under host gcc (`make test`).
+- Directly verified the `zerocc -c` objects: `message`/`actions` land in `.init.data` (offsets 0/8) and `foo` in `.mysection`; the objects are valid ELF64 relocatables that link + run correctly through the system linker (a `foo` round-trip through `.mysection` returns the written value).
+- `make test` **169/169** (was 168), `make test-opt` **131 ok** (was 130), `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors / 78 warnings, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,674** (was 3,672: +2 — `compile/pr23237.c`, `compile/pr61848.c`), SKIP-TARGET:named_sections 3 -> 1 (`compile/section.c`), 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
+---
+
 ## [Sprint 106] - 2026-11-05 - `freopen` declared in the stdio.h virtual header (3,672 PASS, baseline ratcheted)
 
 The two `SKIP-TARGET:unwrapped` tests (`execute/printf-2.c`, `execute/user-printf.c`) use a real `main` + real file I/O (`freopen`/`fopen`/`fscanf`/`remove`) against the **host libc** (the gate runs execute tests via JIT dlsym or the AOT system linker — never `zero_rt`). They segfaulted in **both** JIT and AOT at every `-O` level. **c-torture: PASS 3,670 -> 3,672 (+2, 0 bad), SKIP-TARGET:unwrapped 2 -> 0, baseline ratcheted.**
