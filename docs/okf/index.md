@@ -4,7 +4,7 @@ title: ZeroCC Knowledge Graph (OKF Bundle)
 description: Root navigator and knowledge graph entry point for AI coding agents working on ZeroCC, a multi-ISA C99/C11 compiler targeting x86-64, AArch64, and RISC-V.
 resource: okf/index
 tags: [zerocc, compiler, index, navigation, okf]
-timestamp: 2026-10-26T21:52:49Z
+timestamp: 2026-11-04T16:35:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -29,7 +29,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - Multi-input driver modes, the multi-TU JIT image merge (`zero_cc_tu_merge`), global-registry snapshot discipline, extern-object load/store paths, and unnamed prototype parameters.
 - **[ZeroCC Own Linker (T2)](./own-linker.md)**
   - ELF64-LE object reader, classic `ar` archive reader with greedy member extraction, symbol resolution, the x86-64 static relocation set, the generated `_start` stub, and the `make test-linker` differential gate.
-- **[Zero_RT — ZeroCC's Own Freestanding Runtime (Phase 0: Linux x86-64)](./zero-rt.md)**
+- **[Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RISC-V64 cross archives)](./zero-rt.md)**
   - The `zero_rt/` runtime (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting) compiled by zerocc itself, auto-linked by `--zerocc-link` (`--no-zerocc-rt` to opt out), and the `zeroc_main_wrapper` `_start` routing that runs atexit on a plain `return` from `main`.
 
 ---
@@ -37,7 +37,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 ## 2. IR, Register Allocation & Optimization Passes
 
 - **[Two-Pass IR & Register Allocation](./ir-and-regalloc.md)**
-  - `Instr` 51-opcode representation, `IRCallArgs` call-site side table, virtual-to-physical register mapping, reserved registers (`%rsp`, `%rbp`, `%rcx`, `%r10`, `%r11`), and loop live-range extensions.
+  - `Instr` 141-opcode representation, `IRCallArgs` call-site side table, virtual-to-physical register mapping, reserved registers (`%rsp`, `%rbp`, `%rcx`, `%r10`, `%r11`), and loop live-range extensions.
 - **[Optimization Passes & Safety Invariants](./optimization-passes.md)**
   - Active passes (`constant_fold`, `copy_prop`, `cse`, `gvn`, `dce`, `mem2reg`, `licm`, `auto_vectorize`), sub-8-byte stack store invalidation in `mem2reg`, and two-pass `IRArena` rebuild in `licm`.
 
@@ -63,7 +63,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[Build, Test & Verification Guide](./build-and-verification.md)**
   - Makefile targets (`make all`, `make test`, `make rebuild`), running single tests, verifying AOT (`-o`) vs JIT (`--run`), and automated C99/C11 & ABI verifiers (`tools/c11/test_c11.py`, `tools/vla/test_vla.py`, `tools/sret_verifier.py`, `tools/struct_abi_verifier.py`).
 - **[GCC c-torture Conformance Gate](./c-torture-gate.md)**
-  - Differential conformance gate against the vendored 3,940-test `gcc.c-torture` corpus (`tools/torture_run.py`, `make test-torture`), scope/skip rules, `-std=c99/-c11 -pedantic-errors` `REJECT` triage, and the ratcheting [`test/torture/baseline.json`](../../test/torture/baseline.json) (`PASS: 1714`, `MISCOMPILE: 218`, `REJECT: 954`, `SKIP-C89: 699`, `TIMEOUT: 10`).
+  - Differential conformance gate against the vendored 3,940-test `gcc.c-torture` corpus (`tools/torture_run.py`, `make test-torture`), scope/skip rules, `-std=c99/-c11 -pedantic-errors` `REJECT` triage, and the ratcheting [`test/torture/baseline.json`](../../test/torture/baseline.json) (Sprint 100: `PASS: 3,586`, `MISCOMPILE: 0`, `REJECT: 0`, `SKIP-C89: 90`, `TIMEOUT: 0`).
 - **[Performance Measurements & the JIT-vs-GCC Claim](./perf-measurements.md)**
   - Measured per-pass optimizer costs (`--profile-opts`) before/after the Sprint 35 CFG migration, the retracted "~78× faster than GCC" claim with the re-measured JIT-vs-GCC matrix, the mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 

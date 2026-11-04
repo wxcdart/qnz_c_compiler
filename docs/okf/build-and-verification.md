@@ -1,10 +1,10 @@
 ---
 type: Guide
 title: Build, Test & Verification Guide for Agents
-description: Practical commands and rules for building ZeroCC, running the 140-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
+description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-10-26T21:52:49Z
+timestamp: 2026-11-04T16:35:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -43,7 +43,7 @@ All project headers are included **relative to the include roots `-Isrc -Iinclud
 ## 2. Running the Test Suite
 
 ```bash
-# Run all 147 tests (unit, semantic, abi, jit)
+# Run all 165 tests (13 unit, 17 semantic, 38 abi, 97 jit)
 make test
 
 # Run specific category
@@ -54,9 +54,9 @@ make test-unit
 
 # ASan+UBSan build of the semantic harnesses (LeakSanitizer-clean;
 # the harnesses tear down via zero_cc_compiler_free, see types/symbols.h)
-make asan-semantic   # 16/16 as of Sprint 42
+make asan-semantic   # 17/17 as of Sprint 100
 
-# The full suite under ASan+UBSan — green (147/147) since the Sprint 42
+# The full suite under ASan+UBSan — green (165/165) since the Sprint 42
 # teardown sweep; every in-process compile is destroyed via
 # zero_cc_compiler_free, so this gate also catches new per-compile leaks.
 make asan
@@ -99,7 +99,7 @@ Note that `build/test/abi/*` binaries built by `make all` are compiled by the ho
 Active verification suites live at the top level of `tools/` (historical one-off debugging scripts are archived in `tools/archive/`):
 
 ```bash
-# Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (105 tests)
+# Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (126 tests)
 make test-opt
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
@@ -126,7 +126,7 @@ python3 tools/prologue_epilogue_verifier.py
 
 # Own-linker (T2) differential battery: link zerocc objects + .a archives with
 # --zerocc-link into a static ET_EXEC, run it, and compare against a
-# gcc -no-pie link of the same objects (14/14 as of Sprint 43)
+# gcc -no-pie link of the same objects (21/21 as of Sprint 100)
 make test-linker
 
 # C style/convention checker (ruff-style; codifies docs/coding_style.md):
@@ -151,7 +151,7 @@ python3 tools/sret_verifier.py --target-all
 # width-4 (sxtw/uxtw) case.
 # Cross-target output defaults to direct RAW binary object emission via
 # elf_writer (ELF64/ELF32), with ZC_TEXT_AOT=1 available as a text escape hatch.
-# All 4 target ISAs pass 44/44 cleanly under QEMU (see isa-backends.md).
+# All 4 target ISAs pass 59/59 cleanly under QEMU (see isa-backends.md).
 
 # Differential-test EVERY target ISA's RAW binary emitter under QEMU (make target below).
 make test-isa-qemu
@@ -177,7 +177,7 @@ A uniform musl-static reference is used across all 4 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
-**Current state** (raw emitters): **All 4 target ISAs (44/44)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 11/11**, **aarch64 11/11**, **riscv64 11/11**, and **riscv32 11/11**. For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/isa_qemu_diff.py --isa <arch>`.
+**Current state** (raw emitters): **All 4 target ISAs (59/59 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 15/15**, **aarch64 15/15**, **riscv64 15/15**, and **riscv32 14/14** (15 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/isa_qemu_diff.py --isa <arch>`.
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

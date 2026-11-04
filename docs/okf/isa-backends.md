@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-04T04:25:40Z
+timestamp: 2026-11-04T16:35:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -112,7 +112,7 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
      - RISC-V S/I-type immediates are 12-bit (±2047): `riscv64_emit_load/store` (both RV64 and RV32 — the RV32 vtable now uses the ISA-aware RV64-named helpers) and the ASM-path load/store/param-save/CSR-restore all fall back to a scratch-register base (`li t0, off; add t0, base, t0; st/ld, 0(t0)`) when the displacement exceeds the immediate range.
      - **binutils 2.41 RISC-V `sym+offset` bug**: `lla dst, .Lrodata+off` (and `%pcrel_hi(sym+off)`/`%pcrel_lo(1b)`) compute the wrong address (LO12 reloc references a phantom `.L0`; verified off-by-one against a plain-label control). The `-S` RISC-V rodata pointer loads (`asm_emitter.c` OP_LEA_RIP / OP_FMOV_IMM) therefore emit `lla t0, .Lrodata` + `addi/add` with the offset instead of a symbol+offset reference. AArch64 `adrp x9, .Lrodata+off` is unaffected (verified).
    - **Scope**: the frame-pointer register (`%rbp` / `x29` / `s0`) is currently only *not set up*; it is not yet handed to the register allocator as a general-purpose register, so the win is prologue/epilogue cost, not register pressure.
-   - Verified by the QEMU raw-emitter battery (44/44) and the extended `prologue_epilogue_verifier.py` (see below).
+   - Verified by the QEMU raw-emitter battery (59/59) and the extended `prologue_epilogue_verifier.py` (see below).
 7. **Verification Tools**:
    - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, omit-frame-pointer shapes (FP-free prologue/epilogue with balanced SP adjustments and LR/ra save-restore on all four ISAs), and store-load symmetry for both FP-based (`[x29, #-N]` / `N(s0)` / `N(%rbp)`) and SP-based (`[sp, #N]` / `N(sp)` / `N(%rsp)`) CSR slots.
    - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
@@ -215,7 +215,7 @@ When `-S` is invoked, `emit_asm_data_sections()` emits all global symbols, align
 
 ## RISC-V Raw Binary Emitter & Relocation Fixes (Sprint 41)
 
-Differential testing under QEMU exposed several immediate-encoding and relocation issues in the RISC-V raw machine-code path (`riscv.c`, `main.c`, `ast_lowering_mc.c`, `ast_lowering_expr.c`), which were resolved to bring `riscv64` raw execution to **11/11 passing**:
+Differential testing under QEMU exposed several immediate-encoding and relocation issues in the RISC-V raw machine-code path (`riscv.c`, `main.c`, `ast_lowering_mc.c`, `ast_lowering_expr.c`), which were resolved to bring `riscv64` raw execution to **15/15 passing**:
 
 - **B-Type Immediate Encoding (`rv64_B` & `riscv64_patch_jmp`)**:
   - RISC-V B-type format encodes `imm[12|10:5] rs2 rs1 funct3 imm[4:1|11] opcode`.
@@ -278,7 +278,7 @@ To systematically eliminate raw-emitter and cross-target crashes, three dedicate
 - **x86-64 (`x86_emit_syscall`, `x86_emit_syscall_asm`)**: Linux System V AMD64 ABI (`rax = nr`, `rdi, rsi, rdx, r10, r8, r9 = a1..a6`, `syscall`, result in `rax` / `VREG_0`). Preserves caller-saved GPRs (`rcx`, `r11`) clobbered by `syscall`.
 - **AArch64 (`aarch64_emit_syscall`, `aarch64_emit_syscall_asm`)**: Linux AArch64 ABI (`x8 = nr`, `x0..x5 = a1..a6`, `svc #0`, result in `x0` / `VREG_0`). Saves/restores 13 allocatable GPRs on a 16-byte aligned frame (`112` bytes) and loads spilled temporaries via the pre-decrement `sp` frame.
 - **RISC-V 64 & 32 (`riscv64_emit_syscall`, `riscv_emit_syscall_asm`)**: Linux RISC-V ABI (`a7 = nr`, `a0..a5 = a1..a6`, `ecall`, result in `a0` / `VREG_0`). Uses word-sized `sw`/`lw` (`4`-byte slots) on `ISA_RISCV32` and `sd`/`ld` (`8`-byte slots) on `ISA_RISCV64`.
-- **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 4 ISAs under `make test-isa-qemu` (**52/52 passing**: 13/13 per ISA in both raw and `-S` assembly modes).
+- **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 4 ISAs under `make test-isa-qemu` (52/52 when the battery had 13 tests, 13/13 per ISA in both raw and `-S` assembly modes; the battery has since grown to 15 tests - 59/59 as of Sprint 100, `15_nested_tramp.c` skipped on riscv32).
 
 ## Trampoline Stubs (Sprint 93 Phase 3b; cross-ISA Sprint 97)
 
@@ -295,6 +295,8 @@ Real computed-goto trampolines for indirect calls through nested function pointe
   2. Loads context object values into the appropriate argument registers (hidden capture params first, then user args).
   3. Ensures 16-byte stack alignment with a **pre-push pad** (odd unit count adds 8 to the frame BEFORE any push - matching the OP_CALL lowering model; a post-push pad would shift the shared stack units away from `[entry_sp]` where the real function's prologue reads them).
   4. `call`s the real nested function; the real function's `ret` lands on the stub's epilogue (`leave; ret` / `ldp x29,x30,[sp],#16; ret` / `ld ra; ld s0; addi sp,sp,16; ret`), returning to the ORIGINAL caller.
+
+  **Sprint 100 (VLA struct members)**: a by-value parameter or capture of a struct/union with variably-modified members occupies **2 GPR units** in the unit model (`tramp_unit_gpr_slots` in `tramp_stub.h` + the x86 local model): unit 0 = object pointer, unit 1 = total runtime size (the by-value ABI is defined in `abi-sysv-x86_64.md`). This is what makes `compile/nested-1.c` (`int nested (struct s x)` with `struct s { int a; char b[argc]; }`) PASS: the stub must route both units into the same argument registers the real function's prologue reads.
 
 - **ISA stub-encoding invariants** (each bug below was found via a QEMU miscompile/segfault):
   - **x86-64**: `movaps xmm,mem` (load) = `0F 28 /r` but `movaps mem,xmm` (store) = `0F 29 /r` - the entry-save loop must use the STORE form; XMM entry-save offsets beyond disp8 (-144) need the disp32 `41`/`44`/`45` REX form; loading XMM from the frame uses `movdqu` (`F3 0F 6F`, 16B) / `movsd` (`F2 0F 10`, 8B) - `F2 0F 6E` is not a valid 16-byte load; entry stack args at `[rbp+16+8m]`; `call rel32`'s PC is the NEXT instruction (the +5 relative to the `call` itself).

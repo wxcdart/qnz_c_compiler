@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-04T14:55:01Z
+timestamp: 2026-11-04T16:35:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -322,7 +322,7 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
 
 ## GNU Nested Functions / Trampolines (C99 6.9p15)
 
-Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) are **accepted** in JIT mode on x86-64, replacing the previous clean rejection.
+Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) were originally **accepted** in JIT mode on x86-64 (replacing the previous clean rejection); since Sprint 97 the capturing trampoline path works in **JIT + raw AOT on x86-64, AArch64 and RISC-V64** (RISC-V32 still rejects address-taking of capturing nested functions with a clean diagnostic — see `isa-backends.md`).
 
 - **Phase 2 — Closure capture by-value (Sprint 90)**: every enclosing local in scope at the nested definition is passed as a hidden leading parameter to the nested function (nested signature = captured_0..N, user_params). The caller loads the current values of captured variables at the call site. Non-capturing nested functions (no captured locals) compile and run correctly at all `-O` levels in both JIT and AOT. Capturing nested functions pass correctly in JIT mode.
 

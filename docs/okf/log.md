@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T14:55:01Z
+timestamp: 2026-11-04T16:36:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -816,3 +816,30 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `architecture-pipeline.md`
 - Sprint 100: all 11 trampolines-cluster c-torture tests now run (nested-1 PASS)
+
+## 2026-11-04 — Updated `build-and-verification.md`
+- Docs refresh: full test suite 165/165 (13 unit / 17 semantic / 38 abi / 97 jit), optimizer sweep 126 tests, own-linker 21/21, ASan 165/165, QEMU battery 59/59 (15/15 x86-64+aarch64+riscv64, 14/14 riscv32)
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Docs refresh: mark Sprint 57 chunked burn-down plan complete; corpus state PASS 3,586 / 0 bad; resolve stale bool/packed-struct note (Sprint 74, both PASS on all 8 configs)
+
+## 2026-11-04 — Updated `isa-backends.md`
+- Docs refresh: QEMU battery 59/59 (was 44/44), riscv64 raw 15/15, 13_syscall battery note, Sprint 100 VLA-struct 2-GPR-unit trampoline model
+
+## 2026-11-04 — Updated `ir-and-regalloc.md`
+- Docs refresh: 141 opcodes (OP_NONLOCAL_GOTO), OP_SYSCALL now all 4 ISAs (Sprint 89)
+
+## 2026-11-04 — Updated `architecture-pipeline.md`
+- Docs refresh: 141-opcode lowering, add Sprint 97 cross-ISA trampoline stubs to nested-function notes
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Docs refresh: nested-function section current-state (JIT + raw AOT on x86-64/AArch64/RISC-V64 since Sprint 97)
+
+## 2026-11-04 — Updated `index.md`
+- Docs refresh: 141-opcode IR description, c-torture baseline summary (Sprint 100: PASS 3,586, 0 bad)
+
+## 2026-11-04 — Updated `zero-rt.md`
+- Docs refresh: Sprint 55 cross archives (zero_rt_aarch64.a / zero_rt_riscv64.a), per-target auto-linking, title updated
+
+## 2026-11-04 — Updated `own-linker.md`
+- Docs refresh: zero_rt per-target auto-linking (Sprint 55) instead of x86-64-only

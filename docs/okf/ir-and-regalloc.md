@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-03T04:17:40Z
+timestamp: 2026-11-04T16:35:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 140 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`, and inline non-local jumps `OP_SETJMP`/`OP_LONGJMP`).
+- `op` (`Opcode`): One of 141 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`, inline non-local jumps `OP_SETJMP`/`OP_LONGJMP`, and cross-scope nonlocal goto `OP_NONLOCAL_GOTO` - restore the hidden `(fp, sp-snapshot)` pair then jump to the ancestor label).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
@@ -109,7 +109,7 @@ All 9–16 byte value passing (struct returns, compound literal evaluation, by-v
 - **Clobber semantics = call semantics**: the LRA (`live_range.h`) records `OP_SYSCALL` as a *call position*, so intervals spanning it get the `spans_call` restriction. This is sound because the syscall clobbers `rax/rcx/rdx/rsi/rdi/r8–r11` — a subset of what a call clobbers. Spilled syscall args are reloaded into `scratch_reg2` (`%r11`), which is already reserved and clobbered by the syscall itself.
 - **Parallel-move invariant (x86-64)**: an argument temp may share a physical register with *another* argument's syscall slot (e.g. the count in `%rax` while the number also targets `%rax`), so the backend (`x86_emit_syscall`) moves arguments via a push/pop parallel move (the same idiom as `OP_CALL`), never sequential `mov`s. The text emitter (`x86_emit_syscall_asm`) mirrors it with `pushq`/`popq`.
 - **SysV register map**: `eax`=number, `rdi`/`rsi`/`rdx`/`r10`/`r8`/`r9`=args 1–6 (note `r10`, not `rdx`, for the 4th argument — different from the call ABI).
-- **Target support**: x86-64 only for now; the dispatcher (`ast_lowering_mc.c`) reports a compile error on backends whose `emit_syscall` slot is NULL (aarch64/riscv). All `OP_CALL` opt-pass special cases (DCE keep/side-effects/liveness, GVN `mf_reset`, mem2reg block-exit + loop safety, LICM `loop_has_call`) include `OP_SYSCALL` in parallel.
+- **Target support**: all 4 target ISAs (Sprint 89) — x86-64 (`syscall`), AArch64 (`svc #0`, number in `x8`), RISC-V 64 & 32 (`ecall`, number in `a7`); the dispatcher (`ast_lowering_mc.c`) still reports a compile error on any backend whose `emit_syscall` slot is NULL. The per-ISA register maps and clobber-save geometry are documented in `isa-backends.md`. All `OP_CALL` opt-pass special cases (DCE keep/side-effects/liveness, GVN `mf_reset`, mem2reg block-exit + loop safety, LICM `loop_has_call`) include `OP_SYSCALL` in parallel.
 
 ## Register Allocation Rules (`src/zero_cc/ir/regalloc.h`)
 

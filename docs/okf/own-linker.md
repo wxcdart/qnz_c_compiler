@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output (x8
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21).
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt]
-timestamp: 2026-10-26T02:54:02Z
+timestamp: 2026-11-04T16:36:04Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -163,8 +163,7 @@ index by name after the sections are added — never assume a position.**
 
 - **32-bit targets** (`--target riscv32` is not yet supported in the own linker;
   x86-64, aarch64, and riscv64 are fully supported).
-- **zero_rt is x86-64 only** today, so `--zerocc-link` auto-links it only
-  for x86-64 targets (a cross zero_rt is Phase 1).
+- **zero_rt cross targets (Sprint 55)**: `--zerocc-link` auto-links the per-target runtime archive (`zero_rt.a` x86-64, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`), built by `make all` via zerocc self-compilation.
 - No dynamic symbols/PLT stubs, no `GOTPCRELX`/`GOT32` materialization,
   no interposition/weak-alias lattice — correct for a fully static link
   of zeroc objects (and zero_rt), which is the intended customer.

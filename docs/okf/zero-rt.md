@@ -1,10 +1,10 @@
 ---
 type: Concept
-title: Zero_RT — ZeroCC's Own Freestanding Runtime (Phase 0: Linux x86-64)
+title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RISC-V64 cross archives)
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-10-26T05:08:25Z
+timestamp: 2026-11-04T16:36:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Zero_RT — ZeroCC's Own Freestanding Runtime
 
-**Phase 0 scope: Linux x86-64.** The goal is for ZeroCC programs to need no system libc/crt: the runtime is owned by the project, compiled **by zerocc itself**, and linked by zerocc's own linker ([own-linker.md](./own-linker.md)).
+**Phase 0 scope: Linux x86-64** (Sprint 49), extended in Sprint 55 to cross-architecture archives for AArch64 and RISC-V64 (see the closeout section below). The goal is for ZeroCC programs to need no system libc/crt: the runtime is owned by the project, compiled **by zerocc itself**, and linked by zerocc's own linker ([own-linker.md](./own-linker.md)).
 
 ## Layout (`zero_rt/`)
 
@@ -27,11 +27,11 @@ Virtual freestanding headers for the compiler's preprocessor (`core/preprocessor
 
 ## Build & Self-Compilation
 
-`make all` builds `build/lib/zero_rt.a` **with zerocc itself** (`$(BUILD_DIR)/bin/zerocc -c zero_rt/... -O0`), then archives the objects with the system `ar` (the own linker reads classic archives; *writing* archives is a follow-up). The rule depends on `build/bin/zerocc`, so a compiler change rebuilds the runtime. Dead pre-Phase-0 Python tools live in `tools/archive/`.
+`make all` builds `build/lib/zero_rt.a` **with zerocc itself** (`$(BUILD_DIR)/bin/zerocc -c zero_rt/... -O0`), then archives the objects with the system `ar` (the own linker reads classic archives; *writing* archives is a follow-up). Since Sprint 55 the same rule also builds the cross archives `build/lib/zero_rt_aarch64.a` and `build/lib/zero_rt_riscv64.a` (zerocc `--target aarch64` / `--target riscv64` self-compilation). The rules depend on `build/bin/zerocc`, so a compiler change rebuilds the runtime. Dead pre-Phase-0 Python tools live in `tools/archive/`.
 
 ## Auto-Linking (`--zerocc-link`)
 
-In `compile_and_link` (`src/main.c`), when `--zerocc-link` is used the driver appends `build/lib/zero_rt.a` to the archive list — located via `$ZERO_RT_A` or `../lib/zero_rt.a` relative to the zerocc binary (`/proc/self/exe`). **`--no-zerocc-rt`** disables it (tests linking plain programs against the raw `_start` stub keep working).
+In `compile_and_link` (`src/main.c`), when `--zerocc-link` is used the driver appends the matching zero_rt archive to the archive list: `zero_rt.a` for x86-64, `zero_rt_aarch64.a` for AArch64, `zero_rt_riscv64.a` for RISC-V64 (Sprint 55) — located via `$ZERO_RT_A` / `$ZERO_RT_AARCH64_A` / `$ZERO_RT_RISCV64_A` or `../lib/<name>` relative to the zerocc binary (`/proc/self/exe`). **`--no-zerocc-rt`** disables it (tests linking plain programs against the raw `_start` stub keep working).
 
 ## Linker Changes for zero_rt (`src/zero_cc/linker/linker.c`)
 

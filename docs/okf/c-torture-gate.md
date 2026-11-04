@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T14:55:01Z
+timestamp: 2026-11-04T16:35:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -264,7 +264,7 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
       - **K&R funcptr params** (`jit/compile.h`): `void * (*chunkfun) ();` is a function-pointer declarator. **Cast funcptr types** (`parser/const_eval.h`): `int *(*)(long)`, `struct A *(*) (long)`. **Aligned member attribute** (`parser/definitions.h`): `__attribute__((aligned(N)))` updates member alignment (`pr23467`).
     - **Static-local address-of correctness** (`ir/ast_lowering.c`, `ast_lowering_expr.c`, `ast_lowering_internal.h`, `types/type_system.h`): `&static_local` was lowering to the per-call **stack mirror** (dead after return) — `static struct V *baz(){ static struct V v; return &v; }` returned a dangling pointer (`execute/20041218-1.c` aborted). A pre-scan marks address-taken statics (`ZeroCCSym.static_addr_taken`); for them the mirror in/out is skipped and `zc_sym_addr`/`zc_sym_load`/`zc_sym_store` route every access to the data-section `__sl_N` object. Value-only statics and non-static locals are a no-op. `execute/20041218-1.c` → PASS all 8 configs.
     - **`__builtin_va_arg_pack` clean REJECT** (`parser/ast_expr.h`): the unimplemented GNU variadic-forwarding builtin is now a clean REJECT (no binary) instead of a runtime segfault (`execute/va-arg-pack-1.c`).
-    - **`bool`/`_Bool` typedef work — shelved** (`lexer/keywords.inc`, `parser/definitions.h`): accepting `typedef _Bool bool;` (bool out of the keyword table; `TYPE_BOOL`/`TYPE_ENUM` typedef members unsigned + `TYPE_BOOL` tag, matching GCC's enum-bit-field zero-extension) made `execute/20030714-1.c` PASS on all 8 configs and `20190820-1` pass at -O0/-O1, but exposed a **pre-existing -O2/-O3 packed-struct-with-bit-fields by-value codegen bug** (segfault on a pure by-value pass; confirmed at baseline). Reverted to hold `MISCOMPILE 0`; the O2 packed-struct bug is the target for the next sprint, after which the `bool`/`_Bool` work can be re-enabled.
+    - **`bool`/`_Bool` typedef work — shelved, later re-enabled** (`lexer/keywords.inc`, `parser/definitions.h`): accepting `typedef _Bool bool;` (bool out of the keyword table; `TYPE_BOOL`/`TYPE_ENUM` typedef members unsigned + `TYPE_BOOL` tag, matching GCC's enum-bit-field zero-extension) made `execute/20030714-1.c` PASS on all 8 configs and `20190820-1` pass at -O0/-O1, but exposed a **pre-existing -O2/-O3 packed-struct-with-bit-fields by-value codegen bug** (segfault on a pure by-value pass; confirmed at baseline). Reverted to hold `MISCOMPILE 0`; the O2 packed-struct bug was the target for the next sprint, after which the `bool`/`_Bool` work could be re-enabled. *(Resolved in Sprint 74 — packed-struct inlining safety + `bool` keyword removal + bitfield signedness/tag setup: both `execute/20030714-1.c` and `execute/20190820-1.c` are `PASS` on all 8 configs as of Sprint 100.)*
     - **Result**: PASS **2,946 → 2,970**; REJECT **80 → 61**; MISCOMPILE **0 → 0**; no PASS→bad. `make test` 156/156, `make test-opt` 117 ok (1 nondeterministic), `make test-isa-qemu` 44/44, diag battery baseline OK, style 0 errors. Baseline re-recorded (`--update-baseline`).
     - **Next**: continue the REJECT burn-down (61 remaining; dominant: `unexpected token at file scope`, `expected identifier in declaration`, `unexpected token 'unknown' in statement`, `undefined local variable … in struct assignment`, `VLA must be at function scope`). Known honest REJECT: `compile/20001226-1.c` + `compile/limits-caselabels.c` (16-bit temp-id budget), `limits-*` stress, and the O2 packed-struct-with-bit-fields by-value bug (`20030714-1`/`20190820-1` once `bool` is re-enabled).
 
@@ -281,6 +281,8 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
 ---
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
+
+> **Status (Sprint 100): the entire plan is complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,586, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
 
 Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 

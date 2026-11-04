@@ -1,6 +1,6 @@
-## [Sprint 100] - 2026-11-04 - GNU Variably-Modified Struct/Union Members (3,585 PASS, baseline ratcheted)
+## [Sprint 100] - 2026-11-04 - GNU Variably-Modified Struct/Union Members (3,586 PASS, baseline ratcheted)
 
-Local/block-scope structs with runtime-sized array members (GNU extension; c-torture `compile/nested-1.c`, `execute/20020412-1`, `execute/20041218-2` and 8 more) now compile and run. **c-torture: PASS 3,575 -> 3,585 (0 bad), baseline ratcheted.**
+Local/block-scope structs with runtime-sized array members (GNU extension; c-torture `compile/nested-1.c`, `execute/20020412-1`, `execute/20041218-2` and 9 more) now compile and run. **c-torture: PASS 3,575 -> 3,586 (0 bad), baseline ratcheted.**
 
 ### Type system & layout
 
@@ -22,7 +22,7 @@ Local/block-scope structs with runtime-sized array members (GNU extension; c-tor
 
 - New regression tests: `test/jit/vla_struct_members.c` (member store/read, member-array decay, definition-time capture, packed no-declarator definition, `va_arg` of anonymous VLA struct, value assignment, arrays of VLA structs, by-value nested-function parameter, constant `sizeof` dimensions) and `test/semantic/vla_struct_diag_test.c` (tag-redefinition diagnostics).
 - `make test` **165/165**, `make test-opt` **126 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS.
-- c-torture full gate: **PASS 3,585** (was 3,575: +`20020412-1` restored, +`20040308-1`, `20041218-2`, `align-nest`, `compile/20010605-1`, `compile/20030224-1`, `compile/20050801-2`, `compile/920501-16` and friends), SKIP-C89 100 -> 90, 0 bad. `compile/nested-1.c` now **compiles** (trampoline stub emitted) but stays `SKIP-TARGET:trampolines` until its `bar`/link form is exercised by the gate harness. **Baseline ratcheted** (`test/torture/baseline.json`).
+- c-torture full gate: **PASS 3,586** (was 3,575: +`20020412-1` restored, +`20040308-1`, `20041218-2`, `align-nest`, `compile/20010605-1`, `compile/20030224-1`, `compile/20050801-2`, `compile/920501-16` and friends), SKIP-C89 100 -> 90, 0 bad. `compile/nested-1.c` (by-value VLA-member struct through the nested-function trampoline) is now **PASS** - the last `SKIP-TARGET:trampolines` holdout; `TRAMPOLINES_BLOCKED` in `tools/torture_run.py` is empty. **Baseline ratcheted** (`test/torture/baseline.json`).
 
 ## [Sprint 99] - 2026-11-04 - Nonlocal `goto` Across Nested-Function Scopes, gnu89 Implicit Declarations, Fn-Ptr Prototype ABI + 4 Codegen Correctness Fixes (3,575 PASS, baseline ratcheted)
 
