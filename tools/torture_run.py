@@ -87,7 +87,14 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 # in Sprints 98-102, plus __builtin_apply/__builtin_apply_args (Sprint 102).
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
-    "named_sections", "unwrapped",
+    # "unwrapped" was unskipped: those tests use real main + file I/O
+    # (freopen/fopen/fscanf/remove) against the host libc.  The only blocker
+    # was that the stdio.h virtual header did not declare `freopen`, so it
+    # got an implicit-int declaration and its 64-bit FILE * return was
+    # truncated to 32 bits (garbage pointer -> segfault).  Declaring it
+    # (freopen/feof/ferror/clearerr/ungetc) fixed both tests (printf-2,
+    # user-printf) at every -O level in JIT and AOT.
+    "named_sections",
     "int128", "cilk",
     # other languages
     "c++", "cxx", "c2a", "go", "fortran", "ada", "objc", "java", "openmp",

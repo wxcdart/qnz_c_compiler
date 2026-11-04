@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T21:21:46Z",
+ "generated": "2026-11-04T21:47:24Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -39839,8 +39839,17 @@
    "note": ""
   },
   "execute/printf-2.c": {
-   "class": "SKIP-TARGET:unwrapped",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/printf-chk-1.c": {
@@ -40703,8 +40712,17 @@
    "note": ""
   },
   "execute/user-printf.c": {
-   "class": "SKIP-TARGET:unwrapped",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/usmul.c": {
@@ -41369,7 +41387,7 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3670,
+  "PASS": 3672,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 47,
@@ -41378,7 +41396,6 @@
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
-  "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1
  }
 }
