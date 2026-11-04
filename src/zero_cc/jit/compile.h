@@ -1294,6 +1294,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         /* Pre-collect user labels so goto targets validate in one pass
          * (a label may textually follow its goto). */
         sem_collect_labels(ctx, body);
+        /* Sprint 99: record this function's user labels so a later-compiled
+         * nested function can resolve `goto X` against an ancestor. */
+        if (fn->nl_label_count == 0) {
+            int n = (int)(ctx->label_count < 32 ? ctx->label_count : 32);
+            for (int i = 0; i < n; i++) {
+                fn->nl_labels[i] = ctx->labels[i];
+                fn->nl_label_count++;
+            }
+        }
         (void)sem_analyze_ref(ctx, body);
         bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
 
@@ -1519,7 +1528,31 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 }
                 ctx->current_fn_ret_type = zero_cc_type_to_typeinfo(perm, nf->return_type);
                 sem_collect_labels(ctx, n_body);
+                /* Sprint 99: record this nested function's labels (a deeper
+                 * nesting level may nonlocal-goto into it). */
+                if (nf->nl_label_count == 0) {
+                    int n = (int)(ctx->label_count < 32 ? ctx->label_count : 32);
+                    for (int i = 0; i < n; i++) {
+                        nf->nl_labels[i] = ctx->labels[i];
+                        nf->nl_label_count++;
+                    }
+                }
+                /* Sprint 99: expose the ANCESTOR labels (outermost first) so
+                 * `goto X` into an enclosing function validates. */
+                {
+                    int al = 0;
+                    for (size_t ai = nf->nested_enclosing_fn_idx;
+                         ai != (size_t)-1 && al < 64; ) {
+                        ZeroCCFunction *af = &c->functions[ai];
+                        for (int li = 0; li < af->nl_label_count && al < 64; li++) {
+                            ctx->ancestor_labels[al++] = af->nl_labels[li];
+                        }
+                        ai = af->nested_enclosing_fn_idx;
+                    }
+                    ctx->ancestor_label_count = al;
+                }
                 (void)sem_analyze_ref(ctx, n_body);
+                ctx->ancestor_label_count = 0;
 
                 /* Lower and emit */
                 c->has_pending_lowering_fn = true;

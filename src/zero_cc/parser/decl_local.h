@@ -581,6 +581,46 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
     if (!c || !arena || c->token_pos >= c->token_count) return false;
     size_t decl_save_pos = c->token_pos;
     ZeroCCTokType t = c->tokens[c->token_pos].type;
+    /* GNU `__label__ x;` (Sprint 99): a local of the label-value type.
+     * The variable is a plain int64 local; lowering materializes the
+     * address of the label named x (like &&x) into its slot, and
+     * `goto x;` resolves through it (possibly to an ancestor function -
+     * nonlocal goto). */
+    if (t == TK_LABEL) {
+        c->token_pos++; /* __label__ */
+        if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+            diag_report_error_at_token(c, "expected identifier after '__label__'");
+            return true;
+        }
+        const char *lname = c->tokens[c->token_pos].str_val;
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+            c->token_pos++;
+        } else {
+            diag_report_error_at_token(c, "expected ';' after '__label__' declaration");
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+            if (c->token_pos < c->token_count) c->token_pos++;
+            return true;
+        }
+        ZeroCCType lt = zero_cc_type_int64();
+        ZeroCCSym *sym = zero_cc_add_local(c, lname, lt);
+        if (!sym) {
+            diag_report_error_at_token(c, "out of memory allocating local variable '%s'", lname);
+            *out_ref = AST_NULL; return true;
+        }
+        sym->is_label_value = true;
+        ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+        ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
+        dn->line = line;
+        dn->col = col;
+        dn->s.str = zero_cc_intern_string(c, lname);
+        dn->s_len = strlen(dn->s.str);
+        dn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
+        decl_node_set_type(ctx, dn, zero_cc_type_to_typeinfo(ctx->perm_arena, lt));
+        *out_ref = decl_ref;
+        return true;
+    }
     /* Variable Declaration or Typedef Declaration */
     /* Parse alignment, storage specifiers & type qualifiers */
     bool is_const = false;

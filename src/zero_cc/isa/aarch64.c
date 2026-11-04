@@ -1824,3 +1824,25 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
  * Note: The lowering code should use VREG_0-VREG_15 for general purposes,
  * and BE(c)->sp_reg / BE(c)->fp_reg for stack/frame pointers.
  */
+
+/* Sprint 99: OP_NONLOCAL_GOTO absolute jump (AOT).
+ * adrp x16, <label>  (R_AARCH64_ADR_PREL_PG_HI21 against a local label
+ * symbol at text_offset, added by the .o writer)
+ * add  x16, x16, #off (R_AARCH64_ADD_ABS_LO12_NC, same symbol)
+ * br   x16
+ * x16 is the AArch64 PCS indirect-branch scratch; caller-saved and
+ * never live here (FP/SP were just restored, and the target is an
+ * ancestor mid-function with no AArch64 callee-save contract across a
+ * nonlocal jump - the target frame's callee-saved regs are the ones the
+ * ancestor saved on its own frame, untouched by the jump). */
+void zero_cc_aarch64_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset) {
+    arm64_emit_u32(c, 0x90000000u | 16u);           /* adrp x16, 0 */
+    size_t patch_pos = me_get_offset(c);
+    arm64_emit_u32(c, 0x91000000u | (16u << 5) | 16u); /* add x16, x16, #0 */
+    if (c->nl_goto_reloc_count < 64) {
+        c->nl_goto_relocs[c->nl_goto_reloc_count].text_patch_offset = patch_pos;
+        c->nl_goto_relocs[c->nl_goto_reloc_count].text_target_offset = text_offset;
+        c->nl_goto_reloc_count++;
+    }
+    arm64_emit_u32(c, 0xD61F0000u | (16u << 5));    /* br x16 */
+}

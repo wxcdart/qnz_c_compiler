@@ -959,6 +959,52 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         }
     }
 
+    /* Sprint 99: nonlocal goto absolute jumps (adrp/auipc + add/jalr pairs
+     * targeting an ancestor function's label). Each jump gets a local
+     * label symbol at the target offset in .text; the ISA pair relocations
+     * carry addend 0 (the label symbol IS the exact target). */
+    for (size_t i = 0; i < comp->nl_goto_reloc_count; i++) {
+        char lbl[64];
+        snprintf(lbl, sizeof(lbl), ".Lnl_goto_%zu", i);
+        elf_writer_add_symbol(&elf_ctx, lbl,
+                              ELF_STB_LOCAL, ELF_STT_NOTYPE,
+                              text_idx /* .text */,
+                              comp->nl_goto_relocs[i].text_target_offset,
+                              0);
+        int label_sym_idx = elf_ctx.symbol_count;
+        if (comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) {
+            char auipc_lbl[64];
+            snprintf(auipc_lbl, sizeof(auipc_lbl), ".Lnl_goto_auipc_%zu", i);
+            elf_writer_add_symbol(&elf_ctx, auipc_lbl,
+                                  ELF_STB_LOCAL, ELF_STT_NOTYPE,
+                                  text_idx,
+                                  comp->nl_goto_relocs[i].text_patch_offset - 4,
+                                  0);
+            int auipc_sym_idx = elf_ctx.symbol_count;
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      comp->nl_goto_relocs[i].text_patch_offset - 4,
+                                      label_sym_idx,
+                                      reloc_type_hi20, /* R_RISCV_PCREL_HI20 (23) */
+                                      0);
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      comp->nl_goto_relocs[i].text_patch_offset,
+                                      auipc_sym_idx,
+                                      reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
+                                      0);
+        } else if (comp->isa == ISA_AARCH64) {
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      comp->nl_goto_relocs[i].text_patch_offset - 4,
+                                      label_sym_idx,
+                                      275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
+                                      0);
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      comp->nl_goto_relocs[i].text_patch_offset,
+                                      label_sym_idx,
+                                      277 /* R_AARCH64_ADD_ABS_LO12_NC */,
+                                      0);
+        }
+    }
+
     /* Relocations for .data pointer initializers (string literals -> .rodata,
      * &global -> another global's address). */
     int reloc_type_data_abs = 1; /* R_X86_64_64 */

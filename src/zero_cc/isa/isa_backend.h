@@ -383,6 +383,13 @@ void x86_init_asm_emission(ZeroCCISABackend *be);
 void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
+
+/* Sprint 99: emit the absolute jump to an already-emitted code label for
+ * OP_NONLOCAL_GOTO (AOT relocations: ADR_PREL_PG_HI21/ADD_ABS_LO12_NC or
+ * PCREL_HI20/PCREL_LO12_I against a local label symbol at text_offset).
+ * Called from the shared MC path after the FP/SP restore. */
+void zero_cc_aarch64_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset);
+void zero_cc_riscv_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset);
 void aarch64_init_asm_emission(ZeroCCISABackend *be);
 void riscv64_init_asm_emission(ZeroCCISABackend *be);
 

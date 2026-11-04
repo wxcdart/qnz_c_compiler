@@ -36,6 +36,11 @@ typedef struct SemContext {
     size_t          label_count;
     size_t          label_cap;
     char          **labels;
+    /* Sprint 99: labels of the ANCESTOR functions (for nested bodies):
+     * `goto X` where X labels an enclosing function is legal (nonlocal
+     * goto). Set by the nested-compile loop before sem_analyze_ref. */
+    const char    *ancestor_labels[64];
+    int             ancestor_label_count;
 } SemContext;
 #endif
 

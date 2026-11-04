@@ -159,6 +159,16 @@ typedef struct ZeroCCCompiler {
     } user_label_offsets[256];
     size_t user_label_offset_count;
 
+    /* Sprint 99: nonlocal goto absolute-jump relocations (AOT .o only):
+     * an adrp/auipc at (text_patch_offset - 4) and an add/jalr at
+     * text_patch_offset targeting a local label symbol at
+     * text_target_offset (the ancestor's label position in .text). */
+    struct {
+        size_t text_patch_offset;    /* the add / jalr instruction */
+        size_t text_target_offset;   /* label position in .text */
+    } nl_goto_relocs[64];
+    size_t nl_goto_reloc_count;
+
     /* ISA backend */
     ZeroCCISA isa;                        /* Target ISA */
     const ZeroCCISABackend *isa_backend;  /* ISA-specific codegen backend */

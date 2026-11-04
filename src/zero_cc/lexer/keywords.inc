@@ -60,6 +60,7 @@ static const KeywordEntry keyword_table[] = {
     {"__alignof",      TK_ALIGNOF},
     {"__alignof__",    TK_ALIGNOF},
     {"__builtin_alignof", TK_ALIGNOF},
+    {"__label__",      TK_LABEL},
     {"constexpr",      TK_CONSTEXPR},
     {"nullptr",        TK_NULLPTR},
     {"static_assert",  TK_STATIC_ASSERT},

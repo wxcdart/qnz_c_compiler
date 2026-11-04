@@ -190,6 +190,13 @@ typedef struct {
      * call site passes the pointer VALUE (the storage pointer), keeping
      * the indirection depth at one level. */
     bool is_capture_mirror;
+    /* Sprint 99: GNU `__label__ x;` - x is a local of type int (label
+     * value type, held as int64). Its value is the ADDRESS of the label
+     * named x in the current function (materialized at declaration, like
+     * &&x), so computed gotos through x work. `goto x;` where x is a
+     * __label__ variable jumps to the label named x (which may be in an
+     * ANCESTOR function - nonlocal goto). */
+    bool is_label_value;
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.
@@ -271,6 +278,25 @@ typedef struct ZeroCCFunction {
     size_t tramp_ctx_size;
     int tramp_stub_fn_idx;                  /* c->functions index of the stub, -1 = none */
     bool is_tramp_stub;                      /* this entry IS a trampoline stub (no AST body) */
+
+    /* Sprint 99: nonlocal goto (goto to a label in an ANCESTOR function).
+     * The nested function's body may contain `goto X;` where X is a label
+     * (or __label__ variable) of an enclosing function. At the jump point
+     * the dynamic stack chain is N over A over ... over main - jumping
+     * straight to A's label would strand N's frame. GNU C restores the
+     * target frame's (rbp, rsp) at the jump. The nested function carries
+     * one hidden (rbp, rsp) PAIR parameter per ancestor scope (outermost
+     * first, after the capture params): the call site / ctx writer pass
+     * the pair for the immediate enclosing scope (LEA 0 / LEA -frame) and
+     * forward the remaining pairs from its own slots; the jump restores
+     * the pair for the label's scope and transfers control. */
+    int goto_pair_count;                     /* # ancestor scopes with a pair param, 0 = none */
+    /* User label registry: names + (post-lowering) IR label indices, so a
+     * later-compiled nested function can resolve `goto name` against an
+     * already-compiled ancestor. */
+    char *nl_labels[32];
+    uint16_t nl_label_ir[32];
+    int nl_label_count;
 } ZeroCCFunction;
 
 /* Relocation Record */

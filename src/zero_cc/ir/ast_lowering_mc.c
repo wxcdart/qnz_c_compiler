@@ -1276,6 +1276,43 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             }
 
+            case OP_NONLOCAL_GOTO: {
+                /* Sprint 99: restore the label's scope (rbp, rsp) from the
+                 * hidden pair params, then jump to the ancestor label.
+                 * The ancestor was compiled first, so its label text
+                 * offsets are already in user_label_offsets. */
+                int target_fn = (int)instr->imm64;
+                size_t target_off = 0;
+                bool found = false;
+                for (size_t li = 0; li < c->user_label_offset_count; li++) {
+                    if (c->user_label_offsets[li].func_idx == (size_t)target_fn &&
+                        c->user_label_offsets[li].ir_label == instr->label_idx) {
+                        target_off = c->user_label_offsets[li].text_offset;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    diag_report_error_at_token(c, "internal: nonlocal goto target label not found");
+                    break;
+                }
+                BE(c)->emit_mov_reg(c, BE(c)->fp_reg, phys_src1);
+                BE(c)->emit_mov_reg(c, BE(c)->sp_reg, phys_src2);
+                if (c->isa == ISA_X86_64) {
+                    size_t patch_pos = BE(c)->emit_jmp(c, "");
+                    BE(c)->patch_jmp(c, patch_pos, target_off);
+                } else if (c->isa == ISA_AARCH64) {
+                    zero_cc_aarch64_emit_nonlocal_goto_jump(c, target_off);
+                } else if (c->isa == ISA_RISCV64) {
+                    zero_cc_riscv_emit_nonlocal_goto_jump(c, target_off);
+                } else {
+                    diag_report_error_at_token(c,
+                        "nonlocal goto is not supported on this target "
+                        "(RISC-V32 has no trampoline / pair plumbing)");
+                }
+                break;
+            }
+
             case OP_PUSH:
                 /* Push register to stack */
                 if (BE(c)->emit_push_reg) {

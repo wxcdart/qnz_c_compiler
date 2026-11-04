@@ -91,6 +91,36 @@ bool sem_find_label(SemContext *ctx, const char *name, size_t len) {
     return false;
 }
 
+/* Sprint 99: GNU `__label__ x;` declares a local of label-value type;
+ * `goto x;` / `&&x` use the label named x. The variable lives in the
+ * CURRENT function's local table (reset per function, so a nested body
+ * analysis only sees the nested fn's own locals). */
+static bool sem_is_label_value_var(SemContext *ctx, const char *name) {
+    if (!ctx || !name || !ctx->compiler) return false;
+    ZeroCCSym *s = zero_cc_find_local(ctx->compiler, name);
+    return s != NULL && s->is_label_value;
+}
+
+/* `&&X` visibility: a label defined in the current function, or a
+ * __label__ variable of the current function. */
+static bool sem_label_addr_visible(SemContext *ctx, const char *name, size_t len) {
+    return sem_find_label(ctx, name, len) || sem_is_label_value_var(ctx, name);
+}
+
+/* `goto X` visibility: same as &&X, plus labels of any ANCESTOR
+ * function (nonlocal goto - the nested fn restores the ancestor's frame
+ * at the jump, see OP_NONLOCAL_GOTO). */
+static bool sem_goto_label_visible(SemContext *ctx, const char *name, size_t len) {
+    if (sem_label_addr_visible(ctx, name, len)) return true;
+    if (!name) return false;
+    if (len == 0) len = strlen(name);
+    for (int i = 0; i < ctx->ancestor_label_count; i++) {
+        size_t l = strlen(ctx->ancestor_labels[i]);
+        if (l == len && memcmp(ctx->ancestor_labels[i], name, len) == 0) return true;
+    }
+    return false;
+}
+
 static void sem_collect_labels_impl(SemContext *ctx, ASTRef ref, int depth) {
     if (!ctx || !ctx->ast_arena || ref == AST_NULL || depth > 128) return;
     /* Walk the sibling chain iteratively: a block of N statements is a
@@ -647,7 +677,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_LABEL_ADDR: {
-            if (node->s.str && !sem_find_label(ctx, node->s.str, node->s_len)) {
+            if (node->s.str && !sem_label_addr_visible(ctx, node->s.str, node->s_len)) {
                 sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
             }
             res = type_pointer_to(ctx->perm_arena, type_void(ctx->perm_arena));
@@ -660,7 +690,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 if (t && !type_is_pointer(t) && !type_is_integer(t)) {
                     sem_node_error(ctx, node, "computed goto requires pointer or integer target");
                 }
-            } else if (node->s.str && !sem_find_label(ctx, node->s.str, node->s_len)) {
+            } else if (node->s.str && !sem_goto_label_visible(ctx, node->s.str, node->s_len)) {
                 sem_node_error(ctx, node, "label '%s' used but not defined", node->s.str);
             }
             break;

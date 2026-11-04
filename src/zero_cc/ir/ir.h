@@ -241,6 +241,11 @@ typedef enum {
     /* Non-local jumps (__builtin_setjmp / __builtin_longjmp) */
     OP_SETJMP,         /* save FP/PC/SP to [temp_src1], VREG_0 = 0 (or val on resume) */
     OP_LONGJMP,        /* restore FP/SP from [temp_src1], VREG_0 = temp_src2, jmp PC */
+
+    /* Sprint 99: nonlocal goto (goto to a label in an ancestor function). */
+    OP_NONLOCAL_GOTO,  /* restore (FP, SP) = (temp_src1, temp_src2), jump to the
+                        * label (imm64 = target function index, label_idx = the
+                        * label's IR index in that function's namespace) */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -396,6 +401,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_LEA_LABEL: return "LEA_LABEL";
         case OP_SETJMP: return "SETJMP";
         case OP_LONGJMP: return "LONGJMP";
+        case OP_NONLOCAL_GOTO: return "NONLOCAL_GOTO";
         default: return "UNKNOWN";
     }
 }
@@ -872,6 +878,17 @@ static inline void ir_emit_tls_lea(ZeroCCCompiler *c, uint16_t temp_dest, const 
 /* Computed goto (jump through register temp_src1) */
 static inline void ir_emit_jmp_ind(ZeroCCCompiler *c, int temp_target) {
     ir_emit(c, (Instr){.op = OP_JMP_INDIRECT, .temp_dest = TEMP_NONE, .temp_src1 = (uint16_t)temp_target, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+
+/* Nonlocal goto: restore FP/SP from temp_src1/temp_src2 (the hidden pair
+ * parameters for the label's scope) and jump to label (target_fn_idx,
+ * ir_label) in the ancestor function. */
+static inline void ir_emit_nonlocal_goto(ZeroCCCompiler *c, int rbp_temp, int rsp_temp,
+                                         int target_fn_idx, uint16_t target_label) {
+    ir_emit(c, (Instr){.op = OP_NONLOCAL_GOTO, .temp_dest = TEMP_NONE,
+        .temp_src1 = (uint16_t)rbp_temp, .temp_src2 = (uint16_t)rsp_temp,
+        .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0,
+        .imm64 = (int64_t)target_fn_idx, .label_idx = target_label});
 }
 
 /* Address of label (temp_dest = address of label_idx) */

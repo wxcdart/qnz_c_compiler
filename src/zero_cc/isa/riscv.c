@@ -2051,3 +2051,22 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_param_save_int_asm = riscv_emit_param_save_int_asm,
     .emit_param_save_fp_asm = riscv_emit_param_save_fp_asm,
 };
+
+/* Sprint 99: OP_NONLOCAL_GOTO absolute jump (AOT).
+ * auipc t0, 0   (R_RISCV_PCREL_HI20 against a local label symbol at
+ * text_target_offset, attached by the .o writer)
+ * jalr zero, 0(t0) (R_RISCV_PCREL_LO12_I against the auipc position)
+ * t0 is a caller-saved scratch, dead after the jump. */
+void zero_cc_riscv_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset) {
+    if (c->isa != ISA_RISCV64) return;
+    size_t patch_pos = me_get_offset(c);
+    uint32_t auipc = (uint32_t)(((uint32_t)RV64_T0 << 7) | 0x17u);
+    uint32_t jalr  = (uint32_t)(((uint32_t)RV64_T0 << 15) | 0x67u);
+    riscv_emit_u32(c, auipc);
+    riscv_emit_u32(c, jalr);
+    if (c->nl_goto_reloc_count < 64) {
+        c->nl_goto_relocs[c->nl_goto_reloc_count].text_patch_offset = patch_pos;
+        c->nl_goto_relocs[c->nl_goto_reloc_count].text_target_offset = text_offset;
+        c->nl_goto_reloc_count++;
+    }
+}
