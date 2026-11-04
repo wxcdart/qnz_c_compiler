@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-03T22:40:25Z
+timestamp: 2026-11-04T05:04:22Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -254,7 +254,7 @@ ZeroCC employs a C-only declarator state machine in `src/zero_cc/parser/zero_cc_
 The same logical type reaching the semantic layer through different parser paths with different tags/widths manifests as `incompatible types in assignment` REJECTs on perfectly legal code (and, once parsing succeeds, as segfaults). The invariants that closed the Sprint 70 cluster:
 
 - **Leading struct/union/enum member qualifiers attach to the base type** (`parser/definitions.h`): the TK_STRUCT member branch runs *before* the generic qualifier scan, so `const struct S *p;` members must probe-and-consume a leading `const`/`volatile`/`restrict` run and propagate it to the pointee (pointer members) or the member itself (value members). Without the probe, the qualifier is silently eaten and `t.p = &x;` REJECTs (c-torture `20040708-1`).
-- **K&R parameter pointer stars are per-declarator only** (`jit/compile.h` `zero_cc_parse_kr_decl`): a base `*` run folded into the prototype type *and* re-consumed per declarator double-counts — `long long *o1, *o2;` typed o2 as `long long**` (c-torture `961004-1`, `mword1`). Each declarator owns its own star run; the prototype carries no stars of its own.
+- **K&R parameter pointer stars are per-declarator only** (`parser/zero_cc_declarator_stack.h` `zero_cc_parse_kr_decl`): a base `*` run folded into the prototype type *and* re-consumed per declarator double-counts — `long long *o1, *o2;` typed o2 as `long long**` (c-torture `961004-1`, `mword1`). Each declarator owns its own star run; the prototype carries no stars of its own.
 - **Comma-declarator pointer wrap must not clobber a real struct/typedef base** (`parser/definitions.h`): the anonymous-dummy pointee synthesis for `A *e, *f;` struct members runs only when `m->base` is unset — otherwise f/g/h lose the struct identity (c-torture `pr113623`). In comma lists the *current* declarator's `c_is_ptr` decides where leading qualifiers land.
 - **`void *` pointee tag is `TYPE_VOID` at any depth** (`parser/definitions.h`): the old `ptr_depth > 1` guard made depth-1 `void *` struct members `ptr_to(int64)`; `&g.pv` then failed to match `void **` (c-torture `pr42730`). Loads/stores size off the pointer width, not the pointee tag.
 - **C99 6.7.5.3 spiral rule for function-pointer typedefs**: stars before `(` belong to the **return type** — `typedef T *(*Op)(args);` is a pointer to a function returning `T *`. Both typedef paths (scalar base and struct base) must wrap the return type with the consumed star depth before building the funcptr pointee, or `obj = ops->get(obj);` calls come back as by-value structs (c-torture `pta-1`).
@@ -338,7 +338,13 @@ Function **definitions** inside a block (the GNU nested-function/trampoline exte
 
 - **Global-scope invariant**: nested functions are registered with their **user-parameter** prototype only (never `param_count`, which includes hidden captures).
 
-- **Remaining gap**: nonlocal goto (nested function `goto` jumping to an enclosing label: `execute/20050122-1.c`, `execute/nestfunc-5.c`, `execute/nestfunc-6.c`, `execute/pr24135.c`), K&R definitions (`execute/920428-2.c`, `execute/920501-7.c`, `execute/921017-1.c`, `execute/921215-1.c`, `execute/comp-goto-2.c`), VLA struct members (`execute/nested-1.c`), and gnu89 implicit decls (`execute/930506-2.c`) remain `SKIP-TARGET:trampolines` (11 tests).
+- **K&R (old-style) definitions — Sprint 98**: `ret f(a, b) type a; type b; { }` (C89 6.4.2, accepted as a GNU extension in all dialects) is supported for both top-level and nested functions:
+  - **Top-level** (`jit/compile.h` `zero_cc_parse_fn_param_block`): a bare-identifier parameter list followed by a type declaration (or directly by the body) is the K&R shape. A bare identifier is a parameter *name* only if it is **not a typedef/struct/enum type name** — `f(four_quarters j)` (typedef + name) is a normal one-parameter prototype; treating it as K&R registered two int params and dropped the struct type (c-torture `execute/921123-2`, `20050316-*` vector typedefs).
+  - **Semantics** (probed vs `gcc -std=gnu89`): each parameter is declared exactly once (`redefinition of parameter 'a'`), every declaration name must be a parameter (`declaration for parameter 'x' but no such parameter` — no aux locals, the Sprint 65 `kr_aux` leniency was removed), only `register` may prefix a parameter declaration (`static`/`auto`/`extern` → error), a parameter with no declaration defaults to `int` (including the no-declaration-list form `int f(a) { }`), array suffixes decay to pointers, and the declaration list may reorder/multi-declare (`int a, b;`).
+  - **Nested** (`parser/decl_local.h`): the same shape is probed before `zero_cc_parse_declarator` runs (the declarator would parse each bare identifier as an unnamed *type* and eat the first declaration keyword as a bogus param name); on a match the function chunk is rebuilt from the probed names, the stream is **rewound to just past the parameter-list `)`** (tokens are the whole file — scan from the name token), and the declaration block is consumed with `zero_cc_parse_kr_decl` (moved to `parser/zero_cc_declarator_stack.h` so both parser TUs see it).
+  - **Gate effect**: 76 `SKIP-C89` → `PASS` (gnu89 tests with old-style definitions), baseline ratcheted to **PASS 3,346**; regression test `test/aot/kr_oldstyle.c` (swept at `-O0..-O3`).
+
+- **Remaining gap**: nonlocal goto (nested function `goto` jumping to an enclosing label: `execute/20050122-1.c`, `execute/nestfunc-5.c`, `execute/nestfunc-6.c`, `execute/pr24135.c`), VLA struct members (`execute/nested-1.c`), and gnu89 implicit decls (`execute/930506-2.c`) remain `SKIP-TARGET:trampolines` (11 tests). The K&R portion of that cluster (`execute/920428-2.c`, `execute/920501-7.c`, `execute/921017-1.c`, `execute/921215-1.c`, `execute/comp-goto-2.c`) now parses; they stay skipped only for the nonlocal goto / `__label__` feature.
 
 ## GNU `__attribute__((__vector_size__(N)))` Vector Types
 

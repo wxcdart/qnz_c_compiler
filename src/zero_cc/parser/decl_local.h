@@ -21,6 +21,9 @@
 /* Forward declarations for AST expressions */
 static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t base_off, size_t *leaf_cursor, size_t *out_elem_count);
+/* K&R parameter-declaration parser (Sprint 65) - defined in jit/compile.h
+ * (later in this translation unit); reused by the nested K&R path below. */
+static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, ZeroCCType *out_types, int max);
 
 /* Number of scalar leaves in one element of type t (C layout order):
  * arrays recurse (len * leaves(elem)), structs sum member leaves, scalars
@@ -896,6 +899,82 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
         ZeroCCDeclarator decl;
         zero_cc_declarator_init(&decl);
+        /* Sprint 98: K&R (old-style) nested function probe.
+         * `type name(a, b) type a; type b; { ... }` - the declarator
+         * parser treats each bare identifier in the parameter list as an
+         * (unnamed) type, so the K&R declaration block after `)` is never
+         * consumed and the definition is mis-parsed. Detect the shape
+         * BEFORE the declarator runs and stash the bare parameter names;
+         * the is_function branch below overwrites the parsed function
+         * chunk and consumes the declaration block. */
+        bool kr_nested = false;
+        int kr_nested_count = 0;
+        const char *kr_nested_names[16];
+        size_t kr_name_tok = 0;
+        {
+            size_t kp = c->token_pos;
+            if (kp < c->token_count && c->tokens[kp].type == TK_IDENT &&
+                kp + 1 < c->token_count && c->tokens[kp + 1].type == TK_LPAREN) {
+                size_t q = kp + 2;
+                int d = 1;
+                int bare = 0;
+                bool shape = true;
+                while (q < c->token_count && d > 0) {
+                    ZeroCCTokType qt = c->tokens[q].type;
+                    if (qt == TK_LPAREN) { shape = false; break; }
+                    else if (qt == TK_RPAREN) { d--; if (d == 0) break; }
+                    else if (qt == TK_COMMA) { }
+                    else if (qt == TK_IDENT) {
+                        /* Bare = not a typedef/struct/enum type name, so
+                         * `type name` prototypes (f(four_quarters j)) are
+                         * not misread as K&R parameter lists. */
+                        if (zero_cc_find_typedef(c, c->tokens[q].str_val) ||
+                            zero_cc_find_struct(c, c->tokens[q].str_val) ||
+                            zero_cc_find_enum(c, c->tokens[q].str_val)) {
+                            shape = false;
+                            break;
+                        }
+                        bare++;
+                    }
+                    else { shape = false; break; }
+                    q++;
+                }
+                if (shape && d == 0 && bare >= 1 && q < c->token_count &&
+                    c->tokens[q - 1].type == TK_IDENT) {
+                    size_t after = q + 1;
+                    while (after < c->token_count &&
+                           (c->tokens[after].type == TK_REGISTER ||
+                            c->tokens[after].type == TK_STATIC ||
+                            c->tokens[after].type == TK_AUTO ||
+                            c->tokens[after].type == TK_EXTERN ||
+                            c->tokens[after].type == TK_CONST ||
+                            c->tokens[after].type == TK_VOLATILE ||
+                            c->tokens[after].type == TK_RESTRICT)) after++;
+                    ZeroCCTokType at = (after < c->token_count) ? c->tokens[after].type : TK_EOF;
+                    bool decl_or_body = (at == TK_INT || at == TK_CHAR || at == TK_SHORT || at == TK_LONG ||
+                                          at == TK_SIGNED || at == TK_UNSIGNED || at == TK_FLOAT_KW ||
+                                          at == TK_DOUBLE_KW || at == TK_VOID ||
+                                          at == TK_STRUCT || at == TK_UNION || at == TK_ENUM ||
+                                          at == TK_TYPEOF || at == TK_TYPEOF_UNQUAL ||
+                                          at == TK_CONST || at == TK_VOLATILE || at == TK_RESTRICT ||
+                                          at == TK_LBRACE ||
+                                          (at == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[after].str_val) ||
+                                           zero_cc_find_struct(c, c->tokens[after].str_val) ||
+                                           zero_cc_find_enum(c, c->tokens[after].str_val))));
+                    if (decl_or_body) {
+                        kr_nested = true;
+                        kr_name_tok = kp;
+                        size_t r = kp + 2;
+                        while (r < q) {
+                            if (c->tokens[r].type == TK_IDENT && kr_nested_count < 16) {
+                                kr_nested_names[kr_nested_count++] = zero_cc_intern_string(c, c->tokens[r].str_val);
+                            }
+                            r++;
+                        }
+                    }
+                }
+            }
+        }
         /* Vector attribute trailing the base specifier: `signed char
          * __attribute__((__vector_size__(16))) V;` - and aligned(N):
          * `struct x { ... } __attribute__((aligned(32))) X;` */
@@ -958,6 +1037,76 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
                 const ZeroCCDeclaratorChunk *fc = zero_cc_declarator_get_function_chunk(&decl);
                 if (!fc) fc = &decl.stack[0];
+                /* Sprint 98: K&R nested function - the declarator parsed the
+                 * bare-identifier list as unnamed (int) parameters. Rebuild
+                 * the function chunk from the probed names and consume the
+                 * K&R declaration block (which the declarator left in the
+                 * stream) so the body `{` follows. */
+                if (kr_nested) {
+                    ZeroCCDeclaratorChunk kr_fc;
+                    memset(&kr_fc, 0, sizeof(kr_fc));
+                    kr_fc.kind = ZERO_CC_DECL_CHUNK_FUNCTION;
+                    kr_fc.param_count = (size_t)kr_nested_count;
+                    kr_fc.has_prototype = false;
+                    kr_fc.is_variadic = false;
+                    bool kr_matched[16];
+                    for (int mi = 0; mi < 16; mi++) kr_matched[mi] = false;
+                    for (int pi = 0; pi < kr_nested_count; pi++) {
+                        ZeroCCType kt = zero_cc_type_int(); /* int default (C89) */
+                        kr_fc.param_tis[pi] = zero_cc_type_to_typeinfo(ctx->perm_arena, kt);
+                    }
+                    /* The declarator parsed each bare identifier as an
+                     * (unnamed) type and consumed the FIRST keyword of the
+                     * K&R declaration block as a bogus parameter name.  The
+                     * tokens are the whole file: re-locate the matching `)`
+                     * of the parameter list and rewind the stream to just
+                     * past it, so the declaration block parses intact. */
+                    {
+                        size_t rr = kr_name_tok + 2;
+                        int dd = 1;
+                        while (rr < c->token_count && dd > 0) {
+                            if (c->tokens[rr].type == TK_LPAREN) dd++;
+                            else if (c->tokens[rr].type == TK_RPAREN) dd--;
+                            rr++;
+                        }
+                        c->token_pos = rr;
+                    }
+                    while (c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type != TK_LBRACE &&
+                           c->tokens[c->token_pos].type != TK_SEMI &&
+                           c->tokens[c->token_pos].type != TK_EOF) {
+                        const char *dn[16];
+                        ZeroCCType dt[16];
+                        int n = zero_cc_parse_kr_decl(c, dn, dt, 16);
+                        if (n < 0) {
+                            diag_report_error_at_token(c, "invalid K&R parameter declaration in function '%s'", vname);
+                            while (c->token_pos < c->token_count &&
+                                   c->tokens[c->token_pos].type != TK_LBRACE &&
+                                   c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                            break;
+                        }
+                        for (int k = 0; k < n; k++) {
+                            bool matched = false;
+                            for (int pi = 0; pi < kr_nested_count; pi++) {
+                                if (strcmp(kr_nested_names[pi], dn[k]) == 0) {
+                                    if (kr_matched[pi]) {
+                                        diag_report_error_at_token(c, "redefinition of parameter '%s'", dn[k]);
+                                    } else {
+                                        kr_matched[pi] = true;
+                                        ZeroCCType kt = dt[k];
+                                        kr_fc.param_tis[pi] = zero_cc_type_to_typeinfo(ctx->perm_arena, kt);
+                                    }
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                            if (!matched) {
+                                diag_report_error_at_token(c, "declaration for parameter '%s' but no such parameter", dn[k]);
+                            }
+                        }
+                    }
+                    fc = &kr_fc;
+                }
                 ASTRef param_list = fc->param_list;
                 TypeInfo *fn_ti = type_function(ctx->perm_arena, ret_ti, fc->param_count > 0 ? (TypeInfo **)fc->param_tis : NULL, fc->param_count, fc->is_variadic);
                 fn_ti->details.function.is_prototype = fc->has_prototype;
@@ -1066,12 +1215,19 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                         nf->param_names[pi] = zero_cc_intern_string(c, c->locals[ci].name);
                                     }
                                     /* Then user parameters */
+                                    if (kr_nested) {
+                                        for (size_t ui = 0; ui < fc->param_count && ui < (size_t)kr_nested_count; ui++, pi++) {
+                                            nf->param_names[pi] = zero_cc_intern_string(c, kr_nested_names[ui]);
+                                            nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[ui]);
+                                        }
+                                    } else {
                                     ASTRef pl = param_list;
                                     for (size_t ui = 0; ui < fc->param_count && pl != AST_NULL; ui++, pi++, pl = zero_cc_ast_get(arena, pl) ? zero_cc_ast_get(arena, pl)->next : AST_NULL) {
                                         ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
                                         nf->param_names[pi] = (pn && pn->s.str && pn->s.str[0])
                                             ? zero_cc_intern_string(c, pn->s.str) : "";
                                         nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[ui]);
+                                    }
                                     }
                                 }
                             } else {
@@ -1082,6 +1238,12 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                     nf->param_types = (ZeroCCType *)arena_alloc(farena, fc->param_count * sizeof(ZeroCCType));
                                     /* Walk the param list AST to extract names;
                                      * param types come from fc->param_tis (TypeInfo). */
+                                    if (kr_nested) {
+                                        for (size_t pi2 = 0; pi2 < fc->param_count && pi2 < (size_t)kr_nested_count; pi2++) {
+                                            nf->param_names[pi2] = zero_cc_intern_string(c, kr_nested_names[pi2]);
+                                            nf->param_types[pi2] = typeinfo_to_zero_cc_type(fc->param_tis[pi2]);
+                                        }
+                                    } else {
                                     ASTRef pl = param_list;
                                     for (size_t pi = 0; pi < fc->param_count && pl != AST_NULL; pi++) {
                                         ZeroCCASTNode *pn = zero_cc_ast_get(arena, pl);
@@ -1089,6 +1251,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                             ? zero_cc_intern_string(c, pn->s.str) : "";
                                         nf->param_types[pi] = typeinfo_to_zero_cc_type(fc->param_tis[pi]);
                                         pl = pn ? pn->next : AST_NULL;
+                                    }
                                     }
                                 }
                             }

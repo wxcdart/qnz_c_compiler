@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T04:17:33Z",
+ "generated": "2026-11-04T04:54:56Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -3700,7 +3700,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/900407-1.c": {
    "class": "PASS",
@@ -3711,12 +3711,12 @@
    "note": ""
   },
   "compile/900516-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: use of undeclared identifier 'c' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920301-1.c": {
    "class": "PASS",
@@ -3956,7 +3956,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "                                               ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/920501-3.c": {
    "class": "PASS",
@@ -4007,20 +4007,20 @@
    "note": ""
   },
   "compile/920502-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920502-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'c' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920520-1.c": {
    "class": "NO-REF",
@@ -4041,12 +4041,12 @@
    "note": ""
   },
   "compile/920608-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'p' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920611-2.c": {
    "class": "PASS",
@@ -4198,7 +4198,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                        ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O2-aot"
+   "note": "                                        ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/920809-1.c": {
    "class": "SKIP-C89",
@@ -4206,7 +4206,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                        ^; Compile error: use of undeclared identifier 'memcpy' | cfgs: O0-aot,O2-aot"
+   "note": "                 ^; Compile error: use of undeclared identifier 'memcpy' | cfgs: O0-aot,O2-aot"
   },
   "compile/920817-1.c": {
    "class": "SKIP-C89",
@@ -4281,12 +4281,12 @@
    "note": ""
   },
   "compile/920831-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920902-1.c": {
    "class": "PASS",
@@ -4422,12 +4422,12 @@
    "note": "       ^; Compile error: use of undeclared identifier 'h' | cfgs: O0-aot,O2-aot"
   },
   "compile/921024-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: use of undeclared identifier 's' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/921026-1.c": {
    "class": "PASS",
@@ -4467,7 +4467,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                      ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
+   "note": "      ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/921118-1.c": {
    "class": "SKIP-C89",
@@ -4475,7 +4475,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                     ^; Compile error: use of undeclared identifier 'h' | cfgs: O0-aot,O2-aot"
+   "note": "       ^; Compile error: use of undeclared identifier 'h' | cfgs: O0-aot,O2-aot"
   },
   "compile/921126-1.c": {
    "class": "PASS",
@@ -4494,12 +4494,12 @@
    "note": "              ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/921202-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/921203-1.c": {
    "class": "SKIP-C89",
@@ -4558,12 +4558,12 @@
    "note": "                  ^; Compile error: use of undeclared identifier 'strcmp' | cfgs: O0-aot,O2-aot"
   },
   "compile/930117-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/930118-1.c": {
    "class": "SKIP-C89",
@@ -4783,7 +4783,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                                                                                 ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
+   "note": "                                                                                                                                                                                                 ^; Comp | cfgs: O0-aot,O2-aot"
   },
   "compile/930621-1.c": {
    "class": "PASS",
@@ -4935,12 +4935,12 @@
    "note": "                                       ^; Compile error: unexpected token 'register' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/941014-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: use of undeclared identifier 'n' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/941014-3.c": {
    "class": "PASS",
@@ -4980,7 +4980,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "         ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'g' | cfgs: O0-aot,O2-aot"
   },
   "compile/950122-1.c": {
    "class": "PASS",
@@ -5188,12 +5188,12 @@
    "note": "            ^; Compile error: use of undeclared identifier 'setjmp' | cfgs: O0-aot,O2-aot"
   },
   "compile/960106-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                           ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/960130-1.c": {
    "class": "PASS",
@@ -5825,12 +5825,12 @@
    "note": "          ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/BUG25.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/BUG3.c": {
    "class": "PASS",
@@ -5961,12 +5961,12 @@
    "note": ""
   },
   "compile/a.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/a1.c": {
    "class": "PASS",
@@ -5977,12 +5977,12 @@
    "note": ""
   },
   "compile/a3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/aa.c": {
    "class": "PASS",
@@ -5993,12 +5993,12 @@
    "note": ""
   },
   "compile/aaa.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/abs.c": {
    "class": "SKIP-C89",
@@ -6006,7 +6006,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/ac.c": {
    "class": "SKIP-C89",
@@ -6014,15 +6014,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/acc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/acc1.c": {
    "class": "SKIP-REFSEM",
@@ -6038,20 +6038,20 @@
    "note": ""
   },
   "compile/add386.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/addcc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/andm.c": {
    "class": "SKIP-C89",
@@ -6059,7 +6059,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/andmem.c": {
    "class": "SKIP-C89",
@@ -6070,12 +6070,12 @@
    "note": "                                       ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/andn.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/andok.c": {
    "class": "PASS",
@@ -6277,23 +6277,23 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'puts' | cfgs: O0-aot,O2-aot"
   },
   "compile/bb0.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bb1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bbb.c": {
    "class": "PASS",
@@ -6304,12 +6304,12 @@
    "note": ""
   },
   "compile/bc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bcopy-1.c": {
    "class": "PASS",
@@ -6349,7 +6349,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/bge.c": {
    "class": "PASS",
@@ -6360,12 +6360,12 @@
    "note": ""
   },
   "compile/bit.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bitf.c": {
    "class": "PASS",
@@ -6420,15 +6420,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/bug.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/bugc.c": {
    "class": "PASS",
@@ -6460,7 +6460,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'puts' | cfgs: O0-aot,O2-aot"
   },
   "compile/bx.c": {
    "class": "PASS",
@@ -6492,15 +6492,15 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
   },
   "compile/call.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/call386.c": {
    "class": "PASS",
@@ -6529,12 +6529,12 @@
    "note": ""
   },
   "compile/cc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/charmtst.c": {
    "class": "PASS",
@@ -6582,12 +6582,12 @@
    "note": ""
   },
   "compile/cmul.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/cn1.c": {
    "class": "PASS",
@@ -6598,12 +6598,12 @@
    "note": ""
   },
   "compile/comb.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/combine-hang.c": {
    "class": "PASS",
@@ -6707,12 +6707,12 @@
    "note": ""
   },
   "compile/const.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/conv.c": {
    "class": "PASS",
@@ -6816,12 +6816,12 @@
    "note": ""
   },
   "compile/dead.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/debugvlafunction-1.c": {
    "class": "PASS",
@@ -6832,12 +6832,12 @@
    "note": ""
   },
   "compile/delay.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/di.c": {
    "class": "SKIP-C89",
@@ -6880,12 +6880,12 @@
    "note": ""
   },
   "compile/div.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/divdf.c": {
    "class": "PASS",
@@ -7146,12 +7146,12 @@
    "note": ""
   },
   "compile/icmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/ifreg.c": {
    "class": "SKIP-C89",
@@ -7258,20 +7258,20 @@
    "note": ""
   },
   "compile/jumptab.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/l.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/labels-1.c": {
    "class": "PASS",
@@ -7482,20 +7482,20 @@
    "note": ""
   },
   "compile/log2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/logic.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/loop-1.c": {
    "class": "SKIP-C89",
@@ -7503,7 +7503,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "             ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "             ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
   },
   "compile/loop386.c": {
    "class": "SKIP-C89",
@@ -7514,12 +7514,12 @@
    "note": "            ^; Compile error: use of undeclared identifier 'puts' | cfgs: O0-aot,O2-aot"
   },
   "compile/lop.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/m1.c": {
    "class": "PASS",
@@ -7538,20 +7538,20 @@
    "note": ""
   },
   "compile/m5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/m68.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/m68k-byte-addr.c": {
    "class": "PASS",
@@ -7654,36 +7654,36 @@
    "note": ""
   },
   "compile/mm.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mod.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/modcc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/move.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                        ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/move_qhi.c": {
    "class": "SKIP-C89",
@@ -7718,12 +7718,12 @@
    "note": ""
   },
   "compile/mu.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/mul.c": {
    "class": "PASS",
@@ -7766,20 +7766,20 @@
    "note": ""
   },
   "compile/nand.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/neg.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/nested-1.c": {
    "class": "SKIP-TARGET:trampolines",
@@ -7819,28 +7819,28 @@
    "note": "         ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/opout.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/opt.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/or.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/or386.c": {
    "class": "SKIP-C89",
@@ -7880,7 +7880,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                                    ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/pass.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -13163,12 +13163,12 @@
    "note": ""
   },
   "compile/pr65241.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "             ^; Compile error: use of undeclared identifier 'p1' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr65540.c": {
    "class": "PASS",
@@ -14720,12 +14720,12 @@
    "note": ""
   },
   "compile/pr99324.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr99647.c": {
    "class": "PASS",
@@ -14781,12 +14781,12 @@
    "note": ""
   },
   "compile/pyr2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/q.c": {
    "class": "PASS",
@@ -14797,12 +14797,12 @@
    "note": ""
   },
   "compile/r.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/r1.c": {
    "class": "SKIP-C89",
@@ -14810,7 +14810,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O2-aot"
   },
   "compile/regs-arg-size.c": {
    "class": "SKIP-C89",
@@ -14882,20 +14882,20 @@
    "note": ""
   },
   "compile/scc.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/scond.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                             ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/section.c": {
    "class": "SKIP-TARGET:named_sections",
@@ -14911,12 +14911,12 @@
    "note": ""
   },
   "compile/seq.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/set386.c": {
    "class": "PASS",
@@ -14927,28 +14927,28 @@
    "note": ""
   },
   "compile/set88.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                         ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/sh.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/shand.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                    ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/shft.c": {
    "class": "SKIP-C89",
@@ -14959,12 +14959,12 @@
    "note": "            ^; Compile error: use of undeclared identifier 'puts' | cfgs: O0-aot,O2-aot"
   },
   "compile/shift.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/shloop.c": {
    "class": "PASS",
@@ -15055,12 +15055,12 @@
    "note": ""
   },
   "compile/simple.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/sizeof-macros-1.c": {
    "class": "PASS",
@@ -15087,12 +15087,12 @@
    "note": ""
   },
   "compile/sparcbug.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/speed.c": {
    "class": "PASS",
@@ -15329,7 +15329,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/structs.c": {
    "class": "PASS",
@@ -15348,12 +15348,12 @@
    "note": ""
   },
   "compile/sub32.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/subcc.c": {
    "class": "SKIP-C89",
@@ -15361,7 +15361,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/subcse.c": {
    "class": "PASS",
@@ -15428,12 +15428,12 @@
    "note": ""
   },
   "compile/test-flow.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/test-loop.c": {
    "class": "SKIP-C89",
@@ -15444,12 +15444,12 @@
    "note": "           ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O2-aot"
   },
   "compile/test.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/time.c": {
    "class": "PASS",
@@ -15460,12 +15460,12 @@
    "note": ""
   },
   "compile/tmp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                   ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/trivial.c": {
    "class": "PASS",
@@ -15492,12 +15492,12 @@
    "note": ""
   },
   "compile/u.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                             ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/udconvert.c": {
    "class": "PASS",
@@ -15524,12 +15524,12 @@
    "note": ""
   },
   "compile/uns.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/uns_tst.c": {
    "class": "PASS",
@@ -15673,12 +15673,12 @@
    "note": ""
   },
   "compile/x.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: use of undeclared identifier 'm' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xb.c": {
    "class": "SKIP-C89",
@@ -15686,7 +15686,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/xbg.c": {
    "class": "PASS",
@@ -15721,20 +15721,20 @@
    "note": "         ^; Compile error: use of undeclared identifier 'fee' | cfgs: O0-aot,O2-aot"
   },
   "compile/xfoo.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xi.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "           ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xlop.c": {
    "class": "SKIP-C89",
@@ -15742,7 +15742,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
+   "note": "                 ^; Compile error: use of undeclared identifier 'bar' | cfgs: O0-aot,O2-aot"
   },
   "compile/xmtst.c": {
    "class": "PASS",
@@ -15769,12 +15769,12 @@
    "note": ""
   },
   "compile/xor.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xorn.c": {
    "class": "SKIP-C89",
@@ -15785,12 +15785,12 @@
    "note": "                ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/xp.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xpp.c": {
    "class": "SKIP-C89",
@@ -15798,23 +15798,23 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "            ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": "            ^; Compile error: use of undeclared identifier 'printf' | cfgs: O0-aot,O2-aot"
   },
   "compile/xs.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xsh.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/xz.c": {
    "class": "PASS",
@@ -15825,12 +15825,12 @@
    "note": ""
   },
   "compile/xzz.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/zero-strct-1.c": {
    "class": "SKIP-C89",
@@ -22765,7 +22765,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                                                  ^; Compile error: use of undeclared identifier 'got' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                                                  ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920604-1.c": {
    "class": "PASS",
@@ -22905,7 +22905,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'i' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920721-4.c": {
    "class": "SKIP-C89",
@@ -22975,7 +22975,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                  ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                  ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920810-1.c": {
    "class": "PASS",
@@ -23059,7 +23059,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                               ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                               ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/920922-1.c": {
    "class": "PASS",
@@ -23527,7 +23527,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930513-1.c": {
    "class": "SKIP-C89",
@@ -23555,7 +23555,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930518-1.c": {
    "class": "SKIP-C89",
@@ -23821,7 +23821,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'foo' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'exit' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/930725-1.c": {
    "class": "PASS",
@@ -24297,7 +24297,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/940115-1.c": {
    "class": "SKIP-C89",
@@ -24442,7 +24442,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950221-1.c": {
    "class": "PASS",
@@ -24540,7 +24540,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/950605-1.c": {
    "class": "SKIP-C89",
@@ -24848,7 +24848,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/960219-1.c": {
    "class": "PASS",
@@ -25254,7 +25254,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/961122-1.c": {
    "class": "PASS",
@@ -29572,7 +29572,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'exit' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/int-compare.c": {
    "class": "SKIP-C89",
@@ -29586,7 +29586,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/ipa-sra-1.c": {
    "class": "PASS",
@@ -29740,7 +29740,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/loop-2b.c": {
    "class": "PASS",
@@ -29782,7 +29782,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'b' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/loop-2e.c": {
    "class": "PASS",
@@ -29838,7 +29838,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/loop-3b.c": {
    "class": "SKIP-C89",
@@ -29852,7 +29852,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/loop-3c.c": {
    "class": "SKIP-C89",
@@ -29866,7 +29866,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'm' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/loop-4.c": {
    "class": "PASS",
@@ -30291,7 +30291,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'x' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: use of undeclared identifier 'abort' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/mode-dependent-address.c": {
    "class": "PASS",
@@ -41111,10 +41111,10 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3270,
+  "PASS": 3346,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 393,
+  "SKIP-C89": 317,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,

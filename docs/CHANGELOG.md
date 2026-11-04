@@ -1,5 +1,20 @@
 # ZeroCC Changelog
 
+## [Sprint 98] - 2026-11-04 - K&R (Old-Style) Function Definitions, Top-Level + Nested (76 SKIP-C89 -> PASS, 3,346 PASS)
+
+Implemented C89 6.4.2 old-style (K&R) function definitions - `ret f(a, b) type a; type b; { }` - accepted as a GNU extension in all dialects (matching `gcc -std=gnu89/c99/c11`), for both **top-level** and **nested** functions.
+
+- **Top-level** (`jit/compile.h` `zero_cc_parse_fn_param_block`, Sprint 65 base): the K&R shape detector now also fires when the body `{` follows the bare-identifier list directly (no declaration list) - C89 defaults such parameters to `int` (`int f(a) { return a; }`). The bare-identifier scan gained a **type-name guard**: a bare identifier is a K&R parameter *name* only if it is not a typedef/struct/enum type - `f(four_quarters j)` is a normal one-parameter prototype, and the missing guard made the new body-follows shape misread typedef+name pairs as two int K&R params (regressed c-torture `execute/921123-2` struct-by-value and the `20050316-*` vector-typedef tests: member access on int / vector ABI mismatch, fixed before release).
+- **Diagnostics aligned to GCC** (each probed vs `gcc -std=gnu89`):
+  - duplicate parameter declaration -> `redefinition of parameter 'a'` (was silently re-typed);
+  - declaration name not in the parameter list -> `declaration for parameter 'x' but no such parameter` (Sprint 65's `kr_aux` aux-local leniency removed - GCC rejects aux declarations in K&R lists; the dead `kr_aux` machinery was deleted);
+  - `static`/`auto`/`extern` in a parameter declaration -> error (only `register` is allowed).
+- **Nested K&R** (`parser/decl_local.h`): the local-decl path probes the K&R shape before `zero_cc_parse_declarator` (which parses each bare identifier as an unnamed *type* and consumes the first declaration keyword as a bogus param name). On a match the function chunk is rebuilt from the probed names, the token stream is **rewound to just past the parameter-list `)`** (the token array is the whole file), and the declaration block is consumed with the shared parser. `zero_cc_parse_kr_decl` moved to `parser/zero_cc_declarator_stack.h` so both parser TUs see it (it was `static` in `jit/compile.h`, invisible to the local-decl TU).
+- **Coverage**: pointer/array/struct/`register`/`const` params, reordered and multi-declarator lists, implicit `int` return, no-declaration-list form, nested K&R with and without captures; negative cases (duplicate, non-parameter, storage class) reject like GCC. New `test/aot/kr_oldstyle.c` is swept by `make test-opt` at `-O0..-O3` (121/121).
+- **Verification**: `make test` 159/159, `make test-opt` 121/121, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` OK, `style_check` 0 errors, `vtable_check` PASS; c-torture: **76 SKIP-C89 -> PASS, 0 regressions**, baseline ratcheted to **PASS 3,346** (SKIP-C89 393 -> 317).
+
+
+
 ## [Sprint 97] - 2026-11-04 - Nested-Function Trampoline Stubs on AArch64 + RISC-V64 (32/32 targeted, 59/59 QEMU, 3,270 PASS)
 
 Ported Phase 3b's real trampoline stubs (indirect calls through nested function pointers, `f = inner; f(x)`) from x86-64 to **AArch64 and RISC-V64**, using the shared unit model in the new `src/zero_cc/isa/tramp_stub.h` (one argument-stream/entry-geometry computation, three ISA emitters). RISC-V32 intentionally stays rejected (documented).

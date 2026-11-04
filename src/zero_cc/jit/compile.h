@@ -36,253 +36,6 @@ static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types,
     *cap = ncap;
 }
 
-/* Sprint 65: K&R (old-style, C89 6.7.4.2) parameter-declaration statement.
- * Parses one declaration in the K&R block - a type-specifier run (any
- * order, `long long`, struct/union/enum tags, typedef names, pointers,
- * qualifiers), a comma list of declarators `name [dims]`, and the `;`.
- * Each declarator is recorded in out_names/out_types (array suffixes decay
- * to pointers - correct for parameters; aux local arrays are modeled as
- * pointer slots). Returns the number of declarators, or -1 on error (the
- * token stream is left at the faulting token). */
-static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, ZeroCCType *out_types, int max) {
-    /* C89 K&R blocks commonly carry storage classes (`register tree new, old;`). */
-    while (c->token_pos < c->token_count &&
-           (c->tokens[c->token_pos].type == TK_REGISTER || c->tokens[c->token_pos].type == TK_STATIC ||
-            c->tokens[c->token_pos].type == TK_AUTO || c->tokens[c->token_pos].type == TK_EXTERN)) {
-        c->token_pos++;
-    }
-    ZeroCCTokType t = c->tokens[c->token_pos].type;
-    /* C99 6.7.2.3 prefix complex: `_Complex double *a` - consume the
-     * specifier; the base type follows and gets wrapped below. */
-    bool p_prefix_complex = false;
-    if (t == TK_IDENT && zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
-        p_prefix_complex = true;
-        c->token_pos++;
-        t = c->tokens[c->token_pos].type;
-    }
-    bool starts_type = (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
-                        t == TK_SIGNED || t == TK_UNSIGNED || t == TK_FLOAT_KW ||
-                        t == TK_DOUBLE_KW || t == TK_VOID ||
-                        t == TK_STRUCT || t == TK_UNION || t == TK_ENUM ||
-                        t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL ||
-                        t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
-                        (t == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val) ||
-                         zero_cc_find_struct(c, c->tokens[c->token_pos].str_val) ||
-                         zero_cc_find_enum(c, c->tokens[c->token_pos].str_val))));
-    if (!starts_type) return -1;
-
-    bool p_is_const = false, p_is_volatile = false;
-    while (c->token_pos < c->token_count &&
-           (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE ||
-            c->tokens[c->token_pos].type == TK_RESTRICT)) {
-        if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
-        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
-        c->token_pos++;
-    }
-    size_t save = c->token_pos, probe = 0, vec_size = 0;
-    if (zero_cc_parse_vector_attr(c, &c->token_pos, &probe)) {
-        if (c->token_pos < c->token_count &&
-            (c->tokens[c->token_pos].type == TK_INT || c->tokens[c->token_pos].type == TK_CHAR ||
-             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
-             c->tokens[c->token_pos].type == TK_SIGNED || c->tokens[c->token_pos].type == TK_UNSIGNED ||
-             c->tokens[c->token_pos].type == TK_FLOAT_KW || c->tokens[c->token_pos].type == TK_DOUBLE_KW)) {
-            vec_size = probe;
-        } else {
-            c->token_pos = save;
-            vec_size = 0;
-        }
-    }
-    ZeroCCType pt;
-    if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {
-        pt = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
-    } else {
-        ZeroCCTokType t0 = c->tokens[c->token_pos].type;
-        const char *nm = c->tokens[c->token_pos].str_val;
-        ZeroCCType *found = (t0 == TK_IDENT) ? zero_cc_find_typedef(c, nm) : NULL;
-        if (!found && t0 == TK_IDENT) found = zero_cc_find_struct(c, nm);
-        if (!found && t0 == TK_IDENT) found = zero_cc_find_enum(c, nm);
-        if (t0 != TK_IDENT && (t0 == TK_STRUCT || t0 == TK_UNION || t0 == TK_ENUM)) {
-            c->token_pos++;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
-                nm = c->tokens[c->token_pos].str_val;
-                found = (t0 == TK_ENUM) ? zero_cc_find_enum(c, nm) : zero_cc_find_struct(c, nm);
-                if (!found) found = zero_cc_find_typedef(c, nm);
-                c->token_pos++;
-            }
-        } else if (found) {
-            c->token_pos++;
-        }
-        bool p_has_unsigned = (t0 == TK_UNSIGNED), p_has_char = (t0 == TK_CHAR),
-             p_has_short = (t0 == TK_SHORT), p_has_float = (t0 == TK_FLOAT_KW),
-             p_has_double = (t0 == TK_DOUBLE_KW), p_has_void = (t0 == TK_VOID);
-        int p_longs = (t0 == TK_LONG) ? 1 : 0;
-        if (t0 == TK_SIGNED || t0 == TK_UNSIGNED || t0 == TK_SHORT || t0 == TK_LONG ||
-            t0 == TK_INT || t0 == TK_CHAR) {
-            found = NULL;
-            while (c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_SIGNED ||
-                    c->tokens[c->token_pos].type == TK_UNSIGNED ||
-                    c->tokens[c->token_pos].type == TK_SHORT ||
-                    c->tokens[c->token_pos].type == TK_LONG ||
-                    c->tokens[c->token_pos].type == TK_INT ||
-                    c->tokens[c->token_pos].type == TK_CHAR)) {
-                switch (c->tokens[c->token_pos].type) {
-                    case TK_UNSIGNED: p_has_unsigned = true; break;
-                    case TK_CHAR: p_has_char = true; break;
-                    case TK_SHORT: p_has_short = true; break;
-                    case TK_LONG: p_longs++; break;
-                    default: break;
-                }
-                c->token_pos++;
-            }
-        }
-        if (c->tokens[c->token_pos].type == TK_FLOAT_KW) { p_has_float = true; c->token_pos++; }
-        else if (c->tokens[c->token_pos].type == TK_DOUBLE_KW) { p_has_double = true; c->token_pos++; }
-        else if (c->tokens[c->token_pos].type == TK_VOID) { p_has_void = true; c->token_pos++; }
-        /* C99 6.7.2.3 suffix complex: `double _Complex *a`. */
-        if (!p_prefix_complex && c->tokens[c->token_pos].type == TK_IDENT &&
-            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
-            p_prefix_complex = true; /* reuse flag: complex wraps the base */
-            c->token_pos++;
-        }
-        if (found) {
-            pt = *found;
-        } else if (p_has_void) {
-            pt = zero_cc_type_void();
-        } else if (p_has_float) {
-            pt = zero_cc_type_float();
-        } else if (p_has_double) {
-            pt = zero_cc_type_double();
-        } else if (p_has_char) {
-            pt = zero_cc_type_char();
-        } else if (p_has_short) {
-            pt = zero_cc_type_int16();
-        } else if (p_longs > 0) {
-            pt = zero_cc_type_int64();
-        } else {
-            pt = zero_cc_type_int();
-        }
-        if (p_has_unsigned) {
-            if (pt.tag == TYPE_INT8) pt.tag = TYPE_UINT8;
-            else if (pt.tag == TYPE_INT16) pt.tag = TYPE_UINT16;
-            else if (pt.tag == TYPE_INT32) pt.tag = TYPE_UINT32;
-            else if (pt.tag == TYPE_INT64) pt.tag = TYPE_UINT64;
-        }
-        if (p_prefix_complex && !zero_cc_type_is_complex(&pt)) {
-            pt = zero_cc_type_complex(&pt);
-        }
-    }
-    while (c->token_pos < c->token_count &&
-           (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
-        if (c->tokens[c->token_pos].type == TK_CONST) p_is_const = true;
-        if (c->tokens[c->token_pos].type == TK_VOLATILE) p_is_volatile = true;
-        c->token_pos++;
-    }
-    /* Pointer stars are consumed PER-DECLARATOR in the loop below
-     * (`int *a, b;` - each declarator owns its own `*` run).  Applying a
-     * base `*` run here as well would over-count: `int *o1, *o2;` would
-     * type o1 as int* but o2 as int** (Sprint 70, c-torture 961004-1: the
-     * K&R params came out with mismatched types and every cross
-     * assignment REJECTed as incompatible). */
-    pt.is_const = p_is_const;
-    pt.is_volatile = p_is_volatile;
-    if (vec_size > 0 && !zero_cc_type_is_vector(&pt)) pt = zero_cc_type_vector(&pt, vec_size);
-
-    int count = 0;
-    for (;;) {
-        /* Per-declarator pointer suffixes (`int *a, *b;`): each declarator
-         * may carry its own `*` run with qualifiers. */
-        int d_ptr = 0;
-        bool d_const = pt.is_const, d_volatile = pt.is_volatile;
-        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
-            d_ptr++;
-            c->token_pos++;
-            while (c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
-                if (c->tokens[c->token_pos].type == TK_CONST) d_const = true;
-                if (c->tokens[c->token_pos].type == TK_VOLATILE) d_volatile = true;
-                c->token_pos++;
-            }
-        }
-        /* Sprint 72: function-pointer K&R parameter (`void * (*chunkfun)
-         * ();` - c-torture compile/cp.c): the declarator is
-         * `(*name)(params)`; the parameter's type is a pointer to a
-         * function whose return type is the base + this declarator's
-         * star run. */
-        bool d_func_ptr = false;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
-            c->token_pos + 1 < c->token_count &&
-            c->tokens[c->token_pos + 1].type == TK_STAR) {
-            c->token_pos++; /* ( */
-            c->token_pos++; /* * */
-            d_func_ptr = true;
-            /* Qualifier between `*` and the name: `(*const f)(...)` / `(*const f)()`
-             * (const function-pointer parameter, c-torture 20040909-1). */
-            while (c->token_pos < c->token_count &&
-                   (c->tokens[c->token_pos].type == TK_CONST ||
-                    c->tokens[c->token_pos].type == TK_VOLATILE)) {
-                if (c->tokens[c->token_pos].type == TK_CONST) d_const = true;
-                if (c->tokens[c->token_pos].type == TK_VOLATILE) d_volatile = true;
-                c->token_pos++;
-            }
-        }
-        if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) return -1;
-        const char *dn = c->tokens[c->token_pos].str_val;
-        c->token_pos++;
-        bool is_array = false;
-        if (d_func_ptr) {
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
-            /* Skip the parameter list `( ... )` (depth-counted) */
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-                int pdepth = 1;
-                c->token_pos++;
-                while (c->token_pos < c->token_count && pdepth > 0) {
-                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
-                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
-                    c->token_pos++;
-                }
-            }
-        } else {
-            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
-                is_array = true;
-                c->token_pos++;
-                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACKET) c->token_pos++;
-                if (c->token_pos < c->token_count) c->token_pos++; /* skip ']' */
-            }
-        }
-        if (count >= max) return -1;
-        ZeroCCType dt = pt;
-        dt.is_const = d_const;
-        dt.is_volatile = d_volatile;
-        for (int dp = 0; dp < d_ptr; dp++) dt = zero_cc_type_ptr(&dt);
-        if (d_func_ptr) {
-            /* `ret * (*name) ()` - pointer to function returning `ret *` */
-            ZeroCCType fpt = zero_cc_type_ptr(&dt);
-            fpt.is_func_ptr = true;
-            dt = fpt;
-        } else if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
-            dt = zero_cc_type_ptr(&dt);
-        } else if (dt.tag == TYPE_ARRAY) {
-            /* C99 6.7.6.3p7: array parameter (via typedef/typeof) decays to pointer */
-            ZeroCCType elem = dt.base ? *dt.base : zero_cc_type_int64();
-            dt = zero_cc_type_ptr(&elem);
-            dt.is_const = d_const;
-            dt.is_volatile = d_volatile;
-        }
-        out_names[count] = dn;
-        out_types[count] = dt;
-        count++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
-            c->token_pos++;
-            continue;
-        }
-        break;
-    }
-    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_SEMI) return -1;
-    c->token_pos++; /* skip ';' */
-    return count;
-}
-
 /* Sprint 65: parse one function declarator's parameter list, starting
  * at the first token after `name (`.  Handles the K&R (old-style)
  * shape (bare identifiers + following declaration block) and the
@@ -306,7 +59,20 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
         if (qt == TK_LPAREN) { kr_shape = false; break; }
         else if (qt == TK_RPAREN) { depth--; if (depth == 0) break; }
         else if (qt == TK_COMMA) { /* entry separator */ }
-        else if (qt == TK_IDENT) { bare_count++; }
+        else if (qt == TK_IDENT) {
+            /* A bare identifier is a K&R parameter NAME only if it is not a
+             * type name: `f(four_quarters j)` (typedef + name) is a normal
+             * one-parameter prototype, not K&R - treating it as K&R would
+             * register two int params and drop the struct type (c-torture
+             * execute/921123-2). */
+            if (zero_cc_find_typedef(c, c->tokens[q].str_val) ||
+                zero_cc_find_struct(c, c->tokens[q].str_val) ||
+                zero_cc_find_enum(c, c->tokens[q].str_val)) {
+                kr_shape = false;
+                break;
+            }
+            bare_count++;
+        }
         else { kr_shape = false; break; }
         q++;
     }
@@ -331,8 +97,10 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                              (at == TK_IDENT && (zero_cc_find_typedef(c, c->tokens[after].str_val) ||
                               zero_cc_find_struct(c, c->tokens[after].str_val) ||
                               zero_cc_find_enum(c, c->tokens[after].str_val))));
-        if (next_is_decl) {
-            c->kr_aux_count = 0;
+        /* C89 6.4.2: a K&R definition may have NO declaration list at all -
+         * the parameter identifiers then default to int (`int f(a) { }`). */
+        bool next_is_body = (at == TK_LBRACE);
+        if (next_is_decl || next_is_body) {
             size_t r = c->token_pos;
             while (r < q) {
                 if (c->tokens[r].type == TK_IDENT && *param_count < ZERO_CC_MAX_PARAMS) {
@@ -343,10 +111,12 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                 }
                 r++;
             }
+            bool kr_matched[ZERO_CC_MAX_PARAMS];
+            for (size_t mi = 0; mi < ZERO_CC_MAX_PARAMS; mi++) kr_matched[mi] = false;
             c->token_pos = q + 1; /* past ')' */
             *has_prototype = false; /* old-style: not a prototype */
             *is_variadic_fn = false;
-            while (c->token_pos < c->token_count &&
+            while (next_is_decl && c->token_pos < c->token_count &&
                    c->tokens[c->token_pos].type != TK_LBRACE &&
                    c->tokens[c->token_pos].type != TK_SEMI &&
                    c->tokens[c->token_pos].type != TK_EOF) {
@@ -364,15 +134,25 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                     bool matched = false;
                     for (size_t p = 0; p < *param_count; p++) {
                         if (strcmp((*param_names)[p], dn[k]) == 0) {
-                            (*param_types)[p] = dt[k];
+                            /* C89 6.4.2: each parameter shall be declared
+                             * EXACTLY once (`int f(a) int a; int a; {}` ->
+                             * "redefinition of parameter 'a'"). */
+                            if (kr_matched[p]) {
+                                diag_report_error_at_token(c, "redefinition of parameter '%s'", dn[k]);
+                            } else {
+                                kr_matched[p] = true;
+                                (*param_types)[p] = dt[k];
+                            }
                             matched = true;
                             break;
                         }
                     }
-                    if (!matched && c->kr_aux_count < 64) {
-                        snprintf(c->kr_aux_names[c->kr_aux_count], 64, "%s", dn[k]);
-                        c->kr_aux_types[c->kr_aux_count] = dt[k];
-                        c->kr_aux_count++;
+                    if (!matched) {
+                        /* C89 6.4.2: the declaration list declares PARAMETERs
+                         * only - no aux locals (`int f(a) int a; char buf; {}`
+                         * -> "declaration for parameter 'buf' but no such
+                         * parameter"). */
+                        diag_report_error_at_token(c, "declaration for parameter '%s' but no such parameter", dn[k]);
                     }
                 }
             }
@@ -1396,13 +1176,6 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         int xmm_reg_idx = 0;
         int int_reg_idx = 0;
         int stack_arg_idx = 0;
-
-        /* Sprint 65: K&R aux locals (non-parameter names declared in the
-         * parameter-declaration block, e.g. `int f(a) int a; char buf[10];`). */
-        for (int a = 0; a < c->kr_aux_count; a++) {
-            zero_cc_add_local(c, c->kr_aux_names[a], c->kr_aux_types[a]);
-        }
-        c->kr_aux_count = 0;
 
         for (size_t p = 0; p < param_count && p < ZERO_CC_MAX_PARAMS; p++) {
             ZeroCCSym *sym = zero_cc_add_local(c, param_names[p], param_types[p]);
